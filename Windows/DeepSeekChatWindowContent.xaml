@@ -1,0 +1,168 @@
+﻿<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              xmlns:vs="http://schemas.microsoft.com/visualstudio/extensibility/2022/xaml"
+              xmlns:styles="clr-namespace:Microsoft.VisualStudio.Shell;assembly=Microsoft.VisualStudio.Shell.15.0"
+              xmlns:colors="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0">
+    <Grid Margin="0">
+        <Grid.Resources>
+            <!-- ═══ 基础控件样式 ═══ -->
+            <Style TargetType="TextBox">
+                <Setter Property="Padding" Value="4" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="BorderBrush" Value="#888888" />
+                <Setter Property="Background" Value="#2D2D2D" />
+                <Setter Property="Foreground" Value="#D4D4D4" />
+                <Setter Property="CaretBrush" Value="#D4D4D4" />
+            </Style>
+            <Style TargetType="Button">
+                <Setter Property="Padding" Value="8,4" />
+                <Setter Property="Background" Value="#3C3C3C" />
+                <Setter Property="Foreground" Value="#D4D4D4" />
+                <Setter Property="BorderBrush" Value="#555555" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
+
+            <!-- 用户消息气泡 -->
+            <Style x:Key="UserBubbleStyle" TargetType="Border">
+                <Setter Property="Background" Value="#264F78" />
+                <Setter Property="BorderBrush" Value="#3A6DA5" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="12,10" />
+                <Setter Property="Margin" Value="48,6,12,6" />
+                <Setter Property="MaxWidth" Value="520" />
+                <Setter Property="HorizontalAlignment" Value="Right" />
+            </Style>
+
+            <!-- DeepSeek 消息气泡 -->
+            <Style x:Key="AssistantBubbleStyle" TargetType="Border">
+                <Setter Property="Background" Value="#2D2D2D" />
+                <Setter Property="BorderBrush" Value="#555555" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="12,10" />
+                <Setter Property="Margin" Value="12,6,48,6" />
+                <Setter Property="MaxWidth" Value="520" />
+                <Setter Property="HorizontalAlignment" Value="Left" />
+            </Style>
+
+            <!-- 角色标签 -->
+            <Style x:Key="RoleLabelStyle" TargetType="TextBlock">
+                <Setter Property="FontWeight" Value="Bold" />
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="Margin" Value="0,0,0,4" />
+                <Setter Property="Foreground" Value="#888888" />
+            </Style>
+
+            <!-- 消息文本 -->
+            <Style x:Key="MsgTextStyle" TargetType="TextBlock">
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="LineHeight" Value="20" />
+                <Setter Property="Foreground" Value="#D4D4D4" />
+            </Style>
+
+            <!-- 状态栏文本 -->
+            <Style x:Key="StatusStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="Foreground" Value="#888888" />
+                <Setter Property="Margin" Value="8,2" />
+            </Style>
+        </Grid.Resources>
+
+        <!-- ═══ 主布局 ═══ -->
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- ─── 消息列表 ─── -->
+            <ScrollViewer Grid.Row="0"
+                          VerticalScrollBarVisibility="Auto"
+                          Background="#1E1E1E">
+                <ItemsControl ItemsSource="{Binding Messages}" Margin="4">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <Border Style="{StaticResource UserBubbleStyle}"
+                                        x:Name="UserBubble" Visibility="Collapsed">
+                                    <StackPanel>
+                                        <TextBlock Text="你" Style="{StaticResource RoleLabelStyle}" />
+                                        <TextBlock Text="{Binding Content}" Style="{StaticResource MsgTextStyle}" />
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Style="{StaticResource AssistantBubbleStyle}"
+                                        x:Name="AssistantBubble" Visibility="Collapsed">
+                                    <StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                            <TextBlock Text="DeepSeek"
+                                                       Style="{StaticResource RoleLabelStyle}" Margin="0,0,8,0" />
+                                            <TextBlock Text="●●●" x:Name="StreamingDots"
+                                                       Foreground="#6CAFD9"
+                                                       FontSize="10" Visibility="Collapsed" />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Content}" Style="{StaticResource MsgTextStyle}" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Role}" Value="user">
+                                    <Setter TargetName="UserBubble" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Role}" Value="assistant">
+                                    <Setter TargetName="AssistantBubble" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsStreaming}" Value="True">
+                                    <Setter TargetName="StreamingDots" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- ─── 状态栏 ─── -->
+            <Border Grid.Row="1"
+                    BorderBrush="#555555"
+                    BorderThickness="0,1,0,0" Padding="4,3">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="{Binding StatusText}" Style="{StaticResource StatusStyle}" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Content="清空" Command="{Binding ClearCommand}" ToolTip="清空对话" Margin="2,0" Padding="6,2" />
+                        <Button Content="停止" Command="{Binding StopCommand}" ToolTip="停止生成" Margin="2,0" Padding="6,2" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- ─── 输入区 ─── -->
+            <Border Grid.Row="2"
+                    BorderBrush="#555555"
+                    BorderThickness="0,1,0,0" Padding="10,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0"
+                             Text="{Binding InputText, UpdateSourceTrigger=PropertyChanged}"
+                             AcceptsReturn="True" TextWrapping="Wrap"
+                             MinHeight="32" MaxHeight="140"
+                             VerticalScrollBarVisibility="Auto"
+                             VerticalContentAlignment="Center" Padding="8,6" />
+                    <Button Grid.Column="1" Content="发送"
+                            Command="{Binding SendCommand}"
+                            MinWidth="64" MinHeight="32"
+                            Margin="10,0,0,0" VerticalAlignment="Bottom" Padding="12,4" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</DataTemplate>
