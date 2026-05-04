@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DeepSeek_v4_for_VisualStudio.Settings;
 using Microsoft.VisualStudio.Extensibility.Shell;
+using Microsoft.VisualStudio.ProjectSystem.Query;
 
 namespace DeepSeek_v4_for_VisualStudio.Windows
 {
@@ -21,6 +22,7 @@ namespace DeepSeek_v4_for_VisualStudio.Windows
         private readonly VisualStudioExtensibility _extensibility;
         private DeepSeekApiService? _apiService;
         private CancellationTokenSource? _currentStreamingCts;
+        private string? _solutionPath; // 当前解决方案路径，用于按项目持久化对话
 
         internal static IClientContext? CurrentClientContext { get; set; }
 
@@ -63,6 +65,97 @@ namespace DeepSeek_v4_for_VisualStudio.Windows
         {
             get => _selectedMessageIndex;
             set => SetProperty(ref _selectedMessageIndex, value);
+        }
+
+        // ─── 对话持久化 ───
+
+        /// <summary>
+        /// 尝试解析当前解决方案路径，用于按项目隔离对话记录。
+        /// </summary>
+        public async Task ResolveSolutionPathAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                // 通过 VS Extensibility 的 Workspaces 服务获取当前解决方案路径
+                var workspace = _extensibility.Workspaces();
+                var solutions = await workspace.QuerySolutionAsync<ISolutionSnapshot>(
+                    query => query,
+                    ct);
+
+                _solutionPath = solutions.FirstOrDefault()?.Path;
+
+                if (!string.IsNullOrEmpty(_solutionPath))
+                {
+                    Logger.Info($"检测到解决方案: {_solutionPath}");
+                }
+                else
+                {
+                    Logger.Info("未检测到已打开的解决方案，使用默认存储");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("解析解决方案路径失败，使用默认存储", ex);
+                _solutionPath = null;
+            }
+        }
+
+        /// <summary>
+        /// 从磁盘加载当前项目的历史对话。如果成功加载，消息会被添加到 Messages 列表中。
+        /// 应在 Window 初始化时调用（在添加欢迎消息之前）。
+        /// </summary>
+        public void LoadConversation()
+        {
+            var loaded = ChatPersistenceService.Load(_solutionPath);
+            if (loaded == null || loaded.Count == 0)
+                return;
+
+            Messages.Clear();
+            _conversationHistory.Clear();
+
+            foreach (var msg in loaded)
+            {
+                msg.IsStreaming = false; // 加载的消息不应处于流式状态
+                Messages.Add(msg);
+
+                // 重建 API 历史（仅 user/assistant 角色）
+                if (msg.Role is "user" or "assistant")
+                {
+                    _conversationHistory.Add(new ChatApiMessage
+                    {
+                        Role = msg.Role,
+                        Content = msg.Content ?? string.Empty,
+                    });
+                }
+            }
+
+            SelectedMessageIndex = Messages.Count - 1;
+            Logger.Info($"已恢复 {loaded.Count} 条历史消息");
+        }
+
+        /// <summary>
+        /// 将当前对话保存到磁盘。
+        /// </summary>
+        private void SaveConversation()
+        {
+            ChatPersistenceService.Save(_solutionPath, Messages.ToList());
+        }
+
+        /// <summary>
+        /// 异步保存（用于命令处理器中）。
+        /// </summary>
+        private async Task SaveConversationAsync()
+        {
+            await ChatPersistenceService.SaveAsync(_solutionPath, Messages.ToList());
+        }
+
+        // ─── 系统提示词 ───
+        private string _systemPrompt = string.Empty;
+        [DataMember]
+        public string SystemPrompt
+        {
+            get => _systemPrompt;
+            set => SetProperty(ref _systemPrompt, value);
         }
 
         // ─── 模型与思考配置 ───
@@ -166,6 +259,30 @@ namespace DeepSeek_v4_for_VisualStudio.Windows
             {
                 Logger.Error("API Key 为空，请检查配置");
             }
+
+            // 从设置中加载系统提示词
+            await LoadSystemPromptAsync();
+        }
+
+        private async Task LoadSystemPromptAsync()
+        {
+            try
+            {
+#pragma warning disable VSEXTPREVIEW_SETTINGS
+                var result = await _extensibility.Settings().ReadEffectiveValueAsync(
+                    DeepSeekSettings.SystemPromptSetting, CancellationToken.None);
+                var prompt = result.ValueOrDefault(defaultValue: "");
+                if (!string.IsNullOrWhiteSpace(prompt) && prompt != _systemPrompt)
+                {
+                    _systemPrompt = prompt;
+                    Logger.Info($"系统提示词已加载 ({_systemPrompt.Length} 字符)");
+                }
+#pragma warning restore VSEXTPREVIEW_SETTINGS
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("加载系统提示词失败", ex);
+            }
         }
 
         private async Task<string> GetApiKeyFromConfigAsync()
@@ -251,16 +368,21 @@ namespace DeepSeek_v4_for_VisualStudio.Windows
                     Role = "assistant",
                     Content = assistantMessage.Content
                 });
+
+                // 对话完成后自动保存
+                SaveConversation();
             }
             catch (OperationCanceledException)
             {
                 Logger.Info("用户停止了生成");
                 assistantMessage.Content += "\n\n*[已停止]*";
+                SaveConversation();
             }
             catch (Exception ex)
             {
                 Logger.Error("API 调用出错", ex);
                 assistantMessage.Content = $"抱歉，发生了错误，请重试。\n\n```\n{ex.Message}\n```";
+                SaveConversation();
             }
             finally
             {
@@ -273,11 +395,26 @@ namespace DeepSeek_v4_for_VisualStudio.Windows
 
         private List<ChatApiMessage> BuildRequestMessages()
         {
-            return _conversationHistory.Select(m => new ChatApiMessage
+            var messages = new List<ChatApiMessage>();
+
+            // 系统提示词：定义 AI 的行为角色，始终放在消息列表最前面
+            if (!string.IsNullOrWhiteSpace(_systemPrompt))
+            {
+                messages.Add(new ChatApiMessage
+                {
+                    Role = "system",
+                    Content = _systemPrompt
+                });
+            }
+
+            // 追加对话历史
+            messages.AddRange(_conversationHistory.Select(m => new ChatApiMessage
             {
                 Role = m.Role,
                 Content = m.Content
-            }).ToList();
+            }));
+
+            return messages;
         }
 
         private Task ClearMessagesAsync(object? parameter, CancellationToken cancellationToken)
@@ -285,6 +422,7 @@ namespace DeepSeek_v4_for_VisualStudio.Windows
             Logger.Info("清空对话");
             Messages.Clear();
             _conversationHistory.Clear();
+            ChatPersistenceService.Delete(_solutionPath);
             return Task.CompletedTask;
         }
 
@@ -353,6 +491,10 @@ namespace DeepSeek_v4_for_VisualStudio.Windows
         public void Dispose()
         {
             Logger.Info("ViewModel 释放");
+
+            // 释放前保存对话
+            SaveConversation();
+
             _currentStreamingCts?.Cancel();
             _currentStreamingCts?.Dispose();
             Messages.Clear();
