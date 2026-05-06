@@ -319,17 +319,41 @@ img{max-width:100%}
 
                     if (file.Success && !string.IsNullOrEmpty(file.Content))
                     {
-                        // 文件解析成功 → 可折叠展开
-                        string lang = GetLanguageFromExtension(file.FileExtension);
+                        // 判断是否为图像文件（OCR 结果）
+                        bool isImage = IsImageExtension(file.FileExtension);
+                        // 判断是否为 PDF 文件
+                        bool isPdf = string.Equals(file.FileExtension, ".pdf", StringComparison.OrdinalIgnoreCase);
+
+                        string lang = isImage ? string.Empty : GetLanguageFromExtension(file.FileExtension);
                         string escapedContent = System.Net.WebUtility.HtmlEncode(
                             (file.Truncated && file.TruncationNote != null
                                 ? file.TruncationNote + "\n\n" + file.Content
                                 : file.Content) ?? string.Empty);
 
-                        blocks.Append("<details class='file-attachment' style='margin-bottom:4px;border:1px solid #3A5A3A;border-radius:4px;background:#1A2E1A;overflow:hidden'>");
-                        blocks.Append("<summary style='cursor:pointer;padding:4px 10px;color:#7EC87E;font-size:12px;font-weight:600;background:#253525;user-select:none;list-style:none'>");
-                        blocks.Append("&#128206; ");
-                        blocks.Append(escapedFileName);
+                        // ── 图像文件：OCR 结果用紫色边框卡片展示 ──
+                        if (isImage)
+                        {
+                            blocks.Append("<details class='file-attachment' style='margin-bottom:4px;border:1px solid #6B3FA0;border-radius:4px;background:#1A1A2E;overflow:hidden'>");
+                            blocks.Append("<summary style='cursor:pointer;padding:4px 10px;color:#B98EFF;font-size:12px;font-weight:600;background:#252535;user-select:none;list-style:none'>");
+                            blocks.Append("&#128247; ");
+                            blocks.Append(escapedFileName);
+                            blocks.Append(" <span style='color:#8A8AB4;font-size:10px'>(OCR 识别)</span>");
+                        }
+                        else if (isPdf)
+                        {
+                            blocks.Append("<details class='file-attachment' style='margin-bottom:4px;border:1px solid #8B4513;border-radius:4px;background:#1E150A;overflow:hidden'>");
+                            blocks.Append("<summary style='cursor:pointer;padding:4px 10px;color:#D4A76A;font-size:12px;font-weight:600;background:#2B1D0E;user-select:none;list-style:none'>");
+                            blocks.Append("&#128214; ");
+                            blocks.Append(escapedFileName);
+                        }
+                        else
+                        {
+                            blocks.Append("<details class='file-attachment' style='margin-bottom:4px;border:1px solid #3A5A3A;border-radius:4px;background:#1A2E1A;overflow:hidden'>");
+                            blocks.Append("<summary style='cursor:pointer;padding:4px 10px;color:#7EC87E;font-size:12px;font-weight:600;background:#253525;user-select:none;list-style:none'>");
+                            blocks.Append("&#128206; ");
+                            blocks.Append(escapedFileName);
+                        }
+
                         if (file.Truncated)
                             blocks.Append(" <span style='color:#C8A84E;font-size:10px'>(已截断)</span>");
                         blocks.Append("</summary>");
@@ -483,7 +507,22 @@ img{max-width:100%}
                 ".dockerfile" => "dockerfile",
                 ".cmake" => "cmake",
                 ".proto" => "protobuf",
+                ".pdf" => "text",
                 _ => string.Empty,
+            };
+        }
+
+        /// <summary>
+        /// 判断文件扩展名是否为图像格式（需要 OCR 处理）。
+        /// </summary>
+        private static bool IsImageExtension(string extension)
+        {
+            if (string.IsNullOrWhiteSpace(extension)) return false;
+
+            return extension.ToLowerInvariant() switch
+            {
+                ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".tiff" or ".tif" or ".webp" => true,
+                _ => false,
             };
         }
 

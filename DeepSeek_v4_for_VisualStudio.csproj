@@ -21,10 +21,89 @@
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="18.5.40034" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
+    <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.28000.1839" />
     <PackageReference Include="NPOI" Version="2.8.0" />
+    <PackageReference Include="PdfPig" Version="0.1.14" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.7" />
     <PackageReference Include="WebView2.Runtime.X64" Version="147.0.3912.98" />
     <PackageReference Include="System.Net.Http.Json" Version="8.0.0" />
+    <!-- OCR 引擎 -->
+    <PackageReference Include="Tesseract" Version="5.2.0" />
+    <PackageReference Include="Sdcb.PaddleOCR" Version="2.2.1.2" />
+    <PackageReference Include="Sdcb.PaddleInference.runtime.win64.mkl" Version="3.1.0.54" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.10.0.20241108" />
   </ItemGroup>
+  <!-- ========================================================================
+    原生 DLL 部署修复（针对 VS Extension 场景）
+    ========================================================================
+    
+    问题背景：
+    1. VS 扩展运行时宿主是 devenv.exe，不在插件输出目录。
+    2. NuGet 原生 DLL（Tesseract/PaddleInference/OpenCvSharp）被部署到子目录
+       （dll\x64\、x64\），但 SetDllDirectory 只添加了根目录。
+    3. Tesseract NuGet 包使用 <None> 而非 <Content>，导致其原生 DLL
+       不会被自动包含在 VSIX 中。
+    
+    修复策略：
+    - 静态 Content 项：直接引用 NuGet 包路径，将 Tesseract 原生 DLL 加入 VSIX
+    - RestoreTesseractNativeDlls：从 NuGet 缓存恢复 Tesseract x64 DLL 到输出
+    - CopyNativeDlls：将所有原生 DLL 复制到输出根目录（本地调试验证用）
+    - OcrService.EnsureNativeDllSearchPath()：运行时预加载所有子目录中的 DLL
+    ======================================================================== -->
+
+  <!-- Tesseract x64 原生 DLL → 显式加入 VSIX 部署（因为 Tesseract.targets 使用
+       <None> 而非 <Content>，VS SDK 不会自动包含 <None> 项到 .vsix -->
+  <ItemGroup>
+    <!-- Tesseract x64 DLL → VSIX x64 子目录
+         （Tesseract.NET 的原生加载器在 <assembly>\x64\ 中查找平台特定 DLL，
+         必须部署到此位置，否则即使 LoadLibrary 预加载也会失败） -->
+    <Content Include="$(NuGetPackageRoot)tesseract\5.2.0\x64\leptonica-1.82.0.dll">
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath>x64</VSIXSubPath>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="$(NuGetPackageRoot)tesseract\5.2.0\x64\tesseract50.dll">
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath>x64</VSIXSubPath>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+
+  <!-- 步骤 1: 将 Tesseract x64 原生 DLL 从 NuGet 缓存恢复到输出目录 -->
+  <Target Name="RestoreTesseractNativeDlls" BeforeTargets="CopyNativeDlls">
+    <PropertyGroup>
+      <TesseractPkgX64>$(NuGetPackageRoot)tesseract\5.2.0\x64\</TesseractPkgX64>
+    </PropertyGroup>
+    <ItemGroup>
+      <TesseractX64Dlls Include="$(TesseractPkgX64)leptonica-1.82.0.dll" />
+      <TesseractX64Dlls Include="$(TesseractPkgX64)tesseract50.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(TesseractX64Dlls)"
+          DestinationFolder="$(TargetDir)x64"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(TesseractPkgX64)')" />
+  </Target>
+
+  <!-- 步骤 2: 将原生 DLL 从子目录复制到输出根目录（供本地调试和后续 VSIX 引用） -->
+  <Target Name="CopyNativeDlls" AfterTargets="AfterBuild">
+    <ItemGroup>
+      <!-- Tesseract 原生 DLL（从 x64 子目录） -->
+      <NativeDlls Include="$(TargetDir)x64\leptonica-*.dll" />
+      <NativeDlls Include="$(TargetDir)x64\tesseract*.dll" />
+      <!-- OpenCvSharp 原生 DLL -->
+      <NativeDlls Include="$(TargetDir)dll\x64\OpenCvSharpExtern.dll" />
+      <!-- PaddleInference 原生 DLL -->
+      <NativeDlls Include="$(TargetDir)dll\x64\paddle_inference_c.dll" />
+      <NativeDlls Include="$(TargetDir)dll\x64\common.dll" />
+      <NativeDlls Include="$(TargetDir)dll\x64\libiomp5md.dll" />
+      <NativeDlls Include="$(TargetDir)dll\x64\mkldnn.dll" />
+      <NativeDlls Include="$(TargetDir)dll\x64\mklml.dll" />
+      <NativeDlls Include="$(TargetDir)dll\x64\onnxruntime.dll" />
+      <NativeDlls Include="$(TargetDir)dll\x64\onnxruntime_providers_shared.dll" />
+      <NativeDlls Include="$(TargetDir)dll\x64\paddle2onnx.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NativeDlls)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
   <ItemGroup>
     <Folder Include="View\" />
     <Folder Include="Services\" />

@@ -9,13 +9,16 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
 {
     /// <summary>
     /// 文件解析服务，支持解析常见文档格式的文本内容。
     /// 支持的格式: .txt, .c, .py, .cs, .cpp, .h, .java, .js, .ts,
-    /// .html, .css, .xml, .json, .yaml, .yml, .md, .sql, .doc, .docx, .xls, .xlsx
+    /// .html, .css, .xml, .json, .yaml, .yml, .md, .sql, .doc, .docx, .xls, .xlsx,
+    /// .pdf, .png, .jpg, .jpeg, .bmp, .gif, .tiff, .tif
     /// </summary>
     public static class FileParserService
     {
@@ -53,8 +56,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             ".xls", ".xlsx",
         };
 
+        /// <summary>
+        /// PDF 文档扩展名集合。
+        /// </summary>
+        private static readonly HashSet<string> PdfExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".pdf",
+        };
+
+        /// <summary>
+        /// 支持 OCR 的图像文件扩展名集合。
+        /// </summary>
+        private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".tif", ".webp",
+        };
+
         /// <summary>单文件最大解析大小（字节），超过则截断并提示。</summary>
         private const long MaxFileSizeBytes = 2 * 1024 * 1024; // 2MB
+
+        /// <summary>PDF 文件最大解析大小（字节），超过则截断并提示。</summary>
+        private const long MaxPdfFileSizeBytes = 20 * 1024 * 1024; // 20MB
 
         /// <summary>解析后文本最大长度（字符），超过则截断并提示。</summary>
         private const int MaxParsedChars = 200000;
@@ -74,7 +96,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string ext = Path.GetExtension(filePath);
             return TextFileExtensions.Contains(ext)
                 || WordExtensions.Contains(ext)
-                || ExcelExtensions.Contains(ext);
+                || ExcelExtensions.Contains(ext)
+                || PdfExtensions.Contains(ext)
+                || ImageExtensions.Contains(ext);
         }
 
         /// <summary>
@@ -83,10 +107,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <returns>文件对话框过滤器字符串</returns>
         public static string GetFileFilter()
         {
-            return "所有支持的文件|*.txt;*.c;*.py;*.cs;*.cpp;*.h;*.java;*.js;*.ts;*.html;*.css;*.xml;*.json;*.yaml;*.yml;*.md;*.sql;*.doc;*.docx;*.xls;*.xlsx|" +
+            return "所有支持的文件|*.txt;*.c;*.py;*.cs;*.cpp;*.h;*.java;*.js;*.ts;*.html;*.css;*.xml;*.json;*.yaml;*.yml;*.md;*.sql;*.doc;*.docx;*.xls;*.xlsx;*.pdf;*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff;*.tif|" +
                    "文本文件|*.txt;*.c;*.py;*.cs;*.cpp;*.h;*.java;*.js;*.ts;*.html;*.css;*.xml;*.json;*.yaml;*.yml;*.md;*.sql;*.csv|" +
                    "Word 文档|*.doc;*.docx|" +
                    "Excel 文档|*.xls;*.xlsx|" +
+                   "PDF 文档|*.pdf|" +
+                   "图像文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff;*.tif|" +
                    "所有文件|*.*";
         }
 
@@ -113,15 +139,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return result;
                 }
 
-                // 检查文件大小
+                // 检查文件大小（PDF 单独设置更大的限制）
                 var fileInfo = new FileInfo(filePath);
-                if (fileInfo.Length > MaxFileSizeBytes)
+                string ext = result.FileExtension.ToLowerInvariant();
+                long maxSize = PdfExtensions.Contains(ext) ? MaxPdfFileSizeBytes : MaxFileSizeBytes;
+                if (fileInfo.Length > maxSize)
                 {
                     result.Truncated = true;
-                    result.TruncationNote = $"⚠️ 文件过大 ({FormatFileSize(fileInfo.Length)})，仅解析前 {FormatFileSize(MaxFileSizeBytes)}。";
+                    result.TruncationNote = $"⚠️ 文件过大 ({FormatFileSize(fileInfo.Length)})，仅解析前 {FormatFileSize(maxSize)}。";
                 }
-
-                string ext = result.FileExtension.ToLowerInvariant();
 
                 // 文本文件直接以 UTF-8 读取
                 if (TextFileExtensions.Contains(ext))
@@ -137,6 +163,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 else if (ExcelExtensions.Contains(ext))
                 {
                     result.Content = await Task.Run(() => ParseExcelDocument(filePath));
+                }
+                // PDF 文档
+                else if (PdfExtensions.Contains(ext))
+                {
+                    result.Content = await Task.Run(() => ParsePdfDocument(filePath));
+                }
+                // 图像文件（OCR）
+                else if (ImageExtensions.Contains(ext))
+                {
+                    result.Content = await ParseImageFileAsync(filePath);
                 }
                 else
                 {
@@ -557,6 +593,81 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 ".proto" => "protobuf",
                 _ => string.Empty,
             };
+        }
+
+        /// <summary>
+        /// 解析 PDF 文档，使用 PdfPig 提取全部页面文本。
+        /// </summary>
+        private static string ParsePdfDocument(string filePath)
+        {
+            var sb = new StringBuilder();
+            try
+            {
+                using var pdf = PdfDocument.Open(filePath);
+                int totalPages = pdf.NumberOfPages;
+                int pageCount = 0;
+
+                foreach (var page in pdf.GetPages())
+                {
+                    pageCount++;
+                    string pageText = page.Text?.Trim();
+
+                    if (!string.IsNullOrWhiteSpace(pageText))
+                    {
+                        if (totalPages > 1)
+                            sb.AppendLine($"--- 第 {pageCount}/{totalPages} 页 ---");
+                        sb.AppendLine(pageText);
+                        sb.AppendLine();
+                    }
+                }
+
+                Logger.Info($"PDF 解析完成: {pageCount} 页, {sb.Length} 个字符 ← {Path.GetFileName(filePath)}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"解析 PDF 文件失败: {filePath}", ex);
+                return $"[PDF 解析失败: {ex.Message}]";
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 解析图像文件，使用 OCR 提取文字。
+        /// </summary>
+        private static async Task<string?> ParseImageFileAsync(string filePath)
+        {
+            try
+            {
+                Logger.Info($"开始图像 OCR ({OcrService.CurrentEngine}): {Path.GetFileName(filePath)}");
+
+                string? ocrText = await OcrService.ExtractTextFromImageAsync(filePath);
+
+                if (!string.IsNullOrWhiteSpace(ocrText))
+                {
+                    return ocrText;
+                }
+
+                // OCR 未成功，返回引擎相关的提示信息
+                string engineHint = OcrService.CurrentEngine switch
+                {
+                    OcrEngineType.Tesseract => "3. Tesseract 中文语言包未安装或路径不正确（工具 → 选项 → DeepSeek Chat → OCR Settings）",
+                    OcrEngineType.PaddleOCR => "3. PaddleOCR 推理模型未安装或路径不正确（工具 → 选项 → DeepSeek Chat → OCR Settings）",
+                    _ => "3. 系统未安装中文/英文 OCR 语言包（设置 → 语言 → 添加语言）",
+                };
+
+                return $"[图像文件: {Path.GetFileName(filePath)}]\n" +
+                       $"[OCR 引擎: {OcrService.CurrentEngine}]\n" +
+                       "[未能从此图像中提取文字。可能原因：\n" +
+                       "1. 图像中不含清晰的文字内容\n" +
+                       "2. 文字过小、模糊或与背景对比度不足\n" +
+                       $"{engineHint}]";
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"图像 OCR 失败: {filePath}", ex);
+                return $"[图像解析失败: {ex.Message}]";
+            }
         }
 
         /// <summary>

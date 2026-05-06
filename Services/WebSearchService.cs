@@ -35,7 +35,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private const string DuckDuckGoLiteUrl = "https://lite.duckduckgo.com/lite/";
 
         /// <summary>搜索结果最大条数</summary>
-        private const int MaxSearchResults = 15;
+        private const int MaxSearchResults = 10;
 
         /// <summary>请求超时（秒）</summary>
         private const int RequestTimeoutSeconds = 15;
