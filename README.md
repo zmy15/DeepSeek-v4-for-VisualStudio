@@ -5,6 +5,9 @@
 ## 特性 (Features)
 
 - **DeepSeek Chat 工具窗口**：在 Visual Studio 内置并可自由停靠的聊天工具窗口。
+- **联网搜索**：支持联网数据搜集，以获取有关开发和错误的最新信息。
+- **聊天记录存档**：自动保存您的所有对话记录，方便下次继续交流。
+- **可定制选项**：内置设置页面，可在 Visual Studio 的“工具”->“选项”中快速配置 API 密钥和其他首选项。
 - **快速入口**：
   - **菜单栏**：通过 `视图 (View)` -> `其他窗口 (Other Windows)` -> `DeepSeek Chat` 打开。
   - **工具栏**：标准工具栏已集成快捷按钮，一键调出 AI 助手。
@@ -32,6 +35,9 @@ This is an extension for Visual Studio that integrates the DeepSeek Chat window 
 ## Features
 
 - **DeepSeek Chat Tool Window**: A built-in and dockable chat tool window in Visual Studio.
+- **Web Search Support**: Integrated web search capabilities to fetch up-to-date information for development and coding bugs.
+- **Chat History Persistence**: Chat contexts are automatically saved locally across sessions.
+- **Configuration Options**: Easily configure your API keys and model preferences via `Tools` -> `Options` in Visual Studio.
 - **Quick Access**:
   - **Menu Bar**: Open via `View` -> `Other Windows` -> `DeepSeek Chat`.
   - **Toolbar**: A quick-access button is integrated into the standard toolbar to summon the AI assistant with one click.
