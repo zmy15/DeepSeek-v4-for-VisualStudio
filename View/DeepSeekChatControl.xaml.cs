@@ -46,6 +46,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private DeepSeekOptionsPage? _options;
         private DeepSeekApiService? _apiService;
         private WebSearchService? _webSearchService;
+        private McpManagerService? _mcpManager;
         private CancellationTokenSource? _currentStreamingCts;
         private string? _solutionPath;
 
@@ -133,6 +134,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             InitializeApiService();
             InitializeWebSearchService();
             InitializeOcrService();
+            InitializeMcp(); // MCP 后台初始化，不阻塞 UI
             _ = ResolveSolutionPathAsync();
             _ = LoadAndShowAsync();
 
@@ -257,6 +259,53 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Error($"[OCR] 设置热切换失败: {ex.Message}", ex);
             }
         }
+
+        /// <summary>
+        /// 后台异步初始化 MCP 服务器连接。
+        /// 失败不影响核心聊天功能。
+        /// </summary>
+        #pragma warning disable VSTHRD100 // async void 用于 fire-and-forget 初始化
+        private async void InitializeMcp()
+        {
+            try
+            {
+                // 从独立的配置文件加载 MCP 服务器配置
+                var mcpConfigs = McpConfigStore.Load();
+                var enabledConfigs = mcpConfigs.Where(c => c.Enabled).ToList();
+
+                if (enabledConfigs.Count == 0)
+                {
+                    Logger.Info("[MCP] 没有启用的 MCP 服务器，跳过初始化。点击 🔌 按钮配置。");
+                    return;
+                }
+
+                // 清理旧的 MCP 管理器
+                _mcpManager?.Dispose();
+                _mcpManager = new McpManagerService();
+                OcrService.McpManager = _mcpManager; // 注入 OCR 服务
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                await _mcpManager.InitializeAsync(enabledConfigs, cts.Token);
+
+                var toolCount = _mcpManager.AllTools.Count;
+                if (toolCount > 0)
+                {
+                    Logger.Info($"[MCP] MCP 初始化完成，共 {toolCount} 个工具可用");
+                    StatusLabel.Text = $"MCP 已连接: {toolCount} 个工具可用";
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[MCP] MCP 初始化失败: {ex.Message}", ex);
+            }
+            finally
+            {
+                UpdateMcpButtonAppearance();
+            }
+        }
+        #pragma warning restore VSTHRD100
+
+        /// <summary>
         /// 同时遵循用户在 ComboBox 中选择的搜索引擎偏好。
         /// 用于支持用户在 工具→选项 中修改 API Key 后无需重启即可生效。
         /// </summary>
@@ -472,6 +521,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _currentStreamingCts?.Dispose();
             _apiService?.Dispose();
             _webSearchService?.Dispose();
+            _mcpManager?.Dispose();
 
             SaveCurrentSession();
 

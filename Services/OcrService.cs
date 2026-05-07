@@ -1,7 +1,9 @@
 ﻿using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Graphics.Imaging;
@@ -21,6 +23,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>PaddleOCR-Sharp — 深度学习 OCR，中文准确率 ≥95%，使用包自带 ChineseV5 模型</summary>
         PaddleOCR,
+
+        /// <summary>MCP 服务器 OCR — 通过 MCP 协议调用远程/本地 OCR 服务，优先使用</summary>
+        McpServer,
     }
 
     /// <summary>
@@ -56,6 +61,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>插件安装根目录（用于默认模型路径）</summary>
         public static string? PluginRootPath { get; set; }
+
+        /// <summary>MCP 管理器引用（用于 MCP 服务器 OCR）</summary>
+        public static McpManagerService? McpManager { get; set; }
 
         /// <summary>
         /// 确保原生 DLL 能被 .NET Framework 运行时找到。
@@ -165,6 +173,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             try
             {
+                // ── 优先级 1: MCP 服务器 OCR（如果可用）──
+                string? mcpResult = await TryMcpOcrAsync(imagePath);
+                if (!string.IsNullOrWhiteSpace(mcpResult))
+                {
+                    Logger.Info($"[OCR] ✅ MCP 服务器 OCR 成功: {mcpResult!.Length} 字符");
+                    return mcpResult;
+                }
+
+                // ── 优先级 2: 用户选择的引擎 ──
                 string? result = CurrentEngine switch
                 {
                     OcrEngineType.PaddleOCR => await PaddleEngineWrapper.ExtractTextAsync(imagePath),
@@ -173,11 +190,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 if (!string.IsNullOrWhiteSpace(result))
                 {
-                    Logger.Info($"[OCR] ✅ 最终结果: {result.Length} 字符 (引擎={CurrentEngine})");
+                    Logger.Info($"[OCR] ✅ 最终结果: {result!.Length} 字符 (引擎={CurrentEngine})");
                     return result;
                 }
 
-                // 如果所选引擎失败，尝试回退到 Windows 内置 OCR
+                // ── 优先级 3: 回退到 Windows 内置 OCR ──
                 if (CurrentEngine != OcrEngineType.WindowsBuiltIn)
                 {
                     Logger.Info("[OCR] 所选引擎未返回结果，尝试回退到 Windows 内置 OCR...");
@@ -186,7 +203,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         var fallbackResult = await WindowsEngineWrapper.ExtractTextAsync(imagePath);
                         if (!string.IsNullOrWhiteSpace(fallbackResult))
                         {
-                            Logger.Info($"[OCR] ✅ 回退成功: {fallbackResult.Length} 字符 (Windows 内置)");
+                            Logger.Info($"[OCR] ✅ 回退成功: {fallbackResult!.Length} 字符 (Windows 内置)");
                             return fallbackResult;
                         }
                         Logger.Info("[OCR] 回退也未提取到文字");
@@ -205,6 +222,162 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Logger.Error($"[OCR] ❌ 识别异常 (引擎={CurrentEngine}): {ex.GetType().Name} - {ex.Message}", ex);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 尝试通过 MCP 服务器进行 OCR（优先级最高）。
+        /// 自动查找 MCP 工具列表中包含 "ocr" 或 "recognize" 的工具，
+        /// 读取图像文件为 base64 后调用 MCP 工具。
+        /// 
+        /// 失败场景（均静默回退到本地 OCR）：
+        /// - MCP 管理器未配置或未就绪
+        /// - 未找到 OCR 相关工具
+        /// - MCP 服务器返回错误（Token 无效、配额耗尽、网络异常等）
+        /// </summary>
+        private static async Task<string?> TryMcpOcrAsync(string imagePath)
+        {
+            if (McpManager == null) return null;
+
+            try
+            {
+                // 查找 OCR 相关工具
+                var allTools = McpManager.AllTools;
+                if (allTools.Count == 0) return null;
+
+                // 按优先级搜索 OCR 工具名
+                var ocrToolNames = new[] { "ocr", "recognize_text", "paddle_ocr", "ocr_image", "image_to_text", "read_text" };
+                var ocrTool = allTools.FirstOrDefault(t =>
+                    ocrToolNames.Any(name => t.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0));
+
+                if (ocrTool == null)
+                {
+                    Logger.Info("[OCR-MCP] 未找到 OCR 工具，跳过 MCP OCR");
+                    return null;
+                }
+
+                Logger.Info($"[OCR-MCP] 找到 OCR 工具: {ocrTool.Name}，尝试调用...");
+
+                // 读取图像文件并转为 base64
+                byte[] imageBytes = File.ReadAllBytes(imagePath);
+                string base64Image = Convert.ToBase64String(imageBytes);
+
+                // 根据工具的 inputSchema 智能匹配参数名
+                var arguments = BuildOcrToolArguments(ocrTool, imagePath, base64Image);
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                string result = await McpManager.CallToolAsync(ocrTool.Name,
+                    JsonSerializer.Serialize(arguments), cts.Token);
+
+                if (string.IsNullOrWhiteSpace(result))
+                {
+                    Logger.Info("[OCR-MCP] MCP OCR 返回空结果");
+                    return null;
+                }
+
+                // 检测错误响应（Token 无效、配额耗尽等）
+                if (result.Contains("invalid", StringComparison.OrdinalIgnoreCase) &&
+                    (result.Contains("token", StringComparison.OrdinalIgnoreCase) ||
+                     result.Contains("api key", StringComparison.OrdinalIgnoreCase)))
+                {
+                    Logger.Info($"[OCR-MCP] MCP OCR Token 无效: {TruncateForLog(result)}");
+                    return null; // 静默回退到本地 OCR
+                }
+
+                if (result.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
+                    result.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ||
+                    result.Contains("exceeded", StringComparison.OrdinalIgnoreCase) ||
+                    result.Contains("额度", StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Info($"[OCR-MCP] MCP OCR 配额耗尽: {TruncateForLog(result)}");
+                    return null; // 静默回退到本地 OCR
+                }
+
+                if (result.StartsWith("❌") || result.StartsWith("错误"))
+                {
+                    Logger.Info($"[OCR-MCP] MCP OCR 返回错误: {TruncateForLog(result)}");
+                    return null;
+                }
+
+                return result;
+            }
+            catch (McpException mcpEx)
+            {
+                Logger.Info($"[OCR-MCP] MCP 调用异常（回退到本地）: {mcpEx.Message}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Logger.Info($"[OCR-MCP] MCP OCR 失败（回退到本地）: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 根据 MCP 工具的 inputSchema 智能构建 OCR 调用参数。
+        /// 不同 MCP OCR 服务器使用的参数名不同：
+        /// - PaddleOCR/FastMCP → input_data, output_mode, file_type
+        /// - Claude MCP 风格   → image, image_base64, mime_type
+        /// - 其他              → file_path 或 file_url
+        /// </summary>
+        private static Dictionary<string, object> BuildOcrToolArguments(
+            Models.McpTool tool, string imagePath, string base64Image)
+        {
+            var args = new Dictionary<string, object>();
+            var props = tool.InputSchema?.Properties;
+            if (props == null || props.Count == 0)
+            {
+                args["input_data"] = base64Image;
+                return args;
+            }
+
+            foreach (var propName in props.Keys)
+            {
+                var lower = propName.ToLowerInvariant();
+                if (lower is "input_data" or "input" or "data")
+                    args[propName] = base64Image;
+                else if (lower is "image" or "image_base64" or "base64" or "image_data")
+                    args[propName] = base64Image;
+                else if (lower is "image_path" or "file_path" or "path")
+                    args[propName] = imagePath;
+                else if (lower is "file_url" or "url" or "image_url")
+                    args[propName] = imagePath;
+                else if (lower is "output_mode" or "mode" or "format")
+                    args[propName] = "simple";
+                else if (lower is "file_type" or "type")
+                    args[propName] = "image";
+                else if (lower is "mime_type" or "mimetype")
+                    args[propName] = GetImageMimeType(imagePath);
+            }
+
+            Logger.Info($"[OCR-MCP] 参数匹配: schema=[{string.Join(",", props.Keys)}], args=[{string.Join(",", args.Keys)}]");
+            return args;
+        }
+
+        /// <summary>
+        /// 根据文件扩展名推断 MIME 类型。
+        /// </summary>
+        private static string GetImageMimeType(string path)
+        {
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            return ext switch
+            {
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".bmp" => "image/bmp",
+                ".gif" => "image/gif",
+                ".tiff" or ".tif" => "image/tiff",
+                ".webp" => "image/webp",
+                _ => "image/png",
+            };
+        }
+
+        /// <summary>
+        /// 截断日志文本以防止过长。
+        /// </summary>
+        private static string TruncateForLog(string text, int maxLen = 150)
+        {
+            if (string.IsNullOrEmpty(text) || text.Length <= maxLen) return text;
+            return text.Substring(0, maxLen) + "...";
         }
 
         /// <summary>

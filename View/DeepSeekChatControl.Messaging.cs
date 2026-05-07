@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -331,54 +332,193 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             try
             {
-                var requestMessages = BuildRequestMessages(searchContext);
+                // ── 带工具调用的对话循环（最多 5 轮工具调用） ──
+                const int maxToolCallRounds = 5;
                 var reasoningBuffer = new StringBuilder();
                 var contentBuffer = new StringBuilder();
+                var toolCallAccumulator = new Dictionary<int, ToolCallAccumulator>();
                 int streamRenderTick = 0;
                 int lastReasoningLength = 0;
 
-                var apiService = _apiService!;
-                await foreach (var chunk in apiService.ChatStreamAsync(requestMessages, _currentStreamingCts.Token))
+                for (int round = 0; round < maxToolCallRounds; round++)
                 {
-                    if (chunk.StartsWith("[THINKING]"))
-                    {
-                        var thinking = chunk.Substring(10);
-                        reasoningBuffer.Append(thinking);
-                        StatusLabel.Text = "DeepSeek 深度思考中…";
+                    toolCallAccumulator.Clear();
+                    reasoningBuffer.Clear();
+                    contentBuffer.Clear();
+                    streamRenderTick = 0;
+                    lastReasoningLength = 0;
 
-                        // 定期更新思考面板
-                        if (reasoningBuffer.Length - lastReasoningLength >= 80)
+                    var requestMessages = BuildRequestMessages(searchContext);
+
+                    // 获取工具定义（第一轮时传递，后续轮也可传递）
+                    List<ToolDefinition>? toolDefs = null;
+                    if (_mcpManager != null && _mcpManager.AllTools.Count > 0)
+                    {
+                        toolDefs = _mcpManager.GetToolDefinitions();
+                        Logger.Info($"[MCP] 本轮携带 {toolDefs.Count} 个工具定义");
+                    }
+
+                    var apiService = _apiService!;
+                    await foreach (var chunk in apiService.ChatStreamAsync(requestMessages, toolDefs, _currentStreamingCts.Token))
+                    {
+                        if (chunk.StartsWith("[THINKING]"))
                         {
-                            assistantMsg.ReasoningContent = reasoningBuffer.ToString();
-                            lastReasoningLength = reasoningBuffer.Length;
-                            await UpdateStreamingMessageAsync(assistantMsgIndex,
-                                contentBuffer.ToString(),
-                                reasoningBuffer.ToString(),
-                                isComplete: false);
+                            var thinking = chunk.Substring(10);
+                            reasoningBuffer.Append(thinking);
+                            StatusLabel.Text = "DeepSeek 深度思考中…";
+
+                            if (reasoningBuffer.Length - lastReasoningLength >= 80)
+                            {
+                                assistantMsg.ReasoningContent = reasoningBuffer.ToString();
+                                lastReasoningLength = reasoningBuffer.Length;
+                                await UpdateStreamingMessageAsync(assistantMsgIndex,
+                                    contentBuffer.ToString(),
+                                    reasoningBuffer.ToString(),
+                                    isComplete: false);
+                            }
+                        }
+                        else if (chunk.StartsWith("[TOOL_CALL]"))
+                        {
+                            // ── 解析工具调用增量 ──
+                            var tcJson = chunk.Substring(11);
+                            try
+                            {
+                                var deltas = System.Text.Json.JsonSerializer.Deserialize<List<ToolCallDelta>>(tcJson);
+                                if (deltas != null)
+                                {
+                                    foreach (var delta in deltas)
+                                    {
+                                        if (!toolCallAccumulator.ContainsKey(delta.Index))
+                                            toolCallAccumulator[delta.Index] = new ToolCallAccumulator();
+
+                                        var acc = toolCallAccumulator[delta.Index];
+                                        if (!string.IsNullOrEmpty(delta.Id))
+                                            acc.Id = delta.Id!;
+                                        if (!string.IsNullOrEmpty(delta.Type))
+                                            acc.Type = delta.Type;
+                                        if (delta.Function != null)
+                                        {
+                                            if (!string.IsNullOrEmpty(delta.Function.Name))
+                                                acc.FunctionName = delta.Function.Name;
+                                            if (!string.IsNullOrEmpty(delta.Function.Arguments))
+                                                acc.ArgumentsBuilder.Append(delta.Function.Arguments);
+                                        }
+                                    }
+                                }
+                            }
+                            catch (System.Text.Json.JsonException) { }
+
+                            StatusLabel.Text = $"调用工具: {string.Join(", ", toolCallAccumulator.Values.Where(a => !string.IsNullOrEmpty(a.FunctionName)).Select(a => a.FunctionName))}...";
+                        }
+                        else
+                        {
+                            if (reasoningBuffer.Length > 0 && lastReasoningLength < reasoningBuffer.Length)
+                            {
+                                assistantMsg.ReasoningContent = reasoningBuffer.ToString();
+                                lastReasoningLength = reasoningBuffer.Length;
+                            }
+
+                            contentBuffer.Append(chunk);
+                            streamRenderTick += chunk.Length;
+                            StatusLabel.Text = "DeepSeek 回复中...";
+
+                            if (streamRenderTick >= StreamRenderInterval)
+                            {
+                                streamRenderTick = 0;
+                                assistantMsg.Content = contentBuffer.ToString();
+                                await UpdateStreamingMessageAsync(assistantMsgIndex,
+                                    contentBuffer.ToString(),
+                                    reasoningBuffer.ToString(),
+                                    isComplete: false);
+                            }
                         }
                     }
-                    else
+
+                    // ── 检查是否有工具调用 ──
+                    if (toolCallAccumulator.Count > 0)
                     {
-                        if (reasoningBuffer.Length > 0 && lastReasoningLength < reasoningBuffer.Length)
+                        Logger.Info($"[MCP] 检测到 {toolCallAccumulator.Count} 个工具调用，开始执行...");
+                        StatusLabel.Text = $"正在执行 MCP 工具...";
+
+                        // 更新 UI：显示正在调用工具
+                        string toolCallSummary = "🔧 正在调用工具:\n";
+                        foreach (var acc in toolCallAccumulator.Values)
                         {
-                            assistantMsg.ReasoningContent = reasoningBuffer.ToString();
-                            lastReasoningLength = reasoningBuffer.Length;
+                            toolCallSummary += $"- `{acc.FunctionName}`\n";
+                        }
+                        assistantMsg.Content = contentBuffer.Length > 0
+                            ? contentBuffer.ToString() + "\n\n" + toolCallSummary
+                            : toolCallSummary;
+                        await UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString(), isComplete: false);
+
+                        // ── 将助手的 tool_calls 消息加入对话历史 ──
+                        var assistantToolCalls = toolCallAccumulator.Values
+                            .Where(a => !string.IsNullOrEmpty(a.FunctionName))
+                            .Select(a => new ToolCall
+                            {
+                                Id = a.Id,
+                                Type = a.Type ?? "function",
+                                Function = new ToolCallFunction
+                                {
+                                    Name = a.FunctionName!,
+                                    Arguments = a.ArgumentsBuilder.ToString()
+                                }
+                            }).ToList();
+
+                        if (assistantToolCalls.Count > 0)
+                        {
+                            _conversationHistory.Add(new ChatApiMessage
+                            {
+                                Role = "assistant",
+                                Content = contentBuffer.Length > 0 ? contentBuffer.ToString() : null,
+                                ToolCalls = assistantToolCalls
+                            });
                         }
 
-                        contentBuffer.Append(chunk);
-                        streamRenderTick += chunk.Length;
-                        StatusLabel.Text = "DeepSeek 回复中...";
-
-                        if (streamRenderTick >= StreamRenderInterval)
+                        // ── 执行每个工具调用并将结果加入对话历史 ──
+                        foreach (var acc in toolCallAccumulator.Values)
                         {
-                            streamRenderTick = 0;
-                            assistantMsg.Content = contentBuffer.ToString();
-                            await UpdateStreamingMessageAsync(assistantMsgIndex,
-                                contentBuffer.ToString(),
-                                reasoningBuffer.ToString(),
-                                isComplete: false);
+                            if (string.IsNullOrEmpty(acc.FunctionName)) continue;
+
+                            string toolResult;
+                            try
+                            {
+                                toolResult = await _mcpManager!.CallToolAsync(
+                                    acc.FunctionName!,
+                                    acc.ArgumentsBuilder.ToString(),
+                                    _currentStreamingCts.Token);
+                            }
+                            catch (Exception ex)
+                            {
+                                toolResult = $"❌ 工具执行异常: {ex.Message}";
+                                Logger.Error($"[MCP] 工具 {acc.FunctionName} 执行异常: {ex.Message}", ex);
+                            }
+
+                            // 添加 tool 角色消息
+                            _conversationHistory.Add(new ChatApiMessage
+                            {
+                                Role = "tool",
+                                Content = toolResult,
+                                ToolCallId = acc.Id,
+                                Name = acc.FunctionName
+                            });
+
+                            Logger.Info($"[MCP] 工具 {acc.FunctionName} 返回: {(toolResult.Length > 200 ? toolResult.Substring(0, 200) + "..." : toolResult)}");
                         }
+
+                        // ── 更新 UI：显示工具调用结果摘要 ──
+                        string resultSummary = contentBuffer.Length > 0
+                            ? contentBuffer.ToString() + "\n\n✅ 工具调用完成，AI 正在分析结果...\n"
+                            : "✅ 工具调用完成，AI 正在分析结果...\n";
+                        assistantMsg.Content = resultSummary;
+                        await UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString(), isComplete: false);
+
+                        // 继续循环，让 AI 处理工具结果
+                        continue;
                     }
+
+                    // ── 没有工具调用，正常结束 ──
+                    break;
                 }
 
                 // ── 流式完成：渲染最终 Markdown ──
@@ -801,6 +941,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 构建发送给 API 的消息列表。
         /// 当启用联网搜索时，将搜索结果作为系统消息注入到对话历史之前。
+        /// 保留工具调用消息（tool_calls / tool_call_id），确保多轮工具调用正常工作。
         /// </summary>
         /// <param name="searchContext">联网搜索的结果上下文，为空则不注入。</param>
         private List<ChatApiMessage> BuildRequestMessages(string searchContext = "")
@@ -820,12 +961,27 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 messages.Add(new ChatApiMessage { Role = "system", Content = searchContext });
             }
 
-            // ── 对话历史 ──
-            messages.AddRange(_conversationHistory.Select(m => new ChatApiMessage
+            // ── 对话历史（保留 tool_calls / tool_call_id 字段） ──
+            foreach (var m in _conversationHistory)
             {
-                Role = m.Role,
-                Content = m.Content,
-            }));
+                var apiMsg = new ChatApiMessage
+                {
+                    Role = m.Role,
+                    Content = m.Content,
+                };
+
+                // 保留工具调用相关字段
+                if (m.ToolCalls != null && m.ToolCalls.Count > 0)
+                    apiMsg.ToolCalls = m.ToolCalls;
+
+                if (!string.IsNullOrEmpty(m.ToolCallId))
+                    apiMsg.ToolCallId = m.ToolCallId;
+
+                if (!string.IsNullOrEmpty(m.Name))
+                    apiMsg.Name = m.Name;
+
+                messages.Add(apiMsg);
+            }
 
             return messages;
         }
@@ -890,5 +1046,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         #endregion
+    }
+
+    /// <summary>
+    /// 流式工具调用增量累积器。
+    /// 用于将 DeepSeek 流式返回的 tool_calls 增量片段合并为完整的工具调用。
+    /// </summary>
+    internal class ToolCallAccumulator
+    {
+        public string Id { get; set; } = string.Empty;
+        public string? Type { get; set; }
+        public string? FunctionName { get; set; }
+        public StringBuilder ArgumentsBuilder { get; } = new StringBuilder();
     }
 }

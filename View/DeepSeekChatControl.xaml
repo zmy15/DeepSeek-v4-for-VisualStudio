@@ -315,6 +315,17 @@
                                 <TextBlock Text="🌐" FontSize="14" />
                             </Button.Content>
                         </Button>
+                        <!-- MCP 配置按钮 -->
+                        <Button x:Name="McpConfigButton"
+                                Click="McpConfigButton_Click"
+                                Style="{StaticResource TransparentButton}"
+                                ToolTip="配置 MCP 服务器"
+                                FontSize="14" Padding="6,0" Margin="0,0,4,0"
+                                Foreground="#888888">
+                            <Button.Content>
+                                <TextBlock Text="🔌" FontSize="14" />
+                            </Button.Content>
+                        </Button>
                         <Button Content="+ 新对话" Click="NewChatButton_Click"
                                 Style="{StaticResource TransparentButton}"
                                 Margin="0,0,8,0" FontSize="12"

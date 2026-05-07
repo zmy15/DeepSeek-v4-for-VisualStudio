@@ -32,6 +32,15 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? MaxTokens { get; set; }
 
+        // ── 工具调用（MCP / Function Calling） ──
+        [JsonPropertyName("tools")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<ToolDefinition>? Tools { get; set; }
+
+        [JsonPropertyName("tool_choice")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ToolChoice { get; set; } // "auto" | "none" | "required" | { "type": "function", "function": { "name": "..." } }
+
         // 注意: 思考模式下 temperature/top_p 等参数不生效，此处省略
     }
 
@@ -48,11 +57,25 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public string Role { get; set; } = "user";
 
         [JsonPropertyName("content")]
-        public string Content { get; set; } = string.Empty;
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Content { get; set; }
 
         [JsonPropertyName("reasoning_content")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ReasoningContent { get; set; }
+
+        // ── 工具调用（MCP / Function Calling） ──
+        [JsonPropertyName("tool_calls")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<ToolCall>? ToolCalls { get; set; }
+
+        [JsonPropertyName("tool_call_id")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ToolCallId { get; set; }
+
+        [JsonPropertyName("name")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Name { get; set; }
     }
 
     // ======== 非流式响应模型 ========
@@ -93,6 +116,10 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         [JsonPropertyName("reasoning_content")]
         public string? ReasoningContent { get; set; }
+
+        [JsonPropertyName("tool_calls")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<ToolCall>? ToolCalls { get; set; }
     }
 
     public class DeepSeekDelta
@@ -105,6 +132,10 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         [JsonPropertyName("reasoning_content")]
         public string? ReasoningContent { get; set; }
+
+        [JsonPropertyName("tool_calls")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<ToolCallDelta>? ToolCalls { get; set; }
     }
 
     public class DeepSeekUsage
@@ -349,5 +380,94 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>截断提示信息</summary>
         [DataMember]
         public string? TruncationNote { get; set; }
+    }
+
+    // ======== 工具调用模型（MCP / Function Calling）========
+
+    /// <summary>
+    /// OpenAI 兼容的工具定义，发送给 API 的 tools 参数。
+    /// </summary>
+    public class ToolDefinition
+    {
+        [JsonPropertyName("type")]
+        public string Type { get; set; } = "function";
+
+        [JsonPropertyName("function")]
+        public ToolFunction Function { get; set; } = new();
+    }
+
+    /// <summary>
+    /// 函数定义（工具的核心描述）
+    /// </summary>
+    public class ToolFunction
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("description")]
+        public string Description { get; set; } = string.Empty;
+
+        [JsonPropertyName("parameters")]
+        public object Parameters { get; set; } = new { type = "object", properties = new Dictionary<string, object>() };
+    }
+
+    /// <summary>
+    /// AI 返回的工具调用（非流式或完整积累后）
+    /// </summary>
+    public class ToolCall
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("type")]
+        public string Type { get; set; } = "function";
+
+        [JsonPropertyName("function")]
+        public ToolCallFunction Function { get; set; } = new();
+    }
+
+    /// <summary>
+    /// 工具调用中的函数调用详情
+    /// </summary>
+    public class ToolCallFunction
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("arguments")]
+        public string Arguments { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// 流式传输中增量返回的工具调用片段。
+    /// DeepSeek 流式返回时 tool_calls 以增量方式下发：
+    /// - 第一个 chunk: { "index": 0, "id": "call_xxx", "type": "function", "function": { "name": "xxx", "arguments": "" } }
+    /// - 后续 chunks: { "index": 0, "function": { "arguments": "..." } }
+    /// </summary>
+    public class ToolCallDelta
+    {
+        [JsonPropertyName("index")]
+        public int Index { get; set; }
+
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("type")]
+        public string? Type { get; set; }
+
+        [JsonPropertyName("function")]
+        public ToolCallFunctionDelta? Function { get; set; }
+    }
+
+    /// <summary>
+    /// 流式工具调用中函数部分的增量
+    /// </summary>
+    public class ToolCallFunctionDelta
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("arguments")]
+        public string? Arguments { get; set; }
     }
 }

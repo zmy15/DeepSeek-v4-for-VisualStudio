@@ -3,7 +3,6 @@ using Microsoft.VisualStudio.Shell;
 using System;
 using System.ComponentModel;
 using System.Drawing.Design;
-using System.Runtime.InteropServices; // Added for Dispid attribute
 
 namespace DeepSeek_v4_for_VisualStudio.Settings
 {

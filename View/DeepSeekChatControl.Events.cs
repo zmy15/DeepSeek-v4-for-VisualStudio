@@ -239,7 +239,64 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Error($"WebSearchToggleButton_Click 异常: {ex.Message}", ex);
             }
         }
+        /// <summary>
+        /// MCP 配置按钮点击：打开 MCP 服务器配置对话框。
+        /// </summary>
+        private void McpConfigButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // 从文件加载当前配置
+                var currentConfigs = McpConfigStore.Load();
 
+                var dialog = new McpConfigDialog(currentConfigs, savedServers =>
+                {
+                    // 保存到文件
+                    McpConfigStore.Save(savedServers);
+                    Logger.Info($"[MCP Config] 已保存 {savedServers.Count} 个 MCP 服务器配置");
+                });
+
+                dialog.Owner = Window.GetWindow(this);
+                dialog.ShowDialog();
+
+                // 重新初始化 MCP 连接
+                InitializeMcp();
+
+                // 刷新 MCP 按钮状态
+                UpdateMcpButtonAppearance();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"McpConfigButton_Click 异常: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// 更新 MCP 配置按钮的外观，反映连接状态。
+        /// </summary>
+        private void UpdateMcpButtonAppearance()
+        {
+            try
+            {
+                if (_mcpManager == null || _mcpManager.AllTools.Count == 0)
+                {
+                    McpConfigButton.ToolTip = "配置 MCP 服务器（未连接）";
+                    McpConfigButton.Foreground = new SolidColorBrush(
+                        Color.FromRgb(0x88, 0x88, 0x88));
+                }
+                else
+                {
+                    int toolCount = _mcpManager.AllTools.Count;
+                    McpConfigButton.ToolTip = $"MCP 已连接: {toolCount} 个工具可用 (点击配置)";
+                    McpConfigButton.Foreground = new SolidColorBrush(
+                        Color.FromRgb(0x4E, 0xC9, 0xB0));
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Info($"[MCP] 更新按钮外观失败: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// 根据当前搜索引擎更新切换按钮的外观和 ToolTip。

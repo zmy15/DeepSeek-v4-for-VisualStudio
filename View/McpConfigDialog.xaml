@@ -1,0 +1,310 @@
+<Window x:Class="DeepSeek_v4_for_VisualStudio.View.McpConfigDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        mc:Ignorable="d"
+        Title="MCP 服务器配置" Height="600" Width="850"
+        MinHeight="450" MinWidth="700"
+        WindowStartupLocation="CenterOwner"
+        Background="#2D2D2D"
+        Foreground="#D4D4D4"
+        ResizeMode="CanResizeWithGrip">
+    <Window.Resources>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#3C3C3C"/>
+            <Setter Property="Foreground" Value="#D4D4D4"/>
+            <Setter Property="BorderBrush" Value="#555555"/>
+            <Setter Property="CaretBrush" Value="#D4D4D4"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style x:Key="ToolbarButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="#D4D4D4"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="3"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#3C3C3C"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Background" Value="#505050"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#264F78"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#2D5A8C"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="DangerButton" TargetType="Button">
+            <Setter Property="Background" Value="#5A1D1D"/>
+            <Setter Property="Foreground" Value="#F48771"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#872020"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="Label">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#D4D4D4"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ═══ 标题 ═══ -->
+        <TextBlock Grid.Row="0" Text="⚙️ MCP 服务器配置"
+                   FontSize="18" FontWeight="Bold"
+                   Margin="0,0,0,12"/>
+
+        <!-- ═══ 快捷粘贴 JSON 配置 ═══ -->
+        <Border Grid.Row="1" Background="#252526" CornerRadius="6"
+                Padding="12" Margin="0,0,0,12" BorderBrush="#3C3C3C" BorderThickness="1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.ColumnSpan="2"
+                           Text="📋 粘贴 JSON 配置（支持 Claude Desktop / VS Code / Cursor 格式自动识别）"
+                           FontSize="12" Foreground="#888888" Margin="0,0,0,6"/>
+
+                <TextBox Grid.Row="1" Grid.Column="0"
+                         x:Name="JsonPasteTextBox"
+                         AcceptsReturn="True" MinHeight="80" MaxHeight="150"
+                         TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                         FontFamily="Consolas" FontSize="12"
+                         ToolTip="粘贴 MCP 服务器 JSON 配置（Claude Desktop 格式或数组格式均可）"/>
+
+                <StackPanel Grid.Row="1" Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Bottom">
+                    <Button Content="🔍 识别并添加"
+                            Style="{StaticResource PrimaryButton}"
+                            Click="ParseJsonButton_Click"
+                            Margin="0,0,0,6"/>
+                    <Button Content="清空" Style="{StaticResource ToolbarButton}"
+                            Click="ClearJsonButton_Click"
+                            FontSize="12" Foreground="#888888"/>
+                </StackPanel>
+
+                <TextBlock Grid.Row="2" Grid.ColumnSpan="2"
+                           x:Name="ParseStatusLabel"
+                           FontSize="11" Foreground="#569CD6"
+                           Margin="0,4,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- ═══ 服务器列表 ═══ -->
+        <Border Grid.Row="2" Background="#252526" CornerRadius="6"
+                Padding="8" BorderBrush="#3C3C3C" BorderThickness="1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Margin="0,0,0,8">
+                    <TextBlock Text="📡 已配置的 MCP 服务器"
+                               FontSize="14" FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                    <Button Content="+ 手动添加" HorizontalAlignment="Right"
+                            Style="{StaticResource PrimaryButton}"
+                            Click="AddServerButton_Click"
+                            FontSize="12" Padding="8,4"/>
+                </Grid>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="ServersItemsControl">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#2D2D2D" CornerRadius="4"
+                                        Margin="0,0,0,6" Padding="10"
+                                        BorderBrush="#3C3C3C" BorderThickness="1">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- 启用开关 + 名称 -->
+                                        <CheckBox Grid.Row="0" Grid.Column="0"
+                                                  IsChecked="{Binding Enabled}"
+                                                  VerticalAlignment="Center"
+                                                  Margin="0,0,8,0"
+                                                  ToolTip="启用/禁用此 MCP 服务器"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1"
+                                                 Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontWeight="Bold" FontSize="14"
+                                                 Background="Transparent" BorderThickness="0"
+                                                 ToolTip="服务器名称"/>
+
+                                        <!-- 操作按钮 -->
+                                        <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal">
+                                            <Button Content="🔄 测试" Style="{StaticResource ToolbarButton}"
+                                                    FontSize="11" Foreground="#4EC9B0"
+                                                    Tag="{Binding}"
+                                                    Click="TestServerButton_Click"
+                                                    ToolTip="测试连接此 MCP 服务器"/>
+                                            <Button Content="✕" Style="{StaticResource ToolbarButton}"
+                                                    FontSize="12" Foreground="#F48771"
+                                                    Tag="{Binding}"
+                                                    Click="DeleteServerButton_Click"
+                                                    ToolTip="删除此服务器"/>
+                                        </StackPanel>
+
+                                        <!-- 命令 + 参数 -->
+                                        <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="20,4,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="2*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="命令:" Foreground="#888888"
+                                                       FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <TextBox Grid.Column="1"
+                                                     Text="{Binding Command, UpdateSourceTrigger=PropertyChanged}"
+                                                     FontSize="12" FontFamily="Consolas"/>
+                                            <TextBlock Grid.Column="2" Text="参数:" Foreground="#888888"
+                                                       FontSize="12" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                                            <TextBox Grid.Column="3"
+                                                     Text="{Binding Args, UpdateSourceTrigger=PropertyChanged}"
+                                                     FontSize="12" FontFamily="Consolas"/>
+                                        </Grid>
+
+                                        <!-- 环境变量 -->
+                                        <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Margin="20,0,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="环境变量:" Foreground="#888888"
+                                                       FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <TextBox Grid.Column="1"
+                                                     Text="{Binding Environment, UpdateSourceTrigger=PropertyChanged}"
+                                                     FontSize="12" FontFamily="Consolas"
+                                                     ToolTip="格式: KEY1=VALUE1;KEY2=VALUE2"/>
+                                        </Grid>
+
+                                        <!-- 状态信息 -->
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
+                                                   Foreground="#569CD6" FontSize="11"
+                                                   Margin="20,2,0,0">
+                                            <Run Text="传输:"/>
+                                            <Run Text="{Binding Transport, Mode=OneWay}" Foreground="#6A9955"/>
+                                        </TextBlock>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- ═══ 测试进度与状态 ═══ -->
+        <Border Grid.Row="3" Margin="0,8,0,0" Padding="10,8"
+                Background="#252526" CornerRadius="4"
+                x:Name="TestStatusBorder" Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <ProgressBar Grid.Row="0" x:Name="TestProgressBar"
+                             IsIndeterminate="True" Height="4"
+                             Margin="0,0,0,6"/>
+                <TextBlock Grid.Row="1" x:Name="TestStatusText"
+                           FontSize="12" Foreground="#569CD6"
+                           TextWrapping="Wrap"/>
+            </Grid>
+        </Border>
+
+        <!-- ═══ 底部按钮 ═══ -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="保存并重连" Style="{StaticResource PrimaryButton}"
+                    Click="SaveAndReconnectButton_Click"
+                    FontSize="14" Padding="16,8"/>
+            <Button Content="取消" Style="{StaticResource ToolbarButton}"
+                    Click="CancelButton_Click"
+                    Margin="12,0,0,0" Foreground="#888888"/>
+        </StackPanel>
+    </Grid>
+</Window>

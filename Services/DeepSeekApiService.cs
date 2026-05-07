@@ -43,6 +43,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         public async IAsyncEnumerable<string> ChatStreamAsync(
             IEnumerable<ChatApiMessage> messages,
+            List<ToolDefinition>? tools = null,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             var request = new DeepSeekChatRequest
@@ -51,7 +52,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Messages = new List<ChatApiMessage>(messages),
                 Stream = true,
                 Thinking = new ThinkingControl { Type = _thinkingEnabled ? "enabled" : "disabled" },
-                ReasoningEffort = _thinkingEnabled ? _reasoningEffort : null
+                ReasoningEffort = _thinkingEnabled ? _reasoningEffort : null,
+                Tools = tools,
+                ToolChoice = tools != null && tools.Count > 0 ? "auto" : null
             };
 
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, ChatEndpoint)
@@ -87,6 +90,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // 解析结果存入局部变量
                 string? reasoning = null;
                 string? content = null;
+                string? toolCallJson = null;
 
                 try
                 {
@@ -96,6 +100,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     {
                         reasoning = delta.ReasoningContent;
                         content = delta.Content;
+
+                        // ── 工具调用增量 ──
+                        if (delta.ToolCalls != null && delta.ToolCalls.Count > 0)
+                        {
+                            toolCallJson = JsonSerializer.Serialize(delta.ToolCalls);
+                        }
                     }
                 }
                 catch (JsonException)
@@ -107,6 +117,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // yield return 移至 try 块外部，解决编译错误
                 if (!string.IsNullOrEmpty(reasoning))
                     yield return $"[THINKING]{reasoning}";
+
+                if (!string.IsNullOrEmpty(toolCallJson))
+                    yield return $"[TOOL_CALL]{toolCallJson}";
 
                 if (!string.IsNullOrEmpty(content))
                     yield return content!;
