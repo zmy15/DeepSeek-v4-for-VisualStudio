@@ -49,8 +49,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private McpManagerService? _mcpManager;
         private SkillService? _skillService;
         private SkillDiscoveryResult? _skillDiscoveryResult;
+        private CodingAgentService? _codingAgent;
         private CancellationTokenSource? _currentStreamingCts;
         private string? _solutionPath;
+
+        // ── DTE 事件引用（必须保持存活以防 GC 回收） ──
+        private EnvDTE.DTE? _dte;
+        private EnvDTE.SolutionEvents? _solutionEvents;
+        private bool _solutionEventsWired;
 
         private readonly List<ChatMessage> _messages = new();
         private readonly List<ChatApiMessage> _conversationHistory = new();
@@ -67,11 +73,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         // ── 增量渲染状态（对标 Turbo ucChat） ──
         private bool _browserInitialized;
+        private bool _webViewInitialized;
         private int _lastRenderedMessagesLength;
         private readonly StringBuilder _messagesHtml = new();
 
         // ── 线程安全 ──
         private readonly object _lock = new();
+
+        // ── 消息版本管理（重试/编辑功能） ──
+        // Key: 用户消息索引，Value: 该用户消息对应的所有助手回复版本列表
+        private readonly Dictionary<int, List<ChatMessage>> _assistantVersionHistory = new();
+        // Key: 用户消息索引，Value: 当前显示的版本索引（0-based）
+        private readonly Dictionary<int, int> _activeVersionIndex = new();
 
         #endregion
 
@@ -146,6 +159,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── 订阅设置变更事件，支持热切换配置 ──
             DeepSeekOptionsPage.SettingsChanged += OnOcrSettingsChanged;
+
+            // ── 订阅解决方案事件，切换解决方案时自动重载对话 ──
+            _ = WireSolutionEventsAsync();
         }
 
         #endregion
@@ -160,6 +176,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _apiService?.Dispose();
             _apiService = new DeepSeekApiService(_options.ApiKey, _options.SelectedModel);
             _apiService.ConfigureThinking(_options.IsThinkingEnabled, _options.ReasoningEffort);
+
+            // ── 初始化/重建 Coding Agent（ApiService 重建时必须同步重建，否则 Agent 持有已释放的 HttpClient）──
+            if (_codingAgent != null)
+            {
+                _codingAgent.PermissionRequested -= OnAgentPermissionRequested;
+                _codingAgent.Dispose();
+            }
+            _codingAgent = new CodingAgentService(_apiService);
+            _codingAgent.PermissionRequested += OnAgentPermissionRequested;
+            Logger.Info("Coding Agent 服务初始化成功");
+
             Logger.Info("API 服务初始化成功");
         }
 
@@ -448,6 +475,103 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
         }
 
+        /// <summary>
+        /// 订阅 DTE 解决方案事件，当用户打开/关闭解决方案时自动重载对话。
+        /// </summary>
+        private async System.Threading.Tasks.Task WireSolutionEventsAsync()
+        {
+            try
+            {
+                await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                _dte = (EnvDTE.DTE)Microsoft.VisualStudio.Shell.Package.GetGlobalService(typeof(EnvDTE.DTE));
+                if (_dte == null)
+                {
+                    Logger.Warn("[会话] 无法获取 DTE，解决方案事件监听跳过");
+                    return;
+                }
+
+                _solutionEvents = _dte.Events.SolutionEvents;
+                _solutionEvents.Opened += OnSolutionOpened;
+                _solutionEvents.AfterClosing += OnSolutionClosed;
+                _solutionEventsWired = true;
+
+                Logger.Info("[会话] 解决方案事件监听已注册");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("[会话] 注册解决方案事件失败", ex);
+            }
+        }
+
+        /// <summary>
+        /// 用户打开解决方案时：保存当前对话，加载新解决方案的对话记录。
+        /// </summary>
+        private void OnSolutionOpened()
+        {
+            Logger.Info("[会话] 检测到解决方案已打开，准备切换对话存储");
+
+            _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
+                try
+                {
+                    // 先保存当前对话
+                    SaveCurrentSession();
+
+                    // 解析新路径并重载
+                    await ResolveSolutionPathAsync();
+
+                    // ── 重置浏览器状态，切换解决方案时强制全量刷新 ──
+                    _browserInitialized = false;
+
+                    await LoadAndShowAsync();
+
+                    Logger.Info($"[会话] 对话已切换到新解决方案: {_solutionPath ?? "(无)"}");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("[会话] 切换解决方案时出错", ex);
+                }
+            });
+        }
+
+        /// <summary>
+        /// 用户关闭解决方案时：保存当前对话并清空。
+        /// </summary>
+        private void OnSolutionClosed()
+        {
+            Logger.Info("[会话] 检测到解决方案已关闭，保存并清空对话");
+
+            _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
+                try
+                {
+                    // 保存当前对话
+                    SaveCurrentSession();
+
+                    // 清空
+                    _solutionPath = null;
+                    _sessionsContainer = ChatPersistenceService.LoadSessions(null);
+                    _activeSession = CreateNewSessionInternal();
+                    _sessionsContainer.Sessions.Add(_activeSession);
+                    _sessionsContainer.ActiveSessionId = _activeSession.Id;
+
+                    await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                    _messages.Clear();
+                    _conversationHistory.Clear();
+                    _messagesHtml.Clear();
+                    _lastRenderedMessagesLength = 0;
+
+                    Logger.Info("[会话] 对话已清空（解决方案已关闭）");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("[会话] 关闭解决方案时出错", ex);
+                }
+            });
+        }
+
         private async Task LoadAndShowAsync()
         {
             _messagesHtml.Clear();
@@ -525,7 +649,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // 填充会话下拉框
             PopulateSessionComboBox();
 
-            await InitializeWebViewAsync();
+            // ── WebView2 只能初始化一次，切换解决方案时只刷新页面内容 ──
+            if (_webViewInitialized)
+            {
+                Logger.Info("[Render] WebView2 已初始化，直接刷新页面内容");
+                RebuildMessagesHtml();
+                UpdateBrowser();
+            }
+            else
+            {
+                await InitializeWebViewAsync();
+                _webViewInitialized = true;
+            }
         }
 
         private async Task InitializeWebViewAsync()
@@ -553,11 +688,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
         #region IDisposable
 
         /// <summary>
-        /// 释放资源，保存对话。
+        /// 释放资源，取消事件订阅，保存对话。
         /// </summary>
         public void Dispose()
         {
             DeepSeekOptionsPage.SettingsChanged -= OnOcrSettingsChanged;
+
+            // ── 取消解决方案事件订阅 ──
+            if (_solutionEventsWired && _solutionEvents != null)
+            {
+                _solutionEvents.Opened -= OnSolutionOpened;
+                _solutionEvents.AfterClosing -= OnSolutionClosed;
+                _solutionEventsWired = false;
+                Logger.Info("[会话] 解决方案事件监听已取消");
+            }
 
             _currentStreamingCts?.Cancel();
             _currentStreamingCts?.Dispose();
@@ -565,9 +709,42 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _webSearchService?.Dispose();
             _mcpManager?.Dispose();
 
+            if (_codingAgent != null)
+            {
+                _codingAgent.PermissionRequested -= OnAgentPermissionRequested;
+                _codingAgent.Dispose();
+                _codingAgent = null;
+            }
+
             SaveCurrentSession();
 
+            // ── 清理临时上下文文件 ──
+            CleanupTempContextFiles();
+
             Logger.Info("DeepSeekChatControl 已释放");
+        }
+
+        /// <summary>
+        /// 清理 %LocalAppData%\DeepSeekVS\temp\context\ 目录中的临时文件。
+        /// </summary>
+        private static void CleanupTempContextFiles()
+        {
+            try
+            {
+                string tempContextDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DeepSeekVS", "temp", "context");
+
+                if (System.IO.Directory.Exists(tempContextDir))
+                {
+                    System.IO.Directory.Delete(tempContextDir, recursive: true);
+                    Logger.Info($"[Cleanup] 已清理临时上下文目录: {tempContextDir}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Cleanup] 清理临时上下文目录失败: {ex.Message}");
+            }
         }
 
         #endregion

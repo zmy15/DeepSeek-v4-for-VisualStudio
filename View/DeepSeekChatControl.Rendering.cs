@@ -66,11 +66,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 构建消息 HTML 片段并追加到 _messagesHtml，然后更新浏览器。
         /// </summary>
-        private void AddMessagesHtml(string role, string content, string? reasoningContent = null, List<FileParseResult>? attachedFiles = null)
+        private void AddMessagesHtml(string role, string content, string? reasoningContent = null, List<FileParseResult>? attachedFiles = null, int messageIndex = -1, bool isHtml = false)
         {
+            // 自动推断消息索引
+            if (messageIndex < 0)
+                messageIndex = _messages.Count - 1;
+
             if (role == "user")
             {
-                _messagesHtml.Append(ChatHtmlService.BuildUserMessageHtml(content, attachedFiles));
+                _messagesHtml.Append(ChatHtmlService.BuildUserMessageHtml(content, attachedFiles, messageIndex));
             }
             else
             {
@@ -80,6 +84,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     Content = content,
                     ReasoningContent = reasoningContent ?? string.Empty,
                     IsStreaming = false,
+                    IsHtml = isHtml,
                 };
                 _messagesHtml.Append(ChatHtmlService.BuildAssistantMessageHtml(tempMsg, _messages.Count - 1));
             }
@@ -126,7 +131,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var msg = _messages[i];
                 if (msg.Role == "user")
                 {
-                    _messagesHtml.Append(ChatHtmlService.BuildUserMessageHtml(msg.Content ?? string.Empty));
+                    _messagesHtml.Append(ChatHtmlService.BuildUserMessageHtml(msg.Content ?? string.Empty, messageIndex: i));
                 }
                 else
                 {

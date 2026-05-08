@@ -2,6 +2,7 @@
 using Markdig;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -94,6 +95,21 @@ img{max-width:100%}
 ::-webkit-scrollbar-track{background:#1E1E1E}
 ::-webkit-scrollbar-thumb{background:#444;border-radius:4px}
 ::-webkit-scrollbar-thumb:hover{background:#555}
+
+/* ── 操作按钮（重试/编辑） ── */
+.msg-action-btn{display:inline-flex;align-items:center;gap:3px;background:transparent;border:1px solid #444;color:#888;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:3px;margin-top:6px;transition:all .15s;opacity:0}
+.msg-action-btn:hover{background:#3C3C3C;color:#D4D4D4;border-color:#666}
+.msg-user:hover .msg-action-btn,.msg-ai:hover .msg-action-btn{opacity:1}
+.msg-action-btn.retry-btn:hover{color:#6CAFD9;border-color:#6CAFD9}
+.msg-action-btn.edit-btn:hover{color:#CE9178;border-color:#CE9178}
+
+/* ── 版本导航栏 ── */
+.version-nav{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:11px;color:#888;user-select:none}
+.version-nav-btn{background:transparent;border:1px solid #444;color:#888;cursor:pointer;font-size:11px;padding:1px 6px;border-radius:3px;transition:all .15s}
+.version-nav-btn:hover:not(:disabled){background:#3C3C3C;color:#D4D4D4;border-color:#666}
+.version-nav-btn:disabled{opacity:.3;cursor:default}
+.version-nav-label{color:#888;min-width:30px;text-align:center}
+.version-nav .sep{color:#555;margin:0 2px}
 ";
 
         private const string AiAvatarHtml = "<span class='avatar avatar-ai'>AI</span>";
@@ -114,7 +130,7 @@ img{max-width:100%}
             {
                 var msg = messages[i];
                 if (msg.Role == "user")
-                    AppendUserMessageHtml(sb, msg.Content ?? string.Empty, msg.AttachedFiles);
+                    AppendUserMessageHtml(sb, msg.Content ?? string.Empty, msg.AttachedFiles, i);
                 else if (msg.Role == "assistant")
                     AppendAssistantMessageHtml(sb, msg, i);
             }
@@ -125,10 +141,10 @@ img{max-width:100%}
         /// <summary>
         /// 构建单条用户消息的 HTML 片段（用于增量追加）。
         /// </summary>
-        public static string BuildUserMessageHtml(string content, List<FileParseResult>? attachedFiles = null)
+        public static string BuildUserMessageHtml(string content, List<FileParseResult>? attachedFiles = null, int messageIndex = -1)
         {
             var sb = new StringBuilder();
-            AppendUserMessageHtml(sb, content, attachedFiles);
+            AppendUserMessageHtml(sb, content, attachedFiles, messageIndex);
             return sb.ToString();
         }
 
@@ -304,8 +320,13 @@ img{max-width:100%}
 
         #region Private Methods - Message HTML Builders
 
-        private static void AppendUserMessageHtml(StringBuilder sb, string content, List<FileParseResult>? attachedFiles = null)
+        private static void AppendUserMessageHtml(StringBuilder sb, string content, List<FileParseResult>? attachedFiles = null, int messageIndex = -1)
         {
+            // ── 编辑按钮（仅在有索引时渲染） ──
+            string editBtnHtml = messageIndex >= 0
+                ? $"<button class='msg-action-btn edit-btn' onclick='window.__editMessage({messageIndex})' title='编辑此消息'>✏️ 编辑</button>"
+                : "";
+
             // ── 文件附件：可折叠的 &lt;details&gt; 块 ──
             string fileBlocksHtml = string.Empty;
             if (attachedFiles != null && attachedFiles.Count > 0)
@@ -394,6 +415,7 @@ img{max-width:100%}
                 fileBlocksHtml +
                 "<div class='msg-user' style='display:inline-block;text-align:left'>" +
                 "<div class='msg-body'>" + body + "</div>" +
+                editBtnHtml +
                 "</div>" +
                 "</div>" +
                 "<div style='margin-left:10px'>" + UserAvatarHtml + "</div>" +
@@ -407,8 +429,15 @@ img{max-width:100%}
 
             if (!string.IsNullOrEmpty(msg.Content))
             {
-                // 已有内容：完整 Markdown 渲染
-                bodyHtml = RenderMarkdownToHtml(msg.Content);
+                // 已有内容：若为预渲染 HTML（如Agent计划），直接使用；否则走 Markdown 渲染
+                if (msg.IsHtml)
+                {
+                    bodyHtml = msg.Content;
+                }
+                else
+                {
+                    bodyHtml = RenderMarkdownToHtml(msg.Content);
+                }
             }
             else if (isStreaming)
             {
@@ -429,6 +458,24 @@ img{max-width:100%}
             string streamingDots = isStreaming
                 ? " <span style='color:#6CAFD9;font-size:10px'>●●●</span>" : "";
 
+            // ── 重试按钮（非流式消息才显示） ──
+            string retryBtnHtml = !isStreaming
+                ? $"<button class='msg-action-btn retry-btn' onclick='window.__retryMessage({idx})' title='重新生成回答'>🔄 重试</button>"
+                : "";
+
+            // ── 版本导航栏（多版本时显示） ──
+            string versionNavHtml = "";
+            if (!isStreaming && msg.TotalVersions > 1)
+            {
+                int curVer = msg.VersionIndex;
+                versionNavHtml =
+                    $"<div class='version-nav'>" +
+                    $"<button class='version-nav-btn' onclick='window.__navigateVersion({idx},-1)' title='上一个版本' " + (curVer <= 1 ? "disabled" : "") + ">◀</button>" +
+                    $"<span class='version-nav-label'>{curVer}/{msg.TotalVersions}</span>" +
+                    $"<button class='version-nav-btn' onclick='window.__navigateVersion({idx},1)' title='下一个版本' " + (curVer >= msg.TotalVersions ? "disabled" : "") + ">▶</button>" +
+                    $"</div>";
+            }
+
             sb.Append(
                 "<div id='msg-" + idx + "'>" +
                 "<table cellpadding='0' cellspacing='0' border='0' width='100%' style='margin-bottom:14px'>" +
@@ -439,6 +486,8 @@ img{max-width:100%}
                 reasoningHtml +
                 "<div class='msg-body' id='msg-body-" + idx + "'>" + bodyHtml + "</div>" +
                 streamingCursor +
+                retryBtnHtml +
+                versionNavHtml +
                 "</div></td></tr></table>" +
                 "</div>");
         }
@@ -612,6 +661,7 @@ img{max-width:100%}
                    BuildShiftScrollJs() +
                    autoScrollJs +
                    BuildAppendMessageJsFunction() +
+                   BuildRetryEditJsFunctions() +
                    "setTimeout(function(){window.scrollTo(0,document.body.scrollHeight);},50);" +
                    "</script></body></html>";
         }
@@ -666,28 +716,45 @@ window.decorateCodeBlocks=function(container){
             setTimeout(function(){copyBtn.textContent='📋 复制';copyBtn.classList.remove('copied');},1500);
         };
         pre.appendChild(copyBtn);
-        // 应用按钮
+        // 应用按钮 - 直接写入编辑器
         var applyBtn=document.createElement('button');
         applyBtn.className='copy-btn';
-        applyBtn.textContent='⚡ 应用';
-        applyBtn.title='复制代码到剪贴板，请在编辑器中粘贴 (Ctrl+V)';
+        applyBtn.textContent='⚡ 写入';
+        applyBtn.title='将代码写入当前活动文档';
         applyBtn.style.right='60px';
         applyBtn.onclick=function(){
             var target=pre.querySelector('code')||pre;
-            var text=target.innerText,ok=false;
-            if(navigator.clipboard&&navigator.clipboard.writeText){
-                navigator.clipboard.writeText(text);ok=true;
-            }else{
-                var ta=document.createElement('textarea');
-                ta.value=text;ta.style.cssText='position:fixed;opacity:0';
-                document.body.appendChild(ta);ta.select();
-                try{document.execCommand('copy');ok=true;}catch(e){}
-                document.body.removeChild(ta);
+            var codeText=target.innerText;
+            try{
+                window.chrome.webview.postMessage(JSON.stringify({type:'applyCode',code:codeText}));
+            }catch(e1){
+                try{
+                    window.external.notify(JSON.stringify({type:'applyCode',code:codeText}));
+                }catch(e2){}
             }
-            if(ok){applyBtn.textContent='✓ 已复制';applyBtn.classList.add('copied');}
-            setTimeout(function(){applyBtn.textContent='⚡ 应用';applyBtn.classList.remove('copied');},1500);
+            applyBtn.textContent='✓ 已写入';
+            applyBtn.classList.add('copied');
+            setTimeout(function(){applyBtn.textContent='⚡ 写入';applyBtn.classList.remove('copied');},1500);
         };
         pre.appendChild(applyBtn);
+        // Diff 按钮 - 显示代码变更
+        var diffBtn=document.createElement('button');
+        diffBtn.className='copy-btn';
+        diffBtn.textContent='📊 对比';
+        diffBtn.title='显示原始代码和AI修改后的差异';
+        diffBtn.style.right='122px';
+        diffBtn.onclick=function(){
+            var target=pre.querySelector('code')||pre;
+            var codeText=target.innerText;
+            try{
+                window.chrome.webview.postMessage(JSON.stringify({type:'showDiff',code:codeText}));
+            }catch(e1){
+                try{
+                    window.external.notify(JSON.stringify({type:'showDiff',code:codeText}));
+                }catch(e2){}
+            }
+        };
+        pre.appendChild(diffBtn);
     });
 };
 ";
@@ -727,6 +794,7 @@ pres.forEach(function(pre){
 (function(){
 var pres=document.querySelectorAll('pre:not(.mermaid-block)');
 pres.forEach(function(pre){
+    if(pre.querySelector('.copy-btn'))return;
     var copyBtn=document.createElement('button');
     copyBtn.className='copy-btn';
     copyBtn.textContent='📋 复制';
@@ -749,25 +817,41 @@ pres.forEach(function(pre){
     pre.appendChild(copyBtn);
     var applyBtn=document.createElement('button');
     applyBtn.className='copy-btn';
-    applyBtn.textContent='⚡ 应用';
-    applyBtn.title='复制代码，请在编辑器中粘贴';
+    applyBtn.textContent='⚡ 写入';
+    applyBtn.title='将代码写入当前活动文档';
     applyBtn.style.right='60px';
     applyBtn.onclick=function(){
         var target=pre.querySelector('code')||pre;
-        var text=target.innerText,ok=false;
-        if(navigator.clipboard&&navigator.clipboard.writeText){
-            navigator.clipboard.writeText(text);ok=true;
-        }else{
-            var ta=document.createElement('textarea');
-            ta.value=text;ta.style.cssText='position:fixed;opacity:0';
-            document.body.appendChild(ta);ta.select();
-            try{document.execCommand('copy');ok=true;}catch(e){}
-            document.body.removeChild(ta);
+        var codeText=target.innerText;
+        try{
+            window.chrome.webview.postMessage(JSON.stringify({type:'applyCode',code:codeText}));
+        }catch(e1){
+            try{
+                window.external.notify(JSON.stringify({type:'applyCode',code:codeText}));
+            }catch(e2){}
         }
-        if(ok){applyBtn.textContent='✓ 已复制';applyBtn.classList.add('copied');}
-        setTimeout(function(){applyBtn.textContent='⚡ 应用';applyBtn.classList.remove('copied');},1500);
+        applyBtn.textContent='✓ 已写入';
+        applyBtn.classList.add('copied');
+        setTimeout(function(){applyBtn.textContent='⚡ 写入';applyBtn.classList.remove('copied');},1500);
     };
     pre.appendChild(applyBtn);
+    var diffBtn=document.createElement('button');
+    diffBtn.className='copy-btn';
+    diffBtn.textContent='📊 对比';
+    diffBtn.title='显示原始代码和AI修改后的差异';
+    diffBtn.style.right='122px';
+    diffBtn.onclick=function(){
+        var target=pre.querySelector('code')||pre;
+        var codeText=target.innerText;
+        try{
+            window.chrome.webview.postMessage(JSON.stringify({type:'showDiff',code:codeText}));
+        }catch(e1){
+            try{
+                window.external.notify(JSON.stringify({type:'showDiff',code:codeText}));
+            }catch(e2){}
+        }
+    };
+    pre.appendChild(diffBtn);
 });
 })();";
         }
@@ -819,6 +903,239 @@ window.__appendMessageHtml=function(html){
         }
 
         /// <summary>
+        /// 声明重试/编辑/版本导航的 JS 函数。
+        /// 通过 window.chrome.webview.postMessage 与 C# 通信。
+        /// </summary>
+        private static string BuildRetryEditJsFunctions()
+        {
+            return @"
+window.__sendToHost=function(msg){
+    try{window.chrome.webview.postMessage(JSON.stringify(msg));}
+    catch(e1){try{window.external.notify(JSON.stringify(msg));}catch(e2){}}
+};
+window.__retryMessage=function(msgIndex){
+    window.__sendToHost({type:'retryMessage',messageIndex:msgIndex});
+};
+window.__editMessage=function(msgIndex){
+    window.__sendToHost({type:'editMessage',messageIndex:msgIndex});
+};
+window.__navigateVersion=function(msgIndex,direction){
+    window.__sendToHost({type:'navigateVersion',messageIndex:msgIndex,direction:direction});
+};
+window.__agentApprove=function(requestId){
+    window.__sendToHost({type:'agentApprove',requestId:requestId,approved:true});
+};
+window.__agentDeny=function(requestId){
+    window.__sendToHost({type:'agentApprove',requestId:requestId,approved:false});
+};";
+        }
+
+        #endregion
+
+        /// <summary>
+        /// 构建 Agent 步骤计划 HTML。
+        /// </summary>
+        public static string BuildAgentPlanHtml(AgentTaskPlan plan)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<div class='agent-plan' style='border:1px solid #3A5A8A;border-radius:8px;background:#1A2636;padding:12px;margin:4px 0'>");
+            sb.Append($"<div style='color:#7EB8E0;font-size:14px;font-weight:600;margin-bottom:8px'>🤖 Coding Agent — {EscapeHtml(plan.Title)}</div>");
+
+            sb.Append("<div class='agent-steps'>");
+            foreach (var step in plan.Steps)
+            {
+                string icon = step.Status == AgentStepStatus.Completed ? "✅"
+                    : step.Status == AgentStepStatus.InProgress ? "🔄"
+                    : step.Status == AgentStepStatus.Failed ? "❌"
+                    : step.Status == AgentStepStatus.WaitingApproval ? "🔐"
+                    : "⏳";
+
+                string color = step.Status == AgentStepStatus.Completed ? "#4EC9B0"
+                    : step.Status == AgentStepStatus.InProgress ? "#6CAFD9"
+                    : step.Status == AgentStepStatus.Failed ? "#E07878"
+                    : "#888";
+
+                sb.Append($"<div class='agent-step' id='agent-step-{step.Index}' style='display:flex;align-items:center;gap:8px;padding:4px 0;color:{color};font-size:12px'>");
+                sb.Append($"<span style='min-width:20px;text-align:center'>{icon}</span>");
+                sb.Append($"<span>{EscapeHtml(step.Title)}</span>");
+                if (!string.IsNullOrEmpty(step.ResultSummary))
+                    sb.Append($" <span style='color:#888;font-size:11px'>— {EscapeHtml(step.ResultSummary)}</span>");
+                sb.Append("</div>");
+
+                // ── 步骤详情区（AI 响应内容，完成后展示） ──
+                bool hasDetail = !string.IsNullOrEmpty(step.AiResponse);
+                string detailDisplay = hasDetail ? "block" : "none";
+                string detailContent = hasDetail
+                    ? EscapeHtml(step.AiResponse!.Length > 500 ? step.AiResponse.Substring(0, 500) + "…" : step.AiResponse)
+                    : "";
+                sb.Append($"<div id='agent-detail-{step.Index}' style='display:{detailDisplay};margin:2px 0 8px 28px;padding:8px;background:#121A24;border-radius:4px;border-left:2px solid {color};font-size:11px;color:#A0B0C0;white-space:pre-wrap;max-height:200px;overflow-y:auto'>{detailContent}</div>");
+            }
+            sb.Append("</div></div>");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 构建 Agent 步骤进度更新的 JS 脚本。
+        /// </summary>
+        public static string BuildAgentProgressUpdateJs(AgentTaskPlan plan)
+        {
+            var sb = new StringBuilder();
+            sb.Append("(function(){");
+            foreach (var step in plan.Steps)
+            {
+                string icon = step.Status == AgentStepStatus.Completed ? "✅"
+                    : step.Status == AgentStepStatus.InProgress ? "🔄"
+                    : step.Status == AgentStepStatus.Failed ? "❌"
+                    : step.Status == AgentStepStatus.WaitingApproval ? "🔐"
+                    : "⏳";
+
+                string color = step.Status == AgentStepStatus.Completed ? "#4EC9B0"
+                    : step.Status == AgentStepStatus.InProgress ? "#6CAFD9"
+                    : step.Status == AgentStepStatus.Failed ? "#E07878"
+                    : "#888";
+
+                string summary = step.ResultSummary != null
+                    ? $" — {EscapeJsString(step.ResultSummary)}"
+                    : "";
+
+                sb.Append($"var s=document.getElementById('agent-step-{step.Index}');");
+                sb.Append($"if(s){{s.style.color='{color}';");
+                sb.Append($"s.innerHTML='<span style=\"min-width:20px;text-align:center\">{icon}</span>");
+                sb.Append($"<span>{EscapeJsString(step.Title)}</span>");
+                sb.Append($"<span style=\"color:#888;font-size:11px\">{summary}</span>';}}");
+
+                // ── 更新步骤详情区 ──
+                if (!string.IsNullOrEmpty(step.AiResponse))
+                {
+                    string detailText = step.AiResponse.Length > 500
+                        ? step.AiResponse.Substring(0, 500) + "…"
+                        : step.AiResponse;
+                    sb.Append($"var d=document.getElementById('agent-detail-{step.Index}');");
+                    sb.Append($"if(d){{d.style.display='block';d.style.borderLeftColor='{color}';");
+                    sb.Append($"d.textContent={EscapeJsString(detailText)};}}");
+                }
+            }
+            sb.Append("window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});");
+            sb.Append("})();");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 构建 Agent 任务完成后的变更摘要 HTML。
+        /// </summary>
+        public static string BuildAgentSummaryHtml(AgentTaskPlan plan)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<div style='border:1px solid #3A5A3A;border-radius:8px;background:#1A2E1A;padding:12px;margin:4px 0'>");
+
+            if (plan.IsCancelled)
+            {
+                sb.Append("<div style='color:#E07878;font-size:13px;font-weight:600'>⚠️ 任务已取消</div>");
+            }
+            else
+            {
+                // ── 步骤执行总结 ──
+                int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+                int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
+                string statusColor = failed > 0 ? "#E07878" : "#4EC9B0";
+                string statusIcon = failed > 0 ? "⚠️" : "✅";
+                sb.Append($"<div style='color:{statusColor};font-size:14px;font-weight:600;margin-bottom:8px'>{statusIcon} 任务完成 — {completed}/{plan.Steps.Count} 步成功" +
+                    (failed > 0 ? $"，{failed} 步失败" : "") + "</div>");
+
+                // ── 逐步骤结果 ──
+                sb.Append("<div style='margin-bottom:8px'>");
+                foreach (var step in plan.Steps)
+                {
+                    string stepIcon = step.Status == AgentStepStatus.Completed ? "✅"
+                        : step.Status == AgentStepStatus.Failed ? "❌"
+                        : step.Status == AgentStepStatus.Skipped ? "⏭"
+                        : "⏳";
+                    string stepColor = step.Status == AgentStepStatus.Completed ? "#4EC9B0"
+                        : step.Status == AgentStepStatus.Failed ? "#E07878"
+                        : "#888";
+
+                    sb.Append($"<div style='display:flex;align-items:flex-start;gap:6px;padding:2px 0;font-size:12px'>");
+                    sb.Append($"<span style='min-width:18px;color:{stepColor}'>{stepIcon}</span>");
+                    sb.Append($"<span style='color:#D4D4D4;font-weight:500'>{EscapeHtml(step.Title)}</span>");
+                    if (!string.IsNullOrEmpty(step.ResultSummary))
+                        sb.Append($"<span style='color:#888'>— {EscapeHtml(step.ResultSummary)}</span>");
+                    sb.Append("</div>");
+                }
+                sb.Append("</div>");
+
+                // ── 文件变更表 ──
+                if (plan.ChangedFiles.Count > 0)
+                {
+                    sb.Append("<div style='color:#4EC9B0;font-size:12px;font-weight:600;margin:8px 0 4px'>📁 文件变更</div>");
+                    sb.Append("<table style='width:100%;border-collapse:collapse;font-size:11px'>");
+                    sb.Append("<tr style='color:#888'><th style='text-align:left;padding:2px 8px'>文件</th><th style='text-align:right;padding:2px 8px'>+</th><th style='text-align:right;padding:2px 8px'>-</th></tr>");
+
+                    foreach (var change in plan.ChangedFiles)
+                    {
+                        string fileName = System.IO.Path.GetFileName(change.FilePath);
+                        sb.Append("<tr>");
+                        sb.Append($"<td style='padding:2px 8px;color:#D4D4D4'>{EscapeHtml(fileName)}</td>");
+                        sb.Append($"<td style='padding:2px 8px;text-align:right;color:#4EC9B0'>+{change.LinesAdded}</td>");
+                        sb.Append($"<td style='padding:2px 8px;text-align:right;color:#E07878'>-{change.LinesRemoved}</td>");
+                        sb.Append("</tr>");
+                    }
+
+                    sb.Append("</table>");
+                }
+                else if (plan.ChangedFiles.Count == 0 && completed == plan.Steps.Count)
+                {
+                    sb.Append("<div style='color:#888;font-size:12px;margin-top:6px'>ℹ️ 所有步骤已完成，未产生文件变更（分析类任务无需修改文件）</div>");
+                }
+            }
+
+            sb.Append("</div>");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 构建权限请求 UI 的 JS 脚本（在聊天底部注入确认/拒绝按钮）。
+        /// </summary>
+        public static string BuildPermissionRequestJs(AgentPermissionRequest request)
+        {
+            string escapedTitle = EscapeJsString(request.Title);
+            string escapedCommand = EscapeJsString(request.Command);
+            string escapedRequestId = EscapeJsString(request.RequestId);
+
+            return $@"
+(function(){{
+    // 移除已有的权限请求 UI
+    var existing=document.getElementById('agent-permission');
+    if(existing)existing.remove();
+
+    var div=document.createElement('div');
+    div.id='agent-permission';
+    div.style.cssText='border:1px solid #C8A84E;border-radius:8px;background:#2E2A1A;padding:12px;margin:8px 0;animation:fadeIn .3s';
+
+    div.innerHTML=
+        '<div style=""color:#C8A84E;font-size:12px;font-weight:600;margin-bottom:6px"">🔐 Agent 请求权限</div>'+
+        '<div style=""color:#D4D4D4;font-size:12px;margin-bottom:4px"">{escapedTitle}</div>'+
+        '<pre style=""background:#1A1A0E;color:#C8C84E;padding:8px;border-radius:4px;font-size:11px;margin:4px 0;max-height:60px;overflow-y:auto"">{escapedCommand}</pre>'+
+        '<div style=""display:flex;gap:8px;margin-top:8px"">'+
+        '<button onclick=""window.__agentApprove(\'{escapedRequestId}\')"" style=""background:#1A3A1A;color:#4EC9B0;border:1px solid #3A6A3A;border-radius:4px;padding:4px 16px;cursor:pointer;font-size:12px"">✅ 允许</button>'+
+        '<button onclick=""window.__agentDeny(\'{escapedRequestId}\')"" style=""background:#3A1A1A;color:#E07878;border:1px solid #6A3A3A;border-radius:4px;padding:4px 16px;cursor:pointer;font-size:12px"">❌ 拒绝</button>'+
+        '</div>';
+
+    var container=document.getElementById('chat-container');
+    if(container)container.appendChild(div);
+    window.scrollTo({{top:document.body.scrollHeight,behavior:'smooth'}});
+}})();";
+        }
+
+        /// <summary>
+        /// HTML 转义辅助方法。
+        /// </summary>
+        private static string EscapeHtml(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return string.Empty;
+            return System.Net.WebUtility.HtmlEncode(text);
+        }
+
+        /// <summary>
         /// 转义字符串用于嵌入 JS 字符串字面量。
         /// </summary>
         private static string EscapeJsString(string s)
@@ -827,8 +1144,6 @@ window.__appendMessageHtml=function(html){
             // 使用 JSON 序列化来安全转义
             return System.Text.Json.JsonSerializer.Serialize(s);
         }
-
-        #endregion
     }
 }
 

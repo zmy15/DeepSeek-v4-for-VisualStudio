@@ -260,6 +260,44 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [DataMember]
         public List<FileParseResult> AttachedFiles { get; set; } = new();
 
+        /// <summary>
+        /// 消息组 ID，用于关联同一轮对话的用户消息和多个助手回复版本。
+        /// 用户消息和其对应的第一个助手回复共享同一个 GroupId。
+        /// 重试/编辑后产生的新助手回复使用新的 GroupId。
+        /// </summary>
+        [DataMember]
+        public string MessageGroupId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 当前助手消息在其版本组中的索引（从 1 开始）。
+        /// 仅对 Role == "assistant" 的消息有意义。
+        /// </summary>
+        [DataMember]
+        public int VersionIndex { get; set; } = 1;
+
+        /// <summary>
+        /// 助手消息版本组中的总版本数。
+        /// 仅对 Role == "assistant" 的消息有意义。
+        /// </summary>
+        [DataMember]
+        public int TotalVersions { get; set; } = 1;
+
+        /// <summary>
+        /// 用户消息的原始内容（编辑前的内容）。
+        /// 仅当用户消息被编辑过后才设置此属性。
+        /// 仅对 Role == "user" 的消息有意义。
+        /// </summary>
+        [DataMember]
+        public string? OriginalContent { get; set; }
+
+        /// <summary>
+        /// 指示 Content 是否已经是渲染好的 HTML（而非 Markdown）。
+        /// 为 true 时，AppendAssistantMessageHtml 跳过 Markdown 渲染，直接使用原始 HTML。
+        /// 用于 Coding Agent 的计划/摘要等预渲染的 HTML 内容。
+        /// </summary>
+        [DataMember]
+        public bool IsHtml { get; set; }
+
         // INotifyPropertyChanged 实现
         public event PropertyChangedEventHandler? PropertyChanged;
 

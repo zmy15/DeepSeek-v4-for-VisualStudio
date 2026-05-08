@@ -1,11 +1,16 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
+using DeepSeek_v4_for_VisualStudio.ToolWindows;
 using DeepSeek_v4_for_VisualStudio.Utils;
+using EnvDTE80;
+using Microsoft.VisualStudio.Shell;
 using Microsoft.Web.WebView2.Core;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -182,6 +187,520 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             _attachedFilePaths.Clear();
             RefreshAttachedFilesUI();
+        }
+
+        /// <summary>
+        /// ＋ 按钮点击：弹出上下文菜单 Popup。
+        /// </summary>
+        private void AddContextButton_Click(object sender, RoutedEventArgs e)
+        {
+            AddContextPopup.IsOpen = !AddContextPopup.IsOpen;
+        }
+
+        /// <summary>
+        /// 添加上下文菜单 - 活动文档：将当前编辑器中的活动文档内容添加到对话上下文。
+        /// </summary>
+        private async void AddActiveDocument_Click(object sender, RoutedEventArgs e)
+        {
+            AddContextPopup.IsOpen = false;
+            try
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                var dte = (EnvDTE.DTE)Package.GetGlobalService(typeof(EnvDTE.DTE));
+                var doc = dte?.ActiveDocument;
+                if (doc == null)
+                {
+                    StatusLabel.Text = "⚠️ 没有打开的活动文档";
+                    return;
+                }
+
+                string filePath = doc.FullName;
+                string language = doc.Language;
+
+                // 检查是否已添加
+                if (_attachedFilePaths.Contains(filePath, StringComparer.OrdinalIgnoreCase))
+                {
+                    StatusLabel.Text = $"ℹ️ 文件已在上下文中: {System.IO.Path.GetFileName(filePath)}";
+                    return;
+                }
+
+                // 活动文档直接添加文件路径（FileParserService 会读取内容）
+                if (FileParserService.IsSupportedFormat(filePath))
+                {
+                    _attachedFilePaths.Add(filePath);
+                    RefreshAttachedFilesUI();
+                    StatusLabel.Text = $"📄 已添加上下文: {System.IO.Path.GetFileName(filePath)} ({language})";
+                    Logger.Info($"[AddContext] 活动文档已添加: {filePath}, 语言={language}");
+                }
+                else
+                {
+                    // 对于不支持的格式，将文件内容保存为临时 .txt 文件后添加
+                    var textDoc = (EnvDTE.TextDocument)doc.Object("TextDocument");
+                    string content = textDoc.StartPoint.CreateEditPoint().GetText(textDoc.EndPoint);
+
+                    string tempDir = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "DeepSeekVS", "temp", "context");
+                    System.IO.Directory.CreateDirectory(tempDir);
+                    string tempPath = System.IO.Path.Combine(tempDir,
+                        $"doc_{System.IO.Path.GetFileNameWithoutExtension(filePath)}_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+                    System.IO.File.WriteAllText(tempPath, content);
+
+                    _attachedFilePaths.Add(tempPath);
+                    RefreshAttachedFilesUI();
+                    StatusLabel.Text = $"📄 已添加上下文: {System.IO.Path.GetFileName(filePath)} ({language})";
+                    Logger.Info($"[AddContext] 活动文档已保存为临时文件并添加: {tempPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"添加活动文档失败: {ex.Message}", ex);
+                StatusLabel.Text = $"❌ 添加活动文档失败: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// 添加上下文菜单 - 项目文件：打开文件对话框，选择项目中的文件。
+        /// </summary>
+        private void AddProjectFiles_Click(object sender, RoutedEventArgs e)
+        {
+            AddContextPopup.IsOpen = false;
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "选择要添加到上下文的项目文件",
+                Filter = FileParserService.GetFileFilter(),
+                Multiselect = true,
+            };
+
+            if (dlg.ShowDialog() == true)
+            {
+                int addedCount = 0;
+                foreach (string filePath in dlg.FileNames)
+                {
+                    if (!_attachedFilePaths.Contains(filePath, StringComparer.OrdinalIgnoreCase))
+                    {
+                        if (FileParserService.IsSupportedFormat(filePath))
+                        {
+                            _attachedFilePaths.Add(filePath);
+                            addedCount++;
+                        }
+                        else
+                        {
+                            Logger.Info($"[AddContext] 不支持的文件格式，跳过: {filePath}");
+                        }
+                    }
+                }
+                RefreshAttachedFilesUI();
+                StatusLabel.Text = addedCount > 0
+                    ? $"📁 已添加 {addedCount} 个文件到上下文"
+                    : "⚠️ 未添加新文件（已存在或格式不支持）";
+                Logger.Info($"[AddContext] 项目文件已添加: {addedCount} 个");
+            }
+        }
+
+        /// <summary>
+        /// 添加上下文菜单 - 项目全部文件：扫描解决方案中所有项目的源代码文件并添加到上下文。
+        /// </summary>
+        private async void AddAllProjectFiles_Click(object sender, RoutedEventArgs e)
+        {
+            AddContextPopup.IsOpen = false;
+            try
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                var dte = (EnvDTE.DTE)Package.GetGlobalService(typeof(EnvDTE.DTE));
+                if (dte?.Solution == null || !dte.Solution.IsOpen)
+                {
+                    StatusLabel.Text = "⚠️ 当前没有打开的解决方案";
+                    return;
+                }
+
+                StatusLabel.Text = "正在扫描项目文件…";
+                int addedCount = 0;
+                int skippedCount = 0;
+                var sourceExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ".cs", ".vb", ".cpp", ".c", ".h", ".hpp", ".fs", ".fsx",
+                    ".xaml", ".xml", ".json", ".config", ".csproj", ".vbproj",
+                    ".py", ".js", ".ts", ".jsx", ".tsx", ".css", ".scss", ".less",
+                    ".html", ".htm", ".razor", ".cshtml", ".vbhtml",
+                    ".sql", ".md", ".txt", ".yml", ".yaml", ".ps1", ".psm1",
+                    ".go", ".rs", ".java", ".kt", ".swift", ".proto",
+                };
+
+                // 遍历解决方案中的所有项目
+                foreach (EnvDTE.Project project in dte.Solution.Projects)
+                {
+                    try
+                    {
+                        var (projAdded, projSkipped) = await AddProjectItemsRecursiveAsync(project.ProjectItems, sourceExtensions);
+                        addedCount += projAdded;
+                        skippedCount += projSkipped;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn($"[AddContext] 扫描项目 {project.Name} 时出错: {ex.Message}");
+                    }
+                }
+
+                RefreshAttachedFilesUI();
+                StatusLabel.Text = addedCount > 0
+                    ? $"📦 已添加 {addedCount} 个项目文件到上下文" + (skippedCount > 0 ? $" (跳过 {skippedCount} 个)" : "")
+                    : "⚠️ 未找到可添加的源代码文件";
+                Logger.Info($"[AddContext] 项目全部文件已添加: {addedCount} 个, 跳过: {skippedCount} 个");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"添加项目全部文件失败: {ex.Message}", ex);
+                StatusLabel.Text = $"❌ 添加项目全部文件失败: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// 递归遍历项目项，收集源代码文件。
+        /// 返回 (addedCount, skippedCount)。
+        /// </summary>
+        private async Task<(int added, int skipped)> AddProjectItemsRecursiveAsync(
+            EnvDTE.ProjectItems projectItems,
+            HashSet<string> sourceExtensions)
+        {
+            int addedCount = 0;
+            int skippedCount = 0;
+            if (projectItems == null) return (addedCount, skippedCount);
+
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            foreach (EnvDTE.ProjectItem item in projectItems)
+            {
+                try
+                {
+                    // 递归处理子项（文件夹）
+                    if (item.ProjectItems != null && item.ProjectItems.Count > 0)
+                    {
+                        var (childAdded, childSkipped) = await AddProjectItemsRecursiveAsync(item.ProjectItems, sourceExtensions);
+                        addedCount += childAdded;
+                        skippedCount += childSkipped;
+                    }
+
+                    // 检查文件
+                    string? filePath = null;
+                    try { filePath = item.FileNames[0]; } catch { /* 某些项没有文件名 */ }
+
+                    if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
+                    {
+                        string ext = System.IO.Path.GetExtension(filePath);
+                        if (sourceExtensions.Contains(ext) || FileParserService.IsSupportedFormat(filePath!))
+                        {
+                            if (!_attachedFilePaths.Contains(filePath!, StringComparer.OrdinalIgnoreCase))
+                            {
+                                _attachedFilePaths.Add(filePath!);
+                                addedCount++;
+                            }
+                            else
+                            {
+                                skippedCount++;
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // 跳过无法访问的项
+                }
+            }
+
+            return (addedCount, skippedCount);
+        }
+
+        /// <summary>
+        /// 添加上下文菜单 - 选中代码块：将编辑器选中的代码保存为临时文件并添加到上下文。
+        /// </summary>
+        private async void AddSelectedCode_Click(object sender, RoutedEventArgs e)
+        {
+            AddContextPopup.IsOpen = false;
+            try
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                var dte = (EnvDTE.DTE)Package.GetGlobalService(typeof(EnvDTE.DTE));
+                var doc = dte?.ActiveDocument;
+                if (doc == null)
+                {
+                    StatusLabel.Text = "⚠️ 没有打开的活动文档";
+                    return;
+                }
+
+                var textDoc = (EnvDTE.TextDocument)doc.Object("TextDocument");
+                var selection = textDoc.Selection as EnvDTE.TextSelection;
+                if (selection == null || selection.IsEmpty)
+                {
+                    StatusLabel.Text = "⚠️ 请先在编辑器中选中代码块";
+                    return;
+                }
+
+                string selectedCode = selection.Text;
+                if (string.IsNullOrWhiteSpace(selectedCode))
+                {
+                    StatusLabel.Text = "⚠️ 选中的代码块为空";
+                    return;
+                }
+
+                string language = doc.Language ?? "text";
+                string fileExt = GetFileExtensionForLanguage(language);
+
+                // 保存选中代码到临时文件
+                string tempDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DeepSeekVS", "temp", "context");
+                System.IO.Directory.CreateDirectory(tempDir);
+                string tempPath = System.IO.Path.Combine(tempDir,
+                    $"selection_{DateTime.Now:yyyyMMdd_HHmmss}.{fileExt}");
+                System.IO.File.WriteAllText(tempPath, selectedCode);
+
+                _attachedFilePaths.Add(tempPath);
+                RefreshAttachedFilesUI();
+                StatusLabel.Text = $"✂️ 已添加选中代码块 ({selectedCode.Length} 字符, {language})";
+                Logger.Info($"[AddContext] 选中代码块已添加: {tempPath}, 长度={selectedCode.Length}, 语言={language}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"添加选中代码块失败: {ex.Message}", ex);
+                StatusLabel.Text = $"❌ 添加选中代码块失败: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// 添加上下文菜单 - 调试输出：捕获输出窗口中的调试信息，
+        /// 并自动提取报错中引用的文件一并加入上下文。
+        /// </summary>
+        private async void AddDebugOutput_Click(object sender, RoutedEventArgs e)
+        {
+            AddContextPopup.IsOpen = false;
+            try
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                var dte = (EnvDTE80.DTE2)Package.GetGlobalService(typeof(EnvDTE.DTE));
+                if (dte == null)
+                {
+                    StatusLabel.Text = "⚠️ 无法获取 Visual Studio 环境";
+                    return;
+                }
+
+                // 尝试从输出窗口获取调试输出
+                string debugOutput = await CaptureDebugOutputAsync(dte);
+
+                if (string.IsNullOrWhiteSpace(debugOutput))
+                {
+                    StatusLabel.Text = "⚠️ 未找到调试输出，请确认已运行调试并查看输出窗口";
+                    return;
+                }
+
+                // 保存调试输出到临时文件
+                string tempDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DeepSeekVS", "temp", "context");
+                System.IO.Directory.CreateDirectory(tempDir);
+                string tempPath = System.IO.Path.Combine(tempDir,
+                    $"debug_output_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+                System.IO.File.WriteAllText(tempPath, debugOutput);
+
+                _attachedFilePaths.Add(tempPath);
+                RefreshAttachedFilesUI();
+
+                // ── 从调试输出中提取报错引用的文件路径并添加上下文 ──
+                int referencedFileCount = await ExtractAndAddReferencedFilesAsync(debugOutput);
+
+                StatusLabel.Text = referencedFileCount > 0
+                    ? $"🐛 已添加调试输出 ({debugOutput.Length} 字符) + {referencedFileCount} 个关联文件"
+                    : $"🐛 已添加调试输出 ({debugOutput.Length} 字符)";
+                Logger.Info($"[AddContext] 调试输出已添加: {tempPath}, 长度={debugOutput.Length}, 关联文件={referencedFileCount} 个");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"添加调试输出失败: {ex.Message}", ex);
+                StatusLabel.Text = $"❌ 添加调试输出失败: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// 从调试/构建输出中提取报错引用的文件路径，并添加到附件列表。
+        /// 支持 MSBuild 格式 (file.cs(line,col): error) 和通用路径格式。
+        /// </summary>
+        private async Task<int> ExtractAndAddReferencedFilesAsync(string output)
+        {
+            int addedCount = 0;
+            var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            await Task.Run(() =>
+            {
+                try
+                {
+                    // 模式 1: MSBuild/编译器格式  path\to\file.ext(12,34): error CS0001: ...
+                    var msbuildPattern = new System.Text.RegularExpressions.Regex(
+                        @"([A-Za-z]:[^(\r\n]+?\.\w+)\s*\(\d+",
+                        System.Text.RegularExpressions.RegexOptions.Multiline);
+
+                    foreach (System.Text.RegularExpressions.Match match in msbuildPattern.Matches(output))
+                    {
+                        string candidate = match.Groups[1].Value.Trim();
+                        if (System.IO.File.Exists(candidate) && seenPaths.Add(candidate))
+                        {
+                            Logger.Info($"[AddContext] 从调试输出提取文件: {candidate}");
+                        }
+                    }
+
+                    // 模式 2: 绝对路径格式 (带盘符的常见扩展名)
+                    var absPathPattern = new System.Text.RegularExpressions.Regex(
+                        @"([A-Za-z]:[^\s""']+?\.(cs|vb|cpp|c|h|hpp|fs|py|js|ts|jsx|tsx|xaml|xml|json|config|csproj|vbproj|sql|md|txt|yml|yaml))\b",
+                        System.Text.RegularExpressions.RegexOptions.Multiline);
+
+                    foreach (System.Text.RegularExpressions.Match match in absPathPattern.Matches(output))
+                    {
+                        string candidate = match.Groups[1].Value.Trim();
+                        if (System.IO.File.Exists(candidate) && seenPaths.Add(candidate))
+                        {
+                            Logger.Info($"[AddContext] 从调试输出提取文件: {candidate}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[AddContext] 提取关联文件失败: {ex.Message}");
+                }
+            });
+
+            // 添加提取到的文件
+            foreach (string filePath in seenPaths)
+            {
+                if (!_attachedFilePaths.Contains(filePath, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (FileParserService.IsSupportedFormat(filePath))
+                    {
+                        _attachedFilePaths.Add(filePath);
+                        addedCount++;
+                    }
+                    else
+                    {
+                        Logger.Info($"[AddContext] 跳过不支持的关联文件格式: {filePath}");
+                    }
+                }
+            }
+
+            if (addedCount > 0)
+            {
+                RefreshAttachedFilesUI();
+            }
+
+            return addedCount;
+        }
+
+        /// <summary>
+        /// 从 Visual Studio 输出窗口捕获调试输出。
+        /// 尝试读取"调试"窗格的内容，如果不可用则读取"生成"窗格。
+        /// </summary>
+        private async Task<string> CaptureDebugOutputAsync(EnvDTE80.DTE2 dte)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            try
+            {
+                // 通过 DTE2 的 ToolWindows.OutputWindow 获取输出窗格列表
+                var panes = dte.ToolWindows.OutputWindow.OutputWindowPanes;
+                var debugPaneNames = new[] { "调试", "Debug", "生成", "Build" };
+
+                foreach (string paneName in debugPaneNames)
+                {
+                    try
+                    {
+                        var pane = panes.Item(paneName);
+                        if (pane != null)
+                        {
+                            var textDoc = pane.TextDocument;
+                            if (textDoc != null)
+                            {
+                                var content = textDoc.StartPoint.CreateEditPoint()
+                                    .GetText(textDoc.EndPoint);
+                                if (!string.IsNullOrWhiteSpace(content))
+                                {
+                                    Logger.Info($"[AddContext] 从输出窗格 \"{paneName}\" 获取内容，长度={content.Length}");
+                                    return content;
+                                }
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 窗格不存在则跳过
+                    }
+                }
+
+                // 遍历所有窗格查找非空内容
+                foreach (EnvDTE.OutputWindowPane pane in panes)
+                {
+                    try
+                    {
+                        var textDoc = pane.TextDocument;
+                        if (textDoc != null)
+                        {
+                            var content = textDoc.StartPoint.CreateEditPoint()
+                                .GetText(textDoc.EndPoint);
+                            if (!string.IsNullOrWhiteSpace(content))
+                            {
+                                Logger.Info($"[AddContext] 从输出窗格 \"{pane.Name}\" 获取内容，长度={content.Length}");
+                                return content;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 跳过无法访问的窗格
+                    }
+                }
+
+                Logger.Info("[AddContext] 所有输出窗格均为空");
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"捕获调试输出失败: {ex.Message}", ex);
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// 根据语言名称获取对应的文件扩展名。
+        /// </summary>
+        private static string GetFileExtensionForLanguage(string language)
+        {
+            if (string.IsNullOrWhiteSpace(language))
+                return "txt";
+
+            return language.ToLowerInvariant() switch
+            {
+                "csharp" or "c#" => "cs",
+                "vb" or "vb.net" or "basic" => "vb",
+                "c/c++" or "c++" or "cpp" => "cpp",
+                "c" => "c",
+                "f#" or "fsharp" => "fs",
+                "python" => "py",
+                "javascript" or "js" => "js",
+                "typescript" or "ts" => "ts",
+                "html" or "htmlx" => "html",
+                "css" => "css",
+                "xml" or "xaml" => "xml",
+                "json" => "json",
+                "sql" => "sql",
+                "java" => "java",
+                "go" => "go",
+                "rust" => "rs",
+                "powershell" or "ps1" => "ps1",
+                "shell" or "bash" => "sh",
+                "markdown" => "md",
+                "yaml" or "yml" => "yml",
+                _ => "txt"
+            };
         }
 
         #endregion
@@ -692,11 +1211,64 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (obj.TryGetProperty("type", out var typeProp))
                 {
                     string type = typeProp.GetString() ?? string.Empty;
+
                     if (type == "applyCode")
                     {
                         string code = obj.TryGetProperty("code", out var codeProp)
                             ? codeProp.GetString() ?? string.Empty : string.Empty;
                         ApplyCodeToActiveDocument(code);
+                    }
+                    else if (type == "showDiff")
+                    {
+                        string code = obj.TryGetProperty("code", out var diffCodeProp)
+                            ? diffCodeProp.GetString() ?? string.Empty : string.Empty;
+                        ShowCodeDiff(code);
+                    }
+                    else if (type == "retryMessage")
+                    {
+                        int msgIndex = obj.TryGetProperty("messageIndex", out var retryIdxProp)
+                            ? retryIdxProp.GetInt32() : -1;
+                        if (msgIndex >= 0)
+                            _ = RetryMessageAsync(msgIndex);
+                    }
+                    else if (type == "editMessage")
+                    {
+                        int msgIndex = obj.TryGetProperty("messageIndex", out var editIdxProp)
+                            ? editIdxProp.GetInt32() : -1;
+                        if (msgIndex >= 0)
+                            _ = EditMessageAsync(msgIndex);
+                    }
+                    else if (type == "navigateVersion")
+                    {
+                        int msgIndex = obj.TryGetProperty("messageIndex", out var navIdxProp)
+                            ? navIdxProp.GetInt32() : -1;
+                        int direction = obj.TryGetProperty("direction", out var dirProp)
+                            ? dirProp.GetInt32() : 0;
+                        if (msgIndex >= 0 && direction != 0)
+                            _ = NavigateVersionAsync(msgIndex, direction);
+                    }
+                    else if (type == "agentApprove")
+                    {
+                        string requestId = obj.TryGetProperty("requestId", out var reqIdProp)
+                            ? reqIdProp.GetString() ?? string.Empty : string.Empty;
+                        bool approved = obj.TryGetProperty("approved", out var apprProp)
+                            && apprProp.GetBoolean();
+                        _codingAgent?.RespondToPermission(requestId, approved);
+
+                        // 移除权限 UI
+                        _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+                        {
+                            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                            if (ChatWebView.CoreWebView2 != null)
+                            {
+                                try
+                                {
+                                    await ChatWebView.CoreWebView2.ExecuteScriptAsync(
+                                        "var p=document.getElementById('agent-permission');if(p)p.remove();");
+                                }
+                                catch { }
+                            }
+                        });
                     }
                 }
             }
@@ -706,28 +1278,90 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
         }
 
+        /// <summary>
+        /// Applies the AI-generated code to the active document.
+        /// Uses TerminalWindowHelper for proper TextBuffer manipulation.
+        /// </summary>
         private void ApplyCodeToActiveDocument(string code)
         {
             if (string.IsNullOrWhiteSpace(code)) return;
 
-            _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
             {
-                await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                string? error = await TerminalWindowHelper.ApplyCodeToActiveDocumentAsync(code);
+                if (error != null)
+                {
+                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    StatusLabel.Text = $"⚠️ {error}";
+                    Logger.Warn($"[ApplyCode] 写入失败: {error}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Shows a diff between the currently selected code (original) and the AI-generated code.
+        /// The user can review changes before applying.
+        /// </summary>
+        private void ShowCodeDiff(string newCode)
+        {
+            if (string.IsNullOrWhiteSpace(newCode)) return;
+
+            _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
                 try
                 {
-                    var dte = (EnvDTE.DTE)Microsoft.VisualStudio.Shell.Package.GetGlobalService(typeof(EnvDTE.DTE));
-                    var doc = dte?.ActiveDocument;
-                    if (doc != null)
+                    // Capture the current selected text as original
+                    var captured = await TerminalWindowHelper.CaptureOriginalCodeAsync();
+
+                    if (captured == null)
                     {
-                        var textDoc = (EnvDTE.TextDocument)doc.Object("TextDocument");
-                        var editPoint = textDoc.StartPoint.CreateEditPoint();
-                        editPoint.ReplaceText(textDoc.EndPoint, code, 0);
-                        Logger.Info("代码已应用到活动文档");
+                        // 没有活动文档或无法捕获原始代码
+                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                        StatusLabel.Text = "⚠️ 没有活动文档，无法应用代码变更";
+                        Logger.Warn("[ShowCodeDiff] 无法捕获原始代码（无活动文档或无法访问）");
+                        return;
+                    }
+
+                    string originalCode = captured.Value.OriginalCode;
+                    string filePath = captured.Value.FilePath;
+
+                    // Generate diff
+                    string diffContent = CodeDiffHelper.GenerateUnifiedDiff(originalCode, newCode, filePath);
+
+                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                    // Show diff in a message box with apply/cancel option
+                    if (diffContent == "No changes detected." || diffContent == "No changes.")
+                    {
+                        StatusLabel.Text = "ℹ️ 代码无变更";
+                        return;
+                    }
+
+                    MessageBoxResult result = MessageBox.Show(
+                        $"{diffContent}\n\n是否应用这些更改到当前文档？",
+                        "DeepSeek Chat - 代码变更对比",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question);
+
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        string? error = await TerminalWindowHelper.ApplyCodeToActiveDocumentAsync(newCode);
+                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                        if (error != null)
+                        {
+                            StatusLabel.Text = $"⚠️ {error}";
+                        }
+                        else
+                        {
+                            StatusLabel.Text = "✅ 代码已应用";
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"应用代码失败: {ex.Message}", ex);
+                    Logger.Error($"显示 Diff 失败: {ex.Message}", ex);
+                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    StatusLabel.Text = $"❌ 代码比较失败: {ex.Message}";
                 }
             });
         }

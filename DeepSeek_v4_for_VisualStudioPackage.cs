@@ -25,6 +25,12 @@ namespace DeepSeek_v4_for_VisualStudio
         /// DeepSeek_v4_for_VisualStudioPackage GUID string.
         /// </summary>
         public const string PackageGuidString = "7a5b2771-22cb-4337-b445-8d97e3189b64";
+
+        /// <summary>
+        /// GUID as a static ref for use with LoadPackage.
+        /// </summary>
+        public static readonly Guid PackageGuid = new(PackageGuidString);
+
         public DeepSeekOptionsPage Options => (DeepSeekOptionsPage)GetDialogPage(typeof(DeepSeekOptionsPage));
 
         #region Package Members

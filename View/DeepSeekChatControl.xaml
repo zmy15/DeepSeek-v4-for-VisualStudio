@@ -8,7 +8,7 @@
              d:DesignHeight="450" d:DesignWidth="600">
     <UserControl.Resources>
         <!-- ═══ 深色主题样式 ═══ -->
-        <!-- ComboBox 深色样式 -->
+        <!-- ComboBox 深色样式（完整自定义模板，保持所有下拉元素深色） -->
         <Style TargetType="ComboBox">
             <Setter Property="Background" Value="#3C3C3C"/>
             <Setter Property="Foreground" Value="#D4D4D4"/>
@@ -16,6 +16,7 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="6,3"/>
             <Setter Property="FontSize" Value="12"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ComboBox">
@@ -26,13 +27,16 @@
                                           BorderThickness="{TemplateBinding BorderThickness}"
                                           IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
                                           Focusable="False"
-                                          ClickMode="Press">
+                                          ClickMode="Press"
+                                          SnapsToDevicePixels="True">
                                 <ToggleButton.Template>
                                     <ControlTemplate TargetType="ToggleButton">
-                                        <Border Background="{TemplateBinding Background}"
+                                        <Border x:Name="ToggleBorder"
+                                                Background="{TemplateBinding Background}"
                                                 BorderBrush="{TemplateBinding BorderBrush}"
                                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                                CornerRadius="3">
+                                                CornerRadius="3"
+                                                SnapsToDevicePixels="True">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*"/>
@@ -41,7 +45,8 @@
                                                 <ContentPresenter Grid.Column="0"
                                                                   Margin="6,3,0,3"
                                                                   HorizontalAlignment="Left"
-                                                                  VerticalAlignment="Center"/>
+                                                                  VerticalAlignment="Center"
+                                                                  RecognizesAccessKey="True"/>
                                                 <Path Grid.Column="1"
                                                       Data="M0,0 L4,4 L8,0"
                                                       Fill="#888888"
@@ -51,6 +56,12 @@
                                                       StrokeThickness="1"/>
                                             </Grid>
                                         </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="ToggleBorder" Property="Background" Value="#4A4A4A"/>
+                                                <Setter TargetName="ToggleBorder" Property="BorderBrush" Value="#666666"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
                                     </ControlTemplate>
                                 </ToggleButton.Template>
                             </ToggleButton>
@@ -67,7 +78,8 @@
                                    IsOpen="{TemplateBinding IsDropDownOpen}"
                                    AllowsTransparency="True"
                                    Focusable="False"
-                                   PopupAnimation="Slide">
+                                   PopupAnimation="Slide"
+                                   SnapsToDevicePixels="True">
                                 <Grid x:Name="DropDown"
                                       SnapsToDevicePixels="True"
                                       MinWidth="{TemplateBinding ActualWidth}"
@@ -213,6 +225,63 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
+                <!-- ➕ 输入框左上角：添加上下文按钮 + Popup -->
+                <Button x:Name="AddContextButton" Content="＋"
+                        Click="AddContextButton_Click"
+                        Style="{StaticResource TransparentButton}"
+                        ToolTip="添加上下文：活动文档 / 项目文件 / 项目全部文件 / 选中代码块 / 调试输出"
+                        FontSize="18" Padding="6,2"
+                        Foreground="#6CAFD9"
+                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                        Margin="4,4,0,0"
+                        Panel.ZIndex="10" />
+
+                <Popup x:Name="AddContextPopup"
+                       PlacementTarget="{Binding ElementName=AddContextButton}"
+                       Placement="Bottom"
+                       StaysOpen="False"
+                       AllowsTransparency="True"
+                       Focusable="False"
+                       PopupAnimation="Fade"
+                       HorizontalOffset="0"
+                       VerticalOffset="4">
+                    <Border Background="#2D2D2D"
+                            BorderBrush="#555555"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="2"
+                            MinWidth="200">
+                        <StackPanel>
+                            <MenuItem Header="📄 添加活动文档"
+                                      Click="AddActiveDocument_Click"
+                                      ToolTip="将当前编辑器中的活动文档内容添加到对话上下文"
+                                      Background="#2D2D2D" Foreground="#D4D4D4"
+                                      Padding="10,6" FontSize="13" />
+                            <MenuItem Header="📁 添加项目文件…"
+                                      Click="AddProjectFiles_Click"
+                                      ToolTip="从项目中选择文件添加到对话上下文"
+                                      Background="#2D2D2D" Foreground="#D4D4D4"
+                                      Padding="10,6" FontSize="13" />
+                            <MenuItem Header="📦 添加项目全部文件"
+                                      Click="AddAllProjectFiles_Click"
+                                      ToolTip="一键将当前解决方案中所有项目的源代码文件添加到对话上下文"
+                                      Background="#2D2D2D" Foreground="#D4D4D4"
+                                      Padding="10,6" FontSize="13" />
+                            <Separator Background="#555555" Margin="4,2" />
+                            <MenuItem Header="✂️ 添加选中代码块"
+                                      Click="AddSelectedCode_Click"
+                                      ToolTip="将编辑器中当前选中的代码块添加到对话上下文"
+                                      Background="#2D2D2D" Foreground="#D4D4D4"
+                                      Padding="10,6" FontSize="13" />
+                            <MenuItem Header="🐛 添加调试输出"
+                                      Click="AddDebugOutput_Click"
+                                      ToolTip="将 Visual Studio 输出窗口中的调试信息添加到对话上下文"
+                                      Background="#2D2D2D" Foreground="#D4D4D4"
+                                      Padding="10,6" FontSize="13" />
+                        </StackPanel>
+                    </Border>
+                </Popup>
+
                 <TextBox Grid.Row="0"
                          x:Name="InputTextBox"
                          AcceptsReturn="True"
@@ -224,7 +293,7 @@
                          CaretBrush="#D4D4D4"
                          VerticalScrollBarVisibility="Auto"
                          VerticalContentAlignment="Top"
-                         Padding="4"
+                         Padding="36,4,4,4"
                          PreviewKeyDown="InputTextBox_PreviewKeyDown"
                          TextChanged="InputTextBox_TextChanged"
                          LostFocus="InputTextBox_LostFocus" />
