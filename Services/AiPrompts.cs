@@ -223,6 +223,61 @@ user-invocable: true
 
         #endregion
 
+        #region Multi-Agent Prompts
+
+        /// <summary>
+        /// 多 Agent 系统提示词片段 — 告知 AI 当前处于多 Agent 协作环境。
+        /// </summary>
+        public const string MultiAgentSystemPromptFragment =
+            "\n\n---\n" +
+            "## 多 Agent 协作系统\n\n" +
+            "你当前正在一个多 Agent 协作环境中工作。系统有以下专职 Agent：\n\n" +
+            "- **Ask Agent** — 纯技术问答、代码解释、方案讨论。不能修改代码。\n" +
+            "- **Plan Agent** — 研究代码库并制定详细实现计划。不能修改代码。\n" +
+            "- **Explore Agent** — 代码库只读搜索子代理。被 Plan Agent 并行调用。\n" +
+            "- **Edit Agent** — 执行代码修改。按计划逐步修改文件。\n\n" +
+            "### Agent 协作流程\n" +
+            "1. 用户提问 → 系统自动路由到合适的 Agent\n" +
+            "2. 复杂任务 → Plan Agent 先研究代码库，产出实现计划\n" +
+            "3. Plan Agent 可并行启动多个 Explore 子代理加速研究\n" +
+            "4. 计划确认后 → Handoff 给 Edit Agent 执行代码修改\n" +
+            "5. Edit Agent 按步骤执行，每步报告进度\n\n" +
+            "### Handoff 机制\n" +
+            "当用户说「开始实现」或「执行计划」时，当前 Agent 可以将控制权移交给 Edit Agent。\n" +
+            "Handoff 时会携带完整的计划和上下文。\n\n" +
+            "### 用户命令\n" +
+            "- `@ask 问题` — 显式使用 Ask Agent\n" +
+            "- `@plan 任务` — 显式使用 Plan Agent\n" +
+            "- `@edit 任务` — 显式使用 Edit Agent\n" +
+            "- `/技能名` — 调用技能（Skill）\n" +
+            "- `/help` — 查看可用技能列表";
+
+        /// <summary>
+        /// Agent 路由分析 — 系统提示词。
+        /// </summary>
+        public const string AgentRoutingSystemPrompt =
+            "你是一个 Agent 路由器。你的唯一任务是：根据用户消息判断应该路由到哪个 Agent。只返回 JSON，不返回任何其他内容。";
+
+        /// <summary>
+        /// Agent 路由分析 — 用户提示词模板。
+        /// {0} = 用户消息
+        /// </summary>
+        public const string AgentRoutingUserPrompt =
+            "判断以下用户消息应路由到哪个 Agent。\n\n" +
+            "可用 Agent：\n" +
+            "- Ask: 纯技术问答、代码解释、方案讨论\n" +
+            "- Plan: 复杂任务，需要先研究再制定实现计划\n" +
+            "- Edit: 明确的、范围小的代码修改\n\n" +
+            "规则：\n" +
+            "1. 如果任务涉及3个以上文件或需要架构设计 → Plan\n" +
+            "2. 如果是明确的代码修改且范围清晰 → Edit\n" +
+            "3. 如果是纯问答或聊天 → Ask\n" +
+            "4. 只返回 JSON: {{\"targetAgent\":\"Ask|Plan|Edit\",\"confidence\":\"high|medium|low\",\"needsPlanning\":true|false,\"reason\":\"理由\"}}\n\n" +
+            "用户消息: {0}\n\n" +
+            "路由 JSON:";
+
+        #endregion
+
         #region Helper Methods
 
         /// <summary>

@@ -131,7 +131,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var msg = _messages[i];
                 if (msg.Role == "user")
                 {
-                    _messagesHtml.Append(ChatHtmlService.BuildUserMessageHtml(msg.Content ?? string.Empty, messageIndex: i));
+                    _messagesHtml.Append(ChatHtmlService.BuildUserMessageHtml(
+                        msg.Content ?? string.Empty,
+                        msg.AttachedFiles.Count > 0 ? msg.AttachedFiles : null,
+                        i));
                 }
                 else
                 {

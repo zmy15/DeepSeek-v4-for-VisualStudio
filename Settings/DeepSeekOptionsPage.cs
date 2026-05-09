@@ -85,6 +85,13 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public string BaiduApiKey { get; set; } = string.Empty;
 
+        [Category("Editor")]
+        [DisplayName("Show Diff Markers In Editor")]
+        [Description("AI 代码写入后，在编辑器内显示红绿行标记预览（绿色=新增行，红色=已删除行），" +
+                     "并提供确认/撤销按钮。关闭后变更直接生效不预览。")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public bool ShowDiffMarkersInEditor { get; set; } = true;
+
         [Category("OCR Settings")]
         [DisplayName("OCR Engine")]
         [Description("选择图像 OCR 引擎:\n" +

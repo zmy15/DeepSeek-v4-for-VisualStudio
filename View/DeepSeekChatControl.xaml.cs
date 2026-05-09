@@ -1,5 +1,6 @@
 ﻿using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
+using DeepSeek_v4_for_VisualStudio.Services.Agents;
 using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.Web.WebView2.Core;
@@ -49,7 +50,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private McpManagerService? _mcpManager;
         private SkillService? _skillService;
         private SkillDiscoveryResult? _skillDiscoveryResult;
-        private CodingAgentService? _codingAgent;
+        private AgentDispatcher? _agentDispatcher;
         private CancellationTokenSource? _currentStreamingCts;
         private string? _solutionPath;
 
@@ -160,6 +161,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── 订阅设置变更事件，支持热切换配置 ──
             DeepSeekOptionsPage.SettingsChanged += OnOcrSettingsChanged;
 
+            // ── 订阅 diff 预览状态事件，刷新全局控制栏 ──
+            EditorDiffMarkerService.Instance.PreviewStateChanged += _ => RefreshDiffGlobalBar();
+            EditorDiffMarkerService.Instance.PendingDiffCountChanged += RefreshDiffGlobalBar;
+
             // ── 订阅解决方案事件，切换解决方案时自动重载对话 ──
             _ = WireSolutionEventsAsync();
         }
@@ -177,15 +182,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _apiService = new DeepSeekApiService(_options.ApiKey, _options.SelectedModel);
             _apiService.ConfigureThinking(_options.IsThinkingEnabled, _options.ReasoningEffort);
 
-            // ── 初始化/重建 Coding Agent（ApiService 重建时必须同步重建，否则 Agent 持有已释放的 HttpClient）──
-            if (_codingAgent != null)
+            // ── 初始化/重建 Agent 调度器（ApiService 重建时必须同步重建）──
+            if (_agentDispatcher != null)
             {
-                _codingAgent.PermissionRequested -= OnAgentPermissionRequested;
-                _codingAgent.Dispose();
+                _agentDispatcher.PermissionRequested -= OnAgentPermissionRequested;
+                _agentDispatcher.Dispose();
             }
-            _codingAgent = new CodingAgentService(_apiService);
-            _codingAgent.PermissionRequested += OnAgentPermissionRequested;
-            Logger.Info("Coding Agent 服务初始化成功");
+            _agentDispatcher = new AgentDispatcher(_apiService);
+            _agentDispatcher.PermissionRequested += OnAgentPermissionRequested;
+            Logger.Info("Agent 调度器初始化成功（多 Agent 模式：Ask / Plan / Explore / Edit）");
 
             Logger.Info("API 服务初始化成功");
         }
@@ -709,11 +714,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _webSearchService?.Dispose();
             _mcpManager?.Dispose();
 
-            if (_codingAgent != null)
+            if (_agentDispatcher != null)
             {
-                _codingAgent.PermissionRequested -= OnAgentPermissionRequested;
-                _codingAgent.Dispose();
-                _codingAgent = null;
+                _agentDispatcher.PermissionRequested -= OnAgentPermissionRequested;
+                _agentDispatcher.Dispose();
+                _agentDispatcher = null;
             }
 
             SaveCurrentSession();

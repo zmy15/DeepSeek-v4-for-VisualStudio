@@ -1,4 +1,4 @@
-using DeepSeek_v4_for_VisualStudio.Utils;
+﻿using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
@@ -12,7 +12,6 @@ using System.ComponentModel.Composition;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
-using System.Windows;
 
 namespace DeepSeek_v4_for_VisualStudio.ToolWindows
 {
@@ -57,6 +56,7 @@ namespace DeepSeek_v4_for_VisualStudio.ToolWindows
                 bool fileExisted = File.Exists(filePath);
                 if (!fileExisted)
                 {
+                    // 创建空文件（调用方应在此时已将文件加入 VS 项目，以便后续 VS SDK 路径可用）
                     await Task.Run(() => File.WriteAllText(filePath, string.Empty, System.Text.Encoding.UTF8));
                     Logger.Info($"[WriteCode] 创建新文件: {Path.GetFileName(filePath)}");
                 }
@@ -65,6 +65,15 @@ namespace DeepSeek_v4_for_VisualStudio.ToolWindows
                 var componentModel = (IComponentModel)ServiceProvider.GlobalProvider.GetService(typeof(SComponentModel));
                 IVsEditorAdaptersFactoryService? editorAdapter = componentModel?.DefaultExportProvider
                     .GetExport<IVsEditorAdaptersFactoryService>()?.Value;
+
+                if (editorAdapter == null && componentModel != null)
+                {
+                    Logger.Warn("[WriteCode] IComponentModel 可用但 IVsEditorAdaptersFactoryService 获取失败");
+                }
+                else if (componentModel == null)
+                {
+                    Logger.Warn("[WriteCode] IComponentModel 不可用（ServiceProvider.GlobalProvider 可能尚未完全初始化）");
+                }
 
                 // ── 方案一：文件已在 VS 编辑器中打开 → 直接操作其 ITextBuffer ──
                 if (editorAdapter != null)
@@ -84,7 +93,7 @@ namespace DeepSeek_v4_for_VisualStudio.ToolWindows
 
                         if (targetBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument textDoc))
                         {
-                            await Task.Run(() => textDoc.Save());
+                            textDoc.Save();
                         }
 
                         Logger.Info($"[WriteCode] ✅ 通过 ITextBuffer 写入已打开文件: {Path.GetFileName(filePath)}");
@@ -127,7 +136,7 @@ namespace DeepSeek_v4_for_VisualStudio.ToolWindows
 
                                 if (textBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument textDoc))
                                 {
-                                    await Task.Run(() => textDoc.Save());
+                                    textDoc.Save();
                                 }
 
                                 Logger.Info($"[WriteCode] ✅ 通过 IVsInvisibleEditor+ITextBuffer 写入: {Path.GetFileName(filePath)}");
@@ -295,124 +304,6 @@ namespace DeepSeek_v4_for_VisualStudio.ToolWindows
             {
                 Logger.Error($"[ApplyCode] Failed: {ex.Message}", ex);
                 return $"Failed to apply the code: {ex.Message}";
-            }
-        }
-
-        /// <summary>
-        /// 应用 AI 生成的代码并在确认前展示与原始代码的差异对比（+/-）。
-        /// 返回 null 表示成功或用户取消；返回错误字符串表示失败原因。
-        /// </summary>
-        /// <param name="newCode">AI 生成的新代码。</param>
-        /// <param name="originalCode">修改前的原始选中代码。</param>
-        /// <param name="filePath">文件路径，用于差异视图的上下文。</param>
-        public static async Task<string?> ApplyCodeWithDiffAsync(string newCode, string originalCode, string filePath = "")
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(newCode))
-                {
-                    return null;
-                }
-
-                DocumentView? docView = await GetActiveDocumentViewAsync();
-
-                if (docView == null)
-                {
-                    Logger.Warn("[ApplyCodeWithDiff] 没有活动文档");
-                    return "No active document is open to apply the code.";
-                }
-
-                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-                // Generate diff content
-                string diffContent = CodeDiffHelper.GenerateUnifiedDiff(originalCode, newCode, filePath);
-
-                // Show diff in a message dialog (can be upgraded to a proper tool window later)
-                bool hasChanges = !string.IsNullOrWhiteSpace(diffContent) &&
-                                  diffContent != "No changes detected.";
-
-                if (hasChanges)
-                {
-                    // Ask user to confirm the change
-                    MessageBoxResult result = MessageBox.Show(
-                        $"The following changes will be applied:\n\n{diffContent}\n\nApply these changes?",
-                        "DeepSeek Chat - Code Diff",
-                        MessageBoxButton.YesNo,
-                        MessageBoxImage.Question);
-
-                    if (result != MessageBoxResult.Yes)
-                    {
-                        return null; // 用户取消
-                    }
-                }
-
-                // Apply the code
-                ITextBuffer textBuffer = docView.TextView.TextBuffer;
-                NormalizedSnapshotSpanCollection selection = docView.TextView.Selection.SelectedSpans;
-
-                using (ITextEdit edit = textBuffer.CreateEdit())
-                {
-                    if (selection.Count > 0 && !selection[0].IsEmpty)
-                    {
-                        edit.Replace(selection[0], newCode);
-                    }
-                    else
-                    {
-                        int caretPosition = docView.TextView.Caret.Position.BufferPosition.Position;
-                        edit.Insert(caretPosition, newCode);
-                    }
-
-                    edit.Apply();
-                }
-
-                Logger.Info("[ApplyCodeWithDiff] 代码已成功应用");
-                return null; // 成功
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"[ApplyCodeWithDiff] Failed: {ex.Message}", ex);
-                return $"Failed to apply the code: {ex.Message}";
-            }
-        }
-
-        /// <summary>
-        /// 捕获当前活动文档的原始内容（修改前）。
-        /// 优先返回选中文本，无选中时返回全文。
-        /// </summary>
-        /// <returns>包含原始代码和文件路径的元组，无活动文档时返回 null。</returns>
-        public static async Task<(string OriginalCode, string FilePath)?> CaptureOriginalCodeAsync()
-        {
-            try
-            {
-                DocumentView? docView = await GetActiveDocumentViewAsync();
-
-                if (docView == null)
-                {
-                    return null;
-                }
-
-                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-                string originalCode;
-                NormalizedSnapshotSpanCollection selection = docView.TextView.Selection.SelectedSpans;
-
-                if (selection.Count > 0 && !selection[0].IsEmpty)
-                {
-                    originalCode = selection[0].GetText();
-                }
-                else
-                {
-                    originalCode = docView.TextView.TextBuffer.CurrentSnapshot.GetText();
-                }
-
-                string filePath = docView.FilePath ?? string.Empty;
-
-                return (originalCode, filePath);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"[CaptureOriginalCode] Failed: {ex.Message}", ex);
-                return null;
             }
         }
 

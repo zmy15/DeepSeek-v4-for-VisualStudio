@@ -7,6 +7,7 @@ using NPOI.XWPF.UserModel;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using UglyToad.PdfPig;
@@ -157,7 +158,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // Word 文档
                 else if (WordExtensions.Contains(ext))
                 {
-                    result.Content = await Task.Run(() => ParseWordDocument(filePath));
+                    result.Content = await ParseWordDocumentAsync(filePath);
                 }
                 // Excel 文档
                 else if (ExcelExtensions.Contains(ext))
@@ -281,32 +282,81 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 解析 Word 文档（.doc 和 .docx）。
         /// </summary>
-        private static string ParseWordDocument(string filePath)
+        private static async Task<string> ParseWordDocumentAsync(string filePath)
         {
             string ext = Path.GetExtension(filePath).ToLowerInvariant();
 
             if (ext == ".docx")
-                return ParseDocx(filePath);
+                return await ParseDocxAsync(filePath);
             else
                 return ParseDoc(filePath);
         }
 
         /// <summary>
-        /// 解析 .docx 文件（OOXML 格式）。
+        /// 解析 .docx 文件（OOXML 格式），支持提取图片并 OCR 插入对应位置。
         /// </summary>
-        private static string ParseDocx(string filePath)
+        private static async Task<string> ParseDocxAsync(string filePath)
         {
             var sb = new StringBuilder();
+            string? tempOcrDir = null;
+
             try
             {
                 using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
                 using var doc = new XWPFDocument(stream);
 
+                // 为 OCR 临时文件创建目录
+                tempOcrDir = Path.Combine(Path.GetTempPath(), "DeepSeek_DocxOCR_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempOcrDir);
+
                 foreach (var paragraph in doc.Paragraphs)
                 {
-                    string? text = paragraph.Text?.Trim();
-                    if (!string.IsNullOrEmpty(text))
-                        sb.AppendLine(text);
+                    var paraSb = new StringBuilder();
+
+                    foreach (var run in paragraph.Runs)
+                    {
+                        // ── 检查 run 中是否包含嵌入图片 ──
+                        try
+                        {
+                            var embeddedPictures = run.GetEmbeddedPictures();
+                            if (embeddedPictures != null && embeddedPictures.Count > 0)
+                            {
+                                foreach (var picture in embeddedPictures)
+                                {
+                                    var picData = picture?.GetPictureData();
+                                    if (picData?.Data != null)
+                                    {
+                                        string? ocrResult = await OcrPictureDataAsync(
+                                            picData, tempOcrDir);
+
+                                        if (!string.IsNullOrWhiteSpace(ocrResult))
+                                        {
+                                            paraSb.AppendLine();
+                                            paraSb.AppendLine("[📷 图片OCR内容]");
+                                            paraSb.AppendLine(ocrResult);
+                                            paraSb.AppendLine("[/📷 图片OCR内容]");
+                                            paraSb.AppendLine();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Info($"[Docx-OCR] 检查嵌入图片时出错: {ex.Message}");
+                        }
+
+                        // ── 获取 run 中的文本 ──
+                        string? runText = run.GetText(0);
+                        if (!string.IsNullOrEmpty(runText))
+                        {
+                            paraSb.Append(runText);
+                        }
+                    }
+
+                    string paraText = paraSb.ToString().Trim();
+                    if (!string.IsNullOrEmpty(paraText))
+                        sb.AppendLine(paraText);
                 }
 
                 // 也提取表格内容
@@ -330,8 +380,52 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Logger.Error($"解析 .docx 文件失败: {filePath}", ex);
                 return $"[解析失败: {ex.Message}]";
             }
+            finally
+            {
+                // 清理 OCR 临时目录
+                if (tempOcrDir != null && Directory.Exists(tempOcrDir))
+                {
+                    try { Directory.Delete(tempOcrDir, true); }
+                    catch (Exception ex) { Logger.Info($"[Docx-OCR] 清理临时目录失败: {ex.Message}"); }
+                }
+            }
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 将 NPOI 图片数据保存为临时文件并进行 OCR。
+        /// </summary>
+        private static async Task<string?> OcrPictureDataAsync(
+            NPOI.XWPF.UserModel.XWPFPictureData pictureData, string tempDir)
+        {
+            try
+            {
+                string ext = pictureData.SuggestFileExtension() ?? "png";
+                if (!ext.StartsWith(".")) ext = "." + ext;
+
+                string tempPath = Path.Combine(tempDir, $"ocr_{Guid.NewGuid():N}{ext}");
+                File.WriteAllBytes(tempPath, pictureData.Data);
+
+                Logger.Info($"[Docx-OCR] 开始识别嵌入图片 ({pictureData.Data.Length} bytes)...");
+                string? ocrText = await OcrService.ExtractTextFromImageAsync(tempPath);
+
+                if (!string.IsNullOrWhiteSpace(ocrText))
+                {
+                    Logger.Info($"[Docx-OCR] ✅ 成功: {ocrText!.Length} 字符");
+                    return ocrText;
+                }
+                else
+                {
+                    Logger.Info("[Docx-OCR] ⚠️ 未提取到文字");
+                    return null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Info($"[Docx-OCR] ❌ 图片 OCR 失败: {ex.Message}");
+                return null;
+            }
         }
 
         /// <summary>

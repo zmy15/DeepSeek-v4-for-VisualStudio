@@ -8,6 +8,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 {
     /// <summary>
     /// Agent 意图类型：判断用户请求是需要修改代码还是普通问答。
+    /// 保留向后兼容，同时支持多 Agent 路由。
     /// </summary>
     public enum AgentIntent
     {
@@ -16,6 +17,21 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>需要修改项目代码 / 修复 bug</summary>
         CodeChange,
+    }
+
+    /// <summary>
+    /// 将 AgentType 映射为 AgentIntent（向后兼容）。
+    /// </summary>
+    public static class AgentIntentMapper
+    {
+        public static AgentIntent ToIntent(this AgentType agentType) => agentType switch
+        {
+            AgentType.Ask => AgentIntent.QandA,
+            AgentType.Explore => AgentIntent.QandA,
+            AgentType.Plan => AgentIntent.CodeChange,
+            AgentType.Edit => AgentIntent.CodeChange,
+            _ => AgentIntent.QandA,
+        };
     }
 
     /// <summary>

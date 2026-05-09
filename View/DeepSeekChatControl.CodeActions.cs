@@ -5,6 +5,7 @@ using EnvDTE;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.TextManager.Interop;
@@ -13,6 +14,7 @@ using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -248,7 +250,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 在编辑器中替换选中代码（或全部内容）。
+        /// 在编辑器中替换选中代码（或全部内容），并触发编辑器内 diff 预览。
         /// </summary>
         public async Task ReplaceCodeInEditorAsync(string newCode, bool replaceAll = false)
         {
@@ -257,33 +259,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             try
             {
-                // ── 方案1：DTE ActiveDocument ──
-                var dte = (DTE)Package.GetGlobalService(typeof(DTE));
-                var doc = dte?.ActiveDocument;
-                if (doc != null)
-                {
-                    var textDoc = (TextDocument)doc.Object("TextDocument");
-                    var selection = textDoc.Selection as TextSelection;
+                string? oldContent = null;
+                IWpfTextView? wpfView = null;
 
-                    if (selection != null && !selection.IsEmpty && !replaceAll)
-                    {
-                        selection.Text = newCode;
-                        StatusLabel.Text = "✅ 代码已替换选中内容";
-                        Logger.Info("[CodeAction] 已替换编辑器选中内容（DTE）");
-                    }
-                    else
-                    {
-                        var editPoint = textDoc.StartPoint.CreateEditPoint();
-                        editPoint.ReplaceText(textDoc.EndPoint, newCode, 0);
-                        StatusLabel.Text = "✅ 代码已写入文件";
-                        Logger.Info("[CodeAction] 已替换编辑器全部内容（DTE）");
-                    }
-
-                    Logger.Info("代码已成功写入编辑器");
-                    return;
-                }
-
-                // ── 方案2：IVsTextManager.GetActiveView ──
+                // ── 首先尝试获取 IWpfTextView（用于 diff 预览）──
                 var textManager = (IVsTextManager)Package.GetGlobalService(typeof(SVsTextManager));
                 if (textManager != null)
                 {
@@ -293,31 +272,101 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         var editorAdapter = GetEditorAdapter();
                         if (editorAdapter != null)
                         {
-                            IWpfTextView? wpfView = editorAdapter.GetWpfTextView(vsTextView);
-                            if (wpfView != null)
-                            {
-                                ITextBuffer textBuffer = wpfView.TextBuffer;
-                                NormalizedSnapshotSpanCollection selection = wpfView.Selection.SelectedSpans;
-
-                                using (ITextEdit edit = textBuffer.CreateEdit())
-                                {
-                                    if (selection.Count > 0 && !selection[0].IsEmpty && !replaceAll)
-                                    {
-                                        edit.Replace(selection[0], newCode);
-                                    }
-                                    else
-                                    {
-                                        edit.Replace(new SnapshotSpan(wpfView.TextSnapshot, 0, wpfView.TextSnapshot.Length), newCode);
-                                    }
-                                    edit.Apply();
-                                }
-
-                                StatusLabel.Text = "✅ 代码已写入文件";
-                                Logger.Info("[CodeAction] 已替换编辑器内容（IVsTextManager）");
-                                return;
-                            }
+                            wpfView = editorAdapter.GetWpfTextView(vsTextView);
                         }
                     }
+                }
+
+                // ── 捕获修改前的内容 ──
+                if (wpfView != null)
+                {
+                    NormalizedSnapshotSpanCollection selection = wpfView.Selection.SelectedSpans;
+                    if (selection.Count > 0 && !selection[0].IsEmpty && !replaceAll)
+                    {
+                        oldContent = selection[0].GetText();
+                    }
+                    else
+                    {
+                        oldContent = wpfView.TextSnapshot.GetText();
+                    }
+                }
+
+                // ── 方案1：DTE ActiveDocument ──
+                var dte = (DTE)Package.GetGlobalService(typeof(DTE));
+                var doc = dte?.ActiveDocument;
+                if (doc != null)
+                {
+                    var textDoc = (TextDocument)doc.Object("TextDocument");
+                    var selection = textDoc.Selection as TextSelection;
+
+                    if (oldContent == null)
+                    {
+                        oldContent = selection != null && !selection.IsEmpty && !replaceAll
+                            ? selection.Text
+                            : textDoc.StartPoint.CreateEditPoint().GetText(textDoc.EndPoint);
+                    }
+
+                    if (selection != null && !selection.IsEmpty && !replaceAll)
+                    {
+                        selection.Text = newCode;
+                        Logger.Info("[CodeAction] 已替换编辑器选中内容（DTE）");
+                    }
+                    else
+                    {
+                        var editPoint = textDoc.StartPoint.CreateEditPoint();
+                        editPoint.ReplaceText(textDoc.EndPoint, newCode, 0);
+                        Logger.Info("[CodeAction] 已替换编辑器全部内容（DTE）");
+                    }
+
+                    // ── 触发编辑器内 diff 预览 ──
+                    if (wpfView != null && !string.IsNullOrEmpty(oldContent)
+                        && (_options == null || _options.ShowDiffMarkersInEditor))
+                    {
+                        EditorDiffMarkerService.Instance.BeginDiffPreview(wpfView, oldContent, newCode);
+                        StatusLabel.Text = "📊 预览中 — 点击「确认变更」保留或「撤销」回退";
+                    }
+                    else
+                    {
+                        StatusLabel.Text = "✅ 代码已写入文件";
+                    }
+
+                    Logger.Info("代码已成功写入编辑器");
+                    return;
+                }
+
+                // ── 方案2：IVsTextManager.GetActiveView ──
+                if (wpfView != null)
+                {
+                    ITextBuffer textBuffer = wpfView.TextBuffer;
+                    NormalizedSnapshotSpanCollection selection = wpfView.Selection.SelectedSpans;
+
+                    using (ITextEdit edit = textBuffer.CreateEdit())
+                    {
+                        if (selection.Count > 0 && !selection[0].IsEmpty && !replaceAll)
+                        {
+                            edit.Replace(selection[0], newCode);
+                        }
+                        else
+                        {
+                            edit.Replace(new SnapshotSpan(wpfView.TextSnapshot, 0, wpfView.TextSnapshot.Length), newCode);
+                        }
+                        edit.Apply();
+                    }
+
+                    // ── 触发编辑器内 diff 预览 ──
+                    if (!string.IsNullOrEmpty(oldContent)
+                        && (_options == null || _options.ShowDiffMarkersInEditor))
+                    {
+                        EditorDiffMarkerService.Instance.BeginDiffPreview(wpfView, oldContent, newCode);
+                        StatusLabel.Text = "📊 预览中 — 点击「确认变更」保留或「撤销」回退";
+                    }
+                    else
+                    {
+                        StatusLabel.Text = "✅ 代码已写入文件";
+                    }
+
+                    Logger.Info("[CodeAction] 已替换编辑器内容（IVsTextManager）");
+                    return;
                 }
 
                 StatusLabel.Text = "⚠️ 没有打开的文档";
@@ -568,7 +617,8 @@ function confirmInlineApply(el) {{
         }
 
         /// <summary>
-        /// 执行实际的写入操作（使用 VS SDK API，集成撤销历史）。
+        /// 执行实际的写入操作。如果目标文件在编辑器中已打开，使用编辑器内 diff 预览；
+        /// 否则直接写入文件。
         /// </summary>
         private async Task PerformWriteAsync(string filePath, string code, string? oldContent)
         {
@@ -576,27 +626,145 @@ function confirmInlineApply(el) {{
 
             try
             {
-                string? error = await TerminalWindowHelper.WriteCodeToFileAsync(filePath, code ?? string.Empty);
+                // ── 检查文件是否已在编辑器中打开 ──
+                IWpfTextView? openView = await FindOpenTextViewForFileAsync(filePath);
 
-                if (error != null)
+                if (openView != null && !string.IsNullOrEmpty(oldContent)
+                    && (_options == null || _options.ShowDiffMarkersInEditor))
                 {
-                    Logger.Error($"[CodeAction] 写入失败: {error}");
-                    StatusLabel.Text = $"❌ 写入失败: {error}";
-                    return;
-                }
+                    // ── 文件已打开 → 使用编辑器内 diff 预览 ──
+                    EditorDiffMarkerService.Instance.BeginDiffPreview(openView, oldContent, code);
 
-                int addLines = diffLinesAdd(oldContent, code);
-                int delLines = diffLinesDel(oldContent, code);
-                string fileName = Path.GetFileName(filePath);
-                StatusLabel.Text = $"✅ 已写入 {fileName}" +
-                    (addLines > 0 || delLines > 0 ? $" (+{addLines} -{delLines} 行变化)" : "");
-                Logger.Info($"[CodeAction] 写入完成: {filePath}, +{addLines} -{delLines} 行变化");
+                    int addLines = diffLinesAdd(oldContent, code);
+                    int delLines = diffLinesDel(oldContent, code);
+                    string fileName = Path.GetFileName(filePath);
+                    StatusLabel.Text = $"📊 预览中: {fileName}" +
+                        (addLines > 0 || delLines > 0 ? $" (+{addLines} -{delLines} 行变化)" : "");
+                    Logger.Info($"[CodeAction] 编辑器内 diff 预览已激活: {filePath}");
+                }
+                else
+                {
+                    // ── 文件未打开 → 直接写入，并注册待处理 diff ──
+                    string? error = await TerminalWindowHelper.WriteCodeToFileAsync(filePath, code ?? string.Empty);
+
+                    if (error != null)
+                    {
+                        Logger.Error($"[CodeAction] 写入失败: {error}");
+                        StatusLabel.Text = $"❌ 写入失败: {error}";
+                        return;
+                    }
+
+                    // 注册待处理 diff（用户稍后打开文件时自动激活预览）
+                    if (!string.IsNullOrEmpty(oldContent)
+                        && (_options == null || _options.ShowDiffMarkersInEditor))
+                    {
+                        EditorDiffMarkerService.Instance.RegisterPendingDiff(filePath, oldContent, code);
+                    }
+
+                    int addLines = diffLinesAdd(oldContent, code);
+                    int delLines = diffLinesDel(oldContent, code);
+                    string fileName = Path.GetFileName(filePath);
+                    StatusLabel.Text = $"✅ 已写入 {fileName}" +
+                        (addLines > 0 || delLines > 0 ? $" (+{addLines} -{delLines} 行变化)" : "") +
+                        ((_options == null || _options.ShowDiffMarkersInEditor) && (addLines > 0 || delLines > 0)
+                            ? " — 打开文件后可预览变更" : "");
+                    Logger.Info($"[CodeAction] 写入完成: {filePath}, +{addLines} -{delLines} 行变化");
+                }
             }
             catch (Exception ex)
             {
                 Logger.Error($"[CodeAction] 执行写入失败: {ex.Message}", ex);
                 StatusLabel.Text = $"❌ 写入失败: {ex.Message}";
             }
+        }
+
+        /// <summary>
+        /// 查找指定文件路径对应的已打开 <see cref="IWpfTextView"/>。
+        /// 通过运行文档表 (RDT) + <see cref="IVsEditorAdaptersFactoryService"/> 获取。
+        /// </summary>
+        private static async Task<IWpfTextView?> FindOpenTextViewForFileAsync(string filePath)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            try
+            {
+                var editorAdapter = GetEditorAdapter();
+                if (editorAdapter == null)
+                    return null;
+
+                // 通过 RDT 查找已打开的文档
+                var rdt = (Microsoft.VisualStudio.Shell.Interop.IVsRunningDocumentTable?)
+                    Package.GetGlobalService(typeof(Microsoft.VisualStudio.Shell.Interop.SVsRunningDocumentTable));
+
+                if (rdt == null)
+                    return null;
+
+                IEnumRunningDocuments? enumDocs;
+                int hr = rdt.GetRunningDocumentsEnum(out enumDocs);
+                if (hr != Microsoft.VisualStudio.VSConstants.S_OK || enumDocs == null)
+                    return null;
+
+                uint[] cookieArray = new uint[1];
+                uint fetched;
+
+                while (enumDocs.Next(1, cookieArray, out fetched) == Microsoft.VisualStudio.VSConstants.S_OK && fetched == 1)
+                {
+                    uint cookie = cookieArray[0];
+                    uint flags;
+                    uint readLocks;
+                    uint editLocks;
+                    string? docPath;
+                    Microsoft.VisualStudio.Shell.Interop.IVsHierarchy? hierarchy;
+                    uint itemId;
+                    IntPtr docDataPtr;
+
+                    hr = rdt.GetDocumentInfo(cookie,
+                        out flags, out readLocks, out editLocks,
+                        out docPath, out hierarchy, out itemId, out docDataPtr);
+
+                    if (hr == Microsoft.VisualStudio.VSConstants.S_OK && docPath != null &&
+                        string.Equals(docPath, filePath, StringComparison.OrdinalIgnoreCase) &&
+                        docDataPtr != IntPtr.Zero)
+                    {
+                        var vsTextBuffer = System.Runtime.InteropServices.Marshal.GetObjectForIUnknown(docDataPtr) as IVsTextBuffer;
+                        if (vsTextBuffer != null)
+                        {
+                            var textBuffer = editorAdapter.GetDataBuffer(vsTextBuffer);
+                            if (textBuffer != null)
+                            {
+                                // 尝试获取该 buffer 关联的 IWpfTextView
+                                // 通过 ITextBuffer.Properties 中存储的视图引用获取
+                                if (textBuffer.Properties.TryGetProperty(typeof(IWpfTextView), out IWpfTextView? wpfView))
+                                {
+                                    return wpfView;
+                                }
+
+                                // 回退：通过 IVsTextManager 查找视图
+                                var textManager = (IVsTextManager)Package.GetGlobalService(typeof(SVsTextManager));
+                                if (textManager != null)
+                                {
+                                    textManager.GetActiveView(1, null, out IVsTextView vsTextView);
+                                    if (vsTextView != null)
+                                    {
+                                        var bufferAdapter = editorAdapter.GetDataBuffer(vsTextView as IVsTextBuffer);
+                                        if (bufferAdapter == textBuffer)
+                                        {
+                                            return editorAdapter.GetWpfTextView(vsTextView);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[CodeAction] FindOpenTextViewForFileAsync 异常: {ex.Message}");
+            }
+
+            return null;
         }
 
         private int diffLinesAdd(string? oldContent, string code)

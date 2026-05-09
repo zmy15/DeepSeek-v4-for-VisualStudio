@@ -1222,7 +1222,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         string code = obj.TryGetProperty("code", out var diffCodeProp)
                             ? diffCodeProp.GetString() ?? string.Empty : string.Empty;
-                        ShowCodeDiff(code);
+                        ApplyCodeToActiveDocument(code);
                     }
                     else if (type == "retryMessage")
                     {
@@ -1253,7 +1253,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             ? reqIdProp.GetString() ?? string.Empty : string.Empty;
                         bool approved = obj.TryGetProperty("approved", out var apprProp)
                             && apprProp.GetBoolean();
-                        _codingAgent?.RespondToPermission(requestId, approved);
+                        _agentDispatcher?.RespondToPermission(requestId, approved);
 
                         // 移除权限 UI
                         _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
@@ -1298,72 +1298,54 @@ namespace DeepSeek_v4_for_VisualStudio.View
             });
         }
 
+        #endregion
+
+        #region Event Handlers - Diff Global Bar
+
         /// <summary>
-        /// Shows a diff between the currently selected code (original) and the AI-generated code.
-        /// The user can review changes before applying.
+        /// 「接受全部」按钮点击：确认所有活跃会话中的变更，丢弃所有待处理 diff。
         /// </summary>
-        private void ShowCodeDiff(string newCode)
+        private void AcceptAllDiffButton_Click(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(newCode)) return;
+            EditorDiffMarkerService.Instance.AcceptAllChanges();
+            RefreshDiffGlobalBar();
+            StatusLabel.Text = "✅ 所有变更已确认";
+        }
 
-            _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+        /// <summary>
+        /// 「撤销全部」按钮点击：撤销所有活跃会话并丢弃所有待处理 diff。
+        /// </summary>
+        private void UndoAllDiffButton_Click(object sender, RoutedEventArgs e)
+        {
+            EditorDiffMarkerService.Instance.UndoAllChanges();
+            RefreshDiffGlobalBar();
+            StatusLabel.Text = "↩️ 所有变更已撤销";
+        }
+
+        /// <summary>
+        /// 刷新全局 diff 控制栏的可见性和内容。
+        /// 当有活跃会话或待处理 diff 时显示，否则隐藏。
+        /// </summary>
+        public void RefreshDiffGlobalBar()
+        {
+            int activeCount = EditorDiffMarkerService.Instance.GetActiveCount();
+            int pendingCount = EditorDiffMarkerService.Instance.GetPendingCount();
+            int totalCount = activeCount + pendingCount;
+
+            if (totalCount > 0)
             {
-                try
-                {
-                    // Capture the current selected text as original
-                    var captured = await TerminalWindowHelper.CaptureOriginalCodeAsync();
-
-                    if (captured == null)
-                    {
-                        // 没有活动文档或无法捕获原始代码
-                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                        StatusLabel.Text = "⚠️ 没有活动文档，无法应用代码变更";
-                        Logger.Warn("[ShowCodeDiff] 无法捕获原始代码（无活动文档或无法访问）");
-                        return;
-                    }
-
-                    string originalCode = captured.Value.OriginalCode;
-                    string filePath = captured.Value.FilePath;
-
-                    // Generate diff
-                    string diffContent = CodeDiffHelper.GenerateUnifiedDiff(originalCode, newCode, filePath);
-
-                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-                    // Show diff in a message box with apply/cancel option
-                    if (diffContent == "No changes detected." || diffContent == "No changes.")
-                    {
-                        StatusLabel.Text = "ℹ️ 代码无变更";
-                        return;
-                    }
-
-                    MessageBoxResult result = MessageBox.Show(
-                        $"{diffContent}\n\n是否应用这些更改到当前文档？",
-                        "DeepSeek Chat - 代码变更对比",
-                        MessageBoxButton.YesNo,
-                        MessageBoxImage.Question);
-
-                    if (result == MessageBoxResult.Yes)
-                    {
-                        string? error = await TerminalWindowHelper.ApplyCodeToActiveDocumentAsync(newCode);
-                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                        if (error != null)
-                        {
-                            StatusLabel.Text = $"⚠️ {error}";
-                        }
-                        else
-                        {
-                            StatusLabel.Text = "✅ 代码已应用";
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error($"显示 Diff 失败: {ex.Message}", ex);
-                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = $"❌ 代码比较失败: {ex.Message}";
-                }
-            });
+                DiffGlobalBar.Visibility = Visibility.Visible;
+                DiffGlobalLabel.Text = $"📊 {totalCount} 个文件有变更";
+                DiffGlobalDetail.Text = activeCount > 0 && pendingCount > 0
+                    ? $"{activeCount} 个已打开, {pendingCount} 个待处理"
+                    : activeCount > 0
+                        ? $"{activeCount} 个编辑器内预览中"
+                        : $"{pendingCount} 个文件待打开后预览";
+            }
+            else
+            {
+                DiffGlobalBar.Visibility = Visibility.Collapsed;
+            }
         }
 
         #endregion

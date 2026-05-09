@@ -242,6 +242,21 @@ img{max-width:100%}
         }}
     }}
 
+    // ── 注入重试按钮（流式完成/停止后始终显示）──
+    if(msgDiv){{
+        var existingRetry=document.getElementById('retry-btn-{messageIndex}');
+        if(!existingRetry){{
+            var retryBtn=document.createElement('button');
+            retryBtn.id='retry-btn-{messageIndex}';
+            retryBtn.className='msg-action-btn retry-btn';
+            retryBtn.textContent='🔄 重试';
+            retryBtn.title='重新生成回答';
+            retryBtn.onclick=function(){{window.__retryMessage({messageIndex});}};
+            var msgBody=document.getElementById('msg-body-{messageIndex}');
+            if(msgBody) msgBody.parentNode.insertBefore(retryBtn,msgBody.nextSibling);
+        }}
+    }}
+
     // 重新为代码块添加按钮和语言标签
     if(msgDiv) decorateCodeBlocks(msgDiv);
 
