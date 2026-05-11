@@ -146,6 +146,58 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
                      "建议使用速度较快的模型（如 deepseek-v4-flash）。")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public string CopilotModel { get; set; } = string.Empty;
+
+        // ═══════════════════════════════════════════════
+        //  上下文管理设置（DeepSeek V4 1M 上下文窗口）
+        // ═══════════════════════════════════════════════
+
+        [Category("Context Management")]
+        [DisplayName("Token 预算上限")]
+        [Description("DeepSeek V4 拥有 1M Token 上下文窗口。\n" +
+                     "此设置控制发送给 API 的最大 Token 数（预留 100K 给模型输出）。\n" +
+                     "默认 900,000。减小此值可降低 API 费用，增大可容纳更多上下文。")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public int TokenBudget { get; set; } = 900_000;
+
+        [Category("Context Management")]
+        [DisplayName("启用自动压缩")]
+        [Description("当上下文接近 Token 预算时，自动将早期对话压缩为摘要，\n" +
+                     "而非直接删除旧消息。关闭后回退到旧的截断行为。")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public bool EnableAutoCompression { get; set; } = true;
+
+        [Category("Context Management")]
+        [DisplayName("压缩触发阈值 (%)")]
+        [Description("上下文使用率达到此百分比时触发自动压缩。\n" +
+                     "默认 85%，即 900K 预算中约 765K tokens 时触发。")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public int CompressionThreshold { get; set; } = 85;
+
+        [Category("Context Management")]
+        [DisplayName("保留最近轮次")]
+        [Description("压缩时保留最近 N 轮完整对话不被压缩。\n" +
+                     "默认 3 轮。增大可保留更多即时上下文。")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public int PreserveRecentTurns { get; set; } = 3;
+
+        [Category("Context Management")]
+        [DisplayName("启用 RAG")]
+        [Description("启用检索增强生成（RAG），在对话前自动从知识库检索相关文档。\n" +
+                     "需要配置 RAG 提供者（如本地向量数据库）。")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public bool EnableRag { get; set; } = false;
+
+        [Category("Context Management")]
+        [DisplayName("RAG 检索数量")]
+        [Description("每次查询从知识库检索的最大文档数。默认 5。")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public int RagTopK { get; set; } = 5;
+
+        [Category("Context Management")]
+        [DisplayName("上下文统计指示器")]
+        [Description("在状态栏显示当前 Token 使用量（已用/预算）。")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public bool ShowContextStats { get; set; } = true;
     }
 
     /// <summary>

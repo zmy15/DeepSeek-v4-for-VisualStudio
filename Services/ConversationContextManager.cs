@@ -1,8 +1,11 @@
 using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
 {
@@ -14,8 +17,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// 2. reasoning_content 回传规则（严格遵守 DeepSeek V4 思考模式协议）：
     ///    - 无工具调用的 assistant 消息 → reasoning_content 不需要回传（API 会忽略）
     ///    - 有工具调用的 assistant 消息 → reasoning_content 必须完整回传（否则 400 错误）
-    /// 3. Token 预算估算与自动截断
+    /// 3. Token 预算估算与自动压缩（不再直接截断/删除旧消息）
     /// 4. 轮次（Turn）边界追踪
+    /// 5. RAG 上下文注入点
+    /// 6. 上下文统计与使用率监控
+    /// 
+    /// DeepSeek V4 最大上下文窗口: 1M tokens（1,000,000）
+    /// 默认预算: 900K tokens（留 100K 给模型输出）
     /// 
     /// 参考：
     /// - https://api-docs.deepseek.com/zh-cn/guides/multi_round_chat
@@ -35,14 +43,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>Skill 发现上下文（独立存储）</summary>
         private string? _skillContext;
 
+        /// <summary>RAG 检索上下文（独立存储，注入为 system 消息）</summary>
+        private string? _ragContext;
+
         /// <summary>当前 Token 估算计数器</summary>
         private int _estimatedTokens;
 
-        /// <summary>Token 预算上限（默认 64K，DeepSeek V4 上下文窗口为 128K，留一半给输出）</summary>
-        public int TokenBudget { get; set; } = 64000;
+        /// <summary>上下文压缩服务（可选注入）</summary>
+        private ContextCompressorService? _compressor;
 
-        /// <summary>当超过 Token 预算时自动修剪的最旧轮次数</summary>
-        public int AutoTrimTurns { get; set; } = 2;
+        /// <summary>压缩标记：是否正在压缩中</summary>
+        private bool _isCompressing;
+
+        /// <summary>Token 预算上限（默认 900K，DeepSeek V4 上下文窗口为 1M，留 100K 给输出）</summary>
+        public int TokenBudget { get; set; } = 900_000;
+
+        /// <summary>当超过 Token 预算时自动压缩的最旧轮次数（此值在压缩模式下仅作用为最小保留轮次）</summary>
+        public int AutoTrimTurns { get; set; } = 3;
 
         /// <summary>获取当前对话轮次数（一个 user 消息 = 一轮）</summary>
         public int TurnCount => _entries.Count(e => e.Role == "user");
@@ -55,6 +72,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>上下文是否为空（无任何用户消息）</summary>
         public bool IsEmpty => !_entries.Any(e => e.Role == "user");
+
+        /// <summary>获取上下文使用率（0.0 ~ 1.0）</summary>
+        public double UsageRatio => TokenBudget > 0 ? (double)_estimatedTokens / TokenBudget : 0;
+
+        /// <summary>获取上下文使用百分比</summary>
+        public double UsagePercent => UsageRatio * 100;
+
+        /// <summary>获取压缩服务实例</summary>
+        public ContextCompressorService? Compressor => _compressor;
+
+        /// <summary>获取 RAG 上下文</summary>
+        public string? RagContext => _ragContext;
 
         #region Core API — 添加消息
 
@@ -83,7 +112,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 设置 RAG 检索上下文（注入为 system 消息）。
+        /// 由 RagService 在每次用户消息前调用。
+        /// </summary>
+        public void SetRagContext(string? ragContext)
+        {
+            // 移除旧的 RAG 上下文 token 计数
+            if (!string.IsNullOrEmpty(_ragContext))
+                _estimatedTokens -= EstimateTokens(_ragContext);
+
+            _ragContext = ragContext;
+
+            // 添加新的 RAG 上下文 token 计数
+            if (!string.IsNullOrEmpty(_ragContext))
+                _estimatedTokens += EstimateTokens(_ragContext);
+        }
+
+        /// <summary>
+        /// 注入上下文压缩服务。
+        /// 设置后，当 Token 超出预算时将自动调用压缩而非直接删除旧消息。
+        /// </summary>
+        public void SetCompressor(ContextCompressorService? compressor)
+        {
+            _compressor = compressor;
+        }
+
+        /// <summary>
         /// 添加用户消息。
+        /// 当 Token 超出预算时触发压缩而非直接删除。
         /// </summary>
         public void AddUserMessage(string content)
         {
@@ -97,7 +153,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             });
             _estimatedTokens += EstimateTokens(content);
 
-            AutoTrimIfNeeded();
+            // 使用压缩替代直接删除
+            if (_compressor != null && _compressor.Config.AutoCompressEnabled)
+                AutoCompressIfNeeded();
+            else
+                AutoTrimIfNeeded();
+        }
+
+        /// <summary>
+        /// 添加用户消息的异步版本 — 支持异步压缩（需要 LLM 调用时）。
+        /// </summary>
+        public async Task AddUserMessageAsync(string content, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(content)) return;
+
+            _entries.Add(new ContextEntry
+            {
+                Role = "user",
+                Content = content,
+                TurnIndex = TurnCount + 1,
+            });
+            _estimatedTokens += EstimateTokens(content);
+
+            if (_compressor != null && _compressor.Config.AutoCompressEnabled)
+                await AutoCompressIfNeededAsync(cancellationToken);
+            else
+                AutoTrimIfNeeded();
         }
 
         /// <summary>
@@ -179,13 +260,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 messages.Add(new ChatApiMessage { Role = "system", Content = finalSystemPrompt });
             }
 
-            // ── 2. 注入搜索上下文（作为独立的 system 消息） ──
+            // ── 2. 注入压缩摘要（早期对话的压缩版本） ──
+            if (_compressor != null)
+            {
+                string compressedText = _compressor.GetCompressedContextText();
+                if (!string.IsNullOrWhiteSpace(compressedText))
+                {
+                    messages.Add(new ChatApiMessage { Role = "system", Content = compressedText });
+                }
+            }
+
+            // ── 3. 注入搜索上下文（作为独立的 system 消息） ──
             if (!string.IsNullOrWhiteSpace(_searchContext))
             {
                 messages.Add(new ChatApiMessage { Role = "system", Content = _searchContext });
             }
 
-            // ── 3. 遍历对话历史，正确构建消息 ──
+            // ── 4. 注入 RAG 检索上下文（作为独立的 system 消息） ──
+            if (!string.IsNullOrWhiteSpace(_ragContext))
+            {
+                messages.Add(new ChatApiMessage { Role = "system", Content = _ragContext });
+            }
+
+            // ── 5. 遍历对话历史，正确构建消息 ──
             foreach (var entry in _entries)
             {
                 // 跳过没有内容的条目（除非有 tool_calls）
@@ -263,8 +360,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string? finalSystemPrompt = BuildFinalSystemPrompt();
             if (!string.IsNullOrWhiteSpace(finalSystemPrompt))
                 messages.Add(new ChatApiMessage { Role = "system", Content = finalSystemPrompt });
+
+            // 压缩摘要始终保留
+            if (_compressor != null)
+            {
+                string compressedText = _compressor.GetCompressedContextText();
+                if (!string.IsNullOrWhiteSpace(compressedText))
+                    messages.Add(new ChatApiMessage { Role = "system", Content = compressedText });
+            }
+
             if (!string.IsNullOrWhiteSpace(_searchContext))
                 messages.Add(new ChatApiMessage { Role = "system", Content = _searchContext });
+
+            // RAG 上下文始终保留
+            if (!string.IsNullOrWhiteSpace(_ragContext))
+                messages.Add(new ChatApiMessage { Role = "system", Content = _ragContext });
 
             // 从 startEntryIdx 开始构建
             for (int i = startEntryIdx; i < _entries.Count; i++)
@@ -309,6 +419,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 _systemPrompt = _systemPrompt,
                 _searchContext = _searchContext,
                 _skillContext = _skillContext,
+                _ragContext = _ragContext,
+                _compressor = _compressor,
                 _estimatedTokens = _estimatedTokens,
                 TokenBudget = TokenBudget,
                 AutoTrimTurns = AutoTrimTurns,
@@ -405,7 +517,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 估算文本的 Token 数。
-        /// 规则：1 英文字符 ≈ 0.3 token，1 中文字符 ≈ 0.6 token。
+        /// 改进版：1 英文字符 ≈ 0.3 token，1 中文字符 ≈ 0.6 token，
+        /// 1 数字/符号 ≈ 0.3 token，CJK 标点 ≈ 0.6 token。
         /// </summary>
         public static int EstimateTokens(string? text)
         {
@@ -415,17 +528,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             int otherChars = 0;
             foreach (char c in text)
             {
-                if (c >= 0x4E00 && c <= 0x9FFF)
+                // CJK 统一表意文字 + CJK 扩展
+                if ((c >= 0x4E00 && c <= 0x9FFF) ||
+                    (c >= 0x3400 && c <= 0x4DBF) ||
+                    (c >= 0x20000 && c <= 0x2A6DF))
+                {
                     chineseChars++;
+                }
+                // CJK 标点符号
+                else if ((c >= 0x3000 && c <= 0x303F) ||
+                         (c >= 0xFF00 && c <= 0xFFEF))
+                {
+                    chineseChars++;
+                }
                 else if (!char.IsWhiteSpace(c))
+                {
                     otherChars++;
+                }
             }
-            // 1 中文 ≈ 0.6 token, 1 英文 ≈ 0.3 token
+            // 1 中文 ≈ 0.6 token, 1 英文/数字 ≈ 0.3 token
             return (int)(chineseChars * 0.6 + otherChars * 0.3) + 1;
         }
 
         /// <summary>
-        /// 当估算 Token 超过预算时，自动修剪最旧的轮次。
+        /// 当估算 Token 超过预算时，自动修剪最旧的轮次（旧行为，无压缩服务时使用）。
         /// </summary>
         public void AutoTrimIfNeeded()
         {
@@ -436,7 +562,142 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 当估算 Token 超过预算时，自动压缩最旧的轮次（新行为，有压缩服务时使用）。
+        /// 同步版本：使用基于规则的本地压缩。
+        /// </summary>
+        public void AutoCompressIfNeeded()
+        {
+            if (_compressor == null || _isCompressing) return;
+
+            double threshold = _compressor.Config.CompressionThreshold;
+            int preserveTurns = _compressor.Config.PreserveRecentTurns;
+            int minToCompress = _compressor.Config.MinTurnsToCompress;
+
+            int targetBudget = (int)(TokenBudget * threshold);
+
+            while (_estimatedTokens > targetBudget
+                && TurnCount > preserveTurns + minToCompress)
+            {
+                _isCompressing = true;
+                try
+                {
+                    CompressOldestTurnsSync(preserveTurns);
+                }
+                finally
+                {
+                    _isCompressing = false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 当估算 Token 超过预算时，自动压缩最旧的轮次（异步版本，支持 LLM 摘要）。
+        /// </summary>
+        public async Task AutoCompressIfNeededAsync(CancellationToken cancellationToken = default)
+        {
+            if (_compressor == null || _isCompressing) return;
+
+            double threshold = _compressor.Config.CompressionThreshold;
+            int preserveTurns = _compressor.Config.PreserveRecentTurns;
+            int minToCompress = _compressor.Config.MinTurnsToCompress;
+
+            int targetBudget = (int)(TokenBudget * threshold);
+
+            while (_estimatedTokens > targetBudget
+                && TurnCount > preserveTurns + minToCompress)
+            {
+                _isCompressing = true;
+                try
+                {
+                    await CompressOldestTurnsAsync(preserveTurns, cancellationToken);
+                }
+                finally
+                {
+                    _isCompressing = false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 同步压缩最旧的轮次（基于规则的本地压缩）。
+        /// </summary>
+        private void CompressOldestTurnsSync(int preserveTurns)
+        {
+            if (_compressor == null) return;
+
+            // 计算需要压缩的轮次范围
+            int turnsToKeep = preserveTurns;
+            int totalTurns = TurnCount;
+            int compressUpTo = totalTurns - turnsToKeep;
+
+            if (compressUpTo <= 0) return;
+
+            // 收集要压缩的条目
+            var entriesToCompress = _entries
+                .Where(e => e.TurnIndex > 0 && e.TurnIndex <= compressUpTo)
+                .ToList();
+
+            if (entriesToCompress.Count == 0) return;
+
+            // 移除要压缩的条目
+            int removedTokens = 0;
+            foreach (var entry in entriesToCompress)
+            {
+                removedTokens += EstimateTokens(entry.Content);
+                if (!string.IsNullOrEmpty(entry.ReasoningContent))
+                    removedTokens += EstimateTokens(entry.ReasoningContent);
+                _entries.Remove(entry);
+            }
+            _estimatedTokens -= removedTokens;
+
+            // 本地生成摘要（同步，无 LLM 调用）
+            var summary = _compressor.CompressTurnsAsync(
+                entriesToCompress, 1, compressUpTo).GetAwaiter().GetResult();
+
+            Logger.Info($"[ContextManager] 同步压缩第 1-{compressUpTo} 轮: " +
+                $"{removedTokens} → {summary.CompressedTokens} tokens " +
+                $"(压缩率 {summary.CompressionRatio:P0})");
+        }
+
+        /// <summary>
+        /// 异步压缩最旧的轮次（支持 LLM 摘要）。
+        /// </summary>
+        private async Task CompressOldestTurnsAsync(int preserveTurns, CancellationToken cancellationToken)
+        {
+            if (_compressor == null) return;
+
+            int totalTurns = TurnCount;
+            int compressUpTo = totalTurns - preserveTurns;
+
+            if (compressUpTo <= 0) return;
+
+            var entriesToCompress = _entries
+                .Where(e => e.TurnIndex > 0 && e.TurnIndex <= compressUpTo)
+                .ToList();
+
+            if (entriesToCompress.Count == 0) return;
+
+            int removedTokens = 0;
+            foreach (var entry in entriesToCompress)
+            {
+                removedTokens += EstimateTokens(entry.Content);
+                if (!string.IsNullOrEmpty(entry.ReasoningContent))
+                    removedTokens += EstimateTokens(entry.ReasoningContent);
+                _entries.Remove(entry);
+            }
+            _estimatedTokens -= removedTokens;
+
+            var summary = await _compressor.CompressTurnsAsync(
+                entriesToCompress, 1, compressUpTo, cancellationToken);
+
+            Logger.Info($"[ContextManager] 异步压缩第 1-{compressUpTo} 轮: " +
+                $"{removedTokens} → {summary.CompressedTokens} tokens " +
+                $"(压缩率 {summary.CompressionRatio:P0})");
+        }
+
+        /// <summary>
         /// 移除最旧的一轮对话（一个 user 消息 + 其后续的 assistant/tool 消息）。
+        /// 仅在无压缩服务时作为回退使用。
         /// </summary>
         public void TrimOldestTurn()
         {
@@ -475,6 +736,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             _entries.RemoveRange(startIdx, endIdx - startIdx);
+        }
+
+        /// <summary>
+        /// 获取上下文统计信息。
+        /// </summary>
+        public ContextStats GetStats()
+        {
+            var stats = new ContextStats
+            {
+                EstimatedTokens = _estimatedTokens,
+                TokenBudget = TokenBudget,
+                MessageCount = MessageCount,
+                TurnCount = TurnCount,
+                SystemPromptTokens = EstimateTokens(_systemPrompt),
+                SearchContextTokens = EstimateTokens(_searchContext),
+                CompressedTurns = _compressor?.CompressedSummaries.Count ?? 0,
+                CompressedSummaryTokens = _compressor?.TotalCompressedTokens ?? 0,
+            };
+
+            // 统计工具调用结果 token
+            stats.ToolResultTokens = _entries
+                .Where(e => e.Role == "tool")
+                .Sum(e => EstimateTokens(e.Content));
+
+            return stats;
         }
 
         #endregion
@@ -584,6 +870,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             _systemPrompt = null;
             _searchContext = null;
             _skillContext = null;
+            _ragContext = null;
+            _compressor?.Clear();
         }
 
         /// <summary>
@@ -592,13 +880,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public string GetDebugSummary()
         {
             var sb = new StringBuilder();
+            var stats = GetStats();
             sb.AppendLine($"=== 上下文管理器状态 ===");
             sb.AppendLine($"消息总数: {MessageCount}");
             sb.AppendLine($"轮次数: {TurnCount}");
-            sb.AppendLine($"估算 Token: {_estimatedTokens}/{TokenBudget}");
-            sb.AppendLine($"系统提示词: {(_systemPrompt != null ? $"{_systemPrompt.Length} 字符" : "无")}");
-            sb.AppendLine($"搜索上下文: {(_searchContext != null ? $"{_searchContext.Length} 字符" : "无")}");
+            sb.AppendLine($"估算 Token: {_estimatedTokens:N0}/{TokenBudget:N0} ({UsagePercent:F1}%)");
+            sb.AppendLine($"系统提示词: {(_systemPrompt != null ? $"{_systemPrompt.Length} 字符 ({stats.SystemPromptTokens} tokens)" : "无")}");
+            sb.AppendLine($"搜索上下文: {(_searchContext != null ? $"{_searchContext.Length} 字符 ({stats.SearchContextTokens} tokens)" : "无")}");
             sb.AppendLine($"Skill 上下文: {(_skillContext != null ? $"{_skillContext.Length} 字符" : "无")}");
+            sb.AppendLine($"RAG 上下文: {(_ragContext != null ? $"{_ragContext.Length} 字符" : "无")}");
+            sb.AppendLine($"压缩摘要: {stats.CompressedTurns} 组 ({stats.CompressedSummaryTokens} tokens)");
             sb.AppendLine();
             foreach (var entry in _entries)
             {
@@ -639,8 +930,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 上下文条目 — 内部存储单元，比 ChatApiMessage 更丰富。
+        /// 对 ContextCompressorService 可见以支持压缩操作。
         /// </summary>
-        private class ContextEntry
+        internal class ContextEntry
         {
             public string Role { get; set; } = "user";
             public string? Content { get; set; }

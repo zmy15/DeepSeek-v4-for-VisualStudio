@@ -253,13 +253,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
-        /// 执行代码编写步骤（支持重试）。
+        /// 执行代码编写步骤（支持重试 + 缺失文件智能发现）。
+        /// 当 AI 表示缺少某些文件时，自动委托 ExploreAgent 搜索并补充上下文后重试。
         /// </summary>
         private async Task ExecuteCodeStepAsync(
             AgentStep step, AgentTaskPlan plan, AgentContext context,
             string stepPrompt, CancellationToken ct)
         {
-            const int maxRetries = 2;
+            const int maxFormatRetries = 2;
+            const int maxFileFetchRetries = 2;
             string result = string.Empty;
             List<FileChangeSummary> changes = new();
 
@@ -273,7 +275,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 AddLog("INFO", $"已读取项目文件上下文 ({projectContext.Split('\n').Length} 行)");
             }
 
-            for (int retry = 0; retry <= maxRetries; retry++)
+            // ── 已尝试获取过的文件（防止重复获取）──
+            var fetchedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            for (int retry = 0; retry <= maxFormatRetries; retry++)
             {
                 if (ct.IsCancellationRequested) return;
 
@@ -287,7 +292,86 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 if (changes.Count > 0) break;
 
-                if (retry < maxRetries)
+                // ── AI 未产出有效代码块 → 检查是否表示缺少文件 ──
+                if (retry >= maxFormatRetries) break; // 已达最大重试，不再尝试获取文件
+
+                if (DetectMissingFilesInResponse(result))
+                {
+                    var requestedFiles = ExtractRequestedFileNames(result);
+                    AddLog("INFO", $"AI 表示缺少文件，提取到 {requestedFiles.Count} 个文件引用: [{string.Join(", ", requestedFiles)}]");
+
+                    // 过滤已获取过的文件
+                    var newFiles = requestedFiles
+                        .Where(f => !fetchedFiles.Contains(f))
+                        .ToList();
+
+                    if (newFiles.Count > 0 && ExploreAgent != null && !string.IsNullOrEmpty(context.SolutionPath))
+                    {
+                        // ── 委托 ExploreAgent 搜索缺失文件 ──
+                        AddLog("INFO", $"[EditAgent] 委托 ExploreAgent 搜索缺失文件 ({newFiles.Count} 个)...");
+
+                        var foundFiles = new List<string>();
+                        foreach (var fileName in newFiles)
+                        {
+                            var discovered = await ExploreAgent.DiscoverRelevantFilesAsync(
+                                context.SolutionPath, fileName, maxFiles: 5);
+                            foundFiles.AddRange(discovered);
+                            foreach (var f in discovered)
+                                fetchedFiles.Add(f);
+                        }
+
+                        // 去重
+                        foundFiles = foundFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+                        if (foundFiles.Count > 0)
+                        {
+                            // ── 读取找到的文件内容，补充到 prompt ──
+                            var fileContextSb = new StringBuilder();
+                            fileContextSb.AppendLine("\n\n## 🔍 补充文件（根据 AI 请求发现）\n");
+                            int totalChars = 0;
+                            const int maxSupplementChars = 40000;
+
+                            foreach (var file in foundFiles)
+                            {
+                                if (totalChars >= maxSupplementChars) break;
+                                try
+                                {
+                                    string relativePath = GetRelativePath(context.SolutionPath!, file);
+                                    string content = await Task.Run(() => File.ReadAllText(file), ct);
+                                    int remaining = maxSupplementChars - totalChars;
+                                    if (content.Length > remaining)
+                                        content = content.Substring(0, remaining) + "\n// ... (已截断)";
+
+                                    fileContextSb.AppendLine($"### {relativePath}");
+                                    fileContextSb.AppendLine("```");
+                                    fileContextSb.AppendLine(content);
+                                    fileContextSb.AppendLine("```\n");
+                                    totalChars += content.Length + relativePath.Length + 20;
+                                }
+                                catch { /* 跳过不可读文件 */ }
+                            }
+
+                            enrichedPrompt += fileContextSb.ToString();
+                            AddLog("INFO", $"[EditAgent] 已补充 {foundFiles.Count} 个文件到上下文 ({totalChars} 字符)，重新请求 AI...");
+
+                            // ── 重置重试计数，用新上下文重新开始 ──
+                            retry = -1; // 循环末尾 +1 后变为 0
+                            continue;
+                        }
+                        else
+                        {
+                            AddLog("WARN", $"[EditAgent] ExploreAgent 未找到请求的文件: [{string.Join(", ", newFiles)}]");
+                        }
+                    }
+                    else
+                    {
+                        // ExploreAgent 不可用或没有新文件
+                        foreach (var f in requestedFiles)
+                            fetchedFiles.Add(f);
+                    }
+                }
+
+                if (retry < maxFormatRetries)
                     AddLog("WARN", $"AI 输出格式不正确（未检测到 ```file: 代码块），第 {retry + 1} 次重试...");
                 else
                     AddLog("WARN", "AI 多次重试后仍未输出有效代码块，将原样记录结果");
@@ -311,12 +395,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     string resolvedPath = ResolveFilePath(change.FilePath, context.SolutionPath);
                     change.FilePath = resolvedPath;
 
-                    // 保存原始内容（用于最终 diff）
+                    // 保存原始内容（用于最终 diff 和回退）
                     if (!originalContents.ContainsKey(resolvedPath))
                     {
-                        originalContents[resolvedPath] = File.Exists(resolvedPath)
+                        string original = File.Exists(resolvedPath)
                             ? await Task.Run(() => File.ReadAllText(resolvedPath), ct)
                             : string.Empty;
+                        originalContents[resolvedPath] = original;
+                        change.OriginalContent = original;
+                    }
+                    else
+                    {
+                        change.OriginalContent = originalContents[resolvedPath];
                     }
 
                     // ── 新文件：先建空文件 → 加入项目 → 再写内容 ──
@@ -741,7 +831,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 生成 AI 文字总结，概括本次代码变更的内容和目的。
-        /// 用轻量级 prompt 快速产出自然语言摘要。
+        /// 包含变更统计、受影响文件、每步操作概述，提供给 AI 生成更详细的摘要。
         /// </summary>
         private async Task<string> GenerateChangeSummaryAsync(AgentTaskPlan plan, CancellationToken ct)
         {
@@ -750,18 +840,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             try
             {
                 var summaryPrompt = new StringBuilder();
-                summaryPrompt.AppendLine("你是一个代码审查助手。请用2-3句简洁的中文总结以下代码变更。");
-                summaryPrompt.AppendLine("只描述做了什么、为什么做、影响范围。不要评价代码质量。");
+                summaryPrompt.AppendLine("你是一个代码审查助手。请用5-10句话总结以下代码变更。");
+                summaryPrompt.AppendLine("内容包括：改了什么、为什么改、改法思路、影响范围、新增/修改/删除的文件。");
+                summaryPrompt.AppendLine("不要评价代码质量，只做客观描述。");
                 summaryPrompt.AppendLine();
                 summaryPrompt.AppendLine($"## 任务: {plan.Title}");
+                summaryPrompt.AppendLine($"共 {plan.Steps.Count} 步，成功 {plan.Steps.Count(s => s.Status == AgentStepStatus.Completed)} 步");
+                summaryPrompt.AppendLine();
+
+                // ── 合并相同文件 ──
+                var mergedFiles = plan.ChangedFiles
+                    .GroupBy(c => c.FilePath, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new { Path = g.Key, Added = g.Sum(c => c.LinesAdded), Removed = g.Sum(c => c.LinesRemoved), Names = g.Select(c => Path.GetFileName(c.FilePath)).First() })
+                    .ToList();
+                int totalAdded = mergedFiles.Sum(f => f.Added);
+                int totalRemoved = mergedFiles.Sum(f => f.Removed);
+
+                summaryPrompt.AppendLine($"## 变更统计: +{totalAdded} -{totalRemoved} 行，{mergedFiles.Count} 个文件");
                 summaryPrompt.AppendLine();
                 summaryPrompt.AppendLine("## 修改的文件");
-                foreach (var change in plan.ChangedFiles)
+                foreach (var file in mergedFiles)
                 {
-                    string fileName = Path.GetFileName(change.FilePath);
-                    summaryPrompt.AppendLine($"- **{fileName}** (+{change.LinesAdded} -{change.LinesRemoved})");
+                    summaryPrompt.AppendLine($"- **{file.Names}** (+{file.Added} -{file.Removed})");
                 }
                 summaryPrompt.AppendLine();
+
                 summaryPrompt.AppendLine("## 步骤执行情况");
                 foreach (var step in plan.Steps)
                 {
@@ -772,14 +875,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         AgentStepStatus.Skipped => "⏭",
                         _ => "⬜",
                     };
-                    summaryPrompt.AppendLine($"- {status} {step.Title}: {step.ResultSummary.Truncate(100)}");
+                    string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
+                        ? step.ResultSummary.Truncate(200)
+                        : "(无)";
+                    summaryPrompt.AppendLine($"- {status} {step.Title}: {summary}");
                 }
                 summaryPrompt.AppendLine();
-                summaryPrompt.AppendLine("请用中文输出简短的变更摘要（2-3句）：");
+                summaryPrompt.AppendLine("请用中文输出变更摘要（5-10句话，包含改了什么、为什么改、改法思路）：");
 
                 string result = await CallAiShortAsync(
-                    "你只输出中文摘要，不输出任何其他内容。",
-                    summaryPrompt.ToString(), ct, maxTokens: 256);
+                    "你只输出中文代码变更摘要，不输出任何其他内容。",
+                    summaryPrompt.ToString(), ct, maxTokens: 400);
 
                 return result?.Trim() ?? string.Empty;
             }
@@ -816,9 +922,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // ── 优先使用 ExploreAgent 智能发现相关文件 ──
                 if (ExploreAgent != null && !string.IsNullOrWhiteSpace(userQuery))
                 {
+                    // ── 构建附加上下文：当前计划标题 + 已完成的步骤信息 ──
+                    string additionalCtx = "";
+                    if (CurrentPlan != null)
+                    {
+                        additionalCtx = $"当前任务: {CurrentPlan.Title}";
+                        var completedSteps = CurrentPlan.Steps
+                            .Where(s => s.Status == AgentStepStatus.Completed)
+                            .ToList();
+                        if (completedSteps.Count > 0)
+                        {
+                            additionalCtx += "\n已完成步骤: " + string.Join("; ",
+                                completedSteps.Select(s => s.Title));
+                        }
+                    }
+
                     AddLog("INFO", $"[EditAgent] 委托 ExploreAgent 智能发现相关文件: \"{userQuery.Truncate(80)}\"");
                     relevantFiles = await ExploreAgent.DiscoverRelevantFilesAsync(
-                        solutionPath, userQuery, maxFiles: 30);
+                        solutionPath, userQuery, maxFiles: 30,
+                        additionalContext: additionalCtx);
                     AddLog("INFO", $"[EditAgent] ExploreAgent 返回 {relevantFiles.Count} 个相关文件");
                 }
                 else
@@ -1222,6 +1344,99 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 return relative;
             }
             return fullPath;
+        }
+
+        #endregion
+
+        #region Missing File Detection
+
+        /// <summary>
+        /// 检测 AI 回复是否表示缺少某些文件。
+        /// 匹配中英文常见表达模式。
+        /// </summary>
+        private static bool DetectMissingFilesInResponse(string aiResponse)
+        {
+            if (string.IsNullOrWhiteSpace(aiResponse)) return false;
+
+            // ── 中文模式 ──
+            var cnPatterns = new[]
+            {
+                "需要查看", "需要读取", "需要看到", "缺少文件",
+                "看不到", "无法访问", "请提供", "没有提供",
+                "没有看到", "未提供", "无法确定", "需要更多信息",
+                "需要了解", "需要确认", "需要参考", "需要查阅",
+                "找不到", "不清楚", "不确定文件", "无法定位",
+                "还需要", "缺少上下文", "需要完整代码",
+            };
+
+            // ── 英文模式 ──
+            var enPatterns = new[]
+            {
+                "need to see", "need to read", "need to look at",
+                "missing file", "missing context", "don't have access",
+                "cannot see", "can't see", "please provide",
+                "not provided", "not available", "unable to determine",
+                "need more information", "need more context",
+                "don't know", "not sure about", "would need",
+                "I need the", "I would need to see",
+            };
+
+            foreach (var pattern in cnPatterns)
+                if (aiResponse.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+            foreach (var pattern in enPatterns)
+                if (aiResponse.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// 从 AI 回复中提取请求的文件名/路径。
+        /// 匹配反引号包裹的文件引用、常见路径模式等。
+        /// </summary>
+        private static List<string> ExtractRequestedFileNames(string aiResponse)
+        {
+            var files = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(aiResponse)) return files;
+
+            // 模式 1: 反引号包裹的文件名（如 `UserService.cs`、`src/Models/User.cs`）
+            var backtickMatches = System.Text.RegularExpressions.Regex.Matches(
+                aiResponse, @"`([^`]+\.(cs|vb|cpp|c|h|hpp|fs|py|js|ts|jsx|tsx|java|go|rs|swift|kt|php|rb|lua|sql|xml|json|yaml|yml|md|css|html|xaml|csproj|vbproj|sln|config|razor|cshtml|ps1|psm1|proto))`");
+            foreach (System.Text.RegularExpressions.Match m in backtickMatches)
+            {
+                string name = m.Groups[1].Value.Trim();
+                if (!string.IsNullOrWhiteSpace(name) && name.Length > 2)
+                    files.Add(name);
+            }
+
+            // 模式 2: 引号包裹的文件名
+            var quoteMatches = System.Text.RegularExpressions.Regex.Matches(
+                aiResponse, @"[""']([^""']+\.(cs|vb|cpp|c|h|hpp|fs|py|js|ts|jsx|tsx|java|go|rs|swift|kt|php|rb|lua|sql|xml|json|yaml|yml|md|css|html|xaml|csproj|vbproj|sln))[""']");
+            foreach (System.Text.RegularExpressions.Match m in quoteMatches)
+            {
+                string name = m.Groups[1].Value.Trim();
+                if (!string.IsNullOrWhiteSpace(name) && name.Length > 2)
+                    files.Add(name);
+            }
+
+            // 模式 3: 斜体/粗体标记包裹（如 *UserService.cs*、**src/Models/User.cs**）
+            var markdownMatches = System.Text.RegularExpressions.Regex.Matches(
+                aiResponse, @"\*{1,2}([^*]+\.(cs|vb|cpp|c|h|hpp|fs|py|js|ts|jsx|tsx|java|go|rs|swift|kt|php|rb|lua|sql|xml|json|yaml|yml|md|css|html|xaml|csproj|vbproj|sln))\*{1,2}");
+            foreach (System.Text.RegularExpressions.Match m in markdownMatches)
+            {
+                string name = m.Groups[1].Value.Trim();
+                if (!string.IsNullOrWhiteSpace(name) && name.Length > 2)
+                    files.Add(name);
+            }
+
+            // 去重，最多返回 10 个
+            return files
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(10)
+                .ToList();
         }
 
         #endregion

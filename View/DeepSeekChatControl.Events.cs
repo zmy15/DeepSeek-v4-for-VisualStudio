@@ -85,6 +85,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     return;
                 }
 
+                if (Keyboard.Modifiers == ModifierKeys.Shift)
+                {
+                    // Shift+Enter: 插入换行
+                    e.Handled = false;
+                    return;
+                }
+
                 // 如果弹出框打开，Enter 优先选择技能
                 if (SkillSuggestionPopup.IsOpen)
                 {

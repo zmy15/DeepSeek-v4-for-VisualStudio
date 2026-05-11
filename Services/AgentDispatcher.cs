@@ -150,28 +150,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── AI 分类 ──
             try
             {
-                string classificationPrompt =
-                    "你是一个意图分类器，工作在 Visual Studio 多 Agent 编程助手中。\n" +
-                    "你的任务是判断用户消息应该路由到哪个 Agent。\n\n" +
-                    "## 可用 Agent\n" +
-                    "- **Ask**: 纯技术问答、代码解释、方案讨论。用户只是在问问题或聊天。\n" +
-                    "  典型表达：什么是X、为什么Y、如何理解Z、对比A和B、解释这段代码。\n" +
-                    "- **Plan**: 需要详细的实现计划。任务复杂、涉及多个文件、需要先研究再行动。\n" +
-                    "  典型表达：设计一个X系统、规划Y功能的重构、制定Z的技术方案。\n" +
-                    "- **Edit**: 直接修改代码。用户明确给出了修改目标且范围清晰。\n" +
-                    "  典型表达：修复这个Bug、添加一个方法、改一下这段代码、实现X功能。\n\n" +
-                    "## 判断标准\n" +
-                    "- 如果任务复杂（涉及3+文件或需要架构设计），路由到 Plan\n" +
-                    "- 如果是明确的、范围小的代码修改，路由到 Edit\n" +
-                    "- 如果是纯问答或聊天，路由到 Ask\n\n" +
-                    "## 输出要求\n" +
-                    "只输出一个 JSON:\n" +
-                    "{\"targetAgent\":\"Ask|Plan|Edit\",\"confidence\":\"high|medium|low\",\"needsPlanning\":true|false,\"reason\":\"简短理由\"}\n\n" +
-                    "## 用户消息\n" + userMessage + "\n\n路由 JSON:";
+                string classificationPrompt = string.Format(
+                    AiPrompts.AgentRoutingUserPrompt, userMessage);
 
                 var askAgent = EnsureAgent(AgentType.Ask);
                 string response = await askAgent.CallAiShortAsync(
-                    "你只返回 JSON，不返回任何其他内容。",
+                    AiPrompts.AgentRoutingSystemPrompt,
                     classificationPrompt, ct, maxTokens: 256);
 
                 string json = ExtractJsonFromText(response);

@@ -61,6 +61,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         private readonly List<ChatMessage> _messages = new();
         private readonly ConversationContextManager _contextManager = new();
+        private RagService? _ragService;
+        private ContextCompressorService? _compressorService;
         private bool _isGenerating;
         private string _webSearchEngine = "Off"; // "Off" | "Baidu" | "DuckDuckGo"
         private readonly List<string> _pendingWarnings = new(); // 待注入的警告消息
@@ -86,6 +88,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private readonly Dictionary<int, List<ChatMessage>> _assistantVersionHistory = new();
         // Key: 用户消息索引，Value: 当前显示的版本索引（0-based）
         private readonly Dictionary<int, int> _activeVersionIndex = new();
+
+        // ── 文件变更历史追踪（重试/编辑前回退用） ──
+        // Key: 用户消息索引，Value: 该轮对话中修改的文件及其原始/新内容
+        private readonly Dictionary<int, List<Models.FileChangeSummary>> _fileChangeHistory = new();
+
+        // ── 最近一次 Agent 执行的文件变更（临时存储，RunAgentWorkflowAsync 写入，RecordAgentFileChanges 消费后清空）──
+        private List<Models.FileChangeSummary>? _pendingAgentFileChanges;
 
         #endregion
 
@@ -192,6 +201,82 @@ namespace DeepSeek_v4_for_VisualStudio.View
             Logger.Info("Agent 调度器初始化成功（多 Agent 模式：Ask / Plan / Explore / Edit）");
 
             Logger.Info("API 服务初始化成功");
+        }
+
+        /// <summary>
+        /// 初始化 RAG 服务和上下文压缩服务。
+        /// 在 API 服务就绪后调用。
+        /// </summary>
+        private void InitializeContextServices()
+        {
+            if (_options == null) return;
+
+            // ── 初始化上下文压缩服务 ──
+            if (_options.EnableAutoCompression)
+            {
+                var compressionConfig = new CompressionConfig
+                {
+                    CompressionThreshold = _options.CompressionThreshold / 100.0,
+                    PreserveRecentTurns = _options.PreserveRecentTurns,
+                    AutoCompressEnabled = _options.EnableAutoCompression,
+                };
+
+                // 当 API 服务可用时，使用 LLM 摘要；否则使用本地规则提取
+                if (_apiService != null)
+                {
+                    _compressorService = new ContextCompressorService(
+                        async (text, ct) =>
+                        {
+                            try
+                            {
+                                var messages = new List<ChatApiMessage>
+                                {
+                                    new ChatApiMessage { Role = "user", Content = text }
+                                };
+                                return await _apiService.CompleteAsync(messages, ct);
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Warn($"[ContextCompressor] LLM 摘要失败，回退到本地提取: {ex.Message}");
+                                return string.Empty; // 返回空将触发回退
+                            }
+                        },
+                        compressionConfig);
+                }
+                else
+                {
+                    _compressorService = new ContextCompressorService(null, compressionConfig);
+                }
+
+                _contextManager.SetCompressor(_compressorService);
+                _contextManager.TokenBudget = _options.TokenBudget;
+
+                Logger.Info($"[ContextServices] 上下文压缩已启用: " +
+                    $"预算={_options.TokenBudget:N0}, 阈值={_options.CompressionThreshold}%, " +
+                    $"保留轮次={_options.PreserveRecentTurns}");
+            }
+            else
+            {
+                _compressorService = null;
+                _contextManager.SetCompressor(null);
+                _contextManager.TokenBudget = _options.TokenBudget;
+                _contextManager.AutoTrimTurns = _options.PreserveRecentTurns;
+
+                Logger.Info($"[ContextServices] 上下文压缩已禁用，使用旧版截断: " +
+                    $"预算={_options.TokenBudget:N0}, 保留轮次={_options.PreserveRecentTurns}");
+            }
+
+            // ── 初始化 RAG 服务 ──
+            if (_options.EnableRag)
+            {
+                _ragService = new RagService { IsEnabled = true };
+                Logger.Info("[ContextServices] RAG 服务已初始化（等待提供者注册）");
+            }
+            else
+            {
+                _ragService?.DeactivateProvider();
+                _ragService = null;
+            }
         }
 
         /// <summary>

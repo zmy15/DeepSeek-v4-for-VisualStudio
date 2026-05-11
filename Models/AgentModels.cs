@@ -117,6 +117,10 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>修改后的新内容（内部使用，不序列化到 UI）</summary>
         [JsonIgnore]
         public string? NewContent { get; set; }
+
+        /// <summary>修改前的原始内容（用于撤销/回退操作，内部使用）</summary>
+        [JsonIgnore]
+        public string? OriginalContent { get; set; }
     }
 
     /// <summary>

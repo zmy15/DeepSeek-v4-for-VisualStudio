@@ -272,7 +272,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// 发现内置技能（随扩展发布）。
+        /// <summary>
+        /// 发现内置技能（随扩展发布 + 硬编码内置技能）。
         /// </summary>
         private Task<List<SkillDefinition>> DiscoverBuiltInSkillsAsync()
         {
@@ -292,6 +293,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         var discovered = DiscoverInSkillsRootAsync(builtInRoot, SkillSource.BuiltIn).Result;
                         skills.AddRange(discovered);
                     }
+                }
+
+                // ── 硬编码内置技能：代码审查 (code-review) ──
+                var codeReviewSkill = ParseSkillContent(
+                    AiPrompts.BuiltInSkill_CodeReview,
+                    "<builtin>/code-review/SKILL.md",
+                    SkillSource.BuiltIn);
+                if (codeReviewSkill != null)
+                {
+                    skills.Add(codeReviewSkill);
+                    Logger.Info("[SkillService] 已加载内置技能: code-review");
                 }
             }
             catch (Exception ex)

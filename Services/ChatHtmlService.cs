@@ -110,6 +110,70 @@ img{max-width:100%}
 .version-nav-btn:disabled{opacity:.3;cursor:default}
 .version-nav-label{color:#888;min-width:30px;text-align:center}
 .version-nav .sep{color:#555;margin:0 2px}
+
+/* ── Agent 步骤流程管线样式 ── */
+.agent-plan{border:1px solid #3A5A8A;border-radius:10px;background:linear-gradient(180deg,#1A2436 0%,#1A1E2E 100%);padding:16px;margin:6px 0;position:relative;overflow:hidden}
+.agent-plan::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#3A5A8A,#6CAFD9,#3A5A8A);opacity:.6}
+.agent-plan-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px}
+.agent-plan-title{color:#7EB8E0;font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px}
+.agent-plan-progress{display:flex;align-items:center;gap:8px;font-size:11px;color:#888}
+.agent-plan-progress-bar{width:120px;height:4px;background:#2D2D2D;border-radius:2px;overflow:hidden}
+.agent-plan-progress-bar-fill{height:100%;border-radius:2px;transition:width .5s ease;background:linear-gradient(90deg,#4EC9B0,#6CAFD9)}
+
+/* ── 步骤管线节点 ── */
+.agent-step-node{position:relative;display:flex;align-items:flex-start;gap:10px;padding:0 0 0 0;min-height:36px}
+.agent-step-node:last-child .agent-step-line{display:none}
+.agent-step-bullet-wrap{display:flex;flex-direction:column;align-items:center;flex-shrink:0;width:28px}
+.agent-step-bullet{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:2px solid #444;background:#252526;color:#888;transition:all .35s ease;position:relative;z-index:1;flex-shrink:0}
+.agent-step-bullet.pending{background:#252526;border-color:#444;color:#666}
+.agent-step-bullet.in-progress{background:#1A2E3E;border-color:#6CAFD9;color:#6CAFD9;box-shadow:0 0 10px rgba(108,175,217,.35);animation:stepPulse 2s ease-in-out infinite}
+.agent-step-bullet.completed{background:#1A2E1A;border-color:#4EC9B0;color:#4EC9B0;box-shadow:0 0 6px rgba(78,201,176,.25)}
+.agent-step-bullet.failed{background:#2E1A1A;border-color:#E07878;color:#E07878;box-shadow:0 0 6px rgba(224,120,120,.25)}
+.agent-step-bullet.skipped{background:#252526;border-color:#555;color:#666}
+.agent-step-bullet.waiting{background:#2E2A1A;border-color:#C8A84E;color:#C8A84E;box-shadow:0 0 8px rgba(200,168,78,.3);animation:stepPulse 1.5s ease-in-out infinite}
+.agent-step-line{width:2px;flex-grow:1;min-height:12px;background:#333;margin:2px 0;transition:background .5s ease}
+.agent-step-line.active{background:linear-gradient(180deg,#6CAFD9,#333)}
+.agent-step-line.done{background:#3A5A3A}
+
+/* ── 步骤内容 ── */
+.agent-step-content{flex:1;padding:2px 0 6px 0;min-width:0}
+.agent-step-title-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.agent-step-title{font-size:12.5px;font-weight:600;line-height:1.4}
+.agent-step-title.pending{color:#888}
+.agent-step-title.in-progress{color:#D4D4D4}
+.agent-step-title.completed{color:#4EC9B0}
+.agent-step-title.failed{color:#E07878}
+.agent-step-title.skipped{color:#666}
+.agent-step-title.waiting{color:#C8A84E}
+.agent-step-summary{font-size:11px;color:#707070;margin-top:2px;line-height:1.4;word-break:break-word}
+.agent-step-detail{margin-top:6px;padding:8px 10px;background:#121A24;border-radius:4px;border-left:2px solid #444;font-size:11px;color:#8A9AB0;white-space:pre-wrap;max-height:180px;overflow-y:auto;display:none;line-height:1.5;transition:border-color .35s ease}
+.agent-step-detail.show{display:block}
+.agent-step-detail.in-progress{border-left-color:#6CAFD9}
+.agent-step-detail.completed{border-left-color:#4EC9B0}
+.agent-step-detail.failed{border-left-color:#E07878}
+
+/* ── 步骤标签（构建/运行/代码/分析） ── */
+.agent-step-tag{display:inline-block;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;flex-shrink:0}
+.agent-step-tag.code{background:#1A2E3E;color:#6CAFD9;border:1px solid #2A4A6A}
+.agent-step-tag.build{background:#2E2A1A;color:#C8A84E;border:1px solid #4A3A1A}
+.agent-step-tag.analyze{background:#1A262E;color:#7EB8E0;border:1px solid #2A4A5A}
+.agent-step-tag.verify{background:#1A2E2A;color:#4EC9B0;border:1px solid #2A4A3A}
+
+/* ── 步骤动画 ── */
+@keyframes stepPulse{
+    0%,100%{box-shadow:0 0 6px rgba(108,175,217,.25)}
+    50%{box-shadow:0 0 16px rgba(108,175,217,.5)}
+}
+@keyframes stepSlideIn{
+    from{opacity:0;transform:translateX(-8px)}
+    to{opacity:1;transform:translateX(0)}
+}
+.agent-step-node{animation:stepSlideIn .3s ease-out}
+
+/* ── Agent 计划底部操作栏 ── */
+.agent-plan-footer{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid #2A2A3A;font-size:11px;color:#666}
+.agent-plan-footer .elapsed{color:#555}
+.agent-plan-footer .step-counter{color:#888}
 ";
 
         private const string AiAvatarHtml = "<span class='avatar avatar-ai'>AI</span>";
@@ -473,8 +537,8 @@ img{max-width:100%}
             string streamingDots = isStreaming
                 ? " <span style='color:#6CAFD9;font-size:10px'>●●●</span>" : "";
 
-            // ── 重试按钮（非流式消息才显示） ──
-            string retryBtnHtml = !isStreaming
+            // ── 重试按钮（非流式、非预渲染 HTML 消息才显示） ──
+            string retryBtnHtml = !isStreaming && !msg.IsHtml
                 ? $"<button class='msg-action-btn retry-btn' onclick='window.__retryMessage({idx})' title='重新生成回答'>🔄 重试</button>"
                 : "";
 
@@ -591,10 +655,9 @@ img{max-width:100%}
         }
 
         /// <summary>
-        /// 将 Markdown 文本渲染为 HTML（使用 Markdig）。
-        /// 对标 ucChat.AddMessagesHtml 中 AI 消息的处理逻辑。
+        /// 将 Markdown 文本渲染为 HTML（使用 Markdig）。公开方法，供外部调用。
         /// </summary>
-        private static string RenderMarkdownToHtml(string markdown)
+        public static string RenderMarkdownToHtml(string markdown)
         {
             if (string.IsNullOrEmpty(markdown)) return string.Empty;
 
@@ -913,158 +976,354 @@ window.__agentDeny=function(requestId){
         #endregion
 
         /// <summary>
-        /// 构建 Agent 步骤计划 HTML。
+        /// 构建 Agent 步骤流程管线 HTML（垂直管线布局）。
+        /// 每个步骤是一个节点（编号圆圈 + 连接线），实时展示执行进度。
         /// </summary>
         public static string BuildAgentPlanHtml(AgentTaskPlan plan)
         {
+            int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+            int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
+            int total = plan.Steps.Count;
+            int progressPercent = total > 0 ? (completed + failed) * 100 / total : 0;
+
             var sb = new StringBuilder();
-            sb.Append("<div class='agent-plan' style='border:1px solid #3A5A8A;border-radius:8px;background:#1A2636;padding:12px;margin:4px 0'>");
-            sb.Append($"<div style='color:#7EB8E0;font-size:14px;font-weight:600;margin-bottom:8px'>🤖 Coding Agent — {EscapeHtml(plan.Title)}</div>");
+            sb.Append("<div class='agent-plan'>");
 
-            sb.Append("<div class='agent-steps'>");
-            foreach (var step in plan.Steps)
+            // ── 头部：标题 + 进度条 ──
+            sb.Append("<div class='agent-plan-header'>");
+            sb.Append($"<div class='agent-plan-title'>🤖 Coding Agent — {EscapeHtml(plan.Title)}</div>");
+            sb.Append("<div class='agent-plan-progress'>");
+            sb.Append($"<span class='step-counter'>{completed}/{total} 步</span>");
+            sb.Append("<span class='agent-plan-progress-bar'>");
+            sb.Append($"<span class='agent-plan-progress-bar-fill' id='agent-progress-fill' style='width:{progressPercent}%'></span>");
+            sb.Append("</span></div></div>");
+
+            // ── 步骤管线节点 ──
+            for (int i = 0; i < plan.Steps.Count; i++)
             {
-                string icon = step.Status == AgentStepStatus.Completed ? "✅"
-                    : step.Status == AgentStepStatus.InProgress ? "🔄"
-                    : step.Status == AgentStepStatus.Failed ? "❌"
-                    : step.Status == AgentStepStatus.WaitingApproval ? "🔐"
-                    : "⏳";
+                var step = plan.Steps[i];
+                bool isLast = i == plan.Steps.Count - 1;
 
-                string color = step.Status == AgentStepStatus.Completed ? "#4EC9B0"
-                    : step.Status == AgentStepStatus.InProgress ? "#6CAFD9"
-                    : step.Status == AgentStepStatus.Failed ? "#E07878"
-                    : "#888";
+                string statusClass = step.Status switch
+                {
+                    AgentStepStatus.Completed => "completed",
+                    AgentStepStatus.InProgress => "in-progress",
+                    AgentStepStatus.Failed => "failed",
+                    AgentStepStatus.Skipped => "skipped",
+                    AgentStepStatus.WaitingApproval => "waiting",
+                    _ => "pending",
+                };
 
-                sb.Append($"<div class='agent-step' id='agent-step-{step.Index}' style='display:flex;align-items:center;gap:8px;padding:4px 0;color:{color};font-size:12px'>");
-                sb.Append($"<span style='min-width:20px;text-align:center'>{icon}</span>");
-                sb.Append($"<span>{EscapeHtml(step.Title)}</span>");
-                if (!string.IsNullOrEmpty(step.ResultSummary))
-                    sb.Append($" <span style='color:#888;font-size:11px'>— {EscapeHtml(step.ResultSummary)}</span>");
+                string bulletText = step.Status switch
+                {
+                    AgentStepStatus.Completed => "✓",
+                    AgentStepStatus.InProgress => "●",
+                    AgentStepStatus.Failed => "✗",
+                    AgentStepStatus.Skipped => "—",
+                    AgentStepStatus.WaitingApproval => "?",
+                    _ => step.Index.ToString(),
+                };
+
+                // 步骤类型标签
+                string tagHtml = "";
+                if (IsCodeWritingStepName(step.Title))
+                    tagHtml = "<span class='agent-step-tag code'>代码</span>";
+                else if (IsBuildOrRunStepName(step.Title))
+                    tagHtml = "<span class='agent-step-tag build'>构建</span>";
+                else if (IsAnalyzeStepName(step.Title))
+                    tagHtml = "<span class='agent-step-tag analyze'>分析</span>";
+
+                // 连接线的样式
+                string lineClass = step.Status == AgentStepStatus.Completed ? "done"
+                    : step.Status == AgentStepStatus.InProgress ? "active"
+                    : "";
+
+                sb.Append($"<div class='agent-step-node' id='agent-step-node-{step.Index}'>");
+
+                // ── 编号圆圈 + 连接线 ──
+                sb.Append("<div class='agent-step-bullet-wrap'>");
+                sb.Append($"<div class='agent-step-bullet {statusClass}' id='agent-bullet-{step.Index}'>{bulletText}</div>");
+                if (!isLast)
+                    sb.Append($"<div class='agent-step-line {lineClass}' id='agent-line-{step.Index}'></div>");
                 sb.Append("</div>");
 
-                // ── 步骤详情区（AI 响应内容，完成后展示） ──
+                // ── 步骤内容 ──
+                sb.Append("<div class='agent-step-content'>");
+                sb.Append("<div class='agent-step-title-row'>");
+                sb.Append($"<span class='agent-step-title {statusClass}' id='agent-title-{step.Index}'>{EscapeHtml(step.Title)}</span>");
+                if (!string.IsNullOrEmpty(tagHtml))
+                    sb.Append(tagHtml);
+                sb.Append("</div>");
+
+                // 结果摘要
+                string summaryDisplay = string.IsNullOrEmpty(step.ResultSummary) ? "none" : "block";
+                sb.Append($"<div class='agent-step-summary' id='agent-summary-{step.Index}' style='display:{summaryDisplay}'>");
+                if (!string.IsNullOrEmpty(step.ResultSummary))
+                    sb.Append(EscapeHtml(step.ResultSummary!));
+                sb.Append("</div>");
+
+                // 详情区（AI 响应，可折叠）
                 bool hasDetail = !string.IsNullOrEmpty(step.AiResponse);
-                string detailDisplay = hasDetail ? "block" : "none";
+                string detailClass = hasDetail ? "agent-step-detail show" : "agent-step-detail";
+                if (hasDetail && statusClass is "in-progress" or "completed" or "failed")
+                    detailClass += $" {statusClass}";
                 string detailContent = hasDetail
-                    ? EscapeHtml(step.AiResponse!.Length > 500 ? step.AiResponse.Substring(0, 500) + "…" : step.AiResponse)
+                    ? EscapeHtml(step.AiResponse!.Length > 600 ? step.AiResponse.Substring(0, 600) + "…" : step.AiResponse)
                     : "";
-                sb.Append($"<div id='agent-detail-{step.Index}' style='display:{detailDisplay};margin:2px 0 8px 28px;padding:8px;background:#121A24;border-radius:4px;border-left:2px solid {color};font-size:11px;color:#A0B0C0;white-space:pre-wrap;max-height:200px;overflow-y:auto'>{detailContent}</div>");
+                sb.Append($"<div class='{detailClass}' id='agent-detail-{step.Index}'>{detailContent}</div>");
+
+                sb.Append("</div></div>");
             }
-            sb.Append("</div></div>");
+
+            // ── 底部状态栏 ──
+            sb.Append("<div class='agent-plan-footer'>");
+            sb.Append($"<span class='elapsed' id='agent-elapsed'></span>");
+            sb.Append($"<span class='step-counter' id='agent-step-counter'>{completed}/{total} 步完成</span>");
+            if (failed > 0)
+                sb.Append($"<span style='color:#E07878'>⚠ {failed} 步失败</span>");
+            sb.Append("</div>");
+
+            sb.Append("</div>");
             return sb.ToString();
         }
 
         /// <summary>
-        /// 构建 Agent 步骤进度更新的 JS 脚本。
+        /// 判断步骤标题是否属于代码编写类型。
+        /// </summary>
+        private static bool IsCodeWritingStepName(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return false;
+            return title.Contains("创建") || title.Contains("修改") || title.Contains("编写")
+                || title.Contains("实现") || title.Contains("添加") || title.Contains("重构")
+                || title.Contains("Create") || title.Contains("Modify") || title.Contains("Implement")
+                || title.Contains("Add") || title.Contains("Refactor") || title.Contains("更新")
+                || title.Contains("删除") || title.Contains("生成") || title.Contains("修复");
+        }
+
+        /// <summary>
+        /// 判断步骤标题是否属于构建/运行类型。
+        /// </summary>
+        private static bool IsBuildOrRunStepName(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return false;
+            return title.Contains("构建") || title.Contains("编译") || title.Contains("运行")
+                || title.Contains("测试") || title.Contains("验证") || title.Contains("Build")
+                || title.Contains("Compile") || title.Contains("Run") || title.Contains("Test")
+                || title.Contains("Verify") || title.Contains("检查") || title.Contains("lint");
+        }
+
+        /// <summary>
+        /// 判断步骤标题是否属于分析类型。
+        /// </summary>
+        private static bool IsAnalyzeStepName(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return false;
+            return title.Contains("分析") || title.Contains("研究") || title.Contains("探索")
+                || title.Contains("理解") || title.Contains("Analyze") || title.Contains("Research")
+                || title.Contains("Explore") || title.Contains("Understand") || title.Contains("检查");
+        }
+
+        /// <summary>
+        /// 构建 Agent 步骤流程管线进度更新 JS（增量更新 DOM，不重建 HTML）。
+        /// 更新每个步骤节点的圆形编号、标题颜色、连接线、摘要和详情区。
         /// </summary>
         public static string BuildAgentProgressUpdateJs(AgentTaskPlan plan)
         {
+            int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+            int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
+            int total = plan.Steps.Count;
+            int progressPercent = total > 0 ? (completed + failed) * 100 / total : 0;
+
             var sb = new StringBuilder();
             sb.Append("(function(){");
+
             foreach (var step in plan.Steps)
             {
-                string icon = step.Status == AgentStepStatus.Completed ? "✅"
-                    : step.Status == AgentStepStatus.InProgress ? "🔄"
-                    : step.Status == AgentStepStatus.Failed ? "❌"
-                    : step.Status == AgentStepStatus.WaitingApproval ? "🔐"
-                    : "⏳";
+                string statusClass = step.Status switch
+                {
+                    AgentStepStatus.Completed => "completed",
+                    AgentStepStatus.InProgress => "in-progress",
+                    AgentStepStatus.Failed => "failed",
+                    AgentStepStatus.Skipped => "skipped",
+                    AgentStepStatus.WaitingApproval => "waiting",
+                    _ => "pending",
+                };
 
-                string color = step.Status == AgentStepStatus.Completed ? "#4EC9B0"
-                    : step.Status == AgentStepStatus.InProgress ? "#6CAFD9"
-                    : step.Status == AgentStepStatus.Failed ? "#E07878"
-                    : "#888";
+                string bulletText = step.Status switch
+                {
+                    AgentStepStatus.Completed => "✓",
+                    AgentStepStatus.InProgress => "●",
+                    AgentStepStatus.Failed => "✗",
+                    AgentStepStatus.Skipped => "—",
+                    AgentStepStatus.WaitingApproval => "?",
+                    _ => step.Index.ToString(),
+                };
 
-                string summary = step.ResultSummary != null
-                    ? $" — {EscapeJsString(step.ResultSummary)}"
-                    : "";
+                // ── 更新步骤圆形编号 ──
+                sb.Append($"var b=document.getElementById('agent-bullet-{step.Index}');");
+                sb.Append($"if(b){{b.className='agent-step-bullet {statusClass}';b.textContent='{bulletText}';}}");
 
-                sb.Append($"var s=document.getElementById('agent-step-{step.Index}');");
-                sb.Append($"if(s){{s.style.color='{color}';");
-                sb.Append($"s.innerHTML='<span style=\"min-width:20px;text-align:center\">{icon}</span>");
-                sb.Append($"<span>{EscapeJsString(step.Title)}</span>");
-                sb.Append($"<span style=\"color:#888;font-size:11px\">{summary}</span>';}}");
+                // ── 更新步骤标题 ──
+                sb.Append($"var t=document.getElementById('agent-title-{step.Index}');");
+                sb.Append($"if(t){{t.className='agent-step-title {statusClass}';}}");
+
+                // ── 更新步骤摘要 ──
+                sb.Append($"var s=document.getElementById('agent-summary-{step.Index}');");
+                if (!string.IsNullOrEmpty(step.ResultSummary))
+                {
+                    sb.Append($"if(s){{s.style.display='block';s.textContent={EscapeJsString(step.ResultSummary!)};}}");
+                }
+                else
+                {
+                    sb.Append("if(s){s.style.display='none';}");
+                }
 
                 // ── 更新步骤详情区 ──
+                sb.Append($"var d=document.getElementById('agent-detail-{step.Index}');");
                 if (!string.IsNullOrEmpty(step.AiResponse))
                 {
-                    string detailText = step.AiResponse.Length > 500
-                        ? step.AiResponse.Substring(0, 500) + "…"
+                    string detailText = step.AiResponse!.Length > 600
+                        ? step.AiResponse.Substring(0, 600) + "…"
                         : step.AiResponse;
-                    sb.Append($"var d=document.getElementById('agent-detail-{step.Index}');");
-                    sb.Append($"if(d){{d.style.display='block';d.style.borderLeftColor='{color}';");
+                    sb.Append($"if(d){{d.className='agent-step-detail show {statusClass}';");
                     sb.Append($"d.textContent={EscapeJsString(detailText)};}}");
                 }
+                else
+                {
+                    sb.Append($"if(d){{d.className='agent-step-detail';d.textContent='';}}");
+                }
+
+                // ── 更新连接线 ──
+                string lineClass = step.Status == AgentStepStatus.Completed ? "done"
+                    : step.Status == AgentStepStatus.InProgress ? "active"
+                    : "";
+                sb.Append($"var l=document.getElementById('agent-line-{step.Index}');");
+                sb.Append($"if(l){{l.className='agent-step-line {lineClass}';}}");
             }
+
+            // ── 更新进度条 ──
+            sb.Append($"var pf=document.getElementById('agent-progress-fill');");
+            sb.Append($"if(pf){{pf.style.width='{progressPercent}%';}}");
+
+            // ── 更新进度计数器 ──
+            sb.Append($"var pc=document.getElementById('agent-step-counter');");
+            string counterText = failed > 0
+                ? $"{completed}/{total} 步完成，{failed} 步失败"
+                : $"{completed}/{total} 步完成";
+            sb.Append($"if(pc){{pc.textContent='{EscapeJsString(counterText)}';}}");
+
+            // ── 自动滚动到底部 ──
             sb.Append("window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});");
             sb.Append("})();");
             return sb.ToString();
         }
 
         /// <summary>
-        /// 构建 Agent 任务完成后的变更摘要 HTML。
+        /// 构建 Agent 任务完成后的变更摘要 HTML（与流程管线风格一致）。
         /// </summary>
         public static string BuildAgentSummaryHtml(AgentTaskPlan plan)
         {
+            int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+            int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
+            int total = plan.Steps.Count;
+
             var sb = new StringBuilder();
-            sb.Append("<div style='border:1px solid #3A5A3A;border-radius:8px;background:#1A2E1A;padding:12px;margin:4px 0'>");
 
             if (plan.IsCancelled)
             {
-                sb.Append("<div style='color:#E07878;font-size:13px;font-weight:600'>⚠️ 任务已取消</div>");
+                sb.Append("<div class='agent-plan' style='border-color:#6A3A3A'>");
+                sb.Append("<div class='agent-plan-header'>");
+                sb.Append("<div class='agent-plan-title' style='color:#E07878'>⚠️ 任务已取消</div>");
+                sb.Append($"<div class='agent-plan-progress'><span class='step-counter'>{completed}/{total} 步</span></div>");
+                sb.Append("</div>");
             }
             else
             {
-                // ── 步骤执行总结 ──
-                int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
-                int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
                 string statusColor = failed > 0 ? "#E07878" : "#4EC9B0";
                 string statusIcon = failed > 0 ? "⚠️" : "✅";
-                sb.Append($"<div style='color:{statusColor};font-size:14px;font-weight:600;margin-bottom:8px'>{statusIcon} 任务完成 — {completed}/{plan.Steps.Count} 步成功" +
+                string borderColor = failed > 0 ? "#6A3A3A" : "#3A5A3A";
+
+                sb.Append($"<div class='agent-plan' style='border-color:{borderColor}'>");
+                sb.Append("<div class='agent-plan-header'>");
+                sb.Append($"<div class='agent-plan-title' style='color:{statusColor}'>{statusIcon} 任务完成 — {completed}/{total} 步成功" +
                     (failed > 0 ? $"，{failed} 步失败" : "") + "</div>");
-
-                // ── 逐步骤结果 ──
-                sb.Append("<div style='margin-bottom:8px'>");
-                foreach (var step in plan.Steps)
-                {
-                    string stepIcon = step.Status == AgentStepStatus.Completed ? "✅"
-                        : step.Status == AgentStepStatus.Failed ? "❌"
-                        : step.Status == AgentStepStatus.Skipped ? "⏭"
-                        : "⏳";
-                    string stepColor = step.Status == AgentStepStatus.Completed ? "#4EC9B0"
-                        : step.Status == AgentStepStatus.Failed ? "#E07878"
-                        : "#888";
-
-                    sb.Append($"<div style='display:flex;align-items:flex-start;gap:6px;padding:2px 0;font-size:12px'>");
-                    sb.Append($"<span style='min-width:18px;color:{stepColor}'>{stepIcon}</span>");
-                    sb.Append($"<span style='color:#D4D4D4;font-weight:500'>{EscapeHtml(step.Title)}</span>");
-                    if (!string.IsNullOrEmpty(step.ResultSummary))
-                        sb.Append($"<span style='color:#888'>— {EscapeHtml(step.ResultSummary)}</span>");
-                    sb.Append("</div>");
-                }
                 sb.Append("</div>");
 
-                // ── 文件变更表 ──
+                // ── 逐步骤结果（管线节点紧凑版） ──
+                for (int i = 0; i < plan.Steps.Count; i++)
+                {
+                    var step = plan.Steps[i];
+                    bool isLast = i == plan.Steps.Count - 1;
+
+                    string statusClass = step.Status switch
+                    {
+                        AgentStepStatus.Completed => "completed",
+                        AgentStepStatus.Failed => "failed",
+                        AgentStepStatus.Skipped => "skipped",
+                        _ => "pending",
+                    };
+
+                    string bulletText = step.Status switch
+                    {
+                        AgentStepStatus.Completed => "✓",
+                        AgentStepStatus.Failed => "✗",
+                        AgentStepStatus.Skipped => "—",
+                        _ => "○",
+                    };
+
+                    string lineClass = step.Status == AgentStepStatus.Completed ? "done" : "";
+
+                    sb.Append("<div class='agent-step-node'>");
+                    sb.Append("<div class='agent-step-bullet-wrap'>");
+                    sb.Append($"<div class='agent-step-bullet {statusClass}'>{bulletText}</div>");
+                    if (!isLast)
+                        sb.Append($"<div class='agent-step-line {lineClass}'></div>");
+                    sb.Append("</div>");
+                    sb.Append("<div class='agent-step-content'>");
+                    sb.Append("<div class='agent-step-title-row'>");
+                    sb.Append($"<span class='agent-step-title {statusClass}'>{EscapeHtml(step.Title)}</span>");
+                    sb.Append("</div>");
+                    if (!string.IsNullOrEmpty(step.ResultSummary))
+                        sb.Append($"<div class='agent-step-summary'>{EscapeHtml(step.ResultSummary!)}</div>");
+                    sb.Append("</div></div>");
+                }
+
+                // ── 文件变更表（合并相同文件的多条记录） ──
                 if (plan.ChangedFiles.Count > 0)
                 {
-                    sb.Append("<div style='color:#4EC9B0;font-size:12px;font-weight:600;margin:8px 0 4px'>📁 文件变更</div>");
-                    sb.Append("<table style='width:100%;border-collapse:collapse;font-size:11px'>");
-                    sb.Append("<tr style='color:#888'><th style='text-align:left;padding:2px 8px'>文件</th><th style='text-align:right;padding:2px 8px'>+</th><th style='text-align:right;padding:2px 8px'>-</th></tr>");
+                    // ── 按文件路径合并：相同文件合并行数，拼接描述 ──
+                    var mergedFiles = plan.ChangedFiles
+                        .GroupBy(c => c.FilePath, StringComparer.OrdinalIgnoreCase)
+                        .Select(g => new FileChangeSummary
+                        {
+                            FilePath = g.Key,
+                            LinesAdded = g.Sum(c => c.LinesAdded),
+                            LinesRemoved = g.Sum(c => c.LinesRemoved),
+                            BriefDescription = string.Join("; ", g.Select(c => c.BriefDescription).Where(d => !string.IsNullOrWhiteSpace(d)).Distinct()),
+                        })
+                        .ToList();
 
-                    foreach (var change in plan.ChangedFiles)
+                    sb.Append("<div style='margin-top:10px;padding-top:8px;border-top:1px solid #2A3A2A'>");
+                    sb.Append($"<div style='color:#4EC9B0;font-size:12px;font-weight:600;margin-bottom:6px'>📁 文件变更 ({mergedFiles.Count} 个文件)</div>");
+                    sb.Append("<table style='width:100%;border-collapse:collapse;font-size:11px'>");
+                    sb.Append("<tr style='color:#888'><th style='text-align:left;padding:2px 8px'>文件</th><th style='text-align:right;padding:2px 8px'>+</th><th style='text-align:right;padding:2px 8px'>-</th><th style='text-align:left;padding:2px 8px'>描述</th></tr>");
+
+                    foreach (var change in mergedFiles)
                     {
                         string fileName = System.IO.Path.GetFileName(change.FilePath);
                         sb.Append("<tr>");
                         sb.Append($"<td style='padding:2px 8px;color:#D4D4D4'>{EscapeHtml(fileName)}</td>");
                         sb.Append($"<td style='padding:2px 8px;text-align:right;color:#4EC9B0'>+{change.LinesAdded}</td>");
                         sb.Append($"<td style='padding:2px 8px;text-align:right;color:#E07878'>-{change.LinesRemoved}</td>");
+                        sb.Append($"<td style='padding:2px 8px;color:#888;font-size:10px'>{EscapeHtml(change.BriefDescription ?? "")}</td>");
                         sb.Append("</tr>");
                     }
 
-                    sb.Append("</table>");
+                    sb.Append("</table></div>");
                 }
-                else if (plan.ChangedFiles.Count == 0 && completed == plan.Steps.Count)
+                else if (completed == total)
                 {
-                    sb.Append("<div style='color:#888;font-size:12px;margin-top:6px'>ℹ️ 所有步骤已完成，未产生文件变更（分析类任务无需修改文件）</div>");
+                    sb.Append("<div style='color:#888;font-size:11px;margin-top:8px;padding-top:8px;border-top:1px solid #2A2A3A'>ℹ️ 所有步骤已完成，未产生文件变更（分析类任务无需修改文件）</div>");
                 }
             }
 

@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Shell;
 using System;
@@ -205,12 +205,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 自动发现解决方案中的源代码文件。
-        /// 当用户没有指明具体文件时，ExploreAgent 负责扫描整个解决方案，
-        /// 收集所有项目源代码文件路径，供后续上下文构建使用。
+        /// 所有 DTE COM 操作集中在一次主线程切换中完成，避免多次切换导致 UI 卡顿。
         /// </summary>
-        /// <param name="solutionPath">解决方案文件路径（.sln）。</param>
-        /// <param name="maxFiles">最多收集的文件数量，默认 200。</param>
-        /// <returns>发现的源代码文件路径列表。</returns>
         public async Task<List<string>> DiscoverSolutionFilesAsync(
             string solutionPath, int maxFiles = 200)
         {
@@ -218,6 +214,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             try
             {
+                // ── 所有 DTE 操作集中在一次 SwitchToMainThreadAsync 中完成 ──
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
                 var dte = (EnvDTE.DTE)Microsoft.VisualStudio.Shell.Package
@@ -228,17 +225,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     return discoveredFiles;
                 }
 
-                string solutionDir = Path.GetDirectoryName(solutionPath) ?? string.Empty;
                 AddLog("INFO", $"[Discover] 开始扫描解决方案: {solutionPath}");
 
-                // 遍历解决方案中的所有项目
+                // 遍历解决方案中的所有项目（同步，在主线程上）
                 foreach (EnvDTE.Project project in dte.Solution.Projects)
                 {
                     if (discoveredFiles.Count >= maxFiles) break;
 
                     try
                     {
-                        await CollectProjectFilesRecursiveAsync(
+                        CollectProjectFilesRecursive(
                             project.ProjectItems, discoveredFiles, maxFiles);
                     }
                     catch (Exception ex)
@@ -258,17 +254,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
-        /// 递归遍历项目项，收集源代码文件路径。
+        /// 同步递归遍历项目项，收集源代码文件路径。
+        /// 必须在主线程上调用（访问 EnvDTE COM 对象）。
         /// </summary>
-        private async Task CollectProjectFilesRecursiveAsync(
+        private static void CollectProjectFilesRecursive(
             EnvDTE.ProjectItems projectItems,
             List<string> discoveredFiles,
             int maxFiles)
         {
             if (projectItems == null || discoveredFiles.Count >= maxFiles)
                 return;
-
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
             foreach (EnvDTE.ProjectItem item in projectItems)
             {
@@ -279,7 +274,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // 递归处理子文件夹
                     if (item.ProjectItems != null && item.ProjectItems.Count > 0)
                     {
-                        await CollectProjectFilesRecursiveAsync(
+                        CollectProjectFilesRecursive(
                             item.ProjectItems, discoveredFiles, maxFiles);
                     }
 
@@ -306,7 +301,89 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
+        /// 使用 AI 根据用户查询和上下文智能生成多个搜索关键词。
+        /// AI 能理解语义关联，生成原始查询中没有但高度相关的关键词。
+        /// 例如："修复认证逻辑" → ["Authentication", "Login", "Token", "JWT", "Auth", "Identity"]
+        /// </summary>
+        /// <param name="userQuery">用户的原始问题/需求描述。</param>
+        /// <param name="context">可选的附加上下文（如文件内容摘要、当前计划信息等）。</param>
+        /// <param name="ct">取消令牌。</param>
+        /// <returns>AI 生成的关键词集合，失败时返回空集合。</returns>
+        private async Task<HashSet<string>> GenerateSearchKeywordsViaAiAsync(
+            string userQuery, string? context, CancellationToken ct)
+        {
+            var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                // ── 构建 AI prompt ──
+                var userPrompt = new StringBuilder();
+                userPrompt.AppendLine("根据以下用户查询，生成用于代码库搜索的相关关键词。");
+                userPrompt.AppendLine();
+                userPrompt.AppendLine($"用户查询: {userQuery}");
+                if (!string.IsNullOrWhiteSpace(context))
+                {
+                    // 限制上下文长度
+                    string ctx = context.Length > 2000 ? context.Substring(0, 2000) + "..." : context;
+                    userPrompt.AppendLine($"上下文: {ctx}");
+                }
+                userPrompt.AppendLine();
+                userPrompt.AppendLine("## 要求");
+                userPrompt.AppendLine("1. 理解查询的真实意图，生成语义相关的关键词");
+                userPrompt.AppendLine("2. 包含技术术语、类名、方法名、模块名、命名空间");
+                userPrompt.AppendLine("3. 考虑常见的命名约定（驼峰、帕斯卡、下划线）");
+                userPrompt.AppendLine("4. 包含同义词和相关概念（如 auth → login, authentication, token, jwt）");
+                userPrompt.AppendLine("5. 每个关键词 2-40 个字符，生成 5-15 个关键词");
+                userPrompt.AppendLine("6. 只返回关键词，每行一个，不要编号、解释或 Markdown 格式");
+                userPrompt.AppendLine();
+                userPrompt.AppendLine("关键词:");
+
+                string systemPrompt = "你是一个代码库搜索专家。你的唯一任务是根据用户查询生成精准的代码搜索关键词。只返回关键词列表，每行一个。";
+
+                string aiResponse = await CallAiShortAsync(systemPrompt, userPrompt.ToString(), ct, maxTokens: 256);
+
+                // ── 解析 AI 返回的关键词 ──
+                if (!string.IsNullOrWhiteSpace(aiResponse))
+                {
+                    foreach (var line in aiResponse.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        // 清理每行：去掉编号前缀（1. 2. - * 等）、首尾空白
+                        string cleaned = line.Trim()
+                            .TrimStart('-', '*', '•', '·', '>', ' ')
+                            .Trim();
+
+                        // 去掉数字编号前缀（如 "1. Authentication" → "Authentication"）
+                        int dotIdx = cleaned.IndexOf('.');
+                        if (dotIdx > 0 && dotIdx < 5 && cleaned.Substring(0, dotIdx).All(char.IsDigit))
+                            cleaned = cleaned.Substring(dotIdx + 1).Trim();
+
+                        // 跳过无用行
+                        if (cleaned.Length < 2 || cleaned.Length > 60) continue;
+                        if (cleaned.All(char.IsDigit)) continue;
+                        if (cleaned.Contains(' ') && cleaned.Length > 40) continue; // 太长的短语
+
+                        keywords.Add(cleaned);
+                    }
+
+                    if (keywords.Count > 0)
+                        AddLog("INFO", $"[Discover] AI 生成 {keywords.Count} 个关键词: [{string.Join(", ", keywords.Take(10))}]"
+                            + (keywords.Count > 10 ? $" ... 等 {keywords.Count} 个" : ""));
+                }
+            }
+            catch (Exception ex)
+            {
+                AddLog("WARN", $"[Discover] AI 关键词生成失败 ({ex.Message})，回退到规则提取");
+            }
+
+            return keywords;
+        }
+
+        /// <summary>
         /// 智能文件发现：根据用户查询模糊搜索代码库中的相关文件。
+        /// 
+        /// 关键词生成策略（优先级从高到低）：
+        /// 1. AI 语义理解 → 根据查询+上下文生成语义相关关键词（如"认证"→Auth/Token/JWT）
+        /// 2. 规则提取 → 分词+去停用词+驼峰拆分（兜底）
         /// 
         /// 三阶段搜索策略：
         /// 1. 文件名匹配 — 提取查询关键词，匹配文件名
@@ -319,9 +396,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <param name="solutionPath">解决方案路径。</param>
         /// <param name="userQuery">用户的原始问题/需求描述。</param>
         /// <param name="maxFiles">最多返回的文件数量，默认 30。</param>
+        /// <param name="additionalContext">可选的附加上下文（文件内容、计划信息等），用于 AI 关键词生成。</param>
         /// <returns>按相关性降序排列的文件路径列表。</returns>
         public async Task<List<string>> DiscoverRelevantFilesAsync(
-            string solutionPath, string userQuery, int maxFiles = 30)
+            string solutionPath, string userQuery, int maxFiles = 30, string? additionalContext = null)
         {
             var relevantFiles = new List<string>();
 
@@ -335,14 +413,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 AddLog("INFO", $"[Discover] 智能文件发现开始: \"{userQuery.Truncate(100)}\"");
 
-                // ── 阶段 0: 提取搜索关键词 ──
-                var keywords = ExtractKeywordsFromQuery(userQuery);
+                // ── 阶段 0: 提取搜索关键词（AI 优先，规则兜底）──
+                var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                // 先尝试 AI 生成关键词
+                CancellationToken ct = CancellationToken.None; // 公共 API 不强制要求 token
+                var aiKeywords = await GenerateSearchKeywordsViaAiAsync(userQuery, additionalContext, ct);
+                if (aiKeywords.Count > 0)
+                {
+                    keywords.UnionWith(aiKeywords);
+                }
+
+                // 再补充规则提取的关键词（作为兜底和补充）
+                var ruleKeywords = ExtractKeywordsFromQuery(userQuery);
+                keywords.UnionWith(ruleKeywords);
+
                 if (keywords.Count == 0)
                 {
+                    AddLog("INFO", "[Discover] 未提取到有效关键词，回退到全量发现");
                     return await DiscoverSolutionFilesAsync(solutionPath);
                 }
 
-                AddLog("INFO", $"[Discover] 提取关键词: [{string.Join(", ", keywords)}]");
+                AddLog("INFO", $"[Discover] 合并关键词: {keywords.Count} 个 "
+                    + $"(AI: {aiKeywords.Count}, 规则: {ruleKeywords.Count}) "
+                    + $"[{string.Join(", ", keywords.Take(8))}]");
 
                 // ── 阶段 1: 收集候选文件 ──
                 var candidateFiles = await DiscoverSolutionFilesAsync(solutionPath, maxFiles: 200);

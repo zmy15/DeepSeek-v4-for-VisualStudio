@@ -73,14 +73,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".tif", ".webp",
         };
 
-        /// <summary>单文件最大解析大小（字节），超过则截断并提示。</summary>
-        private const long MaxFileSizeBytes = 2 * 1024 * 1024; // 2MB
+        /// <summary>单文件最大解析大小（字节），超过则记录警告但不截断。</summary>
+        /// <remarks>
+        /// DeepSeek V4 拥有 1M Token 上下文窗口，足以容纳大型文件。
+        /// 此处仅作为日志警告阈值，不再截断文件内容。
+        /// 实际限制由 ContextManager 的 Token 预算统一管理。
+        /// </remarks>
+        private const long FileSizeWarningBytes = 10 * 1024 * 1024; // 10MB — 超过此值记录警告
 
-        /// <summary>PDF 文件最大解析大小（字节），超过则截断并提示。</summary>
-        private const long MaxPdfFileSizeBytes = 20 * 1024 * 1024; // 20MB
+        /// <summary>PDF 文件警告大小（字节）。</summary>
+        private const long PdfSizeWarningBytes = 50 * 1024 * 1024; // 50MB
 
-        /// <summary>解析后文本最大长度（字符），超过则截断并提示。</summary>
-        private const int MaxParsedChars = 200000;
+        /// <summary>
+        /// 解析后文本最大长度（字符）。
+        /// DeepSeek V4 1M 上下文窗口下不再截断文件内容。
+        /// 设为 int.MaxValue 以完全禁用截断。
+        /// </summary>
+        private const int MaxParsedChars = int.MaxValue;
 
         #endregion
 
@@ -140,14 +149,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return result;
                 }
 
-                // 检查文件大小（PDF 单独设置更大的限制）
+                // 检查文件大小（仅记录警告，不截断）
                 var fileInfo = new FileInfo(filePath);
                 string ext = result.FileExtension.ToLowerInvariant();
-                long maxSize = PdfExtensions.Contains(ext) ? MaxPdfFileSizeBytes : MaxFileSizeBytes;
-                if (fileInfo.Length > maxSize)
+                long warningSize = PdfExtensions.Contains(ext) ? PdfSizeWarningBytes : FileSizeWarningBytes;
+                if (fileInfo.Length > warningSize)
                 {
-                    result.Truncated = true;
-                    result.TruncationNote = $"⚠️ 文件过大 ({FormatFileSize(fileInfo.Length)})，仅解析前 {FormatFileSize(maxSize)}。";
+                    Logger.Warn($"文件较大: {filePath} ({FormatFileSize(fileInfo.Length)})，" +
+                        $"解析可能需要较长时间。");
                 }
 
                 // 文本文件直接以 UTF-8 读取
@@ -181,13 +190,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return result;
                 }
 
-                // 截断过长的内容
-                if (result.Content != null && result.Content.Length > MaxParsedChars)
+                // 不再截断内容。DeepSeek V4 1M Token 上下文窗口足以容纳大型文件。
+                // 上下文管理由 ConversationContextManager 的 Token 预算统一控制。
+                // 如果内容极大（>500K 字符），记录日志便于追踪。
+                if (result.Content != null && result.Content.Length > 500_000)
                 {
-                    result.Content = result.Content.Substring(0, MaxParsedChars);
-                    result.Truncated = true;
-                    result.TruncationNote = (result.TruncationNote != null ? result.TruncationNote + " " : "")
-                        + $"⚠️ 内容过长，已截断至 {MaxParsedChars} 字符。";
+                    int estimatedTokens = ConversationContextManager.EstimateTokens(result.Content);
+                    Logger.Info($"大文件解析完成: {result.FileName}，" +
+                        $"{result.Content.Length:N0} 字符，约 {estimatedTokens:N0} tokens");
                 }
 
                 result.Success = true;
