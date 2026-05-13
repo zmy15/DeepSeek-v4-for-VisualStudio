@@ -158,11 +158,36 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // @agent 显式路由
                 string agentRoutedUserText = userText ?? string.Empty;
                 AgentRoutingResult? explicitRoute = null;
+                string? agentSkillInstructions = null;
                 if (_agentDispatcher != null && !string.IsNullOrEmpty(userText) && userText.StartsWith("@"))
                 {
-                    explicitRoute = await _agentDispatcher.RouteAsync(userText);
-                    var parts = userText.Substring(1).Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
-                    agentRoutedUserText = parts.Length > 1 ? parts[1] : string.Empty;
+                    // 提取 @agent 后的内容：格式 @agent [/skill] [message]
+                    var atParts = userText.Substring(1).Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                    string agentName = atParts.Length > 0 ? atParts[0] : string.Empty;
+                    agentRoutedUserText = atParts.Length > 1 ? atParts[1] : string.Empty;
+
+                    // 显式路由到指定 Agent
+                    explicitRoute = await _agentDispatcher.RouteAsync($"@{agentName}");
+
+                    // ── @agent /skill 组合：先解析技能指令，注入到 Agent 工作流 ──
+                    if (!string.IsNullOrWhiteSpace(agentRoutedUserText) && agentRoutedUserText.StartsWith("/"))
+                    {
+                        string? skillResult = await ResolveSlashCommandAsync(agentRoutedUserText);
+                        if (skillResult == null)
+                        {
+                            // 内置命令已直接执行（help/create-skill/refresh-skills），无需继续
+                            InputTextBox.Text = string.Empty;
+                            lock (_lock) { _isGenerating = false; }
+                            return;
+                        }
+                        if (!string.IsNullOrEmpty(skillResult))
+                        {
+                            // 技能指令将在 Agent 工作流中作为 system 消息注入
+                            agentSkillInstructions = skillResult;
+                            Logger.Info($"[AgentDispatcher] @agent /skill 组合: Agent={explicitRoute.TargetAgent}, Skill 指令已解析 ({skillResult.Length} 字符)");
+                        }
+                    }
+
                     if (string.IsNullOrWhiteSpace(agentRoutedUserText))
                     {
                         StatusLabel.Text = $"已切换到 {explicitRoute.TargetAgent} Agent";
@@ -170,7 +195,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         lock (_lock) { _isGenerating = false; }
                         return;
                     }
-                    Logger.Info($"[AgentDispatcher] @agent 显式路由: → {explicitRoute.TargetAgent}, 消息: \"{agentRoutedUserText}\"");
+                    Logger.Info($"[AgentDispatcher] @agent 显式路由: → {explicitRoute.TargetAgent}, 消息: \"{agentRoutedUserText}\""
+                        + (agentSkillInstructions != null ? " [含Skill指令]" : ""));
                 }
 
                 // 多 Agent 路由
@@ -190,6 +216,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             AttachedFileNames = attachedFileNames,
                             AttachedFiles = parseResults,
                             Timestamp = DateTime.Now,
+                            AgentType = routing.TargetAgent, // 记录 Agent 类型，用于编辑/重试时判断是否分支
                         };
                         lock (_lock)
                         {
@@ -198,6 +225,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             tree.AddChildMessage(agentUserMsg);
                             SyncMessagesFromTree();
                             _contextManager.AddUserMessage(fullUserContent);
+
+                            // ── @agent /skill 组合：注入技能指令到 Agent 上下文 ──
+                            if (!string.IsNullOrEmpty(agentSkillInstructions))
+                            {
+                                _contextManager.AddCustomMessage("system", agentSkillInstructions);
+                                Logger.Info($"[AgentDispatcher] Skill 指令已注入 Agent 上下文 (长度: {agentSkillInstructions.Length})");
+                            }
                         }
                         int capturedUserMsgIndex = _messages.Count - 1;
                         AddMessagesHtml("user", userDisplayContent, null, parseResults);
@@ -236,10 +270,32 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 InputTextBox.Text = string.Empty;
 
+                // ── @agent /skill 清洁：非 Agent 路径下，清除 @agent 前缀 ──
+                if (explicitRoute != null && !string.IsNullOrEmpty(agentRoutedUserText))
+                {
+                    // 去除 userText 和 fullUserContent 中的 @agent 前缀，保留 /skill 和后续内容
+                    string cleanText = agentRoutedUserText;
+                    userDisplayContent = cleanText;
+                    // fullUserContent 中替换 @agent 部分为干净的技能命令
+                    if (!string.IsNullOrEmpty(fullUserContent) && fullUserContent.StartsWith(userText ?? string.Empty))
+                    {
+                        fullUserContent = cleanText + fullUserContent.Substring((userText ?? string.Empty).Length);
+                    }
+                    Logger.Info($"[AgentDispatcher] @agent 前缀已清除，显示内容: \"{userDisplayContent}\"");
+                }
+
                 // 技能路由
+                // 优先使用 @agent /skill 组合中已解析的技能指令
                 bool isSlashCommand = !string.IsNullOrEmpty(userText) && userText.StartsWith("/");
                 bool isAutoMatched = false;
-                if (string.IsNullOrEmpty(skillInstructions) && !string.IsNullOrEmpty(fullUserContent))
+                if (!string.IsNullOrEmpty(agentSkillInstructions))
+                {
+                    // @agent /skill 组合已在前面解析，直接使用
+                    skillInstructions = agentSkillInstructions;
+                    isSlashCommand = true;
+                    Logger.Info($"[Skill] @agent /skill 组合: 技能指令已就绪, 跳过 RouteSkillAsync");
+                }
+                else if (string.IsNullOrEmpty(skillInstructions) && !string.IsNullOrEmpty(fullUserContent))
                 {
                     skillInstructions = await RouteSkillAsync(fullUserContent);
                     isAutoMatched = skillInstructions != null;
@@ -267,9 +323,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                         if (isSlashCommand)
                         {
-                            var calledSkillName = userText!.Substring(1).Split(' ')[0];
+                            // 区分纯 /skill 和 @agent /skill 组合
+                            string slashText = !string.IsNullOrEmpty(agentSkillInstructions) && !string.IsNullOrEmpty(agentRoutedUserText)
+                                ? agentRoutedUserText  // @agent /skill 组合：从 agentRoutedUserText 提取技能名
+                                : userText!;            // 纯 /skill 命令
+
+                            var calledSkillName = slashText.Substring(1).Split(' ')[0];
                             var skillDef = SkillService.Instance.FindSkill(calledSkillName, _skillDiscoveryResult);
-                            Logger.Info($"[Skill] 技能指令已注入: \"{calledSkillName}\" (来源: {skillDef?.Source.ToString() ?? "N/A"}, 长度: {skillInstructions.Length})");
+                            string source = !string.IsNullOrEmpty(agentSkillInstructions)
+                                ? $"@agent /skill 组合 (Agent 上下文)"
+                                : $"斜杠命令 (来源: {skillDef?.Source.ToString() ?? "N/A"})";
+                            Logger.Info($"[Skill] 技能指令已注入: \"{calledSkillName}\" ({source}, 长度: {skillInstructions.Length})");
                         }
                         else if (isAutoMatched)
                             Logger.Info($"[Skill] 技能指令已注入 (AI 自动匹配, 长度: {skillInstructions.Length})");

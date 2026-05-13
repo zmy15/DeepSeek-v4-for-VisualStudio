@@ -171,6 +171,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     Timestamp = DateTime.Now,
                     IsStreaming = true,
                     IsRendered = false,
+                    AgentType = routing?.TargetAgent ?? _agentDispatcher.ActiveAgentType, // 记录 Agent 类型
                 };
                 lock (_lock)
                 {
@@ -200,7 +201,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _agentDispatcher.FileChangeNotified -= OnAgentFileChangeNotified;
                 }
 
-                if (agentResult.Handoff != null)
+                // 仅在 AutoSend 为 true 时自动执行 Handoff；否则由用户通过 UI 按钮显式触发
+                if (agentResult.Handoff != null && agentResult.Handoff.AutoSend)
                 {
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                     StatusLabel.Text = $"🤖 切换到 {agentResult.Handoff.TargetAgent} Agent...";
@@ -808,7 +810,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 重试某个助手消息：在助手节点处产生分叉（新 Assistant），切换到新分支后重新生成。
+        /// 重试某个助手消息：EditAgent 原地替换，其他 Agent 产生分叉。
         /// </summary>
         private async Task RetryMessageAsync(int assistantMsgIndex)
         {
@@ -845,19 +847,36 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 bool canProceed = await CheckAndRevertFileChangesAsync(userMsgIndex);
                 if (!canProceed) return;
 
-                // ── 树状分叉：在助手节点处创建新兄弟节点 ──
+                // ── 判断是否为 EditAgent：是则移除旧节点后重新生成，否则树状分叉 ──
+                ChatMessage? assistantMsg;
+                lock (_lock) { assistantMsg = _messages[assistantMsgIndex]; }
+                bool isEditAgent = assistantMsg?.AgentType == AgentType.Edit;
+
                 var tree = EnsureTree();
-                var newAssistantMsg = new ChatMessage
+
+                if (isEditAgent)
                 {
-                    Role = "assistant",
-                    Content = string.Empty,
-                    ReasoningContent = string.Empty,
-                    Timestamp = DateTime.Now,
-                    IsStreaming = true,
-                    IsRendered = false,
-                    ForkReason = "retry",
-                };
-                tree.ForkAt(assistantNode, newAssistantMsg, "retry");
+                    // ── EditAgent：移除旧助手节点及其后代，重置到用户节点，重新生成 ──
+                    tree.RemoveNodeFromTree(assistantNode);
+                    Logger.Info($"[EditAgent] 重试消息：移除旧助手节点 (nodeId={assistantNode.Id})，不产生分支");
+                }
+                else
+                {
+                    // ── 其他 Agent：树状分叉 ──
+                    var newAssistantMsg = new ChatMessage
+                    {
+                        Role = "assistant",
+                        Content = string.Empty,
+                        ReasoningContent = string.Empty,
+                        Timestamp = DateTime.Now,
+                        IsStreaming = true,
+                        IsRendered = false,
+                        ForkReason = "retry",
+                        AgentType = assistantMsg?.AgentType,
+                    };
+                    tree.ForkAt(assistantNode, newAssistantMsg, "retry");
+                    Logger.Info($"[Tree] 重试消息：树状分叉 (nodeId={assistantNode.Id})");
+                }
 
                 // ── 同步消息列表并重建上下文 ──
                 RebuildFromTree();
@@ -913,7 +932,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             lock (_lock)
             {
                 var uMsg = _messages[userMsgIndex];
-                originalContent = uMsg.OriginalContent ?? uMsg.Content;
+                originalContent = uMsg.Content;
             }
 
             // ── 在用户气泡处显示内联编辑区 ──
@@ -973,7 +992,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         originalUserMsg = _messages[userMsgIndex];
                 }
 
-                // ── 树状分叉：在用户节点处创建新兄弟节点（编辑后的用户消息）──
+                // ── 判断是否为 EditAgent：是则原地替换，否则树状分叉 ──
+                bool isEditAgent = originalUserMsg?.AgentType == AgentType.Edit;
+
                 var tree = EnsureTree();
                 var editedUserMsg = new ChatMessage
                 {
@@ -982,9 +1003,22 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     AttachedFileNames = originalUserMsg?.AttachedFileNames ?? new List<string>(),
                     AttachedFiles = originalUserMsg?.AttachedFiles ?? new List<FileParseResult>(),
                     Timestamp = DateTime.Now,
-                    ForkReason = "edit",
+                    AgentType = originalUserMsg?.AgentType, // 保留原 Agent 类型
                 };
-                tree.ForkAt(userNode, editedUserMsg, "edit");
+
+                if (isEditAgent)
+                {
+                    // ── EditAgent：原地修改，不产生分支，不显示 <> ──
+                    tree.ReplaceInPlace(userNode, editedUserMsg);
+                    Logger.Info($"[EditAgent] 编辑消息：原地替换 (nodeId={userNode.Id})，不产生分支");
+                }
+                else
+                {
+                    // ── 其他 Agent：树状分叉 ──
+                    editedUserMsg.ForkReason = "edit";
+                    tree.ForkAt(userNode, editedUserMsg, "edit");
+                    Logger.Info($"[Tree] 编辑消息：树状分叉 (nodeId={userNode.Id})");
+                }
 
                 // ── 同步消息列表并重建上下文 ──
                 RebuildFromTree();
@@ -1176,39 +1210,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                         await RunAgentWorkflowAsync(enrichedContent, fileContext, routing);
                         RecordAgentFileChanges(userMsgIndex);
-
-                        lock (_lock)
-                        {
-                            if (_assistantVersionHistory.TryGetValue(userMsgIndex, out var history) && history.Count > 0)
-                            {
-                                ChatMessage? firstNewAssistant = null;
-                                for (int i = userMsgIndex + 1; i < _messages.Count; i++)
-                                {
-                                    if (_messages[i].Role == "assistant")
-                                    {
-                                        firstNewAssistant = _messages[i];
-                                        break;
-                                    }
-                                }
-
-                                if (firstNewAssistant != null)
-                                {
-                                    history.Add(firstNewAssistant);
-                                    int totalVersions = history.Count;
-                                    for (int i = userMsgIndex + 1; i < _messages.Count; i++)
-                                    {
-                                        if (_messages[i].Role == "assistant")
-                                        {
-                                            _messages[i].VersionIndex = totalVersions;
-                                            _messages[i].TotalVersions = totalVersions;
-                                            _messages[i].MessageGroupId = $"ver_{userMsgIndex}";
-                                        }
-                                    }
-                                    _activeVersionIndex[userMsgIndex] = history.Count - 1;
-                                    Logger.Info($"[Retry] Agent 版本历史: 共 {history.Count} 个版本, 当前版本 {totalVersions}");
-                                }
-                            }
-                        }
 
                         RebuildMessagesHtml();
                         _browserInitialized = false;

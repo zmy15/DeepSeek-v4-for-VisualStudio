@@ -48,6 +48,35 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return;
             }
 
+            // ── Agent 弹出框键盘导航 ──
+            if (AgentSuggestionPopup.IsOpen)
+            {
+                if (e.Key == Key.Down)
+                {
+                    e.Handled = true;
+                    NavigateAgentSuggestion(1);
+                    return;
+                }
+                if (e.Key == Key.Up)
+                {
+                    e.Handled = true;
+                    NavigateAgentSuggestion(-1);
+                    return;
+                }
+                if (e.Key == Key.Enter || e.Key == Key.Tab)
+                {
+                    e.Handled = true;
+                    AcceptAgentSuggestion();
+                    return;
+                }
+                if (e.Key == Key.Escape)
+                {
+                    e.Handled = true;
+                    AgentSuggestionPopup.IsOpen = false;
+                    return;
+                }
+            }
+
             // ── Skill 弹出框键盘导航 ──
             if (SkillSuggestionPopup.IsOpen)
             {
@@ -93,11 +122,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     return;
                 }
 
-                // 如果弹出框打开，Enter 优先选择技能
+                // 如果弹出框打开，Enter 优先选择技能/Agent
                 if (SkillSuggestionPopup.IsOpen)
                 {
                     e.Handled = true;
                     AcceptSkillSuggestion();
+                    return;
+                }
+                if (AgentSuggestionPopup.IsOpen)
+                {
+                    e.Handled = true;
+                    AcceptAgentSuggestion();
                     return;
                 }
 
@@ -113,6 +148,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (SkillSuggestionPopup.IsOpen)
             {
                 SkillSuggestionPopup.IsOpen = false;
+            }
+            if (AgentSuggestionPopup.IsOpen)
+            {
+                AgentSuggestionPopup.IsOpen = false;
             }
             SendMessage();
         }
@@ -716,7 +755,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         #region Event Handlers - Skill Suggestions
 
         /// <summary>
-        /// 输入框文本变更：检测 / 触发 Skill 自动补全弹出框。
+        /// 输入框文本变更：检测 / 触发 Skill 自动补全、检测 @ 触发 Agent 路由自动补全。
         /// </summary>
         private void InputTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
@@ -724,6 +763,35 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 var text = InputTextBox.Text;
 
+                // ── 占位提示文字显隐 ──
+                UpdatePlaceholderVisibility();
+
+                // ── @ 路由前缀检测（优先） ──
+                if (!string.IsNullOrEmpty(text) && text.StartsWith("@"))
+                {
+                    // 关闭 Skill 弹出框（互斥）
+                    if (SkillSuggestionPopup.IsOpen)
+                        SkillSuggestionPopup.IsOpen = false;
+
+                    // @ 后包含空格 → 用户正在输入参数，关闭弹出框
+                    if (text.Contains(' '))
+                    {
+                        if (AgentSuggestionPopup.IsOpen)
+                            AgentSuggestionPopup.IsOpen = false;
+                        return;
+                    }
+
+                    // 提取 @ 后的文本用于过滤
+                    var agentFilterText = text.Length > 1 ? text.Substring(1).ToLowerInvariant() : string.Empty;
+                    UpdateAgentSuggestions(agentFilterText);
+                    return;
+                }
+
+                // 关闭 Agent 弹出框（非 @ 开头）
+                if (AgentSuggestionPopup.IsOpen)
+                    AgentSuggestionPopup.IsOpen = false;
+
+                // ── / 斜杠命令检测 ──
                 // 不以 / 开头 → 关闭弹出框
                 if (string.IsNullOrEmpty(text) || !text.StartsWith("/"))
                 {
@@ -733,7 +801,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
 
                 // 命令已包含空格 → 用户正在输入参数，关闭弹出框
-                // 例如: "/code-review " 或 "/create-skill my-skill" 不应触发弹出框
                 if (text.Contains(' '))
                 {
                     if (SkillSuggestionPopup.IsOpen)
@@ -952,6 +1019,178 @@ namespace DeepSeek_v4_for_VisualStudio.View
             AcceptSkillSuggestion();
         }
 
+        #endregion
+
+        #region Event Handlers - Agent Suggestions
+
+        /// <summary>
+        /// 更新 Agent 路由建议列表。
+        /// 根据 @ 后的输入文本过滤可用的 Agent。
+        /// </summary>
+        private void UpdateAgentSuggestions(string filterText)
+        {
+            try
+            {
+                var agents = new List<AgentSuggestionItem>
+                {
+                    new AgentSuggestionItem
+                    {
+                        Name = "ask",
+                        Icon = "💬",
+                        Description = "纯问答模式，不修改代码，适合解释、分析、讨论",
+                        ArgumentHint = "输入问题",
+                        AgentType = AgentType.Ask,
+                    },
+                    new AgentSuggestionItem
+                    {
+                        Name = "explore",
+                        Icon = "🔍",
+                        Description = "只读探索模式，搜索项目文件、分析代码结构",
+                        ArgumentHint = "输入搜索/分析内容",
+                        AgentType = AgentType.Explore,
+                    },
+                    new AgentSuggestionItem
+                    {
+                        Name = "plan",
+                        Icon = "📋",
+                        Description = "规划模式，分析任务并生成分步计划（不修改代码）",
+                        ArgumentHint = "输入要规划的任务",
+                        AgentType = AgentType.Plan,
+                    },
+                    new AgentSuggestionItem
+                    {
+                        Name = "edit",
+                        Icon = "🔨",
+                        Description = "代码编辑模式，按计划逐步修改项目代码并验证",
+                        ArgumentHint = "输入要修改的内容",
+                        AgentType = AgentType.Edit,
+                    },
+                };
+
+                // 按过滤文本筛选
+                if (!string.IsNullOrEmpty(filterText))
+                {
+                    agents = agents
+                        .Where(a => a.Name.StartsWith(filterText, StringComparison.OrdinalIgnoreCase)
+                                    || a.Description.Contains(filterText, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                }
+
+                // 更新 ListBox
+                AgentSuggestionListBox.ItemsSource = agents;
+
+                if (agents.Count > 0)
+                {
+                    AgentSuggestionListBox.SelectedIndex = 0;
+                    AgentSuggestionPopup.IsOpen = true;
+                }
+                else
+                {
+                    AgentSuggestionPopup.IsOpen = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Agent] 更新建议列表失败: {ex.Message}");
+                AgentSuggestionPopup.IsOpen = false;
+            }
+        }
+
+        /// <summary>
+        /// 导航 Agent 建议列表（上下键）。
+        /// </summary>
+        private void NavigateAgentSuggestion(int direction)
+        {
+            if (!AgentSuggestionPopup.IsOpen || AgentSuggestionListBox.Items.Count == 0)
+                return;
+
+            var newIndex = AgentSuggestionListBox.SelectedIndex + direction;
+            if (newIndex < 0)
+                newIndex = AgentSuggestionListBox.Items.Count - 1;
+            else if (newIndex >= AgentSuggestionListBox.Items.Count)
+                newIndex = 0;
+
+            AgentSuggestionListBox.SelectedIndex = newIndex;
+            AgentSuggestionListBox.ScrollIntoView(AgentSuggestionListBox.SelectedItem);
+        }
+
+        /// <summary>
+        /// 接受当前选中的 Agent 建议（Enter/Tab 键）。
+        /// 将输入框文本替换为 @agent-name 格式。
+        /// </summary>
+        private void AcceptAgentSuggestion()
+        {
+            if (!AgentSuggestionPopup.IsOpen || AgentSuggestionListBox.SelectedItem == null)
+                return;
+
+            if (AgentSuggestionListBox.SelectedItem is AgentSuggestionItem item)
+            {
+                var agentName = item.Name;
+
+                Logger.Info($"[Agent] 用户从弹出框选择 Agent: @{agentName} ({item.Description})");
+
+                // 设置输入框为 @agent-name 后加空格，方便用户继续输入
+                InputTextBox.Text = $"@{agentName} ";
+                InputTextBox.CaretIndex = InputTextBox.Text.Length;
+                InputTextBox.Focus();
+            }
+
+            AgentSuggestionPopup.IsOpen = false;
+        }
+
+        /// <summary>
+        /// Agent ListBox 键盘事件：Enter/Tab 接受选择，Escape 关闭弹出框。
+        /// </summary>
+        private void AgentSuggestionListBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter || e.Key == Key.Tab)
+            {
+                e.Handled = true;
+                AcceptAgentSuggestion();
+                return;
+            }
+            if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                AgentSuggestionPopup.IsOpen = false;
+                InputTextBox.Focus();
+                return;
+            }
+            if (e.Key == Key.Up || e.Key == Key.Down)
+            {
+                // 让 ListBox 默认处理导航
+                e.Handled = false;
+            }
+        }
+
+        /// <summary>
+        /// Agent ListBox 双击选中 Agent。
+        /// </summary>
+        private void AgentSuggestionListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            AcceptAgentSuggestion();
+        }
+
+        /// <summary>
+        /// Agent ListBox 选中项变更。
+        /// </summary>
+        private void AgentSuggestionListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // 预留：选中项变更时的处理
+        }
+
+        #endregion
+
+        #region Event Handlers - LostFocus & Placeholder
+
+        /// <summary>
+        /// 输入框获得焦点时隐藏占位提示文字。
+        /// </summary>
+        private void InputTextBox_GotFocus(object sender, RoutedEventArgs e)
+        {
+            UpdatePlaceholderVisibility();
+        }
+
         /// <summary>
         /// 输入框失去焦点时关闭弹出框（延迟关闭，允许点击 ListBox 项）。
         /// </summary>
@@ -963,6 +1202,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 SkillSuggestionPopup.IsOpen = false;
             }
+            if (AgentSuggestionPopup.IsOpen && !AgentSuggestionListBox.IsKeyboardFocusWithin)
+            {
+                AgentSuggestionPopup.IsOpen = false;
+            }
+            UpdatePlaceholderVisibility();
+        }
+
+        /// <summary>
+        /// 更新输入框占位提示文字的可见性。
+        /// 规则：输入框为空 且 无焦点 → 显示；否则隐藏。
+        /// </summary>
+        private void UpdatePlaceholderVisibility()
+        {
+            if (InputPlaceholder == null) return;
+            bool isEmpty = string.IsNullOrEmpty(InputTextBox.Text);
+            bool isFocused = InputTextBox.IsFocused;
+            InputPlaceholder.Visibility = (isEmpty && !isFocused) ? Visibility.Visible : Visibility.Collapsed;
         }
 
         #endregion

@@ -35,8 +35,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 Id = Guid.NewGuid().ToString("N"),
                 Title = "新对话",
-                Messages = new List<ChatMessage>(),
-                DataVersion = 2,
                 CreatedAt = DateTime.Now,
                 LastActiveAt = DateTime.Now,
             };
@@ -44,10 +42,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 保存当前活跃会话到容器并持久化。
-        /// 树状结构（DataVersion >= 2）时：
-        /// - TreeDataJson 为唯一权威数据源（含所有 user/assistant 消息）
-        /// - Messages 不再单独保存（避免与树数据重复，减少文件体积）
-        /// - ApiHistory 保留（含 tool/system 消息，树结构不包含这些角色）
+        /// TreeDataJson 为唯一权威数据源（含所有 user/assistant 消息）。
+        /// ApiHistory 保留（含 tool/system 消息，树结构不包含这些角色）。
         /// </summary>
         private void SaveCurrentSession()
         {
@@ -62,22 +58,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     string treeJson = System.Text.Json.JsonSerializer.Serialize(treeData,
                         new System.Text.Json.JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
                     _activeSession.TreeDataJson = treeJson;
-                    _activeSession.DataVersion = 2;
-
-                    // 树结构已包含所有 user/assistant 消息，清除 Messages 避免冗余存储
-                    _activeSession.Messages = new List<ChatMessage>();
                 }
                 catch (Exception ex)
                 {
                     Logger.Error($"[Tree] 序列化失败: {ex.Message}", ex);
-                    // 序列化失败时回退到旧格式
-                    _activeSession.Messages = _messages.ToList();
                 }
-            }
-            else
-            {
-                // 无树结构时使用旧格式
-                _activeSession.Messages = _messages.ToList();
             }
 
             // ── ApiHistory 始终保存（含 tool/system 消息，树结构不包含）──
@@ -232,9 +217,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _lastRenderedMessagesLength = 0;
                 }
 
-                // ── 优先从 TreeData 恢复树状结构 ──
-                bool treeLoaded = false;
-                if (_activeSession.DataVersion >= 2 && !string.IsNullOrWhiteSpace(_activeSession.TreeDataJson))
+                // ── 从 TreeData 恢复树状结构 ──
+                if (!string.IsNullOrWhiteSpace(_activeSession.TreeDataJson))
                 {
                     try
                     {
@@ -246,62 +230,24 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             _tree = ConversationTree.Deserialize(treeData);
                             SyncMessagesFromTree();
                             RebuildContextFromTree();
-                            treeLoaded = true;
                             Logger.Info($"[Tree] 从 TreeData 恢复 (节点数: {treeData.Nodes.Count})");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Logger.Warn($"[Tree] TreeData 反序列化失败，回退到旧格式: {ex.Message}");
+                        Logger.Warn($"[Tree] TreeData 反序列化失败: {ex.Message}");
+                        _tree = null;
                     }
                 }
-
-                if (!treeLoaded)
+                else
                 {
-                    _tree = null; // 重置树
+                    _tree = null;
+                }
 
-                    // ── 优先使用 ApiHistory 恢复完整上下文（含 tool 消息） ──
-                    if (_activeSession.ApiHistory.Count > 0)
-                    {
-                        _contextManager.RestoreFullContext(_activeSession.ApiHistory);
-                    }
-                    else
-                    {
-                        // 回退：从 UI 消息列表重建（旧版会话兼容）
-                        foreach (var msg in _activeSession.Messages)
-                        {
-                            msg.IsStreaming = false;
-                            if (msg.Role is "user" or "assistant")
-                            {
-                                string apiContent = msg.Content ?? string.Empty;
-                                if (msg.Role == "user" && msg.AttachedFiles.Count > 0)
-                                {
-                                    string fileContext = FileParserService.FormatParseResultsForContext(msg.AttachedFiles);
-                                    if (!string.IsNullOrEmpty(fileContext))
-                                        apiContent = fileContext + "\n" + apiContent;
-                                }
-                                lock (_lock)
-                                {
-                                    if (msg.Role == "user")
-                                        _contextManager.AddUserMessage(apiContent);
-                                    else
-                                        _contextManager.AddAssistantMessage(apiContent, msg.ReasoningContent);
-                                }
-                            }
-                        }
-                    }
-
-                    foreach (var msg in _activeSession.Messages)
-                    {
-                        msg.IsStreaming = false;
-                        lock (_lock)
-                        {
-                            _messages.Add(msg);
-                        }
-                    }
-
-                    // ── 旧版会话迁移到树状结构 ──
-                    MigrateToTree();
+                // ── 从 ApiHistory 恢复 tool/system 消息上下文 ──
+                if (_activeSession.ApiHistory.Count > 0)
+                {
+                    _contextManager.RestoreFullContext(_activeSession.ApiHistory);
                 }
 
                 // 更新下拉框选中项
@@ -398,7 +344,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _messages.Add(welcomeMsg);
                     // 欢迎消息不加入树结构（仅 UI 展示）
                 }
-                _activeSession.Messages.Add(welcomeMsg);
 
             // 更新下拉框
             PopulateSessionComboBox();
@@ -424,54 +369,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 Logger.Error($"CreateNewChat 异常: {ex.Message}", ex);
                 StatusLabel.Text = $"创建新会话失败: {ex.Message}";
-            }
-        }
-
-        /// <summary>
-        /// 将旧版线性消息列表迁移到树状结构。
-        /// </summary>
-        private void MigrateToTree()
-        {
-            try
-            {
-                var messages = _messages.ToList();
-                if (messages.Count == 0) return;
-
-                _tree = new ConversationTree();
-                ConvNode? lastNode = null;
-
-                foreach (var msg in messages)
-                {
-                    if (msg.Role == "user" || msg.Role == "assistant")
-                    {
-                        if (_tree.Root.Children.Count == 0 && msg.Role == "assistant")
-                        {
-                            // 跳过会话开头的欢迎消息（不加入树）
-                            continue;
-                        }
-
-                        if (lastNode == null)
-                        {
-                            // 第一个用户/助手消息
-                            _tree.AddChildMessage(msg);
-                            lastNode = _tree.ActiveLeaf;
-                        }
-                        else
-                        {
-                            // 后续消息
-                            _tree.AddChildMessage(msg);
-                            lastNode = _tree.ActiveLeaf;
-                        }
-                    }
-                }
-
-                SyncMessagesFromTree();
-                Logger.Info($"[Tree] 旧版会话已迁移到树状结构 (消息数: {messages.Count}, 树节点数: {_tree.TotalNodeCount})");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"[Tree] 迁移失败: {ex.Message}", ex);
-                _tree = null;
             }
         }
 
@@ -519,9 +416,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (_activeSession != null)
                 {
-                    // ── 优先从 TreeData 恢复树状结构 ──
-                    bool treeLoaded = false;
-                    if (_activeSession.DataVersion >= 2 && !string.IsNullOrWhiteSpace(_activeSession.TreeDataJson))
+                    // ── 从 TreeData 恢复树状结构 ──
+                    if (!string.IsNullOrWhiteSpace(_activeSession.TreeDataJson))
                     {
                         try
                         {
@@ -533,7 +429,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 _tree = ConversationTree.Deserialize(treeData);
                                 SyncMessagesFromTree();
                                 RebuildContextFromTree();
-                                treeLoaded = true;
                                 Logger.Info($"[Tree] DeleteCurrentSession: 从 TreeData 恢复 (节点数: {treeData.Nodes.Count})");
                             }
                         }
@@ -543,42 +438,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         }
                     }
 
-                    if (!treeLoaded)
+                    // ── 从 ApiHistory 恢复 tool/system 消息上下文 ──
+                    if (_activeSession.ApiHistory.Count > 0)
                     {
-                        // ── 优先使用 ApiHistory 恢复完整上下文 ──
-                        if (_activeSession.ApiHistory.Count > 0)
-                        {
-                            _contextManager.RestoreFullContext(_activeSession.ApiHistory);
-                        }
-                        else
-                        {
-                            foreach (var msg in _activeSession.Messages)
-                            {
-                                msg.IsStreaming = false;
-                                if (msg.Role is "user" or "assistant")
-                                {
-                                    string apiContent = msg.Content ?? string.Empty;
-                                    if (msg.Role == "user" && msg.AttachedFiles.Count > 0)
-                                    {
-                                        string fileContext = FileParserService.FormatParseResultsForContext(msg.AttachedFiles);
-                                        if (!string.IsNullOrEmpty(fileContext))
-                                            apiContent = fileContext + "\n" + apiContent;
-                                    }
-                                    lock (_lock)
-                                    {
-                                        if (msg.Role == "user")
-                                            _contextManager.AddUserMessage(apiContent);
-                                        else
-                                            _contextManager.AddAssistantMessage(apiContent, msg.ReasoningContent);
-                                    }
-                                }
-                            }
-                        }
-                        foreach (var msg in _activeSession.Messages)
-                        {
-                            msg.IsStreaming = false;
-                            lock (_lock) { _messages.Add(msg); }
-                        }
+                        _contextManager.RestoreFullContext(_activeSession.ApiHistory);
                     }
                 }
 
@@ -621,10 +484,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (_activeSession != null)
                 {
-                    _activeSession.Messages.Clear();
                     _activeSession.ApiHistory.Clear();
                     _activeSession.TreeDataJson = null;
-                    _activeSession.DataVersion = 2;
                     _activeSession.Title = "新对话";
                 }
 
@@ -639,7 +500,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     _messages.Add(welcomeMsg);
                 }
-                _activeSession?.Messages.Add(welcomeMsg);
 
                 PopulateSessionComboBox();
                 SaveCurrentSession();

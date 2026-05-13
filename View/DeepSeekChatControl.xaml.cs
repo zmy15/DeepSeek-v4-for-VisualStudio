@@ -62,7 +62,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private readonly List<ChatMessage> _messages = new();
         private readonly ConversationContextManager _contextManager = new();
 
-        // ── 树状对话结构（替代旧线性 _messages + _assistantVersionHistory）──
+        // ── 树状对话结构 ──
         private ConversationTree? _tree;
 
         private RagService? _ragService;
@@ -95,14 +95,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private bool _pendingAiTitle;
         /// <summary>第一条用户消息内容（用于 AI 摘要的输入）</summary>
         private string? _firstUserMessageForTitle;
-
-        // ── 消息版本管理（重试/编辑功能） ──
-        // Key: 用户消息索引，Value: 该用户消息对应的所有助手回复版本列表
-        // [Obsolete] 树状结构使用 ConversationTree 替代。保留以兼容旧版加载。
-        private readonly Dictionary<int, List<ChatMessage>> _assistantVersionHistory = new();
-        // Key: 用户消息索引，Value: 当前显示的版本索引（0-based）
-        // [Obsolete] 树状结构使用 ConversationTree 替代。
-        private readonly Dictionary<int, int> _activeVersionIndex = new();
 
         // ── 树状结构辅助 ──
 
@@ -772,19 +764,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _messages.Clear();
             _contextManager.Clear();
 
-            bool hasData = _activeSession.Messages.Count > 0
-                        || _activeSession.ApiHistory.Count > 0
+            bool hasData = _activeSession.ApiHistory.Count > 0
                         || !string.IsNullOrWhiteSpace(_activeSession.TreeDataJson);
 
             if (hasData)
             {
                 Logger.Info($"[Render] LoadConversation: 从会话 '{_activeSession.Title}' 加载数据 "
-                    + $"(messages={_activeSession.Messages.Count}, apiHistory={_activeSession.ApiHistory.Count}, "
+                    + $"(apiHistory={_activeSession.ApiHistory.Count}, "
                     + $"hasTree={!string.IsNullOrWhiteSpace(_activeSession.TreeDataJson)})");
 
-                // ── 优先从 TreeData 恢复树状结构 ──
-                bool treeLoaded = false;
-                if (_activeSession.DataVersion >= 2 && !string.IsNullOrWhiteSpace(_activeSession.TreeDataJson))
+                // ── 从 TreeData 恢复树状结构 ──
+                if (!string.IsNullOrWhiteSpace(_activeSession.TreeDataJson))
                 {
                     try
                     {
@@ -796,54 +786,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             _tree = ConversationTree.Deserialize(treeData);
                             SyncMessagesFromTree();
                             RebuildContextFromTree();
-                            treeLoaded = true;
                             Logger.Info($"[Tree] LoadConversation 从 TreeData 恢复 (节点数: {treeData.Nodes.Count})");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Logger.Warn($"[Tree] LoadConversation TreeData 反序列化失败，回退: {ex.Message}");
+                        Logger.Warn($"[Tree] LoadConversation TreeData 反序列化失败: {ex.Message}");
                     }
                 }
 
-                if (!treeLoaded)
+                // ── 从 ApiHistory 恢复 tool/system 消息上下文 ──
+                if (_activeSession.ApiHistory.Count > 0)
                 {
-                    // ── 优先使用 ApiHistory 恢复完整上下文（含 tool 消息） ──
-                    if (_activeSession.ApiHistory.Count > 0)
-                    {
-                        _contextManager.RestoreFullContext(_activeSession.ApiHistory);
-                    }
-                    else
-                    {
-                        // 回退：从 UI 消息列表重建（旧版会话兼容）
-                        foreach (var msg in _activeSession.Messages)
-                        {
-                            msg.IsStreaming = false;
-                            if (msg.Role is "user" or "assistant")
-                            {
-                                string apiContent = msg.Content ?? string.Empty;
-                                if (msg.Role == "user" && msg.AttachedFiles.Count > 0)
-                                {
-                                    string fileContext = FileParserService.FormatParseResultsForContext(msg.AttachedFiles);
-                                    if (!string.IsNullOrEmpty(fileContext))
-                                        apiContent = fileContext + "\n" + apiContent;
-                                }
-                                if (msg.Role == "user")
-                                    _contextManager.AddUserMessage(apiContent);
-                                else
-                                    _contextManager.AddAssistantMessage(apiContent, msg.ReasoningContent);
-                            }
-                        }
-                    }
-
-                    foreach (var msg in _activeSession.Messages)
-                    {
-                        msg.IsStreaming = false;
-                        _messages.Add(msg);
-                    }
-
-                    // ── 旧版会话迁移到树状结构 ──
-                    MigrateToTree();
+                    _contextManager.RestoreFullContext(_activeSession.ApiHistory);
                 }
             }
 
@@ -861,7 +816,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     IsRendered = true,
                 };
                 _messages.Add(welcomeMsg);
-                _activeSession.Messages.Add(welcomeMsg);
                 Logger.Info(hasApiKey ? "[Render] 添加欢迎语" : "[Render] 添加欢迎语 + API密钥缺失警告");
             }
 

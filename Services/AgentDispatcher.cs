@@ -342,8 +342,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     Logger.Info($"[AgentDispatcher] Plan Agent 产出: {plan.Steps.Count} 个步骤");
                 }
 
-                // 如果用户只想要计划（不执行），直接返回
-                if (routing.TargetAgent == AgentType.Plan)
+                // 如果用户只想要计划（不执行），或需要先规划再让用户决定是否执行，直接返回
+                // Plan Agent 的职责是规划，不自动流转到 Edit；用户需通过 UI Handoff 按钮显式触发 Edit
+                if (routing.TargetAgent == AgentType.Plan || routing.NeedsPlanning)
                 {
                     return planResult;
                 }

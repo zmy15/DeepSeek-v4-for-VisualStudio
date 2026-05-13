@@ -262,45 +262,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [DataMember]
         public List<FileParseResult> AttachedFiles { get; set; } = new();
 
-        /// <summary>
-        /// 消息组 ID，用于关联同一轮对话的用户消息和多个助手回复版本。
-        /// 用户消息和其对应的第一个助手回复共享同一个 GroupId。
-        /// 重试/编辑后产生的新助手回复使用新的 GroupId。
-        /// [Obsolete] 树状结构使用 NodeId 替代。
-        /// </summary>
-        [Obsolete("使用 NodeId 替代。树状结构中分支通过 ConvNode 管理。")]
-        [DataMember]
-        public string MessageGroupId { get; set; } = string.Empty;
-
-        /// <summary>
-        /// 当前助手消息在其版本组中的索引（从 1 开始）。
-        /// 仅对 Role == "assistant" 的消息有意义。
-        /// [Obsolete] 树状结构使用 SiblingIndex 替代。
-        /// </summary>
-        [Obsolete("使用 SiblingIndex 替代。树状结构中分支通过兄弟节点管理。")]
-        [DataMember]
-        public int VersionIndex { get; set; } = 1;
-
-        /// <summary>
-        /// 助手消息版本组中的总版本数。
-        /// 仅对 Role == "assistant" 的消息有意义。
-        /// [Obsolete] 树状结构使用 SiblingCount 替代。
-        /// </summary>
-        [Obsolete("使用 SiblingCount 替代。")]
-        [DataMember]
-        public int TotalVersions { get; set; } = 1;
-
-        /// <summary>
-        /// 用户消息的原始内容（编辑前的内容）。
-        /// 仅当用户消息被编辑过后才设置此属性。
-        /// 仅对 Role == "user" 的消息有意义。
-        /// [Obsolete] 树状结构中，原始消息保留在旧分支的兄弟节点中。
-        /// </summary>
-        [Obsolete("树状结构中，原始消息保留在兄弟节点中。")]
-        [DataMember]
-        public string? OriginalContent { get; set; }
-
-        // ======== 树状结构新增字段 ========
+        // ======== 树状结构字段 ========
 
         /// <summary>
         /// 关联的对话树节点 ID (ConvNode.Id)。
@@ -330,7 +292,14 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// </summary>
         [DataMember]
         public string? ForkReason { get; set; }
-
+        /// <summary>
+        /// 处理此消息的 Agent 类型。
+        /// 用于判断编辑/重试时是否使用分支（树状）还是原地修改：
+        /// - EditAgent → 原地修改，不产生分支
+        /// - 其他 Agent → 保持树状分叉
+        /// </summary>
+        [DataMember]
+        public AgentType? AgentType { get; set; }
         /// <summary>
         /// 指示 Content 是否已经是渲染好的 HTML（而非 Markdown）。
         /// 为 true 时，AppendAssistantMessageHtml 跳过 Markdown 渲染，直接使用原始 HTML。
@@ -370,12 +339,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [DataMember]
         public string Title { get; set; } = "新对话";
 
-        [DataMember]
-        public List<ChatMessage> Messages { get; set; } = new();
-
         /// <summary>
         /// API 级别的完整对话历史（含 tool 消息、reasoning_content 等）。
-        /// 用于完整恢复上下文，与 UI 消息列表互补。
+        /// 用于完整恢复上下文。
         /// </summary>
         [DataMember]
         public List<ChatApiMessage> ApiHistory { get; set; } = new();
@@ -386,21 +352,12 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [DataMember]
         public DateTime LastActiveAt { get; set; } = DateTime.Now;
 
-        // ======== 树状结构持久化字段（版本 2）========
-
         /// <summary>
         /// 树结构的 JSON 序列化数据。
-        /// 如果此字段非空，优先从树结构恢复对话；否则回退到 Messages/ApiHistory。
+        /// 包含所有 user/assistant 消息，是对话的唯一权威数据源。
         /// </summary>
         [DataMember]
         public string? TreeDataJson { get; set; }
-
-        /// <summary>
-        /// 数据格式版本号：1 = 旧线性格式, 2 = 树状结构。
-        /// 用于加载时判断是否需要迁移。
-        /// </summary>
-        [DataMember]
-        public int DataVersion { get; set; } = 1;
     }
 
     /// <summary>

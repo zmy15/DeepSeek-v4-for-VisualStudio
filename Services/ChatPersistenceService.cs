@@ -67,85 +67,40 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 var json = File.ReadAllText(filePath, Encoding.UTF8);
 
-                // 先尝试新格式（多会话）
-                try
+                var container = JsonSerializer.Deserialize<SessionsContainer>(json, JsonOptions);
+                if (container != null)
                 {
-                    var container = JsonSerializer.Deserialize<SessionsContainer>(json, JsonOptions);
-                    if (container != null)
+                    // ── 清理 _unsaved.json 中从未使用过的冗余空会话 ──
+                    int originalCount = container.Sessions.Count;
+                    if (isUnsaved && originalCount > 1)
                     {
-                        // 确保所有会话的消息都不是 Streaming 状态
-                        foreach (var session in container.Sessions)
+                        container.Sessions = container.Sessions
+                            .Where(s => !IsUnusedEmptySession(s))
+                            .ToList();
+
+                        if (container.Sessions.Count == 0)
                         {
-                            foreach (var msg in session.Messages)
-                                msg.IsStreaming = false;
-                        }
-
-                        // ── 清理 _unsaved.json 中从未使用过的冗余空会话 ──
-                        // 判断标准：仅含≤1条欢迎消息、无 ApiHistory、标题为"新对话"
-                        int originalCount = container.Sessions.Count;
-                        if (isUnsaved && originalCount > 1)
-                        {
-                            container.Sessions = container.Sessions
-                                .Where(s => !IsUnusedEmptySession(s))
-                                .ToList();
-
-                            // 确保至少保留一个会话
-                            if (container.Sessions.Count == 0)
+                            container.Sessions.Add(new ChatSession
                             {
-                                container.Sessions.Add(new ChatSession
-                                {
-                                    Id = Guid.NewGuid().ToString("N"),
-                                    Title = "新对话",
-                                    Messages = new List<ChatMessage>(),
-                                    CreatedAt = DateTime.Now,
-                                    LastActiveAt = DateTime.Now,
-                                });
-                            }
-
-                            // 修正 ActiveSessionId（如果被清理的会话是活跃会话）
-                            if (container.Sessions.All(s => s.Id != container.ActiveSessionId))
-                            {
-                                container.ActiveSessionId = container.Sessions[0].Id;
-                            }
-
-                            int removed = originalCount - container.Sessions.Count;
-                            if (removed > 0)
-                                Logger.Info($"[清理] 已移除 {removed} 个冗余空会话 ← {Path.GetFileName(filePath)}");
-                        }
-
-                        Logger.Info($"已加载 {container.Sessions.Count} 个会话 ← {Path.GetFileName(filePath)}");
-                        return container;
-                    }
-                }
-                catch { /* 不是新格式，尝试旧格式迁移 */ }
-
-                // 回退：尝试旧版单对话格式并迁移
-                var legacyDto = JsonSerializer.Deserialize<LegacyConversationDto>(json, JsonOptions);
-                if (legacyDto?.Messages != null && legacyDto.Messages.Count > 0)
-                {
-                    foreach (var msg in legacyDto.Messages)
-                        msg.IsStreaming = false;
-
-                    var migratedContainer = new SessionsContainer
-                    {
-                        SolutionPath = solutionPath ?? "(unsaved)",
-                        Sessions = new List<ChatSession>
-                        {
-                            new ChatSession
-                            {
-                                Id = "legacy-migrated",
-                                Title = "历史对话",
-                                Messages = legacyDto.Messages,
+                                Id = Guid.NewGuid().ToString("N"),
+                                Title = "新对话",
                                 CreatedAt = DateTime.Now,
                                 LastActiveAt = DateTime.Now,
-                            },
-                        },
-                        ActiveSessionId = "legacy-migrated",
-                    };
+                            });
+                        }
 
-                    Logger.Info($"旧版对话已迁移 ({legacyDto.Messages.Count} 条消息)");
-                    SaveSessions(solutionPath, migratedContainer);
-                    return migratedContainer;
+                        if (container.Sessions.All(s => s.Id != container.ActiveSessionId))
+                        {
+                            container.ActiveSessionId = container.Sessions[0].Id;
+                        }
+
+                        int removed = originalCount - container.Sessions.Count;
+                        if (removed > 0)
+                            Logger.Info($"[清理] 已移除 {removed} 个冗余空会话 ← {Path.GetFileName(filePath)}");
+                    }
+
+                    Logger.Info($"已加载 {container.Sessions.Count} 个会话 ← {Path.GetFileName(filePath)}");
+                    return container;
                 }
 
                 return new SessionsContainer { SolutionPath = solutionPath ?? "(unsaved)" };
@@ -200,12 +155,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// 判断会话是否为从未使用过的空会话（仅含欢迎消息，无实际对话）。
+        /// 判断会话是否为从未使用过的空会话（无 TreeData、无 ApiHistory、标题为"新对话"）。
         /// 用于 _unsaved.json 冗余清理。
         /// </summary>
         private static bool IsUnusedEmptySession(ChatSession session)
         {
             if (session == null) return true;
+
+            // 有 TreeData → 使用过
+            if (!string.IsNullOrWhiteSpace(session.TreeDataJson)) return false;
 
             // 有 API 历史记录 → 使用过
             if (session.ApiHistory.Count > 0) return false;
@@ -213,88 +171,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // 标题被修改过 → 使用过
             if (!string.IsNullOrEmpty(session.Title) && session.Title != "新对话") return false;
 
-            // 超过 1 条消息 → 使用过
-            if (session.Messages.Count > 1) return false;
-
-            // 0 条消息 → 空会话
-            if (session.Messages.Count == 0) return true;
-
-            // 恰好 1 条消息：检查是否仅含欢迎消息
-            var msg = session.Messages[0];
-            if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.Content))
-            {
-                // 欢迎消息或 API Key 缺失警告 → 未使用
-                if (msg.Content.Contains("我是 DeepSeek Chat") ||
-                    msg.Content.Contains("API"))
-                    return true;
-            }
-
-            return false;
+            // 无 TreeData、无 ApiHistory、标题为"新对话" → 未使用
+            return true;
         }
 
         #endregion
-
-        #region Legacy Support (保持向后兼容)
-
-        /// <summary>
-        /// [旧版兼容] 保存单条消息列表（自动包装为单会话容器）。
-        /// </summary>
-        public static void Save(string? solutionPath, IReadOnlyList<ChatMessage> messages)
-        {
-            if (messages == null) return;
-
-            var container = LoadSessions(solutionPath);
-            var defaultSession = container.Sessions.FirstOrDefault(s => s.Id == container.ActiveSessionId)
-                ?? container.Sessions.FirstOrDefault();
-
-            if (defaultSession != null)
-            {
-                defaultSession.Messages = messages.ToList();
-                defaultSession.LastActiveAt = DateTime.Now;
-            }
-            else
-            {
-                container.Sessions.Add(new ChatSession
-                {
-                    Id = Guid.NewGuid().ToString("N"),
-                    Title = "对话",
-                    Messages = messages.ToList(),
-                });
-                container.ActiveSessionId = container.Sessions[0].Id;
-            }
-
-            SaveSessions(solutionPath, container);
-        }
-
-        /// <summary>
-        /// [旧版兼容] 加载消息列表（返回活跃会话的消息，兼容旧调用）。
-        /// </summary>
-        public static List<ChatMessage>? Load(string? solutionPath)
-        {
-            var container = LoadSessions(solutionPath);
-            var activeSession = container.Sessions.FirstOrDefault(s => s.Id == container.ActiveSessionId)
-                ?? container.Sessions.FirstOrDefault();
-
-            return activeSession?.Messages;
-        }
-
-        /// <summary>
-        /// [旧版兼容] 删除项目的所有会话。
-        /// </summary>
-        public static void Delete(string? solutionPath)
-        {
-            DeleteAllSessions(solutionPath);
-        }
-
-        #endregion
-
-        // ─── 内部 DTO（旧版兼容） ───
-
-        private class LegacyConversationDto
-        {
-            public string SolutionPath { get; set; } = string.Empty;
-            public DateTime LastSaved { get; set; }
-            public List<ChatMessage> Messages { get; set; } = new();
-        }
     }
 }

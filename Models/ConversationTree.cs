@@ -181,6 +181,72 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         }
 
         /// <summary>
+        /// 原地替换节点消息（不产生分支，用于 EditAgent 的编辑/重试）。
+        /// 直接修改 existingNode 的消息内容，并移除其所有子节点（剪枝子树），
+        /// 使后续对话在替换后的节点上继续。
+        /// </summary>
+        /// <param name="existingNode">要原地替换的节点</param>
+        /// <param name="newMessage">新消息（直接赋给 existingNode.Message）</param>
+        /// <returns>替换后的节点（即 existingNode）</returns>
+        public ConvNode ReplaceInPlace(ConvNode existingNode, ChatMessage newMessage)
+        {
+            // ── 剪枝：移除所有子节点及其后代 ──
+            foreach (var child in existingNode.Children)
+                UnregisterSubtree(child);
+            existingNode.Children.Clear();
+
+            // ── 原地替换消息 ──
+            newMessage.NodeId = existingNode.Id;
+            newMessage.ForkReason = null; // 不显示分支导航
+            newMessage.SiblingIndex = 1;
+            newMessage.SiblingCount = 1;
+            existingNode.Message = newMessage;
+
+            // ── 更新父节点的兄弟元数据（existingNode 的兄弟数可能因之前的分叉而变化）──
+            var parent = existingNode.Parent;
+            if (parent != null)
+                RefreshSiblingMetadata(parent);
+
+            // ── 切换到替换后的节点 ──
+            ActiveLeaf = existingNode;
+            return existingNode;
+        }
+
+        /// <summary>
+        /// 从索引字典中递归注销节点及其所有后代。
+        /// </summary>
+        private void UnregisterSubtree(ConvNode node)
+        {
+            _nodeIndex.Remove(node.Id);
+            foreach (var child in node.Children)
+                UnregisterSubtree(child);
+        }
+
+        /// <summary>
+        /// 从树中移除指定节点及其所有后代，并将 ActiveLeaf 设为该节点的父节点。
+        /// 用于 EditAgent 重试：移除旧助手回复，后续 Regenerate 会在父节点下创建新回复。
+        /// </summary>
+        /// <param name="node">要移除的节点（不能是 Root）</param>
+        /// <returns>父节点（新的 ActiveLeaf）</returns>
+        public ConvNode RemoveNodeFromTree(ConvNode node)
+        {
+            var parent = node.Parent ?? Root;
+
+            // ── 从父节点的 Children 中移除 ──
+            parent.Children.Remove(node);
+
+            // ── 注销该节点及其所有后代 ──
+            UnregisterSubtree(node);
+
+            // ── 更新兄弟元数据 ──
+            RefreshSiblingMetadata(parent);
+
+            // ── 将活跃叶子设为父节点，后续 AddChildMessage 会在父节点下创建新子节点 ──
+            ActiveLeaf = parent;
+            return parent;
+        }
+
+        /// <summary>
         /// 在兄弟节点间切换分支。
         /// </summary>
         /// <param name="currentNode">当前显示的分支节点（需有兄弟）</param>
