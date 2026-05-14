@@ -185,18 +185,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 if (!_activeWindows.TryGetValue(buffer, out window))
                     return;
+                _activeWindows.Remove(buffer);
             }
 
             try
             {
-                window.Close(); // 窗口的 onUndo 回调会执行回退
+                // ── 先触发撤销回调（回退缓冲区内容）──
+                window.PerformUndo();
             }
             catch (Exception ex)
             {
-                Logger.Error($"[EditorDiff] UndoChanges 失败: {ex.Message}", ex);
+                Logger.Error($"[EditorDiff] UndoChanges 回退失败: {ex.Message}", ex);
             }
 
-            RemoveWindow(buffer);
+            try
+            {
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[EditorDiff] UndoChanges 关闭窗口失败: {ex.Message}", ex);
+            }
         }
 
         #endregion
@@ -303,6 +312,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             foreach (var window in windows)
             {
+                try { window.PerformAccept(); }
+                catch { /* ignore */ }
                 try { window.Close(); }
                 catch { /* ignore */ }
             }
@@ -321,7 +332,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// 全局撤销：关闭所有活跃差异预览窗口，丢弃所有待处理 diff。
+        /// 全局撤销：先回退所有活跃会话的缓冲区内容到原始代码，
+        /// 再关闭所有差异预览窗口，最后丢弃所有待处理 diff。
         /// </summary>
         public void UndoAllChanges()
         {
@@ -334,6 +346,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 _activeWindows.Clear();
             }
 
+            // ── 先触发每个窗口的撤销回调（回退缓冲区内容）──
+            foreach (var window in windows)
+            {
+                try { window.PerformUndo(); }
+                catch { /* ignore */ }
+            }
+
+            // ── 再关闭所有窗口 ──
             foreach (var window in windows)
             {
                 try { window.Close(); }
@@ -350,7 +370,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (pendingCount > 0)
                 PendingDiffCountChanged?.Invoke();
 
-            Logger.Info($"[EditorDiff] 已全局撤销: {windows.Count} 个活跃会话 + {pendingCount} 个待处理 diff");
+            Logger.Info($"[EditorDiff] 已全局撤销: {windows.Count} 个活跃会话已回退 + {pendingCount} 个待处理 diff 已丢弃");
         }
 
         #endregion

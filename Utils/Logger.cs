@@ -17,14 +17,25 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
 
         private static readonly object _cleanupLock = new object();
         private static DateTime _lastCleanupDate = DateTime.MinValue;
+        private static bool _logDirectoryEnsured;
 
-        static Logger()
+        /// <summary>
+        /// 确保日志目录存在。使用延迟初始化替代静态构造函数，
+        /// 避免在 OS 加载程序锁内执行 I/O 操作触发 LoaderLock MDA。
+        /// </summary>
+        private static void EnsureLogDirectory()
         {
-            try
+            if (_logDirectoryEnsured) return;
+            lock (_cleanupLock)
             {
-                Directory.CreateDirectory(LogDirectory);
+                if (_logDirectoryEnsured) return;
+                try
+                {
+                    Directory.CreateDirectory(LogDirectory);
+                }
+                catch { /* 忽略目录创建错误 */ }
+                _logDirectoryEnsured = true;
             }
-            catch { /* 忽略目录创建错误 */ }
         }
 
         /// <summary>获取当天的日志文件路径（按日期区分：extension-2026-05-13.log）</summary>
@@ -48,6 +59,7 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
             Debug.WriteLine(log);
             try
             {
+                EnsureLogDirectory();
                 File.AppendAllText(GetLogFilePath(), log + Environment.NewLine);
 
                 // 每天只执行一次过期清理

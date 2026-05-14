@@ -148,6 +148,28 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         [JsonPropertyName("total_tokens")]
         public int TotalTokens { get; set; }
+
+        // ── Prompt Cache 相关字段（DeepSeek Context Caching）──
+        [JsonPropertyName("prompt_cache_hit_tokens")]
+        public int PromptCacheHitTokens { get; set; }
+
+        [JsonPropertyName("prompt_cache_miss_tokens")]
+        public int PromptCacheMissTokens { get; set; }
+
+        /// <summary>
+        /// Cache 命中率（0.0 ~ 1.0）。当 prompt_tokens 为 0 时返回 0。
+        /// </summary>
+        [JsonIgnore]
+        public double CacheHitRate =>
+            PromptCacheHitTokens + PromptCacheMissTokens > 0
+                ? (double)PromptCacheHitTokens / (PromptCacheHitTokens + PromptCacheMissTokens)
+                : 0;
+
+        /// <summary>
+        /// Cache 命中率百分比字符串，如 "98.5%"。
+        /// </summary>
+        [JsonIgnore]
+        public string CacheHitRatePercent => $"{CacheHitRate * 100:F1}%";
     }
 
     // ======== 流式响应行 ========
@@ -155,6 +177,12 @@ namespace DeepSeek_v4_for_VisualStudio.Models
     {
         [JsonPropertyName("choices")]
         public List<DeepSeekChoice> Choices { get; set; } = new();
+
+        /// <summary>
+        /// 流式响应的最后一个 chunk 中可能包含 usage 信息（含 cache 命中统计）。
+        /// </summary>
+        [JsonPropertyName("usage")]
+        public DeepSeekUsage? Usage { get; set; }
     }
 
     // ======== 视图模型用的 UI 消息模型（添加时间戳等） ========

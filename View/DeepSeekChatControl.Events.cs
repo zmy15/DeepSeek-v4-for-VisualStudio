@@ -106,6 +106,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
             }
 
+            // ── 编辑模式下 ESC 取消编辑 ──
+            if (e.Key == Key.Escape && _pendingEditMsgIndex >= 0)
+            {
+                e.Handled = true;
+                _ = HandleEditCancelAsync(_pendingEditMsgIndex);
+                return;
+            }
+
             if (e.Key == Key.Enter)
             {
                 if (Keyboard.Modifiers == ModifierKeys.Control)

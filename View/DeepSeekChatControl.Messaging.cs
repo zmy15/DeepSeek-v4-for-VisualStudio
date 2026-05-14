@@ -270,18 +270,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 InputTextBox.Text = string.Empty;
 
-                // ── @agent /skill 清洁：非 Agent 路径下，清除 @agent 前缀 ──
+                // ── @agent 清洁：只清除 API 内容中的 @agent 前缀，保留气泡显示 ──
                 if (explicitRoute != null && !string.IsNullOrEmpty(agentRoutedUserText))
                 {
-                    // 去除 userText 和 fullUserContent 中的 @agent 前缀，保留 /skill 和后续内容
+                    // fullUserContent 中替换 @agent 部分为干净文本（API 不感知 @agent）
                     string cleanText = agentRoutedUserText;
-                    userDisplayContent = cleanText;
-                    // fullUserContent 中替换 @agent 部分为干净的技能命令
                     if (!string.IsNullOrEmpty(fullUserContent) && fullUserContent.StartsWith(userText ?? string.Empty))
                     {
                         fullUserContent = cleanText + fullUserContent.Substring((userText ?? string.Empty).Length);
                     }
-                    Logger.Info($"[AgentDispatcher] @agent 前缀已清除，显示内容: \"{userDisplayContent}\"");
+                    // userDisplayContent 保留原始 @agent 前缀，使对话气泡正常显示 @
+                    Logger.Info($"[AgentDispatcher] @agent API 内容已清洁，气泡保留 @: \"{userDisplayContent}\"");
                 }
 
                 // 技能路由
@@ -309,6 +308,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     AttachedFileNames = attachedFileNames,
                     AttachedFiles = parseResults,
                     Timestamp = DateTime.Now,
+                    AgentType = explicitRoute?.TargetAgent, // 保留 @agent 显式路由，供重试使用
                 };
                 lock (_lock)
                 {
@@ -507,16 +507,32 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 try
                 {
-                    // 带工具调用的对话循环（最多 5 轮）
-                    const int maxToolCallRounds = 5;
+                    // 带工具调用的对话循环 — 智能循环检测替代硬编码轮次限制
                     var reasoningBuffer = new StringBuilder();
                     var contentBuffer = new StringBuilder();
                     var toolCallAccumulator = new Dictionary<int, Models.ToolCallAccumulator>();
                     int streamRenderTick = 0;
                     int lastReasoningLength = 0;
 
-                    for (int round = 0; round < maxToolCallRounds; round++)
+                    // ── 循环检测状态 ──
+                    var callSignatureHistory = new List<string>();  // 历史调用签名: "toolName|args前200字符"
+                    int consecutiveErrorRounds = 0;                  // 连续错误轮次计数
+                    const int maxRepeatedSameCall = 3;              // 同一调用重复上限
+                    const int maxConsecutiveErrors = 5;             // 连续错误上限
+                    const int safetyLimit = 200;                     // 绝对安全上限
+                    bool loopDetected = false;
+
+                    int round = 0;
+                    while (!loopDetected)
                     {
+                        round++;
+                        if (round > safetyLimit)
+                        {
+                            Logger.Warn($"[MCP] 达到安全上限 {safetyLimit} 轮，强制结束");
+                            contentBuffer.Append("\n\n> ⚠️ 工具调用已达安全上限，分析可能不完整。");
+                            break;
+                        }
+
                         toolCallAccumulator.Clear();
                         reasoningBuffer.Clear();
                         contentBuffer.Clear();
@@ -526,13 +542,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         var requestMessages = await BuildRequestMessagesAsync(searchContext);
 
                         List<ToolDefinition>? toolDefs = null;
+
+                        // ── 收集工具定义（内置工具 + MCP 外部工具）──
+                        var allDefs = new List<ToolDefinition>();
+
+                        // 内置工作区工具
+                        if (_builtInToolService != null)
+                        {
+                            var allowedTools = _agentDispatcher?.ActiveAgentAllowedTools;
+                            var builtInDefs = _builtInToolService.GetFilteredToolDefinitions(allowedTools);
+                            allDefs.AddRange(builtInDefs);
+                        }
+
+                        // MCP 外部工具
                         if (_mcpManager != null && _mcpManager.AllTools.Count > 0)
                         {
-                            // ── 根据当前活跃 Agent 的 AllowedTools 白名单过滤 ──
                             var allowedTools = _agentDispatcher?.ActiveAgentAllowedTools;
-                            toolDefs = _mcpManager.GetFilteredToolDefinitions(allowedTools);
+                            var mcpDefs = _mcpManager.GetFilteredToolDefinitions(allowedTools);
+                            allDefs.AddRange(mcpDefs);
+                        }
+
+                        if (allDefs.Count > 0)
+                        {
+                            toolDefs = allDefs;
                             Logger.Info($"[MCP] 本轮携带 {toolDefs.Count} 个工具定义"
-                                + (allowedTools != null ? $" (已按 Agent 白名单过滤)" : ""));
+                                + (_agentDispatcher?.ActiveAgentAllowedTools != null ? " (已按 Agent 白名单过滤)" : ""));
                         }
 
                         var apiService = _apiService!;
@@ -576,6 +610,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 }
                                 catch (JsonException) { }
                                 StatusLabel.Text = $"调用工具: {string.Join(", ", toolCallAccumulator.Values.Where(a => !string.IsNullOrEmpty(a.FunctionName)).Select(a => a.FunctionName))}...";
+                            }
+                            else if (chunk.StartsWith("[CACHE]"))
+                            {
+                                // ── Cache 统计信息（由 DeepSeekApiService 在流结束时注入）──
+                                // 格式: [CACHE]hitTokens|missTokens|promptTokens|completionTokens
+                                // 日志记录在流结束后统一处理，此处仅捕获
                             }
                             else
                             {
@@ -628,8 +668,25 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 string toolResult;
                                 try
                                 {
-                                    string sanitizedArgs = SanitizeOcrToolArguments(acc.FunctionName!, acc.ArgumentsBuilder.ToString());
-                                    toolResult = await _mcpManager!.CallToolAsync(acc.FunctionName!, sanitizedArgs, _currentStreamingCts.Token);
+                                    // ── 优先内置工具，其次 MCP 工具 ──
+                                    if (_builtInToolService != null
+                                        && BuiltInToolService.IsBuiltInTool(acc.FunctionName!))
+                                    {
+                                        // ── 诊断日志：记录工具调用时传入的 _solutionPath ──
+                                        Logger.Info($"[ToolCall] 执行 {acc.FunctionName}，_solutionPath=[{_solutionPath ?? "(null)"}]");
+                                        toolResult = await _builtInToolService.ExecuteBuiltInToolAsync(
+                                            acc.FunctionName!, acc.ArgumentsBuilder.ToString(), _solutionPath)
+                                            ?? "❌ 内置工具未返回结果";
+                                    }
+                                    else if (_mcpManager != null)
+                                    {
+                                        string sanitizedArgs = SanitizeOcrToolArguments(acc.FunctionName!, acc.ArgumentsBuilder.ToString());
+                                        toolResult = await _mcpManager.CallToolAsync(acc.FunctionName!, sanitizedArgs, _currentStreamingCts.Token);
+                                    }
+                                    else
+                                    {
+                                        toolResult = $"❌ 未知工具: {acc.FunctionName} (无可用工具服务)";
+                                    }
                                 }
                                 catch (Exception ex)
                                 {
@@ -645,11 +702,74 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 : "✅ 工具调用完成，AI 正在分析结果...\n";
                             assistantMsg.Content = resultSummary;
                             await UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString(), isComplete: false);
+
+                            // ── 循环检测 ──
+                            // 收集本轮所有工具调用的签名和结果用于检测
+                            var roundResults = new List<(string Signature, bool IsError)>();
+                            foreach (var acc in toolCallAccumulator.Values)
+                            {
+                                if (string.IsNullOrEmpty(acc.FunctionName)) continue;
+                                string sig = acc.FunctionName! + "|" +
+                                    (acc.ArgumentsBuilder.Length > 200
+                                        ? acc.ArgumentsBuilder.ToString().Substring(0, 200)
+                                        : acc.ArgumentsBuilder.ToString());
+                                callSignatureHistory.Add(sig);
+                                roundResults.Add((sig, false)); // will set error flag below
+                            }
+
+                            // 检测同一调用重复
+                            foreach (var (sig, _) in roundResults)
+                            {
+                                int repeatCount = callSignatureHistory.Count(s => s == sig);
+                                if (repeatCount >= maxRepeatedSameCall)
+                                {
+                                    loopDetected = true;
+                                    string toolName = sig.Split('|')[0];
+                                    Logger.Warn($"[MCP] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次");
+                                    contentBuffer.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次，已自动终止循环。");
+                                    break;
+                                }
+                            }
+
+                            // 保留最近 30 条签名防止内存增长
+                            while (callSignatureHistory.Count > 30)
+                                callSignatureHistory.RemoveAt(0);
+
+                            // 检测连续错误：检查本轮工具结果是否全部以 ❌ 开头
+                            if (!loopDetected)
+                            {
+                                // 从 context 中取最近添加的 tool 消息来判断
+                                var allToolMsgs = _contextManager.GetConversationHistory()
+                                    .Where(e => e.Role == "tool")
+                                    .ToList();
+                                int takeCount = toolCallAccumulator.Count;
+                                var recentToolMsgs = allToolMsgs
+                                    .Skip(System.Math.Max(0, allToolMsgs.Count - takeCount))
+                                    .ToList();
+                                bool allErrors = recentToolMsgs.Count > 0 &&
+                                    recentToolMsgs.All(m => (m.Content ?? "").StartsWith("❌"));
+
+                                if (allErrors)
+                                    consecutiveErrorRounds++;
+                                else
+                                    consecutiveErrorRounds = 0;
+
+                                if (consecutiveErrorRounds >= maxConsecutiveErrors)
+                                {
+                                    loopDetected = true;
+                                    Logger.Warn($"[MCP] 🔄 连续 {consecutiveErrorRounds} 轮工具调用全部返回错误，强制结束");
+                                    contentBuffer.Append($"\n\n> ⚠️ 连续 {consecutiveErrorRounds} 轮工具调用均失败，已自动终止。请检查工作区路径是否正确。");
+                                }
+                            }
+
                             continue;
                         }
 
                         break;
                     }
+
+                    // ── 记录本轮 Cache 命中率 ──
+                    LogCacheHitRate(round);
 
                     // 流式完成
                     assistantMsg.ReasoningContent = reasoningBuffer.ToString();
@@ -759,6 +879,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private async Task<List<ChatApiMessage>> BuildRequestMessagesAsync(string searchContext = "")
         {
+            // ── 惰性解析：确保 _solutionPath 在首次使用时已就绪 ──
+            // StartControl 中 ResolveSolutionPathAsync 是 fire-and-forget，
+            // 可能在首条消息发送时尚未完成。此处兜底保证路径已解析。
+            if (_solutionPath == null)
+            {
+                await ResolveSolutionPathAsync();
+            }
+
             string systemPrompt = _options?.SystemPrompt ?? string.Empty;
 
             if (_agentDispatcher != null)
@@ -767,6 +895,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (!string.IsNullOrWhiteSpace(askAgentPrompt))
                     systemPrompt = string.IsNullOrWhiteSpace(systemPrompt) ? askAgentPrompt : systemPrompt + "\n\n" + askAgentPrompt;
                 systemPrompt += "\n\n" + AiPrompts.MultiAgentSystemPromptFragment;
+            }
+
+            // ── 注入工作区路径信息，让 AI 知道项目根目录 ──
+            string workspaceRoot = _solutionPath ?? string.Empty;
+            Logger.Info($"[Workspace] 构建系统提示时 _solutionPath=[{_solutionPath ?? "(null)"}], workspaceRoot=[{workspaceRoot}]");
+            if (!string.IsNullOrEmpty(workspaceRoot))
+            {
+                // 如果是 .sln/.slnx 文件路径，取其目录
+                try
+                {
+                    if (File.Exists(workspaceRoot) && Path.GetExtension(workspaceRoot).StartsWith(".sln", StringComparison.OrdinalIgnoreCase))
+                        workspaceRoot = Path.GetDirectoryName(workspaceRoot) ?? workspaceRoot;
+                }
+                catch { }
+
+                string wsInfo = $"\n\n## 工作区信息\n当前工作区根目录: `{workspaceRoot}`\n所有文件操作请使用此目录下的 Windows 绝对路径。";
+                systemPrompt += wsInfo;
             }
 
             _contextManager.SetSystemPrompt(string.IsNullOrWhiteSpace(systemPrompt) ? null : systemPrompt);
@@ -1045,6 +1190,35 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 Logger.Warn($"[OCR-Sanitize] 参数预处理异常: {ex.Message}");
                 return argumentsJson;
+            }
+        }
+
+        /// <summary>
+        /// 记录 DeepSeek Prompt Cache 命中率到日志。
+        /// 从 _apiService.LastUsage 读取 cache 统计信息并格式化输出。
+        /// </summary>
+        /// <param name="round">当前工具调用轮次（0 表示非工具循环模式）</param>
+        private void LogCacheHitRate(int round = 0)
+        {
+            try
+            {
+                var usage = _apiService?.LastUsage;
+                if (usage == null) return;
+
+                int hit = usage.PromptCacheHitTokens;
+                int miss = usage.PromptCacheMissTokens;
+                int total = hit + miss;
+                double rate = usage.CacheHitRate;
+
+                string roundInfo = round > 0 ? $"[轮次#{round}] " : "";
+                string level = rate >= 0.95 ? "🟢" : rate >= 0.70 ? "🟡" : rate >= 0.30 ? "🟠" : "🔴";
+
+                Logger.Info($"[Cache] {level} {roundInfo}命中率: {usage.CacheHitRatePercent} " +
+                    $"(命中 {hit:N0} / 未命中 {miss:N0} / 总计 {total:N0} tokens)");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Cache] 记录命中率异常: {ex.Message}");
             }
         }
 

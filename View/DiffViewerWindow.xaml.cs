@@ -222,6 +222,42 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         #endregion
 
+        #region Public Methods
+
+        /// <summary>
+        /// 供 EditorDiffMarkerService 全局撤销调用：
+        /// 触发 onUndo 回调以回退缓冲区内容，但不关闭窗口（由调用方统一关闭）。
+        /// </summary>
+        public void PerformUndo()
+        {
+            try
+            {
+                _onUndo?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[DiffViewerWindow] PerformUndo 异常: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// 供 EditorDiffMarkerService 全局确认调用：
+        /// 触发 onAccept 回调，但不关闭窗口（由调用方统一关闭）。
+        /// </summary>
+        public void PerformAccept()
+        {
+            try
+            {
+                _onAccept?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[DiffViewerWindow] PerformAccept 异常: {ex.Message}", ex);
+            }
+        }
+
+        #endregion
+
         #region Private Methods
 
         private void SetViewMode(DifferenceViewMode mode)

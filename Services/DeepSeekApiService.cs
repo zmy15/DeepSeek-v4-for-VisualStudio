@@ -22,6 +22,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private bool _thinkingEnabled = true;
         private string _reasoningEffort = "high";
 
+        /// <summary>
+        /// 最近一次 API 调用的 Usage 信息（含 Cache 命中统计）。
+        /// 流式调用结束后更新，非流式调用后立即可用。
+        /// </summary>
+        public DeepSeekUsage? LastUsage { get; private set; }
+
         public DeepSeekApiService(string apiKey, string model = "deepseek-v4-pro")
         {
             _model = model;
@@ -91,6 +97,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 string? reasoning = null;
                 string? content = null;
                 string? toolCallJson = null;
+                string? cacheInfo = null;
 
                 try
                 {
@@ -107,6 +114,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                             toolCallJson = JsonSerializer.Serialize(delta.ToolCalls);
                         }
                     }
+
+                    // ── 捕获 Usage 信息（含 Cache 命中统计，通常出现在最后一个 chunk）──
+                    if (chunk?.Usage != null)
+                    {
+                        LastUsage = chunk.Usage;
+                        cacheInfo = $"{chunk.Usage.PromptCacheHitTokens}|{chunk.Usage.PromptCacheMissTokens}|{chunk.Usage.PromptTokens}|{chunk.Usage.CompletionTokens}";
+                    }
                 }
                 catch (JsonException)
                 {
@@ -120,6 +134,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 if (!string.IsNullOrEmpty(toolCallJson))
                     yield return $"[TOOL_CALL]{toolCallJson}";
+
+                if (!string.IsNullOrEmpty(cacheInfo))
+                    yield return $"[CACHE]{cacheInfo}";
 
                 if (!string.IsNullOrEmpty(content))
                     yield return content!;
@@ -159,6 +176,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             var responseJson = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<DeepSeekChatResponse>(responseJson);
+
+            // ── 捕获 Usage 信息（含 Cache 命中统计）──
+            if (result?.Usage != null)
+            {
+                LastUsage = result.Usage;
+            }
 
             return result?.Choices?[0]?.Message?.Content ?? string.Empty;
         }

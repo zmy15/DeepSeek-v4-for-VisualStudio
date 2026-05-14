@@ -145,6 +145,10 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>Planning 模式下累积的上下文（前面步骤的结果和文件变更信息，供后续步骤继承）。</summary>
         public string? AccumulatedContext { get; set; }
+
+        /// <summary>Plan Agent 生成的 plan.md 文件绝对路径（供 Edit Agent 执行完毕后清理）。</summary>
+        [JsonIgnore]
+        public string? PlanFilePath { get; set; }
     }
 
     /// <summary>

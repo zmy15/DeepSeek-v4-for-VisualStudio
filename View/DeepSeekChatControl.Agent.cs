@@ -2,13 +2,21 @@
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Services.Agents;
 using DeepSeek_v4_for_VisualStudio.Utils;
+using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.ComponentModelHost;
+using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Text;
+using Microsoft.VisualStudio.Text.Editor;
+using Microsoft.VisualStudio.TextManager.Interop;
 using Microsoft.VisualStudio.Threading;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -163,22 +171,52 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // ── 创建实时思考气泡（AI 回答流式输出）──
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 _agentThinkingContent.Clear();
-                var thinkingMsg = new ChatMessage
-                {
-                    Role = "assistant",
-                    Content = "🤖 Agent 正在分析任务…",
-                    ReasoningContent = string.Empty,
-                    Timestamp = DateTime.Now,
-                    IsStreaming = true,
-                    IsRendered = false,
-                    AgentType = routing?.TargetAgent ?? _agentDispatcher.ActiveAgentType, // 记录 Agent 类型
-                };
+
+                // ── 检查是否已有 retry fork 占位，有则复用，避免产生多余气泡 ──
+                bool reusedPlaceholder = false;
                 lock (_lock)
                 {
-                    _messages.Add(thinkingMsg);
-                    _agentStreamingMsgIndex = _messages.Count - 1;
+                    if (_tree != null)
+                    {
+                        var treePath = _tree.GetActivePath();
+                        var lastNode = treePath.Count > 0 ? treePath[treePath.Count - 1] : null;
+                        if (lastNode?.Message != null
+                            && lastNode.Message.Role == "assistant"
+                            && lastNode.Message.IsStreaming
+                            && string.IsNullOrEmpty(lastNode.Message.Content))
+                        {
+                            // 复用占位，更新内容为 Agent 分析状态
+                            lastNode.Message.Content = "🤖 Agent 正在分析任务…";
+                            _agentStreamingMsgIndex = _messages.Count - 1;
+                            reusedPlaceholder = true;
+                            Logger.Info($"[Agent] 复用 retry fork 占位 (idx={_agentStreamingMsgIndex})");
+                        }
+                    }
                 }
-                AddMessagesHtml("assistant", thinkingMsg.Content);
+
+                if (!reusedPlaceholder)
+                {
+                    var thinkingMsg = new ChatMessage
+                    {
+                        Role = "assistant",
+                        Content = "🤖 Agent 正在分析任务…",
+                        ReasoningContent = string.Empty,
+                        Timestamp = DateTime.Now,
+                        IsStreaming = true,
+                        IsRendered = false,
+                        AgentType = routing?.TargetAgent ?? _agentDispatcher.ActiveAgentType, // 记录 Agent 类型
+                    };
+                    lock (_lock)
+                    {
+                        _messages.Add(thinkingMsg);
+                        _agentStreamingMsgIndex = _messages.Count - 1;
+                    }
+                    AddMessagesHtml("assistant", thinkingMsg.Content);
+                }
+                else
+                {
+                    AddMessagesHtml("assistant", "🤖 Agent 正在分析任务…");
+                }
                 UpdateBrowser();
                 await TaskScheduler.Default;
 
@@ -729,6 +767,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 检查指定轮次是否有文件变更，如果有则询问用户是否回退。
         /// </summary>
+        /// <param name="userMsgIndex">用户消息索引</param>
+        /// <returns>true 表示可以继续；false 表示用户取消</returns>
         private async Task<bool> CheckAndRevertFileChangesAsync(int userMsgIndex)
         {
             List<FileChangeSummary>? changes;
@@ -748,10 +788,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 "是否回退这些更改后再重新生成？\n\n" +
                 "• 「是」— 回退文件到修改前的状态，然后重新生成\n" +
                 "• 「否」— 保留当前文件状态，基于现有代码重新生成\n" +
-                "• 「取消」— 不执行任何操作",
+                "• 「取消」— 不执行任何操作\n\n" +
+                "⚠️ 注意：选择「是」回退将把文件恢复到 AI 修改前的状态。\n" +
+                "如果此后您手动编辑过这些文件，您的修改也将丢失！",
                 "文件变更回退确认",
                 MessageBoxButton.YesNoCancel,
-                MessageBoxImage.Question);
+                MessageBoxImage.Warning);
 
             if (result == MessageBoxResult.Cancel)
             {
@@ -769,13 +811,24 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     try
                     {
+                        // ── 情况1：有原始内容 → 写回原始内容 ──
                         if (!string.IsNullOrEmpty(change.OriginalContent))
                         {
-                            await Task.Run(() =>
-                                File.WriteAllText(change.FilePath, change.OriginalContent, Encoding.UTF8));
+                            // 优先通过 VS SDK 回退（若文件在编辑器中打开则纳入 Undo 栈）
+                            bool revertedViaVS = await TryRevertViaVSSdkAsync(change.FilePath, change.OriginalContent);
+                            if (!revertedViaVS)
+                            {
+                                // 回退：文件未在编辑器中打开，直接写磁盘
+                                string? dir = Path.GetDirectoryName(change.FilePath);
+                                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                                    Directory.CreateDirectory(dir);
+                                await Task.Run(() =>
+                                    File.WriteAllText(change.FilePath, change.OriginalContent, Encoding.UTF8));
+                            }
                             revertedCount++;
                             Logger.Info($"[FileHistory] ✅ 已回退: {Path.GetFileName(change.FilePath)}");
                         }
+                        // ── 情况2：纯新建文件 → 删除文件 ──
                         else if (change.LinesAdded > 0 && change.LinesRemoved == 0)
                         {
                             if (File.Exists(change.FilePath))
@@ -783,6 +836,25 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 await Task.Run(() => File.Delete(change.FilePath));
                                 revertedCount++;
                                 Logger.Info($"[FileHistory] ✅ 已删除新建文件: {Path.GetFileName(change.FilePath)}");
+                            }
+                        }
+                        // ── 情况3：文件被删除 → 从 OriginalContent 恢复（若已捕获）──
+                        else if (change.LinesRemoved < 0)
+                        {
+                            if (!string.IsNullOrEmpty(change.OriginalContent))
+                            {
+                                string? dir = Path.GetDirectoryName(change.FilePath);
+                                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                                    Directory.CreateDirectory(dir);
+                                await Task.Run(() =>
+                                    File.WriteAllText(change.FilePath, change.OriginalContent, Encoding.UTF8));
+                                revertedCount++;
+                                Logger.Info($"[FileHistory] ✅ 已恢复删除的文件: {Path.GetFileName(change.FilePath)}");
+                            }
+                            else
+                            {
+                                Logger.Warn($"[FileHistory] 无法恢复删除的文件（缺少原始内容）: {Path.GetFileName(change.FilePath)}");
+                                failedCount++;
                             }
                         }
                         else
@@ -805,8 +877,99 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     : "未回退任何文件";
                 Logger.Info($"[FileHistory] 回退完成: {revertedCount} 成功, {failedCount} 失败");
             }
+            else
+            {
+                // ── 用户选择了「否」：保留文件，注入提示让 AI 以磁盘最新文件为准 ──
+                lock (_lock) { _fileChangeHistory.Remove(userMsgIndex); }
+
+                // 注入系统提示：告知 AI 对话历史中的代码可能已过时，应以磁盘最新文件为准
+                const string staleCodeHint =
+                    "⚠️ 系统提示：以上对话历史中包含的代码片段可能已过时。" +
+                    "请以磁盘上当前最新的文件内容为准进行分析和代码修改，" +
+                    "不要直接参考或复用对话历史中的旧代码。";
+                _contextManager.AddCustomMessage("system", staleCodeHint);
+
+                StatusLabel.Text = "📝 保留文件变更，已提示 AI 参考最新文件…";
+                Logger.Info($"[FileHistory] 用户选择保留文件变更，已注入最新文件参考提示");
+            }
 
             return true;
+        }
+
+        /// <summary>
+        /// 尝试通过 VS SDK 的 ITextBuffer API 回退文件内容。
+        /// 若文件当前在 VS 编辑器中打开，则使用 ITextEdit 操作（纳入 VS Undo 栈）；
+        /// 若未打开，则返回 false，由调用方回退到磁盘写入。
+        /// </summary>
+        /// <returns>true 表示已通过 VS SDK 成功回退；false 表示文件未打开，需磁盘回退。</returns>
+        private static async Task<bool> TryRevertViaVSSdkAsync(string filePath, string originalContent)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            try
+            {
+                var componentModel = (IComponentModel)ServiceProvider.GlobalProvider.GetService(typeof(SComponentModel));
+                var editorAdapter = componentModel?.DefaultExportProvider
+                    .GetExport<IVsEditorAdaptersFactoryService>()?.Value;
+                if (editorAdapter == null) return false;
+
+                // ── 通过 RDT 查找文件是否在编辑器中打开 ──
+                var rdt = (IVsRunningDocumentTable?)ServiceProvider.GlobalProvider.GetService(typeof(SVsRunningDocumentTable));
+                if (rdt == null) return false;
+
+                IEnumRunningDocuments? enumDocs;
+                if (rdt.GetRunningDocumentsEnum(out enumDocs) != VSConstants.S_OK || enumDocs == null)
+                    return false;
+
+                uint[] cookieArray = new uint[1];
+                uint fetched;
+                while (enumDocs.Next(1, cookieArray, out fetched) == VSConstants.S_OK && fetched == 1)
+                {
+                    uint cookie = cookieArray[0];
+                    uint flags; uint readLocks; uint editLocks;
+                    string? docPath; IVsHierarchy? hierarchy; uint itemId; IntPtr docDataPtr;
+
+                    if (rdt.GetDocumentInfo(cookie, out flags, out readLocks, out editLocks,
+                        out docPath, out hierarchy, out itemId, out docDataPtr) != VSConstants.S_OK)
+                        continue;
+
+                    if (docPath == null || !string.Equals(docPath, filePath, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (docDataPtr == IntPtr.Zero) continue;
+
+                    // ── 找到匹配的文档 → 通过 ITextBuffer 回退 ──
+                    var vsTextBuffer = Marshal.GetObjectForIUnknown(docDataPtr) as IVsTextBuffer;
+                    if (vsTextBuffer == null) continue;
+
+                    var textBuffer = editorAdapter.GetDataBuffer(vsTextBuffer);
+                    if (textBuffer == null) continue;
+
+                    using (var edit = textBuffer.CreateEdit())
+                    {
+                        var snapshot = textBuffer.CurrentSnapshot;
+                        if (snapshot.Length > 0)
+                            edit.Replace(0, snapshot.Length, originalContent);
+                        else
+                            edit.Insert(0, originalContent);
+                        edit.Apply();
+                    }
+
+                    // ── 保存文件 ──
+                    if (textBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument textDoc))
+                    {
+                        textDoc.Save();
+                    }
+
+                    Logger.Info($"[FileHistory] ✅ 通过 VS SDK 回退已打开文件: {Path.GetFileName(filePath)}");
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[FileHistory] VS SDK 回退失败，回退到磁盘写入: {Path.GetFileName(filePath)} - {ex.Message}");
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -816,7 +979,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             lock (_lock)
             {
-                if (_isGenerating) return;
+                if (_isGenerating)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                        StatusLabel.Text = "⚠️ AI 正在生成回复，请等待完成后再重试";
+                    });
+                    return;
+                }
                 if (assistantMsgIndex < 0 || assistantMsgIndex >= _messages.Count) return;
                 var assistantMsg = _messages[assistantMsgIndex];
                 if (assistantMsg.Role != "assistant") return;
@@ -917,7 +1088,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             lock (_lock)
             {
-                if (_isGenerating) return;
+                if (_isGenerating)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                        StatusLabel.Text = "⚠️ AI 正在生成回复，请等待完成后再编辑";
+                    });
+                    return;
+                }
                 if (userMsgIndex < 0 || userMsgIndex >= _messages.Count) return;
                 var msg = _messages[userMsgIndex];
                 if (msg.Role != "user") return;
@@ -944,7 +1123,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch { }
 
             _pendingEditMsgIndex = userMsgIndex;
-            StatusLabel.Text = $"✏️ 编辑消息（Esc 取消）";
+
+            // ── 将原始文本填入输入框，方便用户在输入框中编辑 ──
+            InputTextBox.Text = originalContent ?? string.Empty;
+            InputTextBox.CaretIndex = InputTextBox.Text.Length;
+            InputTextBox.Focus();
+
+            StatusLabel.Text = $"✏️ 编辑消息（Esc 取消，Enter 确认）";
         }
 
         /// <summary>
@@ -1185,7 +1370,24 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (_agentDispatcher != null && !string.IsNullOrEmpty(userContent) && !userContent.StartsWith("/"))
                 {
-                    var routing = await _agentDispatcher.RouteAsync(enrichedContent);
+                    // ── 保留原始 @agent 显式路由，避免重试时重新判断 ──
+                    AgentRoutingResult routing;
+                    if (userMsg.AgentType != null && userMsg.AgentType != AgentType.Ask)
+                    {
+                        routing = new AgentRoutingResult
+                        {
+                            TargetAgent = userMsg.AgentType.Value,
+                            Confidence = "high",
+                            Reason = "重试保留原始 @agent 路由",
+                            NeedsPlanning = userMsg.AgentType == AgentType.Plan,
+                            IsExplicit = true,
+                        };
+                        Logger.Info($"[Retry] 使用原始 AgentType: {userMsg.AgentType.Value}，跳过重新路由");
+                    }
+                    else
+                    {
+                        routing = await _agentDispatcher.RouteAsync(enrichedContent);
+                    }
 
                     bool needsAgent = routing.TargetAgent == AgentType.Plan
                         || routing.TargetAgent == AgentType.Edit
@@ -1208,6 +1410,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 : conversationContext + "\n\n" + fileContext;
                         }
 
+                        // ── 检查是否已有 retry fork 占位 assistant，避免创建多余气泡 ──
+                        bool hasPlaceholder = TryReuseRetryPlaceholder(out assistantMsg, out newAssistantIdx);
+
                         await RunAgentWorkflowAsync(enrichedContent, fileContext, routing);
                         RecordAgentFileChanges(userMsgIndex);
 
@@ -1222,28 +1427,34 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                 }
 
-                assistantMsg = new ChatMessage
+                // ── 检查是否已有 retry fork 占位 assistant（非 Agent 路径），避免创建多余气泡 ──
+                bool reusedPlaceholder = TryReuseRetryPlaceholder(out assistantMsg, out newAssistantIdx);
+
+                if (!reusedPlaceholder)
                 {
-                    Role = "assistant",
-                    Content = string.Empty,
-                    ReasoningContent = string.Empty,
-                    Timestamp = DateTime.Now,
-                    IsStreaming = true,
-                    IsRendered = false,
-                };
-                lock (_lock)
-                {
-                    // ── 树状结构：通过 AddChildMessage 添加到活跃分支 ──
-                    if (_tree != null)
+                    assistantMsg = new ChatMessage
                     {
-                        _tree.AddChildMessage(assistantMsg);
-                        SyncMessagesFromTree();
-                        newAssistantIdx = _messages.Count - 1;
-                    }
-                    else
+                        Role = "assistant",
+                        Content = string.Empty,
+                        ReasoningContent = string.Empty,
+                        Timestamp = DateTime.Now,
+                        IsStreaming = true,
+                        IsRendered = false,
+                    };
+                    lock (_lock)
                     {
-                        _messages.Add(assistantMsg);
-                        newAssistantIdx = _messages.Count - 1;
+                        // ── 树状结构：通过 AddChildMessage 添加到活跃分支 ──
+                        if (_tree != null)
+                        {
+                            _tree.AddChildMessage(assistantMsg);
+                            SyncMessagesFromTree();
+                            newAssistantIdx = _messages.Count - 1;
+                        }
+                        else
+                        {
+                            _messages.Add(assistantMsg);
+                            newAssistantIdx = _messages.Count - 1;
+                        }
                     }
                 }
 
@@ -1275,6 +1486,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: false);
                         }
                     }
+                    else if (chunk.StartsWith("[TOOL_CALL]"))
+                    {
+                        // Retry 场景不使用工具调用，忽略
+                    }
+                    else if (chunk.StartsWith("[CACHE]"))
+                    {
+                        // ── Cache 统计信息 ── 日志在流结束后统一记录
+                    }
                     else
                     {
                         if (reasoningBuffer.Length > 0 && lastReasoningLength < reasoningBuffer.Length)
@@ -1302,6 +1521,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 assistantMsg.IsStreaming = false;
 
                 Logger.Info($"[Retry] 流式结束: 内容长度={contentBuffer.Length}, 思考长度={reasoningBuffer.Length}");
+
+                // ── 记录 Cache 命中率 ──
+                LogCacheHitRate();
 
                 string finalJs = ChatHtmlService.BuildFinalRenderJs(
                     newAssistantIdx, contentBuffer.ToString(), reasoningBuffer.ToString());
@@ -1361,13 +1583,55 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 检查树活跃路径末尾是否已有 retry fork 产生的空 streaming assistant 占位。
+        /// 有则复用（避免重试时出现两个"思考中…"气泡），返回 true；
+        /// 无则返回 false，调用方需自行创建新 assistant。
+        /// </summary>
+        private bool TryReuseRetryPlaceholder(out ChatMessage? assistantMsg, out int newAssistantIdx)
+        {
+            assistantMsg = null;
+            newAssistantIdx = -1;
+
+            lock (_lock)
+            {
+                if (_tree != null)
+                {
+                    var path = _tree.GetActivePath();
+                    var lastNode = path.Count > 0 ? path[path.Count - 1] : null;
+                    if (lastNode?.Message != null
+                        && lastNode.Message.Role == "assistant"
+                        && lastNode.Message.IsStreaming
+                        && string.IsNullOrEmpty(lastNode.Message.Content))
+                    {
+                        assistantMsg = lastNode.Message;
+                        newAssistantIdx = _messages.Count - 1;
+                        // 更新占位文本，准备接收流式内容
+                        assistantMsg.Content = string.Empty;
+                        assistantMsg.ReasoningContent = string.Empty;
+                        Logger.Info($"[Retry] 复用 retry fork 占位 assistant (idx={newAssistantIdx}), nodeId={lastNode.Id}");
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// 内联编辑确认：接收用户在气泡中编辑后的新文本，处理重新发送。
         /// </summary>
         private async Task HandleEditConfirmAsync(int userMsgIndex, string newContent)
         {
             lock (_lock)
             {
-                if (_isGenerating) return;
+                if (_isGenerating)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                        StatusLabel.Text = "⚠️ AI 正在生成回复，请等待完成后再确认编辑";
+                    });
+                    return;
+                }
                 if (_pendingEditMsgIndex < 0) return;
             }
 
@@ -1394,6 +1658,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private async Task HandleEditCancelAsync(int userMsgIndex)
         {
             _pendingEditMsgIndex = -1;
+
+            // ── 清空输入框 ──
+            InputTextBox.Text = string.Empty;
 
             // 恢复消息正文为原始内容
             string? originalText = null;

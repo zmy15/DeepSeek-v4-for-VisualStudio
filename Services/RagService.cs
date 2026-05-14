@@ -23,6 +23,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private string? _activeProviderName;
         private bool _isEnabled;
 
+        // ── RAG 结果缓存（减少每轮查询变化导致的 Cache Miss）──
+        private string? _lastQuery;
+        private string? _lastContext;
+        /// <summary>
+        /// 查询相似度阈值（0.0~1.0）。当新查询与上次查询的 Jaccard 相似度 >= 此值时，复用缓存结果。
+        /// 默认 0.6 表示新查询与上次查询有 60% 的词汇重叠时视为相似。
+        /// </summary>
+        public double CacheSimilarityThreshold { get; set; } = 0.6;
+
         /// <summary>RAG 是否已启用</summary>
         public bool IsEnabled
         {
@@ -111,6 +120,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 根据用户查询检索相关文档，并返回格式化的上下文字符串。
         /// 这是注入到对话中的主要入口。
+        /// 内置结果缓存：当新查询与上次查询高度相似时，复用上次的检索结果，
+        /// 以减少 System Message 的变化，从而提升 DeepSeek Prompt Cache 命中率。
         /// </summary>
         /// <param name="query">用户查询</param>
         /// <param name="topK">返回的最大结果数</param>
@@ -124,18 +135,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (!IsEnabled || _activeProvider == null)
                 return string.Empty;
 
+            // ── 缓存检查：如果新查询与上次查询相似，直接复用缓存 ──
+            if (!string.IsNullOrEmpty(_lastQuery) && !string.IsNullOrEmpty(_lastContext))
+            {
+                double similarity = ComputeQuerySimilarity(_lastQuery, query);
+                if (similarity >= CacheSimilarityThreshold)
+                {
+                    Logger.Info($"[RagService] 🔄 复用缓存 (相似度: {similarity:F2} >= {CacheSimilarityThreshold}): \"{TruncateQuery(query)}\"");
+                    return _lastContext;
+                }
+            }
+
             try
             {
                 var results = await _activeProvider.SearchAsync(query, topK, cancellationToken);
                 if (results == null || results.Count == 0)
                 {
                     Logger.Info($"[RagService] 检索无结果: \"{TruncateQuery(query)}\"");
+                    // 无结果时也缓存空字符串，避免对相同无结果查询重复检索
+                    _lastQuery = query;
+                    _lastContext = string.Empty;
                     return string.Empty;
                 }
 
                 string context = RagContextFormatter.FormatForContext(results);
                 Logger.Info($"[RagService] 检索到 {results.Count} 条结果: \"{TruncateQuery(query)}\", " +
                     $"上下文长度: {context.Length} 字符");
+
+                // ── 更新缓存 ──
+                _lastQuery = query;
+                _lastContext = context;
 
                 return context;
             }
@@ -144,6 +173,62 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Logger.Error($"[RagService] 检索异常: {ex.Message}", ex);
                 return string.Empty;
             }
+        }
+
+        /// <summary>
+        /// 清除 RAG 结果缓存。在会话切换或用户显式要求刷新时调用。
+        /// </summary>
+        public void InvalidateCache()
+        {
+            if (_lastQuery != null)
+            {
+                Logger.Info("[RagService] 🗑️ RAG 缓存已清除");
+                _lastQuery = null;
+                _lastContext = null;
+            }
+        }
+
+        /// <summary>
+        /// 计算两个查询的词汇相似度（基于字符 3-gram 的 Jaccard 系数）。
+        /// 对于相同话题的连续追问（如 "这段代码有什么问题？" → "那个变量呢？"），
+        /// 相似度可能较低；但对于同一文件的重读等场景，查询高度重叠。
+        /// </summary>
+        private static double ComputeQuerySimilarity(string query1, string query2)
+        {
+            if (string.IsNullOrEmpty(query1) || string.IsNullOrEmpty(query2))
+                return 0;
+
+            // 使用 3-gram 字符级比较，对中英文混合友好
+            var grams1 = GetCharGrams(query1, 3);
+            var grams2 = GetCharGrams(query2, 3);
+
+            if (grams1.Count == 0 && grams2.Count == 0)
+                return 1.0;
+
+            int intersection = 0;
+            foreach (var g in grams1)
+            {
+                if (grams2.Contains(g))
+                    intersection++;
+            }
+
+            int union = grams1.Count + grams2.Count - intersection;
+            return union > 0 ? (double)intersection / union : 0;
+        }
+
+        private static HashSet<string> GetCharGrams(string text, int n)
+        {
+            var grams = new HashSet<string>();
+            if (text.Length < n)
+            {
+                grams.Add(text);
+                return grams;
+            }
+            for (int i = 0; i <= text.Length - n; i++)
+            {
+                grams.Add(text.Substring(i, n));
+            }
+            return grams;
         }
 
         /// <summary>

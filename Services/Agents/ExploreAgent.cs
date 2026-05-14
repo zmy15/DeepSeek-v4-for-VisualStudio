@@ -71,11 +71,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "## 核心原则\n" +
                 "- 你只能读取代码，绝不能修改、创建或删除任何文件。\n" +
                 "- 你的输出是分析报告，包含文件路径、关键符号、可复用的模式。\n" +
-                "- 优先使用绝对文件路径引用（如 `src/Models/User.cs`）。\n\n" +
+                "- 优先使用绝对文件路径引用（如 `F:\\VSCode\\project\\src\\Models\\User.cs`）。\n" +
+                "- ⚠️ 所有路径必须使用 Windows 绝对路径格式，不要使用 Linux 风格路径（如 /usr/src）。\n\n" +
                 "## 搜索策略\n" +
-                "- **从宽到窄**: 先用 glob 或语义搜索发现相关区域，再用 grep 缩小范围\n" +
-                "- **并行优先**: 同时发起多个独立的搜索和读取操作\n" +
-                "- **适时停止**: 一旦获取足够上下文就停止，不做穷举式扫描\n\n" +
+                "- **从宽到窄**: 先用 list_dir 了解目录结构，再用 file_search 或 grep_search 缩小范围\n" +
+                "- **并行优先**: 同时发起多个独立的搜索和读取操作（不依赖彼此结果的可并行）\n" +
+                "- **适时停止**: 一旦获取足够上下文就停止，不做穷举式扫描\n" +
+                "- **根目录优先**: 始终从工作区根目录开始探索，不要猜测路径\n\n" +
                 "## 输出格式\n" +
                 "直接以消息形式报告发现。包含：\n" +
                 "- 相关文件及其绝对路径链接\n" +
@@ -110,15 +112,63 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 var ct = context.CancellationToken;
 
-                // ── 构建搜索 prompt ──
-                string systemPrompt = Definition.SystemPrompt;
+                // ── 构建消息列表 ──
+                var messages = new List<ChatApiMessage>
+                {
+                    new ChatApiMessage { Role = "system", Content = Definition.SystemPrompt },
+                    new ChatApiMessage { Role = "user", Content = BuildExplorePrompt(userMessage, context) }
+                };
 
-                string userPrompt = BuildExplorePrompt(userMessage, context);
-                AddLog("INFO", $"Explore prompt 已构建 ({userPrompt.Length} 字符)");
+                // ── 解析工作区根目录 ──
+                // 对 .sln 文件取目录；对文件夹项目保持目录原样。
+                // 注意：不能无条件调用 Path.GetDirectoryName()，否则文件夹项目
+                // 的路径会被错误解析为父目录（如 "F:\Proj" → "F:\"）。
+                string workspaceRoot = context.SolutionPath ?? string.Empty;
+                if (!string.IsNullOrEmpty(workspaceRoot))
+                {
+                    try
+                    {
+                        if (File.Exists(workspaceRoot))
+                            workspaceRoot = Path.GetDirectoryName(workspaceRoot) ?? workspaceRoot;
+                        // 目录路径保持原样，由 BuiltInToolService.NormalizeWorkspaceRoot 最终处理
+                    }
+                    catch { }
+                }
 
-                // ── 调用 AI 进行探索 ──
-                string aiResponse = await CallAiLongAsync(systemPrompt, userPrompt, ct, maxTokens: 4096);
-                result.Content = aiResponse;
+                AddLog("INFO", $"Explore prompt 已构建 ({messages.Last().Content?.Length ?? 0} 字符), workspaceRoot={workspaceRoot}");
+
+                // ── 使用工具调用循环 ──
+                string thinkingContent = string.Empty;
+                string fullContent = string.Empty;
+
+                string aiResponse = await CallAiWithToolLoopAsync(
+                    messages,
+                    workspaceRoot,
+                    ct,
+                    maxTokens: 4096,
+                    onThinking: (thinking) =>
+                    {
+                        thinkingContent += thinking;
+                    },
+                    onContent: (content) =>
+                    {
+                        fullContent += content;
+                    },
+                    onToolCall: (toolNames) =>
+                    {
+                        AddLog("INFO", $"🔧 调用工具: {toolNames}");
+                    });
+
+                // ── 如果工具调用后有思考内容，附加到结果中 ──
+                if (!string.IsNullOrEmpty(thinkingContent))
+                {
+                    result.Content = $"<details><summary>💭 思考过程</summary>\n\n{thinkingContent}\n\n</details>\n\n{aiResponse}";
+                }
+                else
+                {
+                    result.Content = aiResponse;
+                }
+
                 result.Logs.AddRange(_logs);
 
                 AddLog("INFO", $"Explore Agent 完成 ({aiResponse.Length} 字符)");
@@ -151,8 +201,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             if (!string.IsNullOrEmpty(context.SolutionPath))
             {
+                // ── 提取工作区根目录（处理 .sln 文件 vs 文件夹项目）──
+                string workspaceRoot = context.SolutionPath;
+                bool isSlnFile = false;
+                try
+                {
+                    if (System.IO.File.Exists(workspaceRoot))
+                    {
+                        workspaceRoot = System.IO.Path.GetDirectoryName(workspaceRoot) ?? workspaceRoot;
+                        isSlnFile = true;
+                    }
+                }
+                catch { }
+
                 sb.AppendLine($"## 工作区");
-                sb.AppendLine($"解决方案路径: {context.SolutionPath}");
+                sb.AppendLine($"工作区根目录: `{workspaceRoot}`");
+                if (isSlnFile)
+                    sb.AppendLine($"解决方案文件: {context.SolutionPath}");
+                else
+                    sb.AppendLine($"项目类型: 文件夹项目（无 .sln 文件，如 CMake / Open Folder）");
+                sb.AppendLine();
+                sb.AppendLine("> ⚠️ 所有路径必须使用 Windows 绝对路径格式（如 `F:\\project\\src\\file.cs`）。");
+                sb.AppendLine("> 不要使用 Linux 风格路径（如 `/home/user/...`）。");
+                sb.AppendLine("> 使用 `list_dir` 从工作区根目录开始探索，用 `file_search` 和 `grep_search` 定位文件。");
                 sb.AppendLine();
             }
 

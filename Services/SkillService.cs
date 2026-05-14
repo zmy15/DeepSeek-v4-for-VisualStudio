@@ -494,21 +494,38 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         #region Helpers
 
         /// <summary>
-        /// 查找解决方案根目录。
+        /// 查找项目根目录。
+        /// 支持 .sln 项目、CMake（Open Folder）等无 .sln 的项目类型。
+        /// 
+        /// 判定逻辑：
+        ///   1. 如果 path 是文件（如 .sln），取其父目录作为起点
+        ///   2. 优先向上查找包含 .sln 的目录（传统解决方案）
+        ///   3. 如果找不到 .sln，认为是文件夹项目，返回传入的目录路径
+        ///      （不再继续向上遍历，避免匹配到无关的父级 .sln）
+        /// 
+        /// 判断是否是有效项目根目录的启发式标记（满足任一即视为根目录）：
+        ///   - 包含 .git 子目录
+        ///   - 包含 CMakeLists.txt
+        ///   - 包含 package.json / Cargo.toml / Makefile / build.gradle 等
+        ///   - 传入的就是目录路径（不是文件）
         /// </summary>
         private string? FindSolutionRoot(string path)
         {
             try
             {
-                // 如果 path 是文件，取其目录
+                // 如果 path 是文件（如 .sln），取其目录
                 if (File.Exists(path))
                     path = Path.GetDirectoryName(path) ?? path;
 
-                // 向上查找包含 .sln 文件的目录
+                // —— 向上查找包含 .sln 文件的目录（传统解决方案）——
                 var current = path;
                 while (!string.IsNullOrEmpty(current))
                 {
                     if (Directory.GetFiles(current, "*.sln").Length > 0)
+                        return current;
+
+                    // 检测是否是有效的非 .sln 项目根目录，避免继续向上
+                    if (IsProjectRootDirectory(current))
                         return current;
 
                     var parent = Directory.GetParent(current);
@@ -516,12 +533,47 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     current = parent.FullName;
                 }
 
-                // 如果没找到 .sln，返回传入路径本身
+                // 找不到 .sln 且没有项目根标记 → 文件夹项目，返回传入路径
                 return path;
             }
             catch
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// 判断目录是否是一个有效的项目根目录（无 .sln 场景）。
+        /// 用于阻止继续向上遍历到无关目录。
+        /// </summary>
+        private static bool IsProjectRootDirectory(string dir)
+        {
+            try
+            {
+                // .git 目录是通用的项目根目录标识
+                if (Directory.Exists(Path.Combine(dir, ".git")))
+                    return true;
+
+                // 常见构建系统/包管理器的根标识文件
+                string[] rootMarkers = {
+                    "CMakeLists.txt", "Makefile", "GNUmakefile",
+                    "package.json", "Cargo.toml", "go.mod",
+                    "build.gradle", "build.gradle.kts", "pom.xml",
+                    "meson.build", "BUILD.bazel", "WORKSPACE",
+                    ".editorconfig", ".gitignore"
+                };
+
+                foreach (var marker in rootMarkers)
+                {
+                    if (File.Exists(Path.Combine(dir, marker)))
+                        return true;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
             }
         }
 

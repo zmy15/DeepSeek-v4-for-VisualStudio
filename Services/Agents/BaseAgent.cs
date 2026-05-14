@@ -26,6 +26,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>当前执行上下文</summary>
         public AgentContext? Context { get; set; }
 
+        /// <summary>内置工具服务引用（由 AgentDispatcher 注入）</summary>
+        public BuiltInToolService? BuiltInTools { get; set; }
+
+        /// <summary>MCP 管理器引用（由 AgentDispatcher 注入，用于执行 MCP 工具）</summary>
+        public McpManagerService? McpManager { get; set; }
+
         /// <summary>日志事件</summary>
         public event Action<AgentLogEntry>? LogEntryAdded;
 
@@ -132,6 +138,277 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     sb.Append(chunk);
             }
             return sb.ToString().Trim();
+        }
+
+        /// <summary>
+        /// 带工具调用的 AI 对话循环（支持多轮工具调用）。
+        /// 
+        /// 这是 Agent 执行工具增强型任务的核心方法。
+        /// 与主聊天流程 (DeepSeekChatControl.Messaging.cs) 中的工具调用循环一致。
+        /// </summary>
+        /// <param name="messages">消息列表（system + 历史 + user）</param>
+        /// <param name="workspaceRoot">工作区根目录，用于内置工具（如 file_search, list_dir）</param>
+        /// <param name="ct">取消令牌</param>
+        /// <param name="maxTokens">最大 token 数</param>
+        /// <param name="maxToolRounds">【已废弃】使用智能循环检测替代。保留参数兼容性，但不再使用。</param>
+        /// <param name="onThinking">思考内容回调（用于 UI 实时更新）</param>
+        /// <param name="onContent">内容回调（用于 UI 实时更新）</param>
+        /// <param name="onToolCall">工具调用回调（用于 UI 通知）</param>
+        /// <returns>AI 最终生成的文本内容</returns>
+        protected async Task<string> CallAiWithToolLoopAsync(
+            List<ChatApiMessage> messages,
+            string? workspaceRoot,
+            CancellationToken ct,
+            int maxTokens = 4096,
+            int maxToolRounds = 30,
+            Action<string>? onThinking = null,
+            Action<string>? onContent = null,
+            Action<string>? onToolCall = null)
+        {
+            var reasoningBuilder = new StringBuilder();
+            var contentBuilder = new StringBuilder();
+            var toolCallAccumulator = new Dictionary<int, Models.ToolCallAccumulator>();
+
+            // ── 循环检测状态 ──
+            var callSignatureHistory = new List<string>();
+            int consecutiveErrorRounds = 0;
+            const int maxRepeatedSameCall = 3;
+            const int maxConsecutiveErrors = 5;
+            const int safetyLimit = 200;
+            bool loopDetected = false;
+
+            int round = 0;
+            while (!loopDetected)
+            {
+                round++;
+                if (round > safetyLimit)
+                {
+                    Logger.Warn($"[Agent:{Definition.Name}] 达到安全上限 {safetyLimit} 轮，强制结束");
+                    contentBuilder.Append("\n\n> ⚠️ 工具调用已达安全上限，分析可能不完整。");
+                    break;
+                }
+
+                toolCallAccumulator.Clear();
+                reasoningBuilder.Clear();
+                contentBuilder.Clear();
+
+                // ── 获取工具定义 ──
+                List<ToolDefinition>? toolDefs = null;
+                if (BuiltInTools != null || McpManager != null)
+                {
+                    toolDefs = new List<ToolDefinition>();
+
+                    // 内置工具
+                    if (BuiltInTools != null)
+                    {
+                        var builtInDefs = BuiltInTools.GetFilteredToolDefinitions(Definition.AllowedTools);
+                        toolDefs.AddRange(builtInDefs);
+                    }
+
+                    // MCP 外部工具
+                    if (McpManager != null && McpManager.AllTools.Count > 0)
+                    {
+                        var mcpDefs = McpManager.GetFilteredToolDefinitions(Definition.AllowedTools);
+                        toolDefs.AddRange(mcpDefs);
+                    }
+
+                    Logger.Info($"[Agent:{Definition.Name}] 本轮携带 {toolDefs.Count} 个工具定义");
+                }
+
+                // ── 流式调用 AI ──
+                await foreach (var chunk in _apiService.ChatStreamAsync(messages, toolDefs, ct))
+                {
+                    if (chunk.StartsWith("[THINKING]"))
+                    {
+                        var thinking = chunk.Substring(10);
+                        reasoningBuilder.Append(thinking);
+                        onThinking?.Invoke(thinking);
+                    }
+                    else if (chunk.StartsWith("[TOOL_CALL]"))
+                    {
+                        var tcJson = chunk.Substring(11);
+                        try
+                        {
+                            var deltas = JsonSerializer.Deserialize<List<ToolCallDelta>>(tcJson);
+                            if (deltas != null)
+                            {
+                                foreach (var delta in deltas)
+                                {
+                                    if (!toolCallAccumulator.ContainsKey(delta.Index))
+                                        toolCallAccumulator[delta.Index] = new Models.ToolCallAccumulator();
+                                    var acc = toolCallAccumulator[delta.Index];
+                                    if (!string.IsNullOrEmpty(delta.Id)) acc.Id = delta.Id!;
+                                    if (!string.IsNullOrEmpty(delta.Type)) acc.Type = delta.Type;
+                                    if (delta.Function != null)
+                                    {
+                                        if (!string.IsNullOrEmpty(delta.Function.Name)) acc.FunctionName = delta.Function.Name;
+                                        if (!string.IsNullOrEmpty(delta.Function.Arguments)) acc.ArgumentsBuilder.Append(delta.Function.Arguments);
+                                    }
+                                }
+                            }
+                        }
+                        catch (JsonException) { }
+
+                        var toolNames = toolCallAccumulator.Values
+                            .Where(a => !string.IsNullOrEmpty(a.FunctionName))
+                            .Select(a => a.FunctionName!);
+                        string toolSummary = string.Join(", ", toolNames);
+                        onToolCall?.Invoke(toolSummary);
+                    }
+                    else
+                    {
+                        contentBuilder.Append(chunk);
+                        onContent?.Invoke(chunk);
+                    }
+                }
+
+                // ── 处理工具调用 ──
+                if (toolCallAccumulator.Count > 0)
+                {
+                    var toolCalls = toolCallAccumulator.Values
+                        .Where(a => !string.IsNullOrEmpty(a.FunctionName))
+                        .Select(a => new ToolCall
+                        {
+                            Id = a.Id,
+                            Type = a.Type ?? "function",
+                            Function = new ToolCallFunction
+                            {
+                                Name = a.FunctionName!,
+                                Arguments = a.ArgumentsBuilder.ToString()
+                            }
+                        }).ToList();
+
+                    if (toolCalls.Count == 0) break;
+
+                    Logger.Info($"[Agent:{Definition.Name}] 检测到 {toolCalls.Count} 个工具调用: {string.Join(", ", toolCalls.Select(t => t.Function.Name))}");
+
+                    // ── 添加 assistant 消息（含工具调用）──
+                    messages.Add(new ChatApiMessage
+                    {
+                        Role = "assistant",
+                        Content = contentBuilder.Length > 0 ? contentBuilder.ToString() : null,
+                        ReasoningContent = reasoningBuilder.Length > 0 ? reasoningBuilder.ToString() : null,
+                        ToolCalls = toolCalls
+                    });
+
+                    // ── 执行每个工具并添加 tool 结果消息 ──
+                    foreach (var tc in toolCalls)
+                    {
+                        string toolResult;
+                        try
+                        {
+                            toolResult = await ExecuteToolAsync(tc.Function.Name, tc.Function.Arguments, workspaceRoot, ct);
+                        }
+                        catch (Exception ex)
+                        {
+                            toolResult = $"❌ 工具执行异常: {ex.Message}";
+                            Logger.Error($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 执行异常: {ex.Message}", ex);
+                        }
+
+                        messages.Add(new ChatApiMessage
+                        {
+                            Role = "tool",
+                            Content = toolResult,
+                            ToolCallId = tc.Id,
+                            Name = tc.Function.Name
+                        });
+
+                        Logger.Info($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 返回: {(toolResult.Length > 200 ? toolResult.Substring(0, 200) + "..." : toolResult)}");
+                    }
+
+                    // ── 循环检测 ──
+                    // 收集本轮签名
+                    var roundSignatures = new List<string>();
+                    foreach (var tc in toolCalls)
+                    {
+                        string sig = tc.Function.Name + "|" +
+                            (tc.Function.Arguments.Length > 200
+                                ? tc.Function.Arguments.Substring(0, 200)
+                                : tc.Function.Arguments);
+                        callSignatureHistory.Add(sig);
+                        roundSignatures.Add(sig);
+                    }
+
+                    // 检测同一调用重复
+                    foreach (var sig in roundSignatures)
+                    {
+                        int repeatCount = callSignatureHistory.Count(s => s == sig);
+                        if (repeatCount >= maxRepeatedSameCall)
+                        {
+                            loopDetected = true;
+                            string toolName = sig.Split('|')[0];
+                            Logger.Warn($"[Agent:{Definition.Name}] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次");
+                            contentBuilder.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次，已自动终止循环。");
+                            break;
+                        }
+                    }
+
+                    // 保留最近 30 条签名
+                    while (callSignatureHistory.Count > 30)
+                        callSignatureHistory.RemoveAt(0);
+
+                    // 检测连续错误：检查本轮 tool 消息是否全部以 ❌ 开头
+                    if (!loopDetected)
+                    {
+                        int toolMsgStart = messages.Count - toolCalls.Count;
+                        bool allErrors = toolCalls.Count > 0;
+                        for (int i = toolMsgStart; i < messages.Count && allErrors; i++)
+                        {
+                            if (messages[i].Role == "tool" && !(messages[i].Content ?? "").StartsWith("❌"))
+                                allErrors = false;
+                        }
+
+                        if (allErrors)
+                            consecutiveErrorRounds++;
+                        else
+                            consecutiveErrorRounds = 0;
+
+                        if (consecutiveErrorRounds >= maxConsecutiveErrors)
+                        {
+                            loopDetected = true;
+                            Logger.Warn($"[Agent:{Definition.Name}] 🔄 连续 {consecutiveErrorRounds} 轮工具调用全部返回错误，强制结束");
+                            contentBuilder.Append($"\n\n> ⚠️ 连续 {consecutiveErrorRounds} 轮工具调用均失败，已自动终止。");
+                        }
+                    }
+
+                    // ── 继续下一轮 ──
+                    continue;
+                }
+
+                // ── 无工具调用，结束循环 ──
+                break;
+            }
+
+            return contentBuilder.ToString().Trim();
+        }
+
+        /// <summary>
+        /// 执行单个工具调用（优先内置工具，其次 MCP 工具）。
+        /// </summary>
+        private async Task<string> ExecuteToolAsync(string toolName, string argumentsJson, string? workspaceRoot, CancellationToken ct)
+        {
+            // ── 1. 内置工具 ──
+            if (BuiltInTools != null && BuiltInToolService.IsBuiltInTool(toolName))
+            {
+                string? result = await BuiltInTools.ExecuteBuiltInToolAsync(toolName, argumentsJson, workspaceRoot);
+                if (result != null)
+                    return result;
+            }
+
+            // ── 2. MCP 工具 ──
+            if (McpManager != null)
+            {
+                try
+                {
+                    return await McpManager.CallToolAsync(toolName, argumentsJson, ct);
+                }
+                catch (Exception ex)
+                {
+                    return $"❌ MCP 工具调用失败 ({toolName}): {ex.Message}";
+                }
+            }
+
+            return $"❌ 未知工具: {toolName}";
         }
 
         #endregion

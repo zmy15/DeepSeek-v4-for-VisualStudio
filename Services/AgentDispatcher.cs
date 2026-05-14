@@ -23,6 +23,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     public class AgentDispatcher : IDisposable
     {
         private readonly DeepSeekApiService _apiService;
+        private readonly BuiltInToolService? _builtInToolService;
+        private McpManagerService? _mcpManager;
 
         // ── Agent 实例（懒加载） ──
         private AskAgent? _askAgent;
@@ -30,11 +32,83 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private PlanAgent? _planAgent;
         private EditAgent? _editAgent;
 
-        // ── 属性 ──
-        public AskAgent AskAgent => _askAgent ??= new AskAgent(_apiService);
-        public ExploreAgent ExploreAgent => _exploreAgent ??= new ExploreAgent(_apiService);
-        public PlanAgent PlanAgent => _planAgent ??= new PlanAgent(_apiService);
-        public EditAgent EditAgent => _editAgent ??= new EditAgent(_apiService);
+        // ── 属性（注入工具服务） ──
+        public AskAgent AskAgent
+        {
+            get
+            {
+                if (_askAgent == null)
+                {
+                    _askAgent = new AskAgent(_apiService);
+                    InjectToolServices(_askAgent);
+                }
+                return _askAgent;
+            }
+        }
+        public ExploreAgent ExploreAgent
+        {
+            get
+            {
+                if (_exploreAgent == null)
+                {
+                    _exploreAgent = new ExploreAgent(_apiService);
+                    InjectToolServices(_exploreAgent);
+                }
+                return _exploreAgent;
+            }
+        }
+        public PlanAgent PlanAgent
+        {
+            get
+            {
+                if (_planAgent == null)
+                {
+                    _planAgent = new PlanAgent(_apiService);
+                    InjectToolServices(_planAgent);
+                }
+                return _planAgent;
+            }
+        }
+        public EditAgent EditAgent
+        {
+            get
+            {
+                if (_editAgent == null)
+                {
+                    _editAgent = new EditAgent(_apiService);
+                    InjectToolServices(_editAgent);
+                }
+                return _editAgent;
+            }
+        }
+
+        /// <summary>
+        /// 向 Agent 注入工具服务（BuiltInToolService 和 McpManagerService）。
+        /// </summary>
+        private void InjectToolServices(BaseAgent agent)
+        {
+            if (agent.BuiltInTools == null && _builtInToolService != null)
+                agent.BuiltInTools = _builtInToolService;
+            if (agent.McpManager == null && _mcpManager != null)
+                agent.McpManager = _mcpManager;
+        }
+
+        /// <summary>
+        /// 更新 MCP 管理器引用（MCP 异步初始化完成后调用）。
+        /// 会将新的 MCP 管理器注入到所有已创建的 Agent 实例中。
+        /// </summary>
+        public void UpdateMcpManager(McpManagerService mcpManager)
+        {
+            _mcpManager = mcpManager;
+
+            // 注入到已创建的 Agent 实例
+            if (_askAgent != null) _askAgent.McpManager = mcpManager;
+            if (_exploreAgent != null) _exploreAgent.McpManager = mcpManager;
+            if (_planAgent != null) _planAgent.McpManager = mcpManager;
+            if (_editAgent != null) _editAgent.McpManager = mcpManager;
+
+            Logger.Info($"[AgentDispatcher] MCP 管理器已注入 (工具数: {mcpManager.AllTools.Count})");
+        }
 
         /// <summary>当前活跃的 Agent 类型</summary>
         public AgentType ActiveAgentType { get; private set; } = AgentType.Ask;
@@ -57,9 +131,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         public event Action<AgentLogEntry>? LogEntryAdded;
         public event Action<AgentFileChangeEventArgs>? FileChangeNotified;
 
-        public AgentDispatcher(DeepSeekApiService apiService)
+        public AgentDispatcher(DeepSeekApiService apiService,
+            BuiltInToolService? builtInToolService = null,
+            McpManagerService? mcpManager = null)
         {
             _apiService = apiService ?? throw new ArgumentNullException(nameof(apiService));
+            _builtInToolService = builtInToolService;
+            _mcpManager = mcpManager;
             WireAgentEvents();
         }
 

@@ -1,3 +1,4 @@
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.ToolWindows;
 using DeepSeek_v4_for_VisualStudio.Utils;
@@ -304,6 +305,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         StatusLabel.Text = "✅ 代码已写入文件";
                     }
 
+                    // ── 记录文件变更历史（用于后续重试回退）──
+                    RecordManualCodeChange(oldContent, newCode, GetActiveDocumentPath());
+
                     Logger.Info("代码已成功写入编辑器");
                     return;
                 }
@@ -338,6 +342,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         StatusLabel.Text = "✅ 代码已写入文件";
                     }
+
+                    // ── 记录文件变更历史（用于后续重试回退）──
+                    RecordManualCodeChange(oldContent, newCode, GetActiveDocumentPath());
 
                     Logger.Info("[CodeAction] 已替换编辑器内容（IVsTextManager）");
                     return;
@@ -417,6 +424,65 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Error($"[CodeAction] GetActiveDocumentPath 异常: {ex.Message}", ex);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 记录手动代码操作（一键写入/替换）到文件变更历史，
+        /// 以便后续重试时能够回退这些修改。
+        /// </summary>
+        /// <param name="oldContent">修改前的原始内容</param>
+        /// <param name="newContent">修改后的新内容</param>
+        /// <param name="filePath">目标文件路径（null 则跳过）</param>
+        private void RecordManualCodeChange(string? oldContent, string newContent, string? filePath)
+        {
+            if (string.IsNullOrEmpty(filePath) || string.IsNullOrEmpty(oldContent))
+                return;
+            if (oldContent == newContent)
+                return;
+
+            try
+            {
+                int oldLineCount = oldContent.Split('\n').Length;
+                int newLineCount = newContent.Split('\n').Length;
+                int linesAdded = Math.Max(0, newLineCount - oldLineCount);
+                int linesRemoved = Math.Max(0, oldLineCount - newLineCount);
+
+                int userMsgIndex = GetLastUserMessageIndex();
+                if (userMsgIndex < 0) return;
+
+                var change = new FileChangeSummary
+                {
+                    FilePath = filePath,
+                    LinesAdded = linesAdded,
+                    LinesRemoved = linesRemoved,
+                    BriefDescription = $"手动应用代码到 {Path.GetFileName(filePath)}",
+                    OriginalContent = oldContent,
+                    NewContent = newContent,
+                };
+
+                RecordFileChangesForTurn(userMsgIndex, new List<FileChangeSummary> { change });
+                Logger.Info($"[CodeAction] 已记录手动代码变更: {Path.GetFileName(filePath)} (+{linesAdded} -{linesRemoved})");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[CodeAction] 记录手动代码变更失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 获取消息列表中最后一个用户消息的索引。
+        /// </summary>
+        private int GetLastUserMessageIndex()
+        {
+            lock (_lock)
+            {
+                for (int i = _messages.Count - 1; i >= 0; i--)
+                {
+                    if (_messages[i].Role == "user")
+                        return i;
+                }
+            }
+            return -1;
         }
 
         /// <summary>

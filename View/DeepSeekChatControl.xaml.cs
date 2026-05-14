@@ -3,11 +3,16 @@ using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Services.Agents;
 using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.Utils;
+using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Events;
+using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -48,16 +53,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private DeepSeekApiService? _apiService;
         private WebSearchService? _webSearchService;
         private McpManagerService? _mcpManager;
+        private BuiltInToolService? _builtInToolService;
         private SkillService? _skillService;
         private SkillDiscoveryResult? _skillDiscoveryResult;
         private AgentDispatcher? _agentDispatcher;
         private CancellationTokenSource? _currentStreamingCts;
         private string? _solutionPath;
 
-        // ── DTE 事件引用（必须保持存活以防 GC 回收） ──
-        private EnvDTE.DTE? _dte;
-        private EnvDTE.SolutionEvents? _solutionEvents;
-        private bool _solutionEventsWired;
+        // ── 解决方案事件已订阅标记（通过 Microsoft.VisualStudio.Shell.Events.SolutionEvents）──
 
         private readonly List<ChatMessage> _messages = new();
         private readonly ConversationContextManager _contextManager = new();
@@ -241,8 +244,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
             InitializeOcrService();
             InitializeMcp(); // MCP 后台初始化，不阻塞 UI
             InitializeSkills(); // Skill 后台发现，不阻塞 UI
-            _ = ResolveSolutionPathAsync();
-            _ = LoadAndShowAsync();
+
+            // ── 链式初始化：先解析项目路径 → 再加载会话 ──
+            // 之前两者各自 fire-and-forget，导致首条消息发送时 _solutionPath 可能仍为 null。
+            // 现在确保 ResolveSolutionPathAsync 完成后再执行 LoadAndShowAsync，
+            // 同时 BuildRequestMessagesAsync 内有惰性兜底以防万一。
+            _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
+                await ResolveSolutionPathAsync();
+                await LoadAndShowAsync();
+            });
 
             // ── 后台异步校验 API Key 有效性 ──
             _ = ValidateAllApiKeysAsync();
@@ -276,7 +287,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _agentDispatcher.PermissionRequested -= OnAgentPermissionRequested;
                 _agentDispatcher.Dispose();
             }
-            _agentDispatcher = new AgentDispatcher(_apiService);
+
+            // ── 创建内置工具服务 ──
+            _builtInToolService = new BuiltInToolService(_mcpManager);
+
+            _agentDispatcher = new AgentDispatcher(_apiService, _builtInToolService, _mcpManager);
             _agentDispatcher.PermissionRequested += OnAgentPermissionRequested;
             Logger.Info("Agent 调度器初始化成功（多 Agent 模式：Ask / Plan / Explore / Edit）");
 
@@ -463,7 +478,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// 后台异步初始化 MCP 服务器连接。
         /// 失败不影响核心聊天功能。
         /// </summary>
-        #pragma warning disable VSTHRD100 // async void 用于 fire-and-forget 初始化
+#pragma warning disable VSTHRD100 // async void 用于 fire-and-forget 初始化
         private async void InitializeMcp()
         {
             try
@@ -486,6 +501,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 await _mcpManager.InitializeAsync(enabledConfigs, cts.Token);
 
+                // ── 将 MCP 管理器注入到 Agent 调度器 ──
+                _agentDispatcher?.UpdateMcpManager(_mcpManager);
+
                 var toolCount = _mcpManager.AllTools.Count;
                 if (toolCount > 0)
                 {
@@ -502,14 +520,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 UpdateMcpButtonAppearance();
             }
         }
-        #pragma warning restore VSTHRD100
+#pragma warning restore VSTHRD100
 
         /// <summary>
         /// 后台发现并加载 Skill。
         /// 扫描项目目录和用户目录下的 SKILL.md 文件。
         /// 失败不影响核心聊天功能。
         /// </summary>
-        #pragma warning disable VSTHRD100 // async void 用于 fire-and-forget 初始化
+#pragma warning disable VSTHRD100 // async void 用于 fire-and-forget 初始化
         private async void InitializeSkills()
         {
             try
@@ -541,7 +559,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Error($"[Skill] Skill 初始化失败: {ex.Message}", ex);
             }
         }
-        #pragma warning restore VSTHRD100
+#pragma warning restore VSTHRD100
 
         /// <summary>
         /// 同时遵循用户在 ComboBox 中选择的搜索引擎偏好。
@@ -625,52 +643,210 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
         }
 
+        /// <summary>
+        /// 解析当前工作区路径。支持以下场景：
+        /// 1. 传统 .sln 解决方案 → 使用 .sln 文件路径作为标识
+        /// 2. 文件夹项目（CMake / Open Folder）→ 使用工作区根目录路径作为标识
+        /// 3. 未打开任何项目 → null，使用 _unsaved.json 兜底存储
+        /// 
+        /// 解析顺序：
+        ///   a) IVsSolution.GetSolutionInfo —— 适用于 .sln 项目，返回 .sln 文件路径
+        ///   b) IVsWorkspaceService          —— 适用于所有 Open Folder 项目，返回工作区根目录
+        ///   c) DTE                          —— 终极回退，兼容极少数边界情况
+        /// </summary>
         private async Task ResolveSolutionPathAsync()
         {
             try
             {
                 await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                var dte = (EnvDTE.DTE)Microsoft.VisualStudio.Shell.Package.GetGlobalService(typeof(EnvDTE.DTE));
-                _solutionPath = dte?.Solution?.FullName;
+
+                // 第一步：.sln 项目 (仅返回 .sln 文件路径，文件夹项目此处返回 null)
+                _solutionPath = GetSolutionPathFromIVsSolution();
+
+                // 第二步：终极 DTE 回退（GetSolutionPathFromIVsSolution 已同时覆盖 .sln 和 Open Folder）
+                if (string.IsNullOrEmpty(_solutionPath))
+                {
+                    var dte = (EnvDTE.DTE)Microsoft.VisualStudio.Shell.Package.GetGlobalService(typeof(EnvDTE.DTE));
+                    _solutionPath = GetSolutionPathFromDTE(dte);
+                }
+
                 if (!string.IsNullOrEmpty(_solutionPath))
-                    Logger.Info($"检测到解决方案: {_solutionPath}");
+                    Logger.Info($"检测到项目路径: {_solutionPath}");
                 else
-                    Logger.Info("未检测到已打开的解决方案，使用默认存储");
+                    Logger.Info("未检测到已打开的项目，使用默认存储 (_unsaved.json)");
             }
             catch (Exception ex)
             {
-                Logger.Error("解析解决方案路径失败", ex);
+                Logger.Error("解析项目路径失败", ex);
                 _solutionPath = null;
             }
         }
 
         /// <summary>
-        /// 订阅 DTE 解决方案事件，当用户打开/关闭解决方案时自动重载对话。
+        /// 通过 IVsSolution.GetSolutionInfo 获取项目路径（首选方案）。
+        /// 
+        /// 这是 VS SDK 中获取解决方案/工作区路径的官方接口：
+        ///   - GetSolutionInfo(out dir, out file, out opts)
+        ///   - 对 .sln 项目，file 为非空 .sln 路径
+        ///   - 对文件夹项目 (Open Folder/CMake)，file 为空，dir 为工作区根目录
+        /// 
+        /// 参考: https://learn.microsoft.com/zh-cn/dotnet/api/microsoft.visualstudio.shell.interop.ivssolution.getsolutioninfo
         /// </summary>
-        private async System.Threading.Tasks.Task WireSolutionEventsAsync()
+        /// <summary>
+        /// 通过 IVsSolution.GetSolutionInfo 获取项目路径。
+        /// - .sln 项目：返回 .sln 文件路径
+        /// - Open Folder 项目（CMake 等无 .sln）：返回工作区根目录（solutionDir）
+        /// 在 VS 2019+ 中，GetSolutionInfo 对 Open Folder 会在 solutionDir 中返回工作区根目录。
+        /// </summary>
+        private static string? GetSolutionPathFromIVsSolution()
+        {
+            try
+            {
+                var vsSolution = Microsoft.VisualStudio.Shell.Package.GetGlobalService(typeof(SVsSolution)) as IVsSolution;
+                if (vsSolution == null)
+                    return null;
+
+                int hr = vsSolution.GetSolutionInfo(out string solutionDir, out string solutionFile, out string _);
+                Logger.Info($"[Workspace] IVsSolution.GetSolutionInfo → HR=0x{hr:X8}, dir=[{solutionDir ?? "(null)"}], file=[{solutionFile ?? "(null)"}]");
+
+                if (hr != VSConstants.S_OK)
+                {
+                    Logger.Warn($"[Workspace] IVsSolution.GetSolutionInfo 返回非 S_OK: 0x{hr:X8}");
+                    return null;
+                }
+
+                // .sln 项目优先返回 .sln 文件路径
+                if (!string.IsNullOrWhiteSpace(solutionFile))
+                {
+                    Logger.Info($"[Workspace] ✅ IVsSolution → .sln 项目: {solutionFile}");
+                    return solutionFile;
+                }
+
+                // Open Folder 项目：solutionFile 为空，回退到 solutionDir
+                if (!string.IsNullOrWhiteSpace(solutionDir))
+                {
+                    string dir = solutionDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    Logger.Info($"[Workspace] ✅ IVsSolution → Open Folder 项目: {dir}");
+                    return dir;
+                }
+
+                Logger.Info("[Workspace] IVsSolution 未发现项目路径");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Workspace] IVsSolution.GetSolutionInfo 失败: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 通过 DTE 接口获取项目路径（回退方案，当 IVsSolution 不可用时）。
+        /// 顺序：Solution.FullName → Solution.Properties("Path") → 首个项目父目录
+        /// </summary>
+        private static string? GetSolutionPathFromDTE(EnvDTE.DTE? dte)
+        {
+            if (dte?.Solution == null || !dte.Solution.IsOpen)
+                return null;
+
+            var solution = dte.Solution;
+
+            // ── A) Solution.FullName（.sln 文件路径）──
+            try
+            {
+                string? fullName = solution.FullName;
+                if (!string.IsNullOrWhiteSpace(fullName))
+                {
+                    Logger.Info($"[Workspace] DTE Solution.FullName: {fullName}");
+                    return fullName;
+                }
+            }
+            catch { }
+
+            // ── B) Solution.Properties("Path") ──
+            try
+            {
+                var pathProp = solution.Properties?.Item("Path");
+                if (pathProp?.Value is string folderPath && !string.IsNullOrWhiteSpace(folderPath))
+                {
+                    Logger.Info($"[Workspace] DTE Solution.Properties(\"Path\"): {folderPath}");
+                    return folderPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+            }
+            catch { }
+
+            // ── C) 首个项目的父目录 ──
+            try
+            {
+                var projects = solution.Projects;
+                if (projects != null && projects.Count > 0)
+                {
+                    foreach (EnvDTE.Project project in projects)
+                    {
+                        try
+                        {
+                            string? fullName = project?.FullName;
+                            if (!string.IsNullOrWhiteSpace(fullName))
+                            {
+                                string? dir = Path.GetDirectoryName(fullName);
+                                if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+                                {
+                                    Logger.Info($"[Workspace] DTE Project.FullName 推断: {dir}");
+                                    return dir;
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 订阅 Microsoft.VisualStudio.Shell.Events.SolutionEvents（推荐 VSSDK 方式）。
+        /// OnAfterOpenSolution / OnAfterCloseSolution 用于 .sln 项目；
+        /// OnAfterOpenFolder / OnAfterCloseFolder 用于 Open Folder / CMake 项目。
+        /// 这与 DTE SolutionEvents 不同——后者仅在 .sln 打开时触发。
+        /// </summary>
+        private async Task WireSolutionEventsAsync()
         {
             try
             {
                 await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
-                _dte = (EnvDTE.DTE)Microsoft.VisualStudio.Shell.Package.GetGlobalService(typeof(EnvDTE.DTE));
-                if (_dte == null)
-                {
-                    Logger.Warn("[会话] 无法获取 DTE，解决方案事件监听跳过");
-                    return;
-                }
+                // .sln 项目
+                SolutionEvents.OnAfterOpenSolution += OnAfterOpenSolution;
+                SolutionEvents.OnAfterCloseSolution += OnAfterCloseSolution;
 
-                _solutionEvents = _dte.Events.SolutionEvents;
-                _solutionEvents.Opened += OnSolutionOpened;
-                _solutionEvents.AfterClosing += OnSolutionClosed;
-                _solutionEventsWired = true;
+                // Open Folder / CMake 项目
+                SolutionEvents.OnAfterOpenFolder += OnAfterOpenFolder;
+                SolutionEvents.OnAfterCloseFolder += OnAfterCloseFolder;
 
-                Logger.Info("[会话] 解决方案事件监听已注册");
+                Logger.Info("[会话] SolutionEvents 监听已注册（覆盖 .sln 和 Open Folder / CMake）");
             }
             catch (Exception ex)
             {
                 Logger.Error("[会话] 注册解决方案事件失败", ex);
             }
+        }
+
+        // ── .sln 事件处理 ──
+        private void OnAfterOpenSolution(object sender, OpenSolutionEventArgs e) => OnSolutionOpened();
+        private void OnAfterCloseSolution(object sender, EventArgs e) => OnSolutionClosed();
+
+        // ── Open Folder / CMake 事件处理 ──
+        private void OnAfterOpenFolder(object sender, FolderEventArgs e)
+        {
+            Logger.Info($"[会话] OnAfterOpenFolder: {e.FolderPath}");
+            OnSolutionOpened();
+        }
+        private void OnAfterCloseFolder(object sender, FolderEventArgs e)
+        {
+            Logger.Info($"[会话] OnAfterCloseFolder: {e.FolderPath}");
+            OnSolutionClosed();
         }
 
         /// <summary>
@@ -871,13 +1047,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             DeepSeekOptionsPage.SettingsChanged -= OnOcrSettingsChanged;
 
-            // ── 取消解决方案事件订阅 ──
-            if (_solutionEventsWired && _solutionEvents != null)
+            // ── 取消 SolutionEvents 订阅 ──
+            try
             {
-                _solutionEvents.Opened -= OnSolutionOpened;
-                _solutionEvents.AfterClosing -= OnSolutionClosed;
-                _solutionEventsWired = false;
-                Logger.Info("[Dispose] [会话] 解决方案事件监听已取消");
+                SolutionEvents.OnAfterOpenSolution -= OnAfterOpenSolution;
+                SolutionEvents.OnAfterCloseSolution -= OnAfterCloseSolution;
+                SolutionEvents.OnAfterOpenFolder -= OnAfterOpenFolder;
+                SolutionEvents.OnAfterCloseFolder -= OnAfterCloseFolder;
+                Logger.Info("[Dispose] [会话] SolutionEvents 监听已取消");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Dispose] [会话] 取消 SolutionEvents 失败: {ex.Message}");
             }
 
             _currentStreamingCts?.Cancel();
@@ -925,6 +1106,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         #endregion
+
+
     }
 }
 

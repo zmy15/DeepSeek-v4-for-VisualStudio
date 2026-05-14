@@ -105,6 +105,10 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>任务是否被用户取消</summary>
         public bool IsCancelled { get; set; }
+
+        /// <summary>Plan Agent 生成的 plan.md 文件绝对路径（Edit Agent 执行完毕后删除）</summary>
+        [JsonIgnore]
+        public string? PlanFilePath { get; set; }
     }
 
     /// <summary>

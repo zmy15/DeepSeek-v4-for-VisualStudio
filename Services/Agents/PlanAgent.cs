@@ -1,7 +1,8 @@
-using DeepSeek_v4_for_VisualStudio.Models;
+﻿using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -159,6 +160,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     AddLog("INFO", $"计划创建完成: {plan.Steps.Count} 个步骤 → \"{plan.Title}\"");
                     result.Content = FormatPlanAsMarkdown(plan);
 
+                    // ── 生成详细 plan.md 文件 ──
+                    try
+                    {
+                        string planMarkdown = await GenerateDetailedPlanMarkdownAsync(
+                            userMessage, discoveryContext, plan, context);
+                        string planFilePath = await SavePlanMarkdownAsync(planMarkdown, context);
+                        plan.PlanFilePath = planFilePath;
+                        context.PlanFilePath = planFilePath;
+                        AddLog("INFO", $"📄 plan.md 已保存: {planFilePath}");
+
+                        // 在结果内容中附加 plan.md 路径信息
+                        result.Content += $"\n\n---\n📄 详细计划已保存至: `{planFilePath}`\n（执行完成后自动清理）";
+                    }
+                    catch (Exception ex)
+                    {
+                        AddLog("WARN", $"plan.md 生成失败（非致命）: {ex.Message}");
+                    }
+
                     // ── 设置 Handoff：计划完成后自动建议切换到 Edit Agent 执行 ──
                     result.Handoff = new AgentHandoff
                     {
@@ -292,8 +311,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 使用 AI 创建实现计划（JSON 格式）。
         /// </summary>
-        private async Task<AgentTaskPlan?> CreatePlanAsync(
-            string userMessage, string discoveryContext, AgentContext context)
+        private async Task<AgentTaskPlan?> CreatePlanAsync(string userMessage, string discoveryContext, AgentContext context)
         {
             var ct = context.CancellationToken;
 
@@ -410,6 +428,141 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine("✅ 计划就绪，是否开始执行？");
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 使用 AI 将 JSON 计划展开为详细的 Markdown 计划文档（plan.md）。
+        /// 包含：要实现的功能、实现方案、详细步骤、涉及文件、类/接口/方法设计、依赖关系、验证步骤。
+        /// </summary>
+        private async Task<string> GenerateDetailedPlanMarkdownAsync(
+            string userMessage, string discoveryContext, AgentTaskPlan plan, AgentContext context)
+        {
+            var ct = context.CancellationToken;
+
+            // 先将现有计划步骤序列化为 JSON 供 AI 参考
+            string planJson = JsonSerializer.Serialize(plan, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                WriteIndented = true,
+            });
+
+            var prompt = new StringBuilder();
+            prompt.AppendLine("## 用户原始需求");
+            prompt.AppendLine(userMessage);
+            prompt.AppendLine();
+
+            if (!string.IsNullOrEmpty(discoveryContext))
+            {
+                prompt.AppendLine("## 代码库研究发现");
+                // 截断过长的发现上下文
+                string truncated = discoveryContext.Length > 4000
+                    ? discoveryContext.Substring(0, 4000) + "\n... (已截断)"
+                    : discoveryContext;
+                prompt.AppendLine(truncated);
+                prompt.AppendLine();
+            }
+
+            prompt.AppendLine("## 已生成的 JSON 计划");
+            prompt.AppendLine("```json");
+            prompt.AppendLine(planJson);
+            prompt.AppendLine("```");
+            prompt.AppendLine();
+
+            prompt.AppendLine("## 指令");
+            prompt.AppendLine("请基于以上信息，生成一份详细的实现计划 Markdown 文档。");
+            prompt.AppendLine("文档必须包含以下章节（用中文撰写）：");
+            prompt.AppendLine();
+            prompt.AppendLine("### 1. 🎯 要实现的功能");
+            prompt.AppendLine("- 用自然语言描述本次要实现的完整功能列表");
+            prompt.AppendLine();
+            prompt.AppendLine("### 2. 🏗️ 实现方案");
+            prompt.AppendLine("- 总体技术思路和架构决策");
+            prompt.AppendLine("- 关键设计模式和原则");
+            prompt.AppendLine();
+            prompt.AppendLine("### 3. 📝 详细步骤");
+            prompt.AppendLine("对每个步骤展开描述：");
+            prompt.AppendLine("- **目标**: 该步骤要达成什么");
+            prompt.AppendLine("- **涉及文件**: 列出「✨ 新建」「✏️ 修改」「🗑️ 删除」的文件及其绝对路径（可基于项目结构推断）");
+            prompt.AppendLine("- **类/接口设计**: 该步骤涉及的关键类、接口的完整定义（含命名空间、访问修饰符、继承关系）");
+            prompt.AppendLine("- **方法设计**: 关键方法的签名、参数说明、返回值、核心逻辑描述");
+            prompt.AppendLine();
+            prompt.AppendLine("### 4. 📊 文件变更汇总");
+            prompt.AppendLine("- 以表格形式列出所有文件变更（操作类型 | 文件路径 | 说明）");
+            prompt.AppendLine();
+            prompt.AppendLine("### 5. 🔗 依赖关系");
+            prompt.AppendLine("- 步骤之间的依赖关系（哪些步骤可并行，哪些需串行）");
+            prompt.AppendLine("- 外部依赖（NuGet 包、API、配置文件等）");
+            prompt.AppendLine();
+            prompt.AppendLine("### 6. ✅ 验证步骤");
+            prompt.AppendLine("- 每个步骤完成后的验证方法（编译、运行测试、手动检查等）");
+            prompt.AppendLine();
+            prompt.AppendLine("## 注意事项");
+            prompt.AppendLine("- 直接输出 Markdown，不要包裹在代码块中");
+            prompt.AppendLine("- 类/接口/方法设计尽可能具体，包含完整的签名和关键实现逻辑");
+            prompt.AppendLine("- 文件路径使用项目内的绝对路径");
+            prompt.AppendLine("- 保持专业、清晰、可执行");
+
+            string markdown = await CallAiLongAsync(
+                "你是一个资深软件架构师。你的任务是将实现计划展开为详细的 Markdown 技术文档。" +
+                "输出专业、结构清晰、内容详实的中文技术文档。直接输出 Markdown，不要包裹代码块。",
+                prompt.ToString(), ct, maxTokens: 4096);
+
+            // 如果 AI 返回了代码块包裹的内容，去掉包裹
+            markdown = markdown.Trim();
+            if (markdown.StartsWith("```markdown") || markdown.StartsWith("```md"))
+            {
+                int start = markdown.IndexOf('\n') + 1;
+                int end = markdown.LastIndexOf("```");
+                if (end > start)
+                    markdown = markdown.Substring(start, end - start).Trim();
+            }
+            else if (markdown.StartsWith("```") && markdown.EndsWith("```"))
+            {
+                markdown = markdown.Substring(3, markdown.Length - 6).Trim();
+            }
+
+            return markdown;
+        }
+
+        /// <summary>
+        /// 将详细计划 Markdown 保存到磁盘。
+        /// 优先保存到解决方案根目录，若不可用则保存到 %TEMP%。
+        /// </summary>
+        /// <returns>保存的文件绝对路径</returns>
+        private static async Task<string> SavePlanMarkdownAsync(string markdown, AgentContext context)
+        {
+            // 确定保存目录
+            string? dir = null;
+            if (!string.IsNullOrEmpty(context.SolutionPath))
+            {
+                // 如果 SolutionPath 是 .sln 文件，取其目录
+                if (File.Exists(context.SolutionPath))
+                    dir = Path.GetDirectoryName(context.SolutionPath);
+                else if (Directory.Exists(context.SolutionPath))
+                    dir = context.SolutionPath;
+            }
+
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                dir = Path.GetTempPath();
+
+            // 文件名：固定为 plan.md（每次覆盖，避免积累）
+            string filePath = Path.Combine(dir, "plan.md");
+
+            // 写入文件头
+            var sb = new StringBuilder();
+            sb.AppendLine($"# 📋 实现计划");
+            sb.AppendLine();
+            sb.AppendLine($"> **生成时间**: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine($"> **解决方案**: {context.SolutionPath ?? "（无）"}");
+            sb.AppendLine();
+            sb.AppendLine("---");
+            sb.AppendLine();
+            sb.AppendLine(markdown);
+
+            string fullContent = sb.ToString();
+            await Task.Run(() => File.WriteAllText(filePath, fullContent, Encoding.UTF8));
+
+            return filePath;
         }
 
         #endregion

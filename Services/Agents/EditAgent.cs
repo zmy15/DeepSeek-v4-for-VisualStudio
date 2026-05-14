@@ -1,6 +1,8 @@
 ﻿using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.ToolWindows;
 using DeepSeek_v4_for_VisualStudio.Utils;
+using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -274,6 +276,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             finally
             {
                 NotifyPlanUpdated();
+
+                // ── 清理 Plan Agent 生成的 plan.md ──
+                await CleanupPlanMarkdownAsync(plan, context);
+            }
+        }
+
+        /// <summary>
+        /// 删除 Plan Agent 生成的 plan.md 文件（Edit Agent 执行完毕后清理）。
+        /// </summary>
+        private async Task CleanupPlanMarkdownAsync(AgentTaskPlan plan, AgentContext context)
+        {
+            string? planFilePath = plan.PlanFilePath ?? context.PlanFilePath;
+            if (string.IsNullOrEmpty(planFilePath))
+                return;
+
+            try
+            {
+                await Task.Run(() =>
+                {
+                    if (File.Exists(planFilePath))
+                    {
+                        File.Delete(planFilePath);
+                        Logger.Info($"[EditAgent] 已清理 plan.md: {planFilePath}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[EditAgent] 清理 plan.md 失败（非致命）: {ex.Message}");
             }
         }
 
@@ -471,6 +502,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     AddLog("INFO", $"检测到 {resolvedDeletions.Count} 个待删除文件: [{string.Join(", ", resolvedDeletions.Select(Path.GetFileName))}]");
 
+                    // ── 删除前捕获原始内容（用于后续回退恢复）──
+                    var deletionOriginals = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (string deletedPath in resolvedDeletions)
+                    {
+                        try
+                        {
+                            if (File.Exists(deletedPath))
+                            {
+                                string original = await Task.Run(() => File.ReadAllText(deletedPath), ct);
+                                deletionOriginals[deletedPath] = original;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Warn($"[EditAgent] 无法读取待删除文件原始内容: {deletedPath} - {ex.Message}");
+                        }
+                    }
+
                     // ── 请求用户确认删除 ──
                     string deleteReason = step.Title ?? "代码重构";
                     bool confirmed = await RequestFileDeleteConfirmationAsync(resolvedDeletions, deleteReason);
@@ -483,12 +532,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         // 记录删除到文件变更列表 + 实时通知 WebView
                         foreach (string deletedPath in resolvedDeletions)
                         {
+                            deletionOriginals.TryGetValue(deletedPath, out string? capturedOriginal);
                             plan.ChangedFiles.Add(new FileChangeSummary
                             {
                                 FilePath = deletedPath,
                                 LinesAdded = 0,
                                 LinesRemoved = -1,
                                 BriefDescription = $"{Path.GetFileName(deletedPath)} (已删除)",
+                                OriginalContent = capturedOriginal, // 保存原始内容用于回退恢复
                             });
                             NotifyFileChange(plan.PlanId, "delete", deletedPath, "已删除");
                         }
@@ -616,6 +667,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 执行构建/运行步骤。
+        /// 使用 IVsBuildManagerAccessor + IVsSolutionBuildManager (VS SDK Interop) 替代 EnvDTE。
         /// </summary>
         private async Task<string> ExecuteBuildStepAsync(AgentStep step, string? solutionPath, CancellationToken ct)
         {
@@ -623,51 +675,105 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
+            IVsBuildManagerAccessor? buildAccessor = null;
+
             try
             {
-                var dte = (EnvDTE.DTE?)Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider
-                    .GetService(typeof(EnvDTE.DTE));
-                if (dte == null)
+                // ── 获取 IVsBuildManagerAccessor（管理构建状态/设计时构建）──
+                buildAccessor = (IVsBuildManagerAccessor?)Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider
+                    .GetService(typeof(SVsBuildManagerAccessor));
+
+                // ── 获取 IVsSolutionBuildManager（触发解决方案构建）──
+                var buildManager = (IVsSolutionBuildManager?)Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider
+                    .GetService(typeof(SVsSolutionBuildManager));
+
+                if (buildManager == null)
                 {
-                    Logger.Warn("[EditAgent] 无法获取 DTE 对象，跳过构建");
-                    return "⚠️ 无法获取 Visual Studio DTE 对象，跳过构建。请在 VS 中手动构建。";
+                    Logger.Warn("[EditAgent] 无法获取 IVsSolutionBuildManager，跳过构建");
+                    return "⚠️ 无法获取构建管理器，请在 VS 中手动构建。";
                 }
 
-                var sb = dte.Solution?.SolutionBuild;
-                if (sb == null || dte.Solution == null || !dte.Solution.IsOpen)
+                // ── 检查构建管理器是否正忙 ──
+                int isBusy;
+                buildManager.QueryBuildManagerBusy(out isBusy);
+                if (isBusy != 0)
                 {
-                    Logger.Warn("[EditAgent] 解决方案未打开，跳过构建");
-                    return "⚠️ 解决方案未打开，跳过构建。";
+                    Logger.Warn("[EditAgent] 构建管理器正忙，跳过构建");
+                    return "⚠️ 构建管理器正忙，请等待当前构建完成后重试。";
                 }
 
-                Logger.Info("[EditAgent] 正在构建解决方案…");
-                var firstProject = dte.Solution.Projects.Cast<EnvDTE.Project>().FirstOrDefault();
-                sb.BuildProject(sb.ActiveConfiguration?.Name ?? "Debug",
-                    firstProject?.UniqueName ?? "", WaitForBuildToFinish: true);
+                // ── 标记设计时构建开始 ──
+                buildAccessor?.BeginDesignTimeBuild();
 
-                int errors = sb.LastBuildInfo;
-
-                // ── 收集编译错误详情 ──
-                string errorDetails = CollectBuildErrors(dte);
-
-                if (errors == 0)
+                try
                 {
-                    Logger.Info("[EditAgent] ✅ 构建成功，0 个错误");
-                    return "✅ 构建成功，0 个错误";
-                }
+                    // ── 订阅构建事件以获知构建完成 ──
+                    var buildEventsSink = new BuildEventsSink();
+                    uint buildCookie;
+                    buildManager.AdviseUpdateSolutionEvents(buildEventsSink, out buildCookie);
 
-                var result = new StringBuilder();
-                result.AppendLine($"⚠️ 构建完成，{errors} 个错误");
-                if (!string.IsNullOrEmpty(errorDetails))
+                    Logger.Info("[EditAgent] 正在构建解决方案…");
+
+                    // ── 启动解决方案构建 ──
+                    int hr = buildManager.StartSimpleUpdateSolutionConfiguration(
+                        (uint)VSSOLNBUILDUPDATEFLAGS.SBF_OPERATION_BUILD,
+                        0,      // dwDefQueryResults
+                        0);     // fSuppressUI
+
+                    if (hr < 0)
+                    {
+                        Logger.Warn($"[EditAgent] StartSimpleUpdateSolutionConfiguration 失败: 0x{hr:X8}");
+                        return $"⚠️ 启动构建失败 (0x{hr:X8})";
+                    }
+
+                    // ── 等待构建完成 ──
+                    await buildEventsSink.WaitForCompletionAsync(ct);
+
+                    // ── 取消订阅事件 ──
+                    buildManager.UnadviseUpdateSolutionEvents(buildCookie);
+
+                    // ── 收集构建结果 ──
+                    int buildSucceeded, buildFailed, buildCancelled;
+                    buildEventsSink.GetBuildResult(out buildSucceeded, out buildFailed, out buildCancelled);
+
+                    // ── 收集错误列表 ──
+                    string errorDetails = CollectBuildErrors();
+
+                    if (buildFailed == 0 && buildCancelled == 0)
+                    {
+                        Logger.Info($"[EditAgent] ✅ 构建成功 ({buildSucceeded} 个项目)");
+                        return $"✅ 构建成功，{buildSucceeded} 个项目通过";
+                    }
+
+                    if (buildCancelled != 0)
+                    {
+                        Logger.Info("[EditAgent] ⚠️ 构建已取消");
+                        return "⚠️ 构建已取消";
+                    }
+
+                    var result = new StringBuilder();
+                    result.AppendLine($"⚠️ 构建完成，{buildFailed} 个项目失败");
+                    if (!string.IsNullOrEmpty(errorDetails))
+                    {
+                        result.AppendLine();
+                        result.AppendLine("## 编译错误详情");
+                        result.Append(errorDetails);
+                    }
+
+                    string fullResult = result.ToString();
+                    Logger.Info($"[EditAgent] {fullResult.Truncate(500)}");
+                    return fullResult;
+                }
+                finally
                 {
-                    result.AppendLine();
-                    result.AppendLine("## 编译错误详情");
-                    result.Append(errorDetails);
+                    // ── 标记设计时构建结束 ──
+                    buildAccessor?.EndDesignTimeBuild();
                 }
-
-                string fullResult = result.ToString();
-                Logger.Info($"[EditAgent] {fullResult.Truncate(500)}");
-                return fullResult;
+            }
+            catch (OperationCanceledException)
+            {
+                Logger.Info("[EditAgent] 构建已取消");
+                return "⚠️ 构建已取消";
             }
             catch (Exception ex)
             {
@@ -677,47 +783,67 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
-        /// 从 VS Error List 和 Output 窗口收集编译错误详情。
+        /// 从 VS Task List 收集编译错误详情（通过 VS SDK Interop，不再依赖 EnvDTE）。
         /// 按文件分组，每个错误包含文件名、行号、错误描述。
         /// </summary>
-        private static string CollectBuildErrors(EnvDTE.DTE dte)
+        private static string CollectBuildErrors()
         {
             var sb = new StringBuilder();
 
-            // ToolWindows 需要 DTE2 接口（EnvDTE80）
-            var dte2 = dte as EnvDTE80.DTE2;
-            if (dte2 == null) return sb.ToString();
-
             try
             {
-                // ── 方案一：Error List 窗口 ──
-                var errorList = dte2.ToolWindows.ErrorList;
-                if (errorList != null)
+                // ── 方案一：IVsTaskList（VS SDK Interop 原生接口）──
+                var taskList = (IVsTaskList?)Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider
+                    .GetService(typeof(SVsTaskList));
+                if (taskList != null)
                 {
-                    var errorItems = errorList.ErrorItems;
-                    if (errorItems != null && errorItems.Count > 0)
+                    taskList.EnumTaskItems(out IVsEnumTaskItems? enumTasks);
+                    if (enumTasks != null)
                     {
-                        // 按文件分组
                         var errorsByFile = new Dictionary<string, List<string>>(
                             StringComparer.OrdinalIgnoreCase);
 
-                        for (int i = 1; i <= errorItems.Count; i++)
+                        IVsTaskItem[] items = new IVsTaskItem[1];
+                        uint[] fetched = new uint[1];
+
+                        while (enumTasks.Next(1, items, fetched) == VSConstants.S_OK && fetched[0] == 1)
                         {
                             try
                             {
-                                var item = errorItems.Item(i);
-                                // 只收集错误（跳过警告）
-                                if (item.ErrorLevel != EnvDTE80.vsBuildErrorLevel.vsBuildErrorLevelHigh)
+                                var item = items[0];
+
+                                // 尝试转为 IVsTaskItem2 以获取扩展属性
+                                if (item is not IVsTaskItem2 item2)
                                     continue;
 
-                                string fullPath = item.FileName ?? "(未知文件)";
-                                // 作为 heading 使用完整路径，以便后续能定位并读取文件内容
-                                // 如果 AI 修改了 a.cpp 但错误指向 b.h，AI 需要能看到 b.h 的内容来修复
-                                string headingKey = !string.IsNullOrEmpty(fullPath) && fullPath != "(未知文件)"
-                                    ? fullPath
+                                // 只收集构建编译类任务项
+                                var catArray = new VSTASKCATEGORY[1];
+                                item2.Category(catArray);
+                                if (catArray[0] != VSTASKCATEGORY.CAT_BUILDCOMPILE)
+                                    continue;
+
+                                // 只收集错误级别（跳过警告和消息）
+                                var priorityArray = new VSTASKPRIORITY[1];
+                                item2.get_Priority(priorityArray);
+                                if (priorityArray[0] != VSTASKPRIORITY.TP_HIGH)
+                                    continue;
+
+                                // 获取文件名（IVsTaskItem2.Document 为 out string）
+                                item2.Document(out string fileName);
+
+                                item2.Line(out int line);
+
+                                item2.Column(out int column);
+
+                                item2.get_Text(out string text);
+
+                                string headingKey = !string.IsNullOrWhiteSpace(fileName)
+                                    ? fileName
                                     : "(未知文件)";
 
-                                string desc = $"- **行 {item.Line}**: {item.Description}";
+                                string desc = line > 0
+                                    ? $"- **行 {line}**: {text}"
+                                    : $"- {text}";
 
                                 if (!errorsByFile.ContainsKey(headingKey))
                                     errorsByFile[headingKey] = new List<string>();
@@ -725,7 +851,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             }
                             catch
                             {
-                                // 跳过无法读取的错误项
+                                // 跳过无法读取的任务项
                             }
                         }
 
@@ -739,39 +865,53 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                 sb.AppendLine();
                             }
 
-                            Logger.Info($"[BuildErrors] 从 Error List 收集到 {errorsByFile.Sum(k => k.Value.Count)} 个错误，"
-                                + $"涉及 {errorsByFile.Count} 个文件");
+                            Logger.Info($"[BuildErrors] 从 Task List 收集到 {errorsByFile.Sum(k => k.Value.Count)} 个错误，" +
+                                $"涉及 {errorsByFile.Count} 个文件");
                             return sb.ToString();
                         }
                     }
                 }
 
-                // ── 方案二：Output 窗口（回退） ──
+                // ── 方案二：DTE 自动化对象（回退，读取 Build 输出窗格文本）──
                 try
                 {
-                    var outputWindow = dte2.ToolWindows.OutputWindow;
-                    var buildPane = outputWindow?.OutputWindowPanes
-                        ?.Cast<EnvDTE.OutputWindowPane>()
-                        ?.FirstOrDefault(p => p.Name.IndexOf("Build", StringComparison.OrdinalIgnoreCase) >= 0
-                                           || p.Name.IndexOf("生成", StringComparison.OrdinalIgnoreCase) >= 0);
-
-                    if (buildPane != null)
+                    var dte = (EnvDTE.DTE?)Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider
+                        .GetService(typeof(EnvDTE.DTE));
+                    if (dte != null)
                     {
-                        var textDoc = buildPane.TextDocument;
-                        if (textDoc != null)
+                        // 通过 GUID 找到 Build 输出窗格（语言无关）
+                        EnvDTE.Window window = dte.Windows.Item(EnvDTE.Constants.vsWindowKindOutput);
+                        EnvDTE.OutputWindow outputWin = (EnvDTE.OutputWindow)window.Object;
+
+                        // Build 输出窗格的 GUID
+                        const string buildPaneGuid = "{1BD8A850-02D1-11D1-BEE7-00A0C913D83C}";
+                        EnvDTE.OutputWindowPane? buildPane = null;
+                        foreach (EnvDTE.OutputWindowPane pane in outputWin.OutputWindowPanes)
                         {
+                            if (pane.Guid == buildPaneGuid)
+                            {
+                                buildPane = pane;
+                                break;
+                            }
+                        }
+
+                        if (buildPane != null)
+                        {
+                            EnvDTE.TextDocument textDoc = buildPane.TextDocument;
                             var sel = textDoc.Selection;
                             sel.SelectAll();
-                            string buildOutput = sel.Text ?? string.Empty;
-                            if (!string.IsNullOrWhiteSpace(buildOutput))
+                            string output = sel.Text ?? string.Empty;
+
+                            if (!string.IsNullOrWhiteSpace(output))
                             {
-                                // 提取错误行（MSBuild 格式：file(line): error CODE: message）
-                                var errorLines = buildOutput
+                                // 提取 MSBuild 错误行: file(line,col): error CODE: message
+                                var errorLines = output
                                     .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                                    .Where(line => line.Contains("error", StringComparison.OrdinalIgnoreCase)
-                                                && !line.Contains("0 Error", StringComparison.OrdinalIgnoreCase)
-                                                && !line.Contains("0 错误", StringComparison.OrdinalIgnoreCase))
-                                    .Take(30) // 最多取30行
+                                    .Where(line =>
+                                        line.Contains("error", StringComparison.OrdinalIgnoreCase)
+                                        && !line.Contains("0 Error", StringComparison.OrdinalIgnoreCase)
+                                        && !line.Contains("0 错误", StringComparison.OrdinalIgnoreCase))
+                                    .Take(30)
                                     .Select(line => line.Trim())
                                     .ToList();
 
@@ -796,10 +936,79 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[BuildErrors] Error List 收集失败: {ex.Message}");
+                Logger.Warn($"[BuildErrors] 错误收集失败: {ex.Message}");
             }
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 构建事件接收器，实现 IVsUpdateSolutionEvents 以监听构建开始/完成/取消。
+        /// 通过 TaskCompletionSource 将事件驱动的回调转换为可等待的 Task。
+        /// </summary>
+        private sealed class BuildEventsSink : IVsUpdateSolutionEvents
+        {
+            private readonly TaskCompletionSource<bool> _tcs = new();
+            private int _succeeded;
+            private int _failed;
+            private int _cancelled;
+
+            public Task WaitForCompletionAsync(CancellationToken ct)
+            {
+                ct.Register(() => _tcs.TrySetCanceled());
+                return _tcs.Task;
+            }
+
+            public void GetBuildResult(out int succeeded, out int failed, out int cancelled)
+            {
+                succeeded = _succeeded;
+                failed = _failed;
+                cancelled = _cancelled;
+            }
+
+            public int UpdateSolution_Begin(ref int pfCancelUpdate)
+            {
+                pfCancelUpdate = 0; // 不取消构建
+                return VSConstants.S_OK;
+            }
+
+            public int UpdateSolution_StartUpdate(ref int pfCancelUpdate)
+            {
+                pfCancelUpdate = 0; // 不取消更新
+                return VSConstants.S_OK;
+            }
+
+            public int UpdateSolution_Done(int fSucceeded, int fModified, int fCancelCommand)
+            {
+                if (fCancelCommand != 0)
+                    _cancelled = 1;
+                else if (fSucceeded != 0)
+                    _succeeded = 1;
+                else
+                    _failed = 1;
+
+                _tcs.TrySetResult(true);
+                return VSConstants.S_OK;
+            }
+
+            public int UpdateSolution_StartUpdateProjectCfg(
+                ref int pfCancel, IVsHierarchy pHierProj, IVsCfg pCfgProj,
+                IVsCfg pCfgSln, uint dwProjectCfgOfInterest, uint dwCopyFlags, int fCancel)
+            {
+                return VSConstants.S_OK;
+            }
+
+            public int UpdateSolution_Cancel()
+            {
+                _cancelled = 1;
+                _tcs.TrySetResult(true);
+                return VSConstants.S_OK;
+            }
+
+            public int OnActiveProjectCfgChange(IVsHierarchy pIVsHierarchy)
+            {
+                return VSConstants.S_OK;
+            }
         }
 
         #endregion

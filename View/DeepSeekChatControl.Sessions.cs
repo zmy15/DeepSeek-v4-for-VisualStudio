@@ -250,6 +250,25 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _contextManager.RestoreFullContext(_activeSession.ApiHistory);
                 }
 
+                // ── 若无对话消息（新会话/空会话），补上欢迎语 ──
+                bool hasMessages;
+                lock (_lock) { hasMessages = _messages.Count > 0; }
+                if (!hasMessages)
+                {
+                    var welcomeMsg = new ChatMessage
+                    {
+                        Role = "assistant",
+                        Content = WelcomeMessage,
+                        Timestamp = DateTime.Now,
+                        IsRendered = true,
+                    };
+                    lock (_lock)
+                    {
+                        _messages.Add(welcomeMsg);
+                        // 欢迎消息不加入树结构（仅 UI 展示）
+                    }
+                }
+
                 // 更新下拉框选中项
                 PopulateSessionComboBox();
 
@@ -443,6 +462,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         _contextManager.RestoreFullContext(_activeSession.ApiHistory);
                     }
+                }
+
+                // ── 若无对话消息（空会话），补上欢迎语 ──
+                if (_messages.Count == 0)
+                {
+                    var welcomeMsg = new ChatMessage
+                    {
+                        Role = "assistant",
+                        Content = WelcomeMessage,
+                        Timestamp = DateTime.Now,
+                        IsRendered = true,
+                    };
+                    _messages.Add(welcomeMsg);
                 }
 
                 // 更新下拉框并持久化
