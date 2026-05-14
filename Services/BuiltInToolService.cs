@@ -13,16 +13,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// <summary>
     /// 内置工作区工具服务 — 为 Agent 提供无需外部 MCP 服务器的本地工具。
     /// 
-    /// 提供只读探索工具：list_dir, read_file, file_search, grep_search, get_errors
+    /// 提供只读探索工具：list_dir, read_file, file_search, grep_search, get_errors, fetch_webpage
     /// 所有工具以 OpenAI function calling 格式定义，与 MCP 工具统一。
     /// </summary>
     public class BuiltInToolService
     {
         private readonly McpManagerService? _mcpManager;
+        private readonly WebSearchService? _webSearchService;
 
-        public BuiltInToolService(McpManagerService? mcpManager = null)
+        public BuiltInToolService(McpManagerService? mcpManager = null, WebSearchService? webSearchService = null)
         {
             _mcpManager = mcpManager;
+            _webSearchService = webSearchService;
         }
 
         #region Tool Definitions (OpenAI Function Calling 格式)
@@ -176,6 +178,41 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                             required = new string[] { }
                         }
                     }
+                },
+                new ToolDefinition
+                {
+                    Type = "function",
+                    Function = new ToolFunction
+                    {
+                        Name = "fetch_webpage",
+                        Description = "获取指定 URL 的网页内容并提取纯文本。支持递归抓取页面中引用的相关链接。\n" +
+                            "使用场景：用户提供了网页链接需要阅读内容时调用此工具。\n" +
+                            "域名会自动进行 Punycode 编码以防止同形异义攻击（IDN Homograph Attack）。\n" +
+                            "注意：此工具只能获取 HTTP/HTTPS 网页，且每次调用应只传入一个 URL。",
+                        Parameters = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                url = new
+                                {
+                                    type = "string",
+                                    description = "要抓取内容的网页 URL（必须是完整的 HTTP 或 HTTPS URL）"
+                                },
+                                maxDepth = new
+                                {
+                                    type = "integer",
+                                    description = "递归抓取的最大深度（默认为 1，即只抓取当前页面）。设为 2 则会额外抓取页面中的链接，以此类推。最大不超过 3。"
+                                },
+                                maxContentLength = new
+                                {
+                                    type = "integer",
+                                    description = "返回内容的最大字符数（默认 3000）。超出部分会被截断并标注。"
+                                }
+                            },
+                            required = new[] { "url" }
+                        }
+                    }
                 }
             };
         }
@@ -236,6 +273,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     "file_search" => await FileSearchAsync(args, workspaceRoot),
                     "grep_search" => await GrepSearchAsync(args, workspaceRoot),
                     "get_errors" => await GetErrorsAsync(args),
+                    "fetch_webpage" => await FetchWebpageAsync(args),
                     _ => null  // 不是内置工具
                 };
             }
@@ -252,7 +290,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             return toolName switch
             {
-                "list_dir" or "read_file" or "file_search" or "grep_search" or "get_errors" => true,
+                "list_dir" or "read_file" or "file_search" or "grep_search" or "get_errors" or "fetch_webpage" => true,
                 _ => false
             };
         }
@@ -598,6 +636,121 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             catch (Exception ex)
             {
                 return Task.FromResult($"❌ 获取错误失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 抓取网页内容工具 — 对应 fetch_webpage。
+        /// 
+        /// 流程：
+        /// 1. 对 URL 域名做 Punycode 编码（防同形异义攻击）
+        /// 2. 委托 WebSearchService 抓取网页内容
+        /// 3. 如果 maxDepth > 1，从页面内容中提取链接并递归抓取
+        /// 4. 返回格式化的纯文本内容
+        /// </summary>
+        private async Task<string> FetchWebpageAsync(Dictionary<string, System.Text.Json.JsonElement> args)
+        {
+            string url = GetStringArg(args, "url");
+            int maxDepth = GetIntArg(args, "maxDepth", 1);
+            int maxContentLength = GetIntArg(args, "maxContentLength", 3000);
+
+            // 参数验证
+            if (string.IsNullOrWhiteSpace(url))
+                return "❌ fetch_webpage: 缺少必需的 url 参数。";
+
+            if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return $"❌ fetch_webpage: URL 必须以 http:// 或 https:// 开头。收到: {url}";
+
+            // 限制递归深度
+            if (maxDepth < 1) maxDepth = 1; else if (maxDepth > 3) maxDepth = 3;
+            if (maxContentLength < 500) maxContentLength = 500; else if (maxContentLength > 10000) maxContentLength = 10000;
+
+            if (_webSearchService == null)
+                return "❌ fetch_webpage: WebSearchService 未初始化，无法抓取网页。";
+
+            try
+            {
+                // ── Punycode 编码域名 ──
+                string safeUrl = WebSearchService.EncodeUrlHostname(url);
+
+                Logger.Info($"[fetch_webpage] 开始抓取: {safeUrl}, 深度={maxDepth}");
+
+                // ── 递归抓取 ──
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var allContents = new List<string>();
+                await FetchRecursiveAsync(safeUrl, maxDepth, maxContentLength, visited, allContents);
+
+                if (allContents.Count == 0)
+                    return $"⚠️ fetch_webpage: 无法从 {url} 提取到有效内容。网站可能使用 JavaScript 动态加载，或需要登录。";
+
+                var sb = new StringBuilder();
+                sb.AppendLine($"=== 网页内容: {url} ===");
+                sb.AppendLine();
+                for (int i = 0; i < allContents.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.AppendLine();
+                        sb.AppendLine("--- 相关链接内容 ---");
+                        sb.AppendLine();
+                    }
+                    string content = allContents[i];
+                    if (content.Length > maxContentLength)
+                        content = content.Substring(0, maxContentLength) + $"\n\n... [内容已截断，原文共 {allContents[i].Length} 字符]";
+                    sb.AppendLine(content);
+                }
+                sb.AppendLine();
+                sb.AppendLine("=== 网页内容结束 ===");
+
+                string result = sb.ToString();
+                Logger.Info($"[fetch_webpage] 抓取完成: {url}, 共 {allContents.Count} 个页面, {result.Length} 字符");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[fetch_webpage] 抓取异常 ({url}): {ex.Message}", ex);
+                return $"❌ fetch_webpage: 抓取失败 - {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// 递归抓取网页内容及其引用的链接。
+        /// </summary>
+        private async Task FetchRecursiveAsync(
+            string url,
+            int remainingDepth,
+            int maxContentLength,
+            HashSet<string> visited,
+            List<string> allContents)
+        {
+            if (remainingDepth <= 0 || visited.Contains(url) || visited.Count >= 10)
+                return;
+
+            visited.Add(url);
+
+            string? content = await _webSearchService!.FetchWebPageContentAsync(url);
+            if (string.IsNullOrWhiteSpace(content))
+                return;
+
+            allContents.Add(content);
+
+            // 如果还有剩余深度，从内容中提取链接并递归抓取
+            if (remainingDepth > 1)
+            {
+                var childUrls = WebSearchService.ExtractUrls(content);
+                // 只抓取前 3 个相关链接，避免无限扩展
+                int childCount = 0;
+                foreach (string childUrl in childUrls)
+                {
+                    if (childCount >= 3 || visited.Count >= 10)
+                        break;
+                    if (!visited.Contains(childUrl))
+                    {
+                        childCount++;
+                        await FetchRecursiveAsync(childUrl, remainingDepth - 1, maxContentLength, visited, allContents);
+                    }
+                }
             }
         }
 

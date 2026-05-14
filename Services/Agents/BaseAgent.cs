@@ -87,6 +87,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (!chunk.StartsWith("[THINKING]") && !chunk.StartsWith("[TOOL_CALL]"))
                     sb.Append(chunk);
             }
+            LogCacheHitRate();
             return sb.ToString().Trim();
         }
 
@@ -107,6 +108,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (!chunk.StartsWith("[THINKING]") && !chunk.StartsWith("[TOOL_CALL]"))
                     sb.Append(chunk);
             }
+            LogCacheHitRate();
             return sb.ToString().Trim();
         }
 
@@ -121,6 +123,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (!chunk.StartsWith("[THINKING]") && !chunk.StartsWith("[TOOL_CALL]"))
                     sb.Append(chunk);
             }
+            LogCacheHitRate();
             return sb.ToString().Trim();
         }
 
@@ -137,6 +140,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (!chunk.StartsWith("[THINKING]") && !chunk.StartsWith("[TOOL_CALL]"))
                     sb.Append(chunk);
             }
+            LogCacheHitRate();
             return sb.ToString().Trim();
         }
 
@@ -262,6 +266,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
                 }
 
+                // ── 记录本轮 Cache 命中率 ──
+                LogCacheHitRate(round);
+
                 // ── 处理工具调用 ──
                 if (toolCallAccumulator.Count > 0)
                 {
@@ -380,6 +387,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
 
             return contentBuilder.ToString().Trim();
+        }
+
+        /// <summary>
+        /// 记录 DeepSeek Prompt Cache 命中率到日志（Agent 内部版）。
+        /// 从 _apiService.LastUsage 读取 cache 统计信息并格式化输出。
+        /// </summary>
+        /// <param name="round">当前工具调用轮次（0 表示非工具循环模式）</param>
+        private void LogCacheHitRate(int round = 0)
+        {
+            try
+            {
+                var usage = _apiService?.LastUsage;
+                if (usage == null) return;
+
+                int hit = usage.PromptCacheHitTokens;
+                int miss = usage.PromptCacheMissTokens;
+                int total = hit + miss;
+                double rate = usage.CacheHitRate;
+
+                string roundInfo = round > 0 ? $"[轮次#{round}] " : "";
+                string level = rate >= 0.95 ? "🟢" : rate >= 0.70 ? "🟡" : rate >= 0.30 ? "🟠" : "🔴";
+
+                Logger.Info($"[Cache] {level} {roundInfo}命中率: {usage.CacheHitRatePercent} " +
+                    $"(命中 {hit:N0} / 未命中 {miss:N0} / 总计 {total:N0} tokens)");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Cache] 记录命中率异常: {ex.Message}");
+            }
         }
 
         /// <summary>

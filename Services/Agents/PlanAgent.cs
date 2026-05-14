@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
@@ -81,7 +81,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "- 使用 vscode_askQuestions 工具随时澄清需求——不要做大假设\n" +
                 "- 在实现之前呈现一个经过充分研究的、没有遗漏的计划\n" +
                 "- **强制**：在制定完整方案前，必须先用 Explore 子代理深入理解项目代码结构、现有模块依赖、命名规范和架构模式。\n" +
-                "  不了解项目结构和现有代码就制定计划是不可接受的。\n\n" +
+                "  不了解项目结构和现有代码就制定计划是不可接受的。\n" +
+                "- 如果用户提供了 URL 链接，你必须使用 fetch_webpage 工具获取网页内容，并检查是否有其他相关链接需要递归抓取。\n\n" +
                 "## 工作流\n" +
                 "基于用户输入循环以下阶段。这是迭代的，不是线性的。\n\n" +
                 "### 0. 项目理解 (Project Understanding) — **必须最先执行**\n" +
@@ -311,7 +312,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 使用 AI 创建实现计划（JSON 格式）。
         /// </summary>
-        private async Task<AgentTaskPlan?> CreatePlanAsync(string userMessage, string discoveryContext, AgentContext context)
+        private async Task<AgentTaskPlan?> CreatePlanAsync(
+            string userMessage, string discoveryContext, AgentContext context)
         {
             var ct = context.CancellationToken;
 

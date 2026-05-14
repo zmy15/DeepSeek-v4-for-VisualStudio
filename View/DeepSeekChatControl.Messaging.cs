@@ -131,29 +131,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 else
                     fullUserContent = userText ?? string.Empty;
 
-                // ── 用户消息中包含链接时，主动抓取链接内容并注入上下文 ──
-                string urlContext = string.Empty;
-                if (!string.IsNullOrEmpty(userText))
-                {
-                    var urls = WebSearchService.ExtractUrls(userText);
-                    if (urls.Count > 0 && _webSearchService != null)
-                    {
-                        StatusLabel.Text = "正在访问链接…";
-                        try
-                        {
-                            urlContext = await _webSearchService.FetchUrlContextAsync(urls, CancellationToken.None);
-                            if (!string.IsNullOrEmpty(urlContext))
-                            {
-                                fullUserContent = urlContext + "\n\n用户问题：\n" + fullUserContent;
-                                Logger.Info($"链接内容已注入上下文 ({urls.Count} 个链接)");
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Info($"链接抓取失败: {ex.Message}");
-                        }
-                    }
-                }
+                // ── URL 采用模型驱动的工具调用模式处理 ──
+                // URL 作为纯文本原样发送给 LLM，由 LLM 自行决定是否调用 fetch_webpage 工具抓取。
+                // 不做预处理（不提取、不预抓取），避免浪费 token 和网络请求。
 
                 // @agent 显式路由
                 string agentRoutedUserText = userText ?? string.Empty;
@@ -522,6 +502,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     const int safetyLimit = 200;                     // 绝对安全上限
                     bool loopDetected = false;
 
+                    // ── 累计 Cache 统计（跨所有轮次汇总）──
+                    long totalCacheHitTokens = 0;
+                    long totalCacheMissTokens = 0;
+                    long totalPromptTokens = 0;
+                    long totalCompletionTokens = 0;
+
                     int round = 0;
                     while (!loopDetected)
                     {
@@ -635,6 +621,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     assistantMsg.Content = contentBuffer.ToString();
                                     await UpdateStreamingMessageAsync(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: false);
                                 }
+                            }
+                        }
+
+                        // ── 累计本轮 Cache 统计 ──
+                        {
+                            var usage = _apiService?.LastUsage;
+                            if (usage != null)
+                            {
+                                totalCacheHitTokens += usage.PromptCacheHitTokens;
+                                totalCacheMissTokens += usage.PromptCacheMissTokens;
+                                totalPromptTokens += usage.PromptTokens;
+                                totalCompletionTokens += usage.CompletionTokens;
+                                LogCacheHitRate(round);
                             }
                         }
 
@@ -768,8 +767,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         break;
                     }
 
-                    // ── 记录本轮 Cache 命中率 ──
-                    LogCacheHitRate(round);
+                    // ── 汇总本轮 Cache 统计（跨所有轮次）──
+                    LogTotalCacheHitRate(round, totalCacheHitTokens, totalCacheMissTokens, totalPromptTokens, totalCompletionTokens);
 
                     // 流式完成
                     assistantMsg.ReasoningContent = reasoningBuffer.ToString();
@@ -1219,6 +1218,37 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Warn($"[Cache] 记录命中率异常: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 记录跨所有工具调用轮次的累计 Cache 命中率到日志。
+        /// 在所有轮次结束后调用，输出逐轮明细 + 汇总总计。
+        /// </summary>
+        private void LogTotalCacheHitRate(int finalRound, long totalHit, long totalMiss,
+            long totalPrompt, long totalCompletion)
+        {
+            try
+            {
+                long totalCacheable = totalHit + totalMiss;
+                if (totalCacheable == 0) return;
+
+                double aggregateRate = (double)totalHit / totalCacheable;
+                string level = aggregateRate >= 0.95 ? "🟢" : aggregateRate >= 0.70 ? "🟡" : aggregateRate >= 0.30 ? "🟠" : "🔴";
+
+                Logger.Info($"[Cache] ═══════════════════════════════════════");
+                Logger.Info($"[Cache] {level} 累计汇总 ({finalRound} 轮)");
+                Logger.Info($"[Cache]   总 Cache 命中率: {aggregateRate * 100:F1}%");
+                Logger.Info($"[Cache]   累计命中: {totalHit:N0} tokens");
+                Logger.Info($"[Cache]   累计未命中: {totalMiss:N0} tokens");
+                Logger.Info($"[Cache]   累计 Prompt: {totalPrompt:N0} tokens");
+                Logger.Info($"[Cache]   累计 Completion: {totalCompletion:N0} tokens");
+                Logger.Info($"[Cache]   节省比例: {aggregateRate * 100:F1}% (DeepSeek Cache 对命中 token 仅按 $0.014/M 计费)");
+                Logger.Info($"[Cache] ═══════════════════════════════════════");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Cache] 记录汇总命中率异常: {ex.Message}");
             }
         }
 

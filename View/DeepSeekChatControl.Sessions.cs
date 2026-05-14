@@ -217,7 +217,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _lastRenderedMessagesLength = 0;
                 }
 
-                // ── 从 TreeData 恢复树状结构 ──
+                // ── 从 TreeData 恢复树状结构（UI 展示用）──
                 if (!string.IsNullOrWhiteSpace(_activeSession.TreeDataJson))
                 {
                     try
@@ -229,7 +229,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         {
                             _tree = ConversationTree.Deserialize(treeData);
                             SyncMessagesFromTree();
-                            RebuildContextFromTree();
                             Logger.Info($"[Tree] 从 TreeData 恢复 (节点数: {treeData.Nodes.Count})");
                         }
                     }
@@ -244,10 +243,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _tree = null;
                 }
 
-                // ── 从 ApiHistory 恢复 tool/system 消息上下文 ──
+                // ── 从 ApiHistory 恢复完整上下文（权威数据源，含 tool_calls/reasoning/system）──
                 if (_activeSession.ApiHistory.Count > 0)
                 {
-                    _contextManager.RestoreFullContext(_activeSession.ApiHistory);
+                    try
+                    {
+                        _contextManager.RestoreFullContext(_activeSession.ApiHistory);
+                        Logger.Info($"[Context] SwitchToSession 从 ApiHistory 恢复上下文成功 ({_activeSession.ApiHistory.Count} 条消息)");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error($"[Context] SwitchToSession 从 ApiHistory 恢复上下文失败，回退到树重建: {ex.Message}", ex);
+                        RebuildContextFromTree();
+                    }
+                }
+                else
+                {
+                    RebuildContextFromTree();
                 }
 
                 // ── 若无对话消息（新会话/空会话），补上欢迎语 ──
@@ -435,7 +447,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (_activeSession != null)
                 {
-                    // ── 从 TreeData 恢复树状结构 ──
+                    // ── 从 TreeData 恢复树状结构（UI 展示用）──
                     if (!string.IsNullOrWhiteSpace(_activeSession.TreeDataJson))
                     {
                         try
@@ -447,7 +459,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             {
                                 _tree = ConversationTree.Deserialize(treeData);
                                 SyncMessagesFromTree();
-                                RebuildContextFromTree();
                                 Logger.Info($"[Tree] DeleteCurrentSession: 从 TreeData 恢复 (节点数: {treeData.Nodes.Count})");
                             }
                         }
@@ -457,10 +468,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         }
                     }
 
-                    // ── 从 ApiHistory 恢复 tool/system 消息上下文 ──
+                    // ── 从 ApiHistory 恢复完整上下文（权威数据源）──
                     if (_activeSession.ApiHistory.Count > 0)
                     {
-                        _contextManager.RestoreFullContext(_activeSession.ApiHistory);
+                        try
+                        {
+                            _contextManager.RestoreFullContext(_activeSession.ApiHistory);
+                            Logger.Info($"[Context] DeleteCurrentSession 从 ApiHistory 恢复上下文成功 ({_activeSession.ApiHistory.Count} 条消息)");
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error($"[Context] DeleteCurrentSession 从 ApiHistory 恢复上下文失败，回退到树重建: {ex.Message}", ex);
+                            RebuildContextFromTree();
+                        }
+                    }
+                    else
+                    {
+                        RebuildContextFromTree();
                     }
                 }
 

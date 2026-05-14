@@ -73,6 +73,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "- 你的输出是分析报告，包含文件路径、关键符号、可复用的模式。\n" +
                 "- 优先使用绝对文件路径引用（如 `F:\\VSCode\\project\\src\\Models\\User.cs`）。\n" +
                 "- ⚠️ 所有路径必须使用 Windows 绝对路径格式，不要使用 Linux 风格路径（如 /usr/src）。\n\n" +
+                "## 网页链接处理\n" +
+                "- 如果用户提供了 URL 链接，你必须使用 fetch_webpage 工具来获取网页内容\n" +
+                "- 获取后检查内容中是否有其他相关链接，设置 maxDepth 参数递归抓取直到收集了所有需要的信息\n\n" +
                 "## 搜索策略\n" +
                 "- **从宽到窄**: 先用 list_dir 了解目录结构，再用 file_search 或 grep_search 缩小范围\n" +
                 "- **并行优先**: 同时发起多个独立的搜索和读取操作（不依赖彼此结果的可并行）\n" +

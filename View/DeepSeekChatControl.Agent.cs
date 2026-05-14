@@ -421,6 +421,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── 将 Agent 响应同步到树和上下文管理器（修复上下文丢失问题）──
             await SyncAgentResponseToTreeAndContextAsync();
+
+            // ── 记录 Cache 命中率 ──
+            LogCacheHitRate();
         }
 
         /// <summary>
@@ -1267,8 +1270,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 从树活跃路径重建上下文管理器（用于分支切换后同步）。
-        /// 同时从 ApiHistory 恢复 tool/system 消息（树结构不包含这些角色）。
+        /// 从树活跃路径重建上下文管理器（用于分支切换后同步，或作为 RestoreFullContext 的回退路径）。
+        /// 树节点不包含 tool_calls / tool / system 角色，这些信息从 ApiHistory 补充。
+        /// 注意：此方法仅在 ApiHistory 为空或 RestoreFullContext 失败时作为回退使用；
+        /// 正常情况下优先使用 RestoreFullContext（完整数据源）。
         /// </summary>
         private void RebuildContextFromTree()
         {
@@ -1297,11 +1302,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     else if (msg.Role == "assistant")
                     {
+                        // 树节点的 ChatMessage 不含 ToolCalls，此处仅恢复 content + reasoning
                         _contextManager.AddAssistantMessage(content, msg.ReasoningContent);
                     }
                 }
 
-                // ── 从 ApiHistory 恢复 tool/system 消息（树结构不包含这些角色）──
+                // ── 从 ApiHistory 补充 tool / system / 含tool_calls的assistant 消息 ──
                 if (_activeSession?.ApiHistory != null && _activeSession.ApiHistory.Count > 0)
                 {
                     foreach (var apiMsg in _activeSession.ApiHistory)
@@ -1315,11 +1321,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         {
                             _contextManager.AddCustomMessage("system", apiMsg.Content ?? string.Empty);
                         }
+                        else if (apiMsg.Role == "assistant" && apiMsg.ToolCalls != null && apiMsg.ToolCalls.Count > 0)
+                        {
+                            // 补充含 tool_calls 的 assistant 消息（树节点不包含此字段）
+                            _contextManager.AddAssistantMessage(apiMsg.Content, apiMsg.ReasoningContent, apiMsg.ToolCalls);
+                        }
                     }
                 }
 
                 Logger.Info($"[Tree→Context] 已从 {path.Count} 个节点重建上下文"
-                    + (_activeSession?.ApiHistory?.Count > 0 ? $" (+ {_activeSession.ApiHistory.Count} 条 ApiHistory)" : ""));
+                    + (_activeSession?.ApiHistory?.Count > 0 ? $" (+ {_activeSession.ApiHistory.Count} 条 ApiHistory 补充)" : ""));
             }
         }
 

@@ -458,6 +458,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             try
             {
+                // ── Punycode 编码域名，防止同形异义攻击（Homograph Attack）──
+                url = EncodeUrlHostname(url);
+
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Accept", "text/html,application/xhtml+xml");
                 request.Headers.Add("Accept-Language", "zh-CN,zh;q=0.9");
@@ -476,6 +479,71 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 Logger.Info($"网页内容抓取失败 ({url}): {ex.Message}");
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// 对 URL 中的主机名（域名）进行 Punycode 编码，防止同形异义攻击（IDN Homograph Attack）。
+        /// 
+        /// 同形异义攻击示例：
+        /// 攻击者注册使用西里尔字母 'а' (U+0430) 替代拉丁字母 'a' (U+0061) 的域名，
+        /// 例如 "аррӏе.com" 看起来像 "apple.com"，实际指向恶意站点。
+        /// Punycode 编码将这些 Unicode 域名转为 "xn--" 前缀的 ASCII 形式，
+        /// 使浏览器和 HTTP 客户端能够正确区分和处理。
+        /// 
+        /// 纯 ASCII 域名的 URL 不做任何修改直接返回。
+        /// </summary>
+        /// <param name="url">原始 URL（可能包含 Unicode 域名）</param>
+        /// <returns>域名经过 Punycode 编码后的 URL</returns>
+        public static string EncodeUrlHostname(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return url;
+
+            try
+            {
+                // 尝试解析 URL
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                    return url; // 无法解析的 URL 原样返回
+
+                string host = uri.Host;
+
+                // 快速路径：纯 ASCII 域名无需编码
+                bool hasNonAscii = false;
+                foreach (char c in host)
+                {
+                    if (c > 127)
+                    {
+                        hasNonAscii = true;
+                        break;
+                    }
+                }
+                if (!hasNonAscii)
+                    return url;
+
+                // 使用 .NET IdnMapping 进行 Punycode 编码
+                var idn = new System.Globalization.IdnMapping
+                {
+                    UseStd3AsciiRules = true
+                };
+                string punycodeHost = idn.GetAscii(host);
+
+                // 重建 URL：替换主机名部分
+                string encodedUrl = url.Replace(
+                    uri.Scheme + "://" + host,
+                    uri.Scheme + "://" + punycodeHost);
+
+                if (encodedUrl != url)
+                {
+                    Logger.Info($"[Punycode] 域名编码: {host} → {punycodeHost}");
+                }
+
+                return encodedUrl;
+            }
+            catch (Exception ex)
+            {
+                Logger.Info($"[Punycode] 域名编码失败 ({url}): {ex.Message}");
+                return url; // 编码失败时原样返回
             }
         }
 
