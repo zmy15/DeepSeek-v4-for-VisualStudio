@@ -29,7 +29,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// - https://api-docs.deepseek.com/zh-cn/guides/multi_round_chat
     /// - https://api-docs.deepseek.com/zh-cn/guides/thinking_mode
     /// </summary>
-    public class ConversationContextManager
+    public class ConversationContextManager : IConversationContextManager
     {
         /// <summary>内部对话历史存储（单一数据源）</summary>
         private readonly List<ContextEntry> _entries = new();

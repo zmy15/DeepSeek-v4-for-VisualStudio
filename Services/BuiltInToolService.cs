@@ -16,7 +16,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// 提供只读探索工具：list_dir, read_file, file_search, grep_search, get_errors, fetch_webpage
     /// 所有工具以 OpenAI function calling 格式定义，与 MCP 工具统一。
     /// </summary>
-    public class BuiltInToolService
+    public class BuiltInToolService : IBuiltInToolService
     {
         private readonly McpManagerService? _mcpManager;
         private readonly WebSearchService? _webSearchService;

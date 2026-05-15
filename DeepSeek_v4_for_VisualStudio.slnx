@@ -2,4 +2,5 @@
   <Project Path="DeepSeek_v4_for_VisualStudio.csproj">
     <Deploy />
   </Project>
+  <Project Path="DeepSeek_v4_for_VisualStudio.Tests/DeepSeek_v4_for_VisualStudio.Tests.csproj" />
 </Solution>

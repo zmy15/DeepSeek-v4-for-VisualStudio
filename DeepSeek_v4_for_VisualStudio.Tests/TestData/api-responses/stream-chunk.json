@@ -1,0 +1,16 @@
+{
+  "id": "chatcmpl-xxx",
+  "object": "chat.completion.chunk",
+  "created": 1715000000,
+  "model": "deepseek-v4-pro",
+  "choices": [
+    {
+      "index": 0,
+      "delta": {
+        "role": "assistant",
+        "content": "Hello! How can I help you?"
+      },
+      "finish_reason": null
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore NuGet packages
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+
+    - name: Test with Coverage
+      run: >
+        dotnet test DeepSeek_v4_for_VisualStudio.Tests\DeepSeek_v4_for_VisualStudio.Tests.csproj
+        --no-build --configuration Release
+        /p:CollectCoverage=true
+        /p:CoverletOutputFormat=cobertura
+        /p:CoverletOutput=TestResults\coverage.cobertura.xml
+
+    - name: Upload Coverage Report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: coverage-report
+        path: DeepSeek_v4_for_VisualStudio.Tests\TestResults\coverage.cobertura.xml

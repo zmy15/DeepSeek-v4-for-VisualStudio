@@ -531,52 +531,143 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
-        /// 从 AI 返回结果中解析文件变更（```file: 格式）。
+        /// 从 AI 返回结果中解析文件变更。
+        /// 支持三种编辑格式：
+        /// 1. ```file: 代码块（create_file / 全文件替换）
+        /// 2. *** Begin Patch / *** End Patch（apply_patch）
+        /// 3. ```insert_edit_into_file: 或 ```edit: 代码块
         /// </summary>
         protected static List<FileChangeSummary> ParseCodeChangesFromResult(string aiResult)
         {
             var changes = new List<FileChangeSummary>();
             if (string.IsNullOrWhiteSpace(aiResult)) return changes;
 
-            var regex = new System.Text.RegularExpressions.Regex(
+            // ── 格式1：```file: 代码块（原有格式）──
+            var fileRegex = new System.Text.RegularExpressions.Regex(
                 @"```file:\s*(?<path>[^\r\n]+)[\r\n]+(?<content>.*?)```",
                 System.Text.RegularExpressions.RegexOptions.Singleline);
 
-            var matches = regex.Matches(aiResult);
-            foreach (System.Text.RegularExpressions.Match match in matches)
+            var fileMatches = fileRegex.Matches(aiResult);
+            foreach (System.Text.RegularExpressions.Match match in fileMatches)
             {
                 string filePath = match.Groups["path"].Value.Trim();
                 string newContent = match.Groups["content"].Value;
                 if (string.IsNullOrWhiteSpace(filePath)) continue;
 
-                int newLines = CountLines(newContent);
-                int linesAdded = newLines;
-                int linesRemoved = 0;
+                AddChangeFromContent(changes, filePath, newContent);
+            }
 
-                if (System.IO.File.Exists(filePath))
+            // ── 格式2：*** Begin Patch / *** End Patch ──
+            var patchRegex = new System.Text.RegularExpressions.Regex(
+                @"\*\*\*\s*Begin\s*Patch\s*\r?\n(.*?)\r?\n\s*\*\*\*\s*End\s*Patch",
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            var patchMatches = patchRegex.Matches(aiResult);
+            foreach (System.Text.RegularExpressions.Match match in patchMatches)
+            {
+                string body = match.Groups[1].Value;
+
+                // 提取文件路径
+                var fileHeaderMatch = System.Text.RegularExpressions.Regex.Match(body,
+                    @"\*\*\*\s*(?:Update|Add|Delete)\s*File\s*:\s*(?<path>[^\r\n]+)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                if (fileHeaderMatch.Success)
                 {
-                    try
+                    string filePath = fileHeaderMatch.Groups["path"].Value.Trim();
+                    if (string.IsNullOrWhiteSpace(filePath)) continue;
+
+                    // 提取 + 行作为新增内容
+                    var addedLines = new System.Text.StringBuilder();
+                    foreach (System.Text.RegularExpressions.Match lineMatch in
+                        System.Text.RegularExpressions.Regex.Matches(body, @"^\+(.*)$", System.Text.RegularExpressions.RegexOptions.Multiline))
                     {
-                        string oldContent = System.IO.File.ReadAllText(filePath);
-                        int oldLines = CountLines(oldContent);
-                        linesAdded = Math.Max(0, newLines - oldLines);
-                        linesRemoved = Math.Max(0, oldLines - newLines);
+                        addedLines.AppendLine(lineMatch.Groups[1].Value);
                     }
-                    catch { }
+
+                    // 统计 - 行数
+                    int removedCount = System.Text.RegularExpressions.Regex.Matches(
+                        body, @"^\-", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
+
+                    string newContent = addedLines.ToString();
+                    int newLines = CountLines(newContent);
+
+                    changes.Add(new FileChangeSummary
+                    {
+                        FilePath = filePath,
+                        NewContent = newContent,
+                        LinesAdded = newLines,
+                        LinesRemoved = removedCount,
+                        BriefDescription = System.IO.Path.GetFileName(filePath) + " (patch)",
+                    });
                 }
+            }
+
+            // ── 格式3：```insert_edit_into_file: 或 ```edit: 代码块 ──
+            var insertEditRegex = new System.Text.RegularExpressions.Regex(
+                @"```(?:insert_edit_into_file|edit)\s*:\s*(?<path>[^\r\n]+)[\r\n]+(?<content>.*?)```",
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            var insertMatches = insertEditRegex.Matches(aiResult);
+            foreach (System.Text.RegularExpressions.Match match in insertMatches)
+            {
+                string filePath = match.Groups["path"].Value.Trim();
+                string fullContent = match.Groups["content"].Value;
+                if (string.IsNullOrWhiteSpace(filePath)) continue;
+
+                // 去除 ...existing code... 标记，估算总行数
+                string cleanedContent = System.Text.RegularExpressions.Regex.Replace(
+                    fullContent,
+                    @"\/\/\s*\.\.\.existing\s*code\.\.\.|#\s*\.\.\.existing\s*code\.\.\.|<!--\s*\.\.\.existing\s*code\.\.\.\s*-->",
+                    "",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                int newLines = CountLines(cleanedContent);
 
                 changes.Add(new FileChangeSummary
                 {
                     FilePath = filePath,
-                    NewContent = newContent,
-                    LinesAdded = linesAdded,
-                    LinesRemoved = linesRemoved,
-                    BriefDescription = System.IO.Path.GetFileName(filePath)
-                        + (System.IO.File.Exists(filePath) ? " (修改)" : " (新建)"),
+                    NewContent = fullContent,
+                    LinesAdded = newLines,
+                    LinesRemoved = 0,
+                    BriefDescription = System.IO.Path.GetFileName(filePath) + " (insert_edit)",
                 });
             }
 
             return changes;
+        }
+
+        /// <summary>
+        /// 辅助方法：从文件内容创建 FileChangeSummary 并添加到列表。
+        /// </summary>
+        private static void AddChangeFromContent(
+            List<FileChangeSummary> changes, string filePath, string newContent)
+        {
+            int newLines = CountLines(newContent);
+            int linesAdded = newLines;
+            int linesRemoved = 0;
+
+            if (System.IO.File.Exists(filePath))
+            {
+                try
+                {
+                    string oldContent = System.IO.File.ReadAllText(filePath);
+                    int oldLines = CountLines(oldContent);
+                    linesAdded = Math.Max(0, newLines - oldLines);
+                    linesRemoved = Math.Max(0, oldLines - newLines);
+                }
+                catch { }
+            }
+
+            changes.Add(new FileChangeSummary
+            {
+                FilePath = filePath,
+                NewContent = newContent,
+                LinesAdded = linesAdded,
+                LinesRemoved = linesRemoved,
+                BriefDescription = System.IO.Path.GetFileName(filePath)
+                    + (System.IO.File.Exists(filePath) ? " (修改)" : " (新建)"),
+            });
         }
 
         /// <summary>

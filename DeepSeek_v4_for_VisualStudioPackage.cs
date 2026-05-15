@@ -1,4 +1,5 @@
 ﻿using DeepSeek_v4_for_VisualStudio.Commands;
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.View;
 using Microsoft.VisualStudio.Shell;
@@ -46,6 +47,9 @@ namespace DeepSeek_v4_for_VisualStudio
 
             // 设置全局 Options 实例，供静态工具类读取设置
             DeepSeekOptionsPage.Instance = Options;
+
+            // 初始化 DI 容器
+            CompositionRoot.Build();
 
             // 注册菜单命令（视图 → 其他窗口 → DeepSeek Chat）
             await ShowChatWindowCommand.InitializeAsync(this);

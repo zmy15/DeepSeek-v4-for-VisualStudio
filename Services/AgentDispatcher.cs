@@ -1,4 +1,5 @@
 using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
@@ -20,11 +21,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     /// 
     /// 参考: VS Code Copilot Chat Agent Orchestration
     /// </summary>
-    public class AgentDispatcher : IDisposable
+    public class AgentDispatcher : IAgentDispatcher
     {
         private readonly DeepSeekApiService _apiService;
         private readonly BuiltInToolService? _builtInToolService;
         private McpManagerService? _mcpManager;
+        private EditPatchService? _editPatchService;
 
         // ── Agent 实例（懒加载） ──
         private AskAgent? _askAgent;
@@ -77,6 +79,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     _editAgent = new EditAgent(_apiService);
                     InjectToolServices(_editAgent);
+                    // 注入 EditPatchService（用于 apply_patch / insert_edit_into_file 编辑格式）
+                    if (_editPatchService == null)
+                        _editPatchService = new EditPatchService(_apiService);
+                    _editAgent.EditPatchService = _editPatchService;
                 }
                 return _editAgent;
             }
@@ -108,6 +114,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (_editAgent != null) _editAgent.McpManager = mcpManager;
 
             Logger.Info($"[AgentDispatcher] MCP 管理器已注入 (工具数: {mcpManager.AllTools.Count})");
+        }
+
+        /// <summary>
+        /// IAgentDispatcher 接口实现 — 接受 IMcpManagerService 并委托给 UpdateMcpManager。
+        /// </summary>
+        public void SetMcpManager(IMcpManagerService? mcpManager)
+        {
+            if (mcpManager is McpManagerService concrete)
+                UpdateMcpManager(concrete);
         }
 
         /// <summary>当前活跃的 Agent 类型</summary>

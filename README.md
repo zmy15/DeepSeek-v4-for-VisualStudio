@@ -399,6 +399,45 @@ msbuild DeepSeek_v4_for_VisualStudio.csproj /p:Configuration=Release
 
 ---
 
+## 测试
+
+本扩展包含 **86 个 xUnit 测试**，覆盖模型序列化、补丁解析、上下文管理、API 流式响应等核心路径。
+
+### 运行测试
+
+```powershell
+# 运行所有测试
+dotnet test DeepSeek_v4_for_VisualStudio.Tests\DeepSeek_v4_for_VisualStudio.Tests.csproj
+
+# 带覆盖率报告
+dotnet test DeepSeek_v4_for_VisualStudio.Tests\DeepSeek_v4_for_VisualStudio.Tests.csproj `
+    /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura
+```
+
+### 测试技术栈
+
+| 组件 | 版本 | 用途 |
+|------|------|------|
+| xUnit | 2.9.x | 测试框架 |
+| Moq | 4.20.x | Mock 框架 |
+| FluentAssertions | 6.12.x | 断言库 |
+| coverlet | 6.0.x | 代码覆盖率 |
+
+### 测试结构
+
+```
+DeepSeek_v4_for_VisualStudio.Tests/
+├── Unit/
+│   ├── Models/       # 序列化、枚举、工具调用解析
+│   ├── Services/     # 补丁解析、4级匹配、上下文管理
+│   └── Utils/        # 字符串扩展
+├── Integration/       # API 流式响应、持久化、Agent 调度
+├── TestData/          # 测试 JSON/技能文件
+└── Fixtures/          # DI 容器 fixture
+```
+
+---
+
 ## 致谢
 
 - [DeepSeek](https://www.deepseek.com/) — 强大的 AI 模型支持

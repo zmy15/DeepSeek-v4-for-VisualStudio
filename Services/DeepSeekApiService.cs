@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
 {
-    public class DeepSeekApiService : IDisposable
+    public class DeepSeekApiService : IDeepSeekApiService
     {
         private readonly HttpClient _httpClient;
         private const string BaseUrl = "https://api.deepseek.com";
@@ -38,6 +38,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             };
             _httpClient.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", apiKey);
+        }
+
+        /// <summary>
+        /// 测试用构造函数 — 接受外部 HttpClient（用于 Mock HTTP 处理程序）。
+        /// </summary>
+        public DeepSeekApiService(HttpClient httpClient, string model = "deepseek-v4-pro")
+        {
+            _model = model;
+            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            if (_httpClient.BaseAddress == null)
+                _httpClient.BaseAddress = new Uri(BaseUrl);
         }
 
         public void UpdateModel(string model) => _model = model;

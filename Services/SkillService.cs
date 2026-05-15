@@ -28,7 +28,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     ///   # Skill Title
     ///   ... markdown body ...
     /// </summary>
-    public class SkillService
+    public class SkillService : ISkillService
     {
         #region Singleton
 

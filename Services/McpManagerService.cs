@@ -15,7 +15,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// 
     /// 同时负责将 MCP 工具转换为 DeepSeek API 的 tools 参数格式（兼容 OpenAI function calling）。
     /// </summary>
-    public class McpManagerService : IDisposable
+    public class McpManagerService : IMcpManagerService
     {
         private readonly List<McpStdioClient> _clients = new();
         private readonly object _lock = new();

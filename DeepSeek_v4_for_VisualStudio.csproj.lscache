@@ -1,0 +1,573 @@
+version=1
+
+# This file caches language service data to improve the performance of C# Dev Kit.
+# It is not intended for manual editing. It can safely be deleted and will be
+# regenerated automatically. For more information, see https://aka.ms/lscache
+#
+# To control where cache files are stored, use the following VS Code setting:
+#   "dotnet.projectsystem.cacheInProjectFolder": true
+
+[project]
+language=C#
+primary
+lastDtbSucceeded
+
+[properties]
+AssemblyName=DeepSeek_v4_for_VisualStudio
+CommandLineArgsForDesignTimeEvaluation=-langversion:14 -define:TRACE
+CompilerGeneratedFilesOutputPath=
+MaxSupportedLangVersion=7.3
+ProjectAssetsFile=<PATH>obj/project.assets.json
+RootNamespace=DeepSeek_v4_for_VisualStudio
+RunAnalyzers=
+RunAnalyzersDuringLiveAnalysis=
+SolutionPath=<PATH>DeepSeek_v4_for_VisualStudio.slnx
+TargetFrameworkIdentifier=.NETFramework
+TargetPath=<PATH>bin/Debug/net472/DeepSeek_v4_for_VisualStudio.dll
+TargetRefPath=
+TemporaryDependencyNodeTargetIdentifier=net472
+
+[commandLineArguments]
+/noconfig
+/unsafe-
+/checked-
+/nowarn:1701,1702,1701,1702
+/fullpaths
+/nostdlib+
+/errorreport:prompt
+/warn:4
+/define:TRACE;DEBUG;NETFRAMEWORK;NET472;NET30_OR_GREATER;NET35_OR_GREATER;NET40_OR_GREATER;NET45_OR_GREATER;NET451_OR_GREATER;NET452_OR_GREATER;NET46_OR_GREATER;NET461_OR_GREATER;NET462_OR_GREATER;NET47_OR_GREATER;NET471_OR_GREATER;NET472_OR_GREATER
+/highentropyva+
+/nullable:enable
+/link:"<NUGET>/microsoft.visualstudio.setup.configuration.interop/3.14.2075/lib/net35/Microsoft.VisualStudio.Setup.Configuration.Interop.dll"
+/debug+
+/debug:portable
+/filealign:512
+/optimize-
+/out:obj\Debug\net472\DeepSeek_v4_for_VisualStudio.dll
+/subsystemversion:6.00
+/target:library
+/warnaserror-
+/utf8output
+/deterministic+
+/langversion:14
+/warnaserror+:NU1605
+
+[sourceFiles]
+CodeCompletion/
+ CommandFilter.cs
+ DiffPreviewAdornmentFactory.cs
+ GhostTextTagger.cs
+ GhostTextTaggerProvider.cs
+ InlinePredictionManager.cs
+ TextViewCreationListener.cs
+Commands/ShowChatWindowCommand.cs
+DeepSeek_v4_for_VisualStudioPackage.cs
+Models/
+ AgentModels.cs
+ AgentSuggestionItem.cs
+ AgentTypes.cs
+ ContextModels.cs
+ ConversationTree.cs
+ DeepSeekModels.cs
+ EditPatchModels.cs
+ McpTypes.cs
+ RagModels.cs
+ SkillDefinition.cs
+ SkillSuggestionItem.cs
+ ToolCallAccumulator.cs
+ TreeModels.cs
+obj/Debug/net472/
+ .NETFramework,Version=v4.7.2.AssemblyAttributes.cs
+ DeepSeek_v4_for_VisualStudio.AssemblyInfo.cs
+ View/
+  DeepSeekChatControl.g.cs
+  DiffViewerWindow.g.cs
+  McpConfigDialog.g.cs
+Services/
+ AgentDispatcher.cs
+ Agents/
+  AskAgent.cs
+  BaseAgent.cs
+  EditAgent.cs
+  ExploreAgent.cs
+  PlanAgent.cs
+ AiPrompts.cs
+ BuiltInToolService.cs
+ ChatHtmlService.cs
+ ChatHtmlService.Css.cs
+ ChatHtmlService.Js.cs
+ ChatPersistenceService.cs
+ ChatPersistenceServiceAdapter.cs
+ CodeDiffService.cs
+ CompositionRoot.cs
+ ContextCompressorService.cs
+ ConversationContextManager.cs
+ DeepSeekApiService.cs
+ DiffViewerService.cs
+ EditorDiffMarkerService.cs
+ EditPatchService.cs
+ FileParserService.cs
+ FileParserServiceAdapter.cs
+ Interfaces/
+  IAgentDispatcher.cs
+  IBuiltInToolService.cs
+  IChatPersistenceService.cs
+  IContextCompressorService.cs
+  IConversationContextManager.cs
+  IDeepSeekApiService.cs
+  IEditPatchService.cs
+  IFileParserService.cs
+  IMcpManagerService.cs
+  IRagService.cs
+  ISkillService.cs
+  IWebSearchService.cs
+ McpConfigStore.cs
+ McpManagerService.cs
+ McpStdioClient.cs
+ OcrService.cs
+ RagService.cs
+ ServiceCollectionExtensions.cs
+ SkillService.cs
+ WebSearchService.cs
+Settings/
+ DeepSeekOptionsPage.cs
+ DownloadLinkEditor.cs
+ToolWindows/TerminalWindowHelper.cs
+Utils/
+ Logger.cs
+ StringExtensions.cs
+View/
+ DeepSeekChatControl.Agent.cs
+ DeepSeekChatControl.Clipboard.cs
+ DeepSeekChatControl.CodeActions.cs
+ DeepSeekChatControl.Events.cs
+ DeepSeekChatControl.Messaging.cs
+ DeepSeekChatControl.Rendering.cs
+ DeepSeekChatControl.Search.cs
+ DeepSeekChatControl.Sessions.cs
+ DeepSeekChatControl.Skills.cs
+ DeepSeekChatControl.xaml.cs
+ DeepSeekChatWindowPane.cs
+ DiffPreviewAdornment.cs
+ DiffViewerWindow.xaml.cs
+ McpConfigDialog.xaml.cs
+
+[metadataReferences]
+<NETFXREF>/v4.7.2/Facades/
+ Microsoft.Win32.Primitives.dll
+ netstandard.dll
+ System.AppContext.dll
+ System.Collections.Concurrent.dll
+ System.Collections.dll
+ System.Collections.NonGeneric.dll
+ System.Collections.Specialized.dll
+ System.ComponentModel.Annotations.dll
+ System.ComponentModel.dll
+ System.ComponentModel.EventBasedAsync.dll
+ System.ComponentModel.Primitives.dll
+ System.ComponentModel.TypeConverter.dll
+ System.Console.dll
+ System.Data.Common.dll
+ System.Diagnostics.Contracts.dll
+ System.Diagnostics.Debug.dll
+ System.Diagnostics.FileVersionInfo.dll
+ System.Diagnostics.Process.dll
+ System.Diagnostics.StackTrace.dll
+ System.Diagnostics.TextWriterTraceListener.dll
+ System.Diagnostics.Tools.dll
+ System.Diagnostics.TraceSource.dll
+ System.Drawing.Primitives.dll
+ System.Dynamic.Runtime.dll
+ System.Globalization.Calendars.dll
+ System.Globalization.dll
+ System.Globalization.Extensions.dll
+ System.IO.Compression.ZipFile.dll
+ System.IO.dll
+ System.IO.FileSystem.dll
+ System.IO.FileSystem.DriveInfo.dll
+ System.IO.FileSystem.Primitives.dll
+ System.IO.FileSystem.Watcher.dll
+ System.IO.IsolatedStorage.dll
+ System.IO.MemoryMappedFiles.dll
+ System.IO.Pipes.dll
+ System.IO.UnmanagedMemoryStream.dll
+ System.Linq.dll
+ System.Linq.Expressions.dll
+ System.Linq.Parallel.dll
+ System.Linq.Queryable.dll
+ System.Net.Http.Rtc.dll
+ System.Net.NameResolution.dll
+ System.Net.NetworkInformation.dll
+ System.Net.Ping.dll
+ System.Net.Primitives.dll
+ System.Net.Requests.dll
+ System.Net.Security.dll
+ System.Net.Sockets.dll
+ System.Net.WebHeaderCollection.dll
+ System.Net.WebSockets.Client.dll
+ System.Net.WebSockets.dll
+ System.ObjectModel.dll
+ System.Reflection.dll
+ System.Reflection.Emit.dll
+ System.Reflection.Emit.ILGeneration.dll
+ System.Reflection.Emit.Lightweight.dll
+ System.Reflection.Extensions.dll
+ System.Reflection.Primitives.dll
+ System.Resources.Reader.dll
+ System.Resources.ResourceManager.dll
+ System.Resources.Writer.dll
+ System.Runtime.CompilerServices.VisualC.dll
+ System.Runtime.dll
+ System.Runtime.Extensions.dll
+ System.Runtime.Handles.dll
+ System.Runtime.InteropServices.dll
+ System.Runtime.InteropServices.RuntimeInformation.dll
+ System.Runtime.InteropServices.WindowsRuntime.dll
+ System.Runtime.Numerics.dll
+ System.Runtime.Serialization.Formatters.dll
+ System.Runtime.Serialization.Json.dll
+ System.Runtime.Serialization.Primitives.dll
+ System.Runtime.Serialization.Xml.dll
+ System.Security.Claims.dll
+ System.Security.Cryptography.Algorithms.dll
+ System.Security.Cryptography.Csp.dll
+ System.Security.Cryptography.Encoding.dll
+ System.Security.Cryptography.Primitives.dll
+ System.Security.Cryptography.X509Certificates.dll
+ System.Security.Principal.dll
+ System.Security.SecureString.dll
+ System.ServiceModel.Duplex.dll
+ System.ServiceModel.Http.dll
+ System.ServiceModel.NetTcp.dll
+ System.ServiceModel.Primitives.dll
+ System.ServiceModel.Security.dll
+ System.Text.Encoding.dll
+ System.Text.Encoding.Extensions.dll
+ System.Text.RegularExpressions.dll
+ System.Threading.dll
+ System.Threading.Overlapped.dll
+ System.Threading.Tasks.dll
+ System.Threading.Tasks.Parallel.dll
+ System.Threading.Thread.dll
+ System.Threading.ThreadPool.dll
+ System.Threading.Timer.dll
+ System.Xml.ReaderWriter.dll
+ System.Xml.XDocument.dll
+ System.Xml.XmlDocument.dll
+ System.Xml.XmlSerializer.dll
+ System.Xml.XPath.dll
+ System.Xml.XPath.XDocument.dll
+<NETFXREF>/v4.7.2/
+ mscorlib.dll
+ PresentationCore.dll
+ PresentationFramework.dll
+ System.ComponentModel.Composition.dll
+ System.ComponentModel.DataAnnotations.dll
+ System.Core.dll
+ System.Data.dll
+ System.Design.dll
+ System.dll
+ System.Drawing.dll
+ System.IO.Compression.dll
+ System.IO.Compression.FileSystem.dll
+ System.Net.Http.dll
+ System.Numerics.dll
+ System.Runtime.Serialization.dll
+ System.Security.dll
+ System.Web.dll
+ System.Windows.Controls.Ribbon.dll
+ System.Xaml.dll
+ System.Xml.dll
+ System.Xml.Linq.dll
+ UIAutomationClient.dll
+ UIAutomationClientsideProviders.dll
+ UIAutomationProvider.dll
+ UIAutomationTypes.dll
+ WindowsBase.dll
+<NUGET>/
+ bouncycastle.cryptography/2.6.2/lib/net461/BouncyCastle.Cryptography.dll
+ enums.net/5.0.0/lib/net461/Enums.NET.dll
+ envdte/17.14.40260/lib/net472/envdte.dll
+ envdte100/17.14.40260/lib/net472/envdte100.dll
+ envdte80/17.14.40260/lib/net472/envdte80.dll
+ envdte90/17.14.40260/lib/net472/envdte90.dll
+ envdte90a/17.14.40260/lib/net472/envdte90a.dll
+ extendednumerics.bigdecimal/2025.1001.2.129/lib/net472/ExtendedNumerics.BigDecimal.dll
+ markdig/1.1.3/lib/net462/Markdig.dll
+ mathnet.numerics.signed/5.0.0/lib/net461/MathNet.Numerics.dll
+ messagepack.annotations/2.5.192/lib/netstandard2.0/MessagePack.Annotations.dll
+ messagepack/2.5.192/lib/net472/MessagePack.dll
+ microsoft.bcl.asyncinterfaces/9.0.0/lib/net462/Microsoft.Bcl.AsyncInterfaces.dll
+ microsoft.bcl.hashcode/6.0.0/lib/net462/Microsoft.Bcl.HashCode.dll
+ microsoft.build.framework/17.14.7/ref/net472/Microsoft.Build.Framework.dll
+ microsoft.extensions.dependencyinjection.abstractions/8.0.2/lib/net462/Microsoft.Extensions.DependencyInjection.Abstractions.dll
+ microsoft.extensions.dependencyinjection/8.0.1/lib/net462/Microsoft.Extensions.DependencyInjection.dll
+ microsoft.io.recyclablememorystream/3.0.1/lib/netstandard2.0/Microsoft.IO.RecyclableMemoryStream.dll
+ microsoft.io.redist/6.1.0/lib/net472/Microsoft.IO.Redist.dll
+ microsoft.servicehub.framework/4.8.55/lib/net472/Microsoft.ServiceHub.Framework.dll
+ microsoft.servicehub.resources/4.6.2052/lib/net472/Microsoft.ServiceHub.Resources.dll
+ microsoft.visualstudio.commandbars/17.14.40260/lib/net472/Microsoft.VisualStudio.CommandBars.dll
+ microsoft.visualstudio.componentmodelhost/17.14.106/lib/net472/Microsoft.VisualStudio.ComponentModelHost.dll
+ microsoft.visualstudio.composition/17.13.41/lib/net472/Microsoft.VisualStudio.Composition.dll
+ microsoft.visualstudio.coreutility/17.14.249/lib/net472/Microsoft.VisualStudio.CoreUtility.dll
+ microsoft.visualstudio.debugger.interop.10.0/17.14.40260/lib/net472/Microsoft.VisualStudio.Debugger.Interop.10.0.dll
+ microsoft.visualstudio.debugger.interop.12.0/17.14.40260/lib/net472/Microsoft.VisualStudio.Debugger.Interop.12.0.dll
+ microsoft.visualstudio.debugger.interop.14.0/17.14.40260/lib/net472/Microsoft.VisualStudio.Debugger.Interop.14.0.dll
+ microsoft.visualstudio.debugger.interop.15.0/17.14.40260/lib/net472/Microsoft.VisualStudio.Debugger.Interop.15.0.dll
+ microsoft.visualstudio.debugger.interop.16.0/17.14.40260/lib/net472/Microsoft.VisualStudio.Debugger.Interop.16.0.dll
+ microsoft.visualstudio.debugger.interopa/17.14.40260/lib/net472/Microsoft.VisualStudio.Debugger.InteropA.dll
+ microsoft.visualstudio.designer.interfaces/17.14.40260/lib/net472/Microsoft.VisualStudio.Designer.Interfaces.dll
+ microsoft.visualstudio.editor/17.14.249/lib/net472/Microsoft.VisualStudio.Editor.dll
+ microsoft.visualstudio.extensibility.editor.contracts/17.14.249/lib/netstandard2.0/Microsoft.VisualStudio.Extensibility.Editor.Contracts.dll
+ microsoft.visualstudio.graphmodel/17.14.40260/lib/net472/Microsoft.VisualStudio.GraphModel.dll
+ microsoft.visualstudio.imagecatalog/17.14.40260/lib/net472/Microsoft.VisualStudio.ImageCatalog.dll
+ microsoft.visualstudio.imaging.interop.14.0.designtime/17.14.40254/lib/net472/Microsoft.VisualStudio.Imaging.Interop.14.0.DesignTime.dll
+ microsoft.visualstudio.imaging/17.14.40264/lib/net472/Microsoft.VisualStudio.Imaging.dll
+ microsoft.visualstudio.interop/17.14.40260/lib/net472/Microsoft.VisualStudio.Interop.dll
+ microsoft.visualstudio.language.intellisense/17.14.249/lib/net472/Microsoft.VisualStudio.Language.Intellisense.dll
+ microsoft.visualstudio.language.navigateto.interfaces/17.14.249/lib/net472/Microsoft.VisualStudio.Language.NavigateTo.Interfaces.dll
+ microsoft.visualstudio.language.standardclassification/17.14.249/lib/net472/Microsoft.VisualStudio.Language.StandardClassification.dll
+ microsoft.visualstudio.language/17.14.249/lib/net472/Microsoft.VisualStudio.Language.dll
+ microsoft.visualstudio.languageserver.client/17.14.60/lib/net472/Microsoft.VisualStudio.LanguageServer.Client.dll
+ microsoft.visualstudio.linux.connectionmanager.store/17.14.40254/lib/net472/Microsoft.VisualStudio.Linux.ConnectionManager.Store.dll
+ microsoft.visualstudio.ole.interop/17.14.40260/lib/net472/Microsoft.VisualStudio.OLE.Interop.dll
+ microsoft.visualstudio.package.languageservice.15.0/17.14.40264/lib/net472/Microsoft.VisualStudio.Package.LanguageService.15.0.dll
+ microsoft.visualstudio.projectaggregator/17.14.40254/lib/net472/Microsoft.VisualStudio.ProjectAggregator.dll
+ microsoft.visualstudio.remotecontrol/16.3.52/lib/net45/Microsoft.VisualStudio.RemoteControl.dll
+ microsoft.visualstudio.rpccontracts/17.14.20/lib/netstandard2.0/Microsoft.VisualStudio.RpcContracts.dll
+ microsoft.visualstudio.setup.configuration.interop/3.14.2075/lib/net35/Microsoft.VisualStudio.Setup.Configuration.Interop.dll
+  @embedInteropTypes
+ microsoft.visualstudio.shell.15.0/17.14.40264/lib/net472/Microsoft.VisualStudio.Shell.15.0.dll
+ microsoft.visualstudio.shell.design/17.14.40264/lib/net472/Microsoft.VisualStudio.Shell.Design.dll
+ microsoft.visualstudio.shell.framework/17.14.40264/lib/net472/Microsoft.VisualStudio.Shell.Framework.dll
+ microsoft.visualstudio.shell.interop.10.0/17.14.40260/lib/net472/Microsoft.VisualStudio.Shell.Interop.10.0.dll
+ microsoft.visualstudio.shell.interop.11.0/17.14.40260/lib/net472/Microsoft.VisualStudio.Shell.Interop.11.0.dll
+ microsoft.visualstudio.shell.interop.12.0/17.14.40260/lib/net472/Microsoft.VisualStudio.Shell.Interop.12.0.dll
+ microsoft.visualstudio.shell.interop.8.0/17.14.40260/lib/net472/Microsoft.VisualStudio.Shell.Interop.8.0.dll
+ microsoft.visualstudio.shell.interop.9.0/17.14.40260/lib/net472/Microsoft.VisualStudio.Shell.Interop.9.0.dll
+ microsoft.visualstudio.shell.interop/17.14.40260/lib/net472/Microsoft.VisualStudio.Shell.Interop.dll
+ microsoft.visualstudio.taskrunnerexplorer.14.0/14.0.0/lib/net40/Microsoft.VisualStudio.TaskRunnerExplorer.14.0.dll
+ microsoft.visualstudio.telemetry/17.14.18/lib/net45/Microsoft.VisualStudio.Telemetry.dll
+ microsoft.visualstudio.text.data/17.14.249/lib/net472/Microsoft.VisualStudio.Text.Data.dll
+ microsoft.visualstudio.text.logic/17.14.249/lib/net472/Microsoft.VisualStudio.Text.Logic.dll
+ microsoft.visualstudio.text.ui.wpf/17.14.249/lib/net472/Microsoft.VisualStudio.Text.UI.Wpf.dll
+ microsoft.visualstudio.text.ui/17.14.249/lib/net472/Microsoft.VisualStudio.Text.UI.dll
+ microsoft.visualstudio.textmanager.interop.10.0/17.14.40260/lib/net472/Microsoft.VisualStudio.TextManager.Interop.10.0.dll
+ microsoft.visualstudio.textmanager.interop.11.0/17.14.40260/lib/net472/Microsoft.VisualStudio.TextManager.Interop.11.0.dll
+ microsoft.visualstudio.textmanager.interop.12.0/17.14.40260/lib/net472/Microsoft.VisualStudio.TextManager.Interop.12.0.dll
+ microsoft.visualstudio.textmanager.interop.8.0/17.14.40260/lib/net472/Microsoft.VisualStudio.TextManager.Interop.8.0.dll
+ microsoft.visualstudio.textmanager.interop.9.0/17.14.40260/lib/net472/Microsoft.VisualStudio.TextManager.Interop.9.0.dll
+ microsoft.visualstudio.textmanager.interop/17.14.40260/lib/net472/Microsoft.VisualStudio.TextManager.Interop.dll
+ microsoft.visualstudio.texttemplating.vshost/17.14.40265/lib/net472/Microsoft.VisualStudio.TextTemplating.VSHost.dll
+ microsoft.visualstudio.threading.only/17.14.15/lib/net472/Microsoft.VisualStudio.Threading.dll
+ microsoft.visualstudio.utilities/17.14.40264/lib/net472/Microsoft.VisualStudio.Utilities.dll
+ microsoft.visualstudio.validation/17.8.8/lib/netstandard2.0/Microsoft.VisualStudio.Validation.dll
+ microsoft.visualstudio.vcprojectengine/17.14.40264/lib/net472/Microsoft.VisualStudio.VCProjectEngine.dll
+ microsoft.visualstudio.vshelp/17.14.40260/lib/net472/Microsoft.VisualStudio.VSHelp.dll
+ microsoft.visualstudio.vshelp80/17.14.40260/lib/net472/Microsoft.VisualStudio.VSHelp80.dll
+ microsoft.visualstudio.wcfreference.interop/17.14.40260/lib/net472/Microsoft.VisualStudio.WCFReference.Interop.dll
+ microsoft.visualstudio.web.browserlink.12.0/12.0.0/lib/net40/Microsoft.VisualStudio.Web.BrowserLink.12.0.dll
+ microsoft.visualstudio.workspace/17.12.19/lib/net472/Microsoft.VisualStudio.Workspace.dll
+ microsoft.web.webview2/1.0.3912.50/lib/net462/
+  Microsoft.Web.WebView2.Core.dll
+  Microsoft.Web.WebView2.WinForms.dll
+  Microsoft.Web.WebView2.Wpf.dll
+ microsoft.win32.registry/5.0.0/ref/net461/Microsoft.Win32.Registry.dll
+ microsoft.windows.sdk.contracts/10.0.28000.1839/ref/netstandard2.0/
+  Windows.AI.Actions.ActionsContract.winmd
+  Windows.AI.Agents.AgentsContract.winmd
+  Windows.AI.MachineLearning.MachineLearningContract.winmd
+  Windows.AI.MachineLearning.Preview.MachineLearningPreviewContract.winmd
+  Windows.ApplicationModel.Activation.ActivatedEventsContract.winmd
+  Windows.ApplicationModel.Activation.ActivationCameraSettingsContract.winmd
+  Windows.ApplicationModel.Activation.ContactActivatedEventsContract.winmd
+  Windows.ApplicationModel.Activation.WebUISearchActivatedEventsContract.winmd
+  Windows.ApplicationModel.Background.BackgroundAlarmApplicationContract.winmd
+  Windows.ApplicationModel.Calls.Background.CallsBackgroundContract.winmd
+  Windows.ApplicationModel.Calls.CallsPhoneContract.winmd
+  Windows.ApplicationModel.Calls.CallsVoipContract.winmd
+  Windows.ApplicationModel.Calls.LockScreenCallContract.winmd
+  Windows.ApplicationModel.CommunicationBlocking.CommunicationBlockingContract.winmd
+  Windows.ApplicationModel.FullTrustAppContract.winmd
+  Windows.ApplicationModel.Preview.InkWorkspace.PreviewInkWorkspaceContract.winmd
+  Windows.ApplicationModel.Preview.Notes.PreviewNotesContract.winmd
+  Windows.ApplicationModel.Preview.StartupAppsPreviewContract.winmd
+  Windows.ApplicationModel.Resources.Management.ResourceIndexerContract.winmd
+  Windows.ApplicationModel.Search.Core.SearchCoreContract.winmd
+  Windows.ApplicationModel.Search.SearchContract.winmd
+  Windows.ApplicationModel.SocialInfo.SocialInfoContract.winmd
+  Windows.ApplicationModel.StartupTaskContract.winmd
+  Windows.ApplicationModel.Wallet.WalletContract.winmd
+  Windows.Devices.Custom.CustomDeviceContract.winmd
+  Windows.Devices.DevicesLowLevelContract.winmd
+  Windows.Devices.Portable.PortableDeviceContract.winmd
+  Windows.Devices.Power.PowerGridApiContract.winmd
+  Windows.Devices.Printers.Extensions.ExtensionsContract.winmd
+  Windows.Devices.Printers.PrintersContract.winmd
+  Windows.Devices.Scanners.ScannerDeviceContract.winmd
+  Windows.Devices.SmartCards.SmartCardBackgroundTriggerContract.winmd
+  Windows.Devices.SmartCards.SmartCardEmulatorContract.winmd
+  Windows.Devices.Sms.LegacySmsApiContract.winmd
+  Windows.Foundation.FoundationContract.winmd
+  Windows.Foundation.UniversalApiContract.winmd
+  Windows.Gaming.Input.GamingInputPreviewContract.winmd
+  Windows.Gaming.Preview.GamesEnumerationContract.winmd
+  Windows.Gaming.UI.GameChatOverlayContract.winmd
+  Windows.Gaming.UI.GamingUIProviderContract.winmd
+  Windows.Gaming.XboxLive.StorageApiContract.winmd
+  Windows.Globalization.GlobalizationJapanesePhoneticAnalyzerContract.winmd
+  Windows.Graphics.Printing3D.Printing3DContract.winmd
+  Windows.Management.Deployment.Preview.DeploymentPreviewContract.winmd
+  Windows.Management.Deployment.SharedPackageContainerContract.winmd
+  Windows.Management.Update.Cluster.ClusterNativeUpdatingContract.winmd
+  Windows.Management.Update.WindowsUpdateContract.winmd
+  Windows.Management.Workplace.WorkplaceSettingsContract.winmd
+  Windows.Media.AppBroadcasting.AppBroadcastingContract.winmd
+  Windows.Media.AppRecording.AppRecordingContract.winmd
+  Windows.Media.Capture.AppBroadcastContract.winmd
+  Windows.Media.Capture.AppCaptureContract.winmd
+  Windows.Media.Capture.AppCaptureMetadataContract.winmd
+  Windows.Media.Capture.CameraCaptureUIContract.winmd
+  Windows.Media.Capture.GameBarContract.winmd
+  Windows.Media.Devices.CallControlContract.winmd
+  Windows.Media.MediaControlContract.winmd
+  Windows.Media.Playlists.PlaylistsContract.winmd
+  Windows.Media.Protection.ProtectionRenewalContract.winmd
+  Windows.Networking.Connectivity.WwanContract.winmd
+  Windows.Networking.NetworkOperators.LegacyNetworkOperatorsContract.winmd
+  Windows.Networking.Sockets.ControlChannelTriggerContract.winmd
+  Windows.Networking.XboxLive.XboxLiveSecureSocketsContract.winmd
+  Windows.Perception.Automation.Core.PerceptionAutomationCoreContract.winmd
+  Windows.Security.EnterpriseData.EnterpriseDataContract.winmd
+  Windows.Security.ExchangeActiveSyncProvisioning.EasContract.winmd
+  Windows.Security.Isolation.Isolatedwindowsenvironmentcontract.winmd
+  Windows.Services.Maps.GuidanceContract.winmd
+  Windows.Services.Maps.LocalSearchContract.winmd
+  Windows.Services.Store.StoreContract.winmd
+  Windows.Services.TargetedContent.TargetedContentContract.winmd
+  Windows.Storage.Provider.CloudFilesContract.winmd
+  Windows.System.Power.Thermal.PowerThermalApiContract.winmd
+  windows.system.profile.platformautomaticappsignincontract.winmd
+  Windows.System.Profile.ProfileHardwareTokenContract.winmd
+  Windows.System.Profile.ProfileRetailInfoContract.winmd
+  Windows.System.Profile.ProfileSharedModeContract.winmd
+  Windows.System.Profile.SystemManufacturers.SystemManufacturersContract.winmd
+  Windows.System.SystemManagementContract.winmd
+  Windows.System.UserProfile.UserProfileContract.winmd
+  Windows.System.UserProfile.UserProfileLockScreenContract.winmd
+  Windows.UI.ApplicationSettings.ApplicationsSettingsContract.winmd
+  Windows.UI.Core.AnimationMetrics.AnimationMetricsContract.winmd
+  Windows.UI.Core.CoreWindowDialogsContract.winmd
+  Windows.UI.Input.Preview.Text.PreviewTextContract.winmd
+  Windows.UI.Shell.CompanionWindows.CompanionWindowsContract.winmd
+  Windows.UI.Shell.SecurityAppManagerContract.winmd
+  Windows.UI.Shell.Tasks.AppTaskContract.winmd
+  Windows.UI.Shell.WindowTabManagerContract.winmd
+  Windows.UI.UIAutomation.UIAutomationContract.winmd
+  Windows.UI.ViewManagement.ViewManagementViewScalingContract.winmd
+  Windows.UI.Xaml.Core.Direct.XamlDirectContract.winmd
+  Windows.UI.Xaml.Hosting.HostingContract.winmd
+  Windows.Web.Http.Diagnostics.HttpDiagnosticsContract.winmd
+  Windows.WinMD
+ nerdbank.streams/2.12.87/lib/netstandard2.0/Nerdbank.Streams.dll
+ newtonsoft.json/13.0.3/lib/net45/Newtonsoft.Json.dll
+ npoi/2.8.0/lib/net472/
+  NPOI.Core.dll
+  NPOI.OOXML.dll
+  NPOI.OpenXml4Net.dll
+  NPOI.OpenXmlFormats.dll
+ opencvsharp4/4.11.0.20250507/lib/netstandard2.0/OpenCvSharp.dll
+ pdfpig/0.1.14/lib/net471/
+  UglyToad.PdfPig.Core.dll
+  UglyToad.PdfPig.dll
+  UglyToad.PdfPig.DocumentLayoutAnalysis.dll
+  UglyToad.PdfPig.Fonts.dll
+  UglyToad.PdfPig.Package.dll
+  UglyToad.PdfPig.Tokenization.dll
+  UglyToad.PdfPig.Tokens.dll
+ sdcb.paddleinference/3.0.1/lib/net45/Sdcb.PaddleInference.dll
+ sdcb.paddleocr.models.local/3.0.1/lib/netstandard2.0/Sdcb.PaddleOCR.Models.Local.dll
+ sdcb.paddleocr.models.localv3/2.7.0.1/lib/netstandard2.0/Sdcb.PaddleOCR.Models.LocalV3.dll
+ sdcb.paddleocr.models.localv4/2.7.0.1/lib/netstandard2.0/Sdcb.PaddleOCR.Models.LocalV4.dll
+ sdcb.paddleocr.models.localv5/3.0.0/lib/netstandard2.0/Sdcb.PaddleOCR.Models.LocalV5.dll
+ sdcb.paddleocr.models.shared/2.7.0.1/lib/netstandard2.0/Sdcb.PaddleOCR.Models.Shared.dll
+ sdcb.paddleocr/3.0.1/lib/netstandard2.0/Sdcb.PaddleOCR.dll
+ sharpziplib/1.4.2/lib/netstandard2.0/ICSharpCode.SharpZipLib.dll
+ skiasharp/3.119.2/ref/net462/SkiaSharp.dll
+ stdole/17.14.40260/lib/net472/stdole.dll
+ streamjsonrpc/2.22.11/lib/netstandard2.0/StreamJsonRpc.dll
+ system.buffers/4.6.1/lib/net462/System.Buffers.dll
+ system.collections.immutable/9.0.0/lib/net462/System.Collections.Immutable.dll
+ system.composition.attributedmodel/9.0.0/lib/net462/System.Composition.AttributedModel.dll
+ system.composition.convention/9.0.0/lib/net462/System.Composition.Convention.dll
+ system.composition.hosting/9.0.0/lib/net462/System.Composition.Hosting.dll
+ system.composition.runtime/9.0.0/lib/net462/System.Composition.Runtime.dll
+ system.composition.typedparts/9.0.0/lib/net462/System.Composition.TypedParts.dll
+ system.diagnostics.diagnosticsource/9.0.0/lib/net462/System.Diagnostics.DiagnosticSource.dll
+ system.drawing.common/10.0.7/lib/net462/System.Drawing.Common.dll
+ system.io.pipelines/9.0.0/lib/net462/System.IO.Pipelines.dll
+ system.memory/4.6.3/lib/net462/System.Memory.dll
+ system.net.http.json/8.0.0/lib/net462/System.Net.Http.Json.dll
+ system.numerics.vectors/4.6.1/lib/net462/System.Numerics.Vectors.dll
+ system.reflection.metadata/9.0.0/lib/net462/System.Reflection.Metadata.dll
+ system.runtime.compilerservices.unsafe/6.1.2/lib/net462/System.Runtime.CompilerServices.Unsafe.dll
+ system.runtime.windowsruntime.ui.xaml/4.6.0/ref/netstandard2.0/System.Runtime.WindowsRuntime.UI.Xaml.dll
+ system.runtime.windowsruntime/4.6.0/ref/netstandard2.0/System.Runtime.WindowsRuntime.dll
+ system.security.accesscontrol/6.0.0/lib/net461/System.Security.AccessControl.dll
+ system.security.cryptography.xml/8.0.2/lib/net462/System.Security.Cryptography.Xml.dll
+ system.security.principal.windows/5.0.0/ref/net461/System.Security.Principal.Windows.dll
+ system.text.encoding.codepages/8.0.0/lib/net462/System.Text.Encoding.CodePages.dll
+ system.text.encodings.web/9.0.0/lib/net462/System.Text.Encodings.Web.dll
+ system.text.json/9.0.0/lib/net462/System.Text.Json.dll
+ system.threading.accesscontrol/9.0.0/lib/net462/System.Threading.AccessControl.dll
+ system.threading.tasks.dataflow/9.0.0/lib/net462/System.Threading.Tasks.Dataflow.dll
+ system.threading.tasks.extensions/4.6.0/lib/net462/System.Threading.Tasks.Extensions.dll
+ system.valuetuple/4.5.0/ref/net47/System.ValueTuple.dll
+ vslangproj/17.14.40260/lib/net472/VSLangProj.dll
+ vslangproj100/17.14.40260/lib/net472/VSLangProj100.dll
+ vslangproj110/17.14.40260/lib/net472/VSLangProj110.dll
+ vslangproj140/17.14.40260/lib/net472/VSLangProj140.dll
+ vslangproj150/17.14.40260/lib/net472/VSLangProj150.dll
+ vslangproj157/17.14.40260/lib/net472/VSLangProj157.dll
+ vslangproj158/17.14.40260/lib/net472/VSLangProj158.dll
+ vslangproj165/17.14.40260/lib/net472/VSLangProj165.dll
+ vslangproj2/17.14.40260/lib/net472/VSLangProj2.dll
+ vslangproj80/17.14.40260/lib/net472/VSLangProj80.dll
+ vslangproj90/17.14.40260/lib/net472/VSLangProj90.dll
+ yamldotnet/16.3.0/lib/net47/YamlDotNet.dll
+ zstring/2.6.0/lib/netstandard2.0/ZString.dll
+
+[analyzerReferences]
+<NUGET>/microsoft.servicehub.analyzers/4.8.55/analyzers/cs/
+ Microsoft.ServiceHub.Analyzers.CodeFixes.dll
+ Microsoft.ServiceHub.Analyzers.CSharp.dll
+ Microsoft.ServiceHub.Analyzers.dll
+<NUGET>/microsoft.visualstudio.composition.analyzers/17.13.41/analyzers/cs/
+ Microsoft.VisualStudio.Composition.Analyzers.CodeFixes.dll
+ Microsoft.VisualStudio.Composition.Analyzers.CSharp.dll
+ Microsoft.VisualStudio.Composition.Analyzers.dll
+<NUGET>/microsoft.visualstudio.sdk.analyzers/17.7.105/analyzers/cs/
+ Microsoft.VisualStudio.SDK.Analyzers.CodeFixes.dll
+ Microsoft.VisualStudio.SDK.Analyzers.dll
+<NUGET>/microsoft.visualstudio.threading.analyzers/17.14.15/analyzers/cs/
+ Microsoft.VisualStudio.Threading.Analyzers.CodeFixes.dll
+ Microsoft.VisualStudio.Threading.Analyzers.CSharp.dll
+ Microsoft.VisualStudio.Threading.Analyzers.dll
+<NUGET>/system.text.json/9.0.0/analyzers/dotnet/roslyn4.4/cs/System.Text.Json.SourceGeneration.dll
+
+[analyzerConfigFiles]
+obj/Debug/net472/DeepSeek_v4_for_VisualStudio.GeneratedMSBuildEditorConfig.editorconfig
+
+[additionalFiles]
+<NUGET>/microsoft.visualstudio.sdk.analyzers/17.7.105/build/AdditionalFiles/
+ BannedSymbols.txt
+ vs-threading.LegacyThreadSwitchingMembers.txt
+ vs-threading.MainThreadAssertingMethods.txt
+ vs-threading.MainThreadSwitchingMethods.txt
+ vs-threading.MembersRequiringMainThread.txt
+<NUGET>/microsoft.visualstudio.threading.analyzers/17.14.15/buildTransitive/AdditionalFiles/
+ vs-threading.LegacyThreadSwitchingMembers.txt
+ vs-threading.MainThreadAssertingMethods.txt
+ vs-threading.MainThreadSwitchingMethods.txt
+ vs-threading.MembersRequiringMainThread.txt

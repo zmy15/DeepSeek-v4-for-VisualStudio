@@ -17,7 +17,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// 3. 在每次对话前自动检索相关文档
     /// 4. 将检索结果注入到 ConversationContextManager
     /// </summary>
-    public class RagService
+    public class RagService : IRagService
     {
         private readonly Dictionary<string, IRagProvider> _providers = new(StringComparer.OrdinalIgnoreCase);
         private string? _activeProviderName;

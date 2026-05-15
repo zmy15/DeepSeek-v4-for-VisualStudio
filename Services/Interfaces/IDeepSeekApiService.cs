@@ -1,0 +1,37 @@
+using DeepSeek_v4_for_VisualStudio.Models;
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace DeepSeek_v4_for_VisualStudio.Services
+{
+    /// <summary>
+    /// DeepSeek API 服务接口。
+    /// </summary>
+    public interface IDeepSeekApiService : IDisposable
+    {
+        /// <summary>最近一次 API 调用的 Usage 信息</summary>
+        DeepSeekUsage? LastUsage { get; }
+
+        /// <summary>更新使用的模型</summary>
+        void UpdateModel(string model);
+
+        /// <summary>配置思考模式</summary>
+        void ConfigureThinking(bool enabled, string effort = "high");
+
+        /// <summary>流式聊天调用</summary>
+        IAsyncEnumerable<string> ChatStreamAsync(
+            IEnumerable<ChatApiMessage> messages,
+            List<ToolDefinition>? tools = null,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>非流式完整调用</summary>
+        Task<string> CompleteAsync(
+            IEnumerable<ChatApiMessage> messages,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>验证 API Key 是否有效</summary>
+        Task<string?> ValidateApiKeyAsync();
+    }
+}

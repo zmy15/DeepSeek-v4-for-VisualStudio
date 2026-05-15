@@ -19,7 +19,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// 3. 压缩摘要以 system 消息形式注入到对话中
     /// 4. 支持多次渐进压缩（压缩后的摘要可被再次压缩）
     /// </summary>
-    public class ContextCompressorService
+    public class ContextCompressorService : IContextCompressorService
     {
         private readonly CompressionConfig _config;
         private readonly List<CompressedTurnSummary> _compressedSummaries = new();

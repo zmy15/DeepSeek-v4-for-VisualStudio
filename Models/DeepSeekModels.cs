@@ -392,7 +392,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
     /// 持久化用的会话容器，存储一个解决方案下的所有会话。
     /// </summary>
     [DataContract]
-    internal class SessionsContainer
+    public class SessionsContainer
     {
         [DataMember]
         public string SolutionPath { get; set; } = string.Empty;

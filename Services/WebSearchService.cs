@@ -24,7 +24,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// - DuckDuckGo：完全免费，但结果质量可能不如百度
     /// - 当百度额度耗尽时会自动切换到 DuckDuckGo
     /// </summary>
-    public class WebSearchService : IDisposable
+    public class WebSearchService : IWebSearchService
     {
         #region Constants
 
