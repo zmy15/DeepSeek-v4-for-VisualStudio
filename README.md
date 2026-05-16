@@ -46,7 +46,7 @@
 | 📐 **Skills 技能** | 斜杠命令 · 项目/用户/内置三级 · YAML 前置元数据 |
 | 📝 **三种编辑方法** | apply_patch / insert_edit_into_file / create_file，四级匹配 + Healing 修复 |
 | 📚 **1M 上下文** | 900K Token 预算 · 上下文压缩 · 文件不再截断 |
-| 🔍 **RAG 检索** | 可插拔提供者接口 · 智能缓存 · 自动注入对话上下文 |
+| 🔍 **RAG 检索** | 可插拔提供者接口 · 智能缓存 · 自动注入对话上下文 · 🚧 内置向量库开发中 |
 | 🌐 **联网搜索** | 百度千帆 (月1500次免费) + DuckDuckGo 双引擎 · 额度耗尽自动切换 |
 | 📄 **文件解析** | 50+ 格式 · 代码/文档/PDF/Word/Excel 全支持 · 拖拽即解析 |
 | 🖼️ **图像 OCR** | Windows 内置 · MCP 远程 OCR 双引擎 |
@@ -171,12 +171,15 @@ user-invocable: true
 
 ## RAG 检索增强
 
+> ⚠️ **规划中**：`IRagProvider` 接口和 `RagService` 注册/缓存基础设施已就位，内置本地向量库提供者正在开发中。当前可通过实现 `IRagProvider` 接入自定义 RAG 后端。
+
 可插拔的 RAG (Retrieval-Augmented Generation) 集成，为 AI 提供项目知识库支持：
 
 - **提供者接口 (`IRagProvider`)**：注册任意 RAG 后端
 - **智能缓存**：Jaccard 相似度 ≥60% 的连续查询复用结果
 - **自动注入**：检索结果在每轮对话前注入上下文
 - **多提供者支持**：按名称切换活跃提供者
+- **🚧 内置本地向量库**：基于 SQLite + 本地嵌入模型的零配置方案（规划中）
 
 ```csharp
 // 注册自定义 RAG 提供者
@@ -185,6 +188,8 @@ ragService.RegisterProvider(new MyCustomRagProvider());
 ragService.SetActiveProvider("MyProvider");
 ragService.IsEnabled = true;
 ```
+
+> 📋 详见 [路线图 / TODO](#-路线图--todo) 中的 RAG 相关计划。
 
 ---
 
@@ -508,6 +513,52 @@ DeepSeek_v4_for_VisualStudio.Tests/
 
 不冲突。本扩展的 Ghost Text 补全独立于 GitHub Copilot，可以与 Copilot 同时使用。如需关闭本扩展的补全，在选项页中取消勾选 "Copilot Enable"。
 </details>
+
+---
+
+## 🗺️ 路线图 / TODO
+
+以下功能已在架构中预留接口或基础设施，正在规划或开发中：
+
+### 🔍 RAG 检索增强生成
+
+> 当前状态：`IRagProvider` 接口和 `RagService` 注册/缓存基础设施已就位，但尚无内置提供者实现。
+
+| 计划项 | 说明 | 优先级 |
+|--------|------|--------|
+| **内置本地向量库提供者** | 基于 SQLite + 本地嵌入模型（如 `all-MiniLM-L6-v2`），实现开箱即用的项目级代码索引和语义检索 | 🔴 高 |
+| **文件自动索引** | 打开项目时自动扫描代码文件并构建向量索引，无需手动配置 | 🔴 高 |
+| **嵌入模型配置 UI** | 在选项页中提供嵌入模型选择（本地 / API），支持 DeepSeek Embedding API | 🟡 中 |
+| **混合检索策略** | BM25 关键词 + 向量语义混合检索，提升代码搜索精度 | 🟡 中 |
+| **增量索引更新** | 文件变更时自动增量更新索引，避免全量重建 | 🟢 低 |
+
+### 🧪 测试与质量
+
+| 计划项 | 说明 | 优先级 |
+|--------|------|--------|
+| **单元测试生成 Skill** | 基于 `tdd` 技能，自动为选中代码生成 xUnit 单元测试 | 🟡 中 |
+| **集成测试扩展** | 增加对 Agent Handoff 流程、MCP 工具调用链的集成测试覆盖 | 🟡 中 |
+| **UI 自动化测试** | WebView2 聊天窗口的自动化回归测试 | 🟢 低 |
+
+### 🔧 工具与集成
+
+| 计划项 | 说明 | 优先级 |
+|--------|------|--------|
+| **Git 增强集成** | PR 描述生成、Commit Message 自动撰写、代码审查评论 | 🟡 中 |
+| **解决方案级代码索引** | 跨项目的符号索引和引用追踪，支持大型解决方案 | 🟡 中 |
+| **自定义 MCP 服务器模板** | 提供常用 MCP 服务器的一键部署模板（如数据库查询、API 文档） | 🟢 低 |
+| **本地模型支持** | 支持通过 Ollama / LM Studio 等本地推理后端，实现离线使用 | 🟢 低 |
+
+### 🎨 用户体验
+
+| 计划项 | 说明 | 优先级 |
+|--------|------|--------|
+| **多语言国际化 (i18n)** | 聊天窗口和选项页的英文/中文双语界面切换 | 🟢 低 |
+| **代码镜头 (Code Lens)** | 编辑器内嵌的 AI 操作入口（解释代码、生成测试、查找引用） | 🟢 低 |
+| **更多内置 Skills** | 如 `debug-analyzer`、`api-designer`、`sql-optimizer` 等专业工作流 | 🟡 中 |
+| **会话导出** | 支持导出对话为 Markdown / PDF，便于分享和归档 | 🟢 低 |
+
+> 💡 欢迎通过 [Issues](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/issues) 提出功能建议或贡献代码！
 
 ---
 

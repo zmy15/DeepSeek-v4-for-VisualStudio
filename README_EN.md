@@ -46,7 +46,7 @@ It's more than a chat window; it's a complete **AI workflow system**:
 | 📐 **Skills System** | Slash commands · Project/User/Built-in tiers · YAML frontmatter metadata |
 | 📝 **Three Editing Methods** | apply_patch / insert_edit_into_file / create_file, four-level matching + Healing repair |
 | 📚 **1M Context** | 900K token budget · Context compression · No more file truncation |
-| 🔍 **RAG Retrieval** | Pluggable provider interface · Smart caching · Auto-injected into conversation context |
+| 🔍 **RAG Retrieval** | Pluggable provider interface · Smart caching · Auto-injected into conversation context · 🚧 Built-in vector DB in development |
 | 🌐 **Web Search** | Baidu Qianfan (1500 free/month) + DuckDuckGo dual engine · Auto fallback on quota exhaustion |
 | 📄 **File Parsing** | 50+ formats · Code/Docs/PDF/Word/Excel all supported · Drag & drop parsing |
 | 🖼️ **Image OCR** | Windows built-in · MCP remote OCR dual engines |
@@ -171,12 +171,15 @@ Configure compression parameters under `Tools → Options → DeepSeek Chat → 
 
 ## RAG Retrieval-Augmented Generation
 
+> ⚠️ **Planned**: The `IRagProvider` interface and `RagService` registration/caching infrastructure are in place. A built-in local vector database provider is under development. You can currently integrate a custom RAG backend by implementing `IRagProvider`.
+
 Pluggable RAG integration providing AI with project knowledge base support:
 
 - **Provider Interface (`IRagProvider`)**: Register any RAG backend
 - **Smart Caching**: Reuse results for consecutive queries with Jaccard similarity ≥60%
 - **Auto Injection**: Retrieval results injected into context before each conversation round
 - **Multi-provider Support**: Switch active provider by name
+- **🚧 Built-in Local Vector DB**: Zero-config solution based on SQLite + local embedding model (planned)
 
 ```csharp
 // Register a custom RAG provider
@@ -185,6 +188,8 @@ ragService.RegisterProvider(new MyCustomRagProvider());
 ragService.SetActiveProvider("MyProvider");
 ragService.IsEnabled = true;
 ```
+
+> 📋 See [Roadmap / TODO](#-roadmap--todo) for RAG-related plans.
 
 ---
 
@@ -509,6 +514,52 @@ Create a `.github/skills/` folder in your project root, and add a `SKILL.md` fil
 
 No conflict. This extension's Ghost Text completion is independent of GitHub Copilot and can be used alongside it. To disable this extension's completion, uncheck "Copilot Enable" in the options page.
 </details>
+
+---
+
+## 🗺️ Roadmap / TODO
+
+The following features have reserved interfaces or infrastructure in the architecture and are planned or under development:
+
+### 🔍 RAG Retrieval-Augmented Generation
+
+> Current status: `IRagProvider` interface and `RagService` registration/caching infrastructure are in place, but no built-in provider implementation yet.
+
+| Planned Item | Description | Priority |
+|-------------|-------------|----------|
+| **Built-in Local Vector DB Provider** | SQLite + local embedding model (e.g., `all-MiniLM-L6-v2`) for out-of-the-box project-level code indexing and semantic search | 🔴 High |
+| **Automatic File Indexing** | Auto-scan code files and build vector index on project open, no manual configuration needed | 🔴 High |
+| **Embedding Model Config UI** | Embedding model selection in options page (local / API), with DeepSeek Embedding API support | 🟡 Medium |
+| **Hybrid Retrieval Strategy** | BM25 keyword + vector semantic hybrid retrieval for improved code search accuracy | 🟡 Medium |
+| **Incremental Index Updates** | Auto incremental index update on file changes, avoiding full rebuild | 🟢 Low |
+
+### 🧪 Testing & Quality
+
+| Planned Item | Description | Priority |
+|-------------|-------------|----------|
+| **Unit Test Generation Skill** | Based on the `tdd` skill, auto-generate xUnit unit tests for selected code | 🟡 Medium |
+| **Integration Test Expansion** | Increase integration test coverage for Agent Handoff flows and MCP tool call chains | 🟡 Medium |
+| **UI Automation Tests** | Automated regression tests for the WebView2 chat window | 🟢 Low |
+
+### 🔧 Tools & Integration
+
+| Planned Item | Description | Priority |
+|-------------|-------------|----------|
+| **Enhanced Git Integration** | PR description generation, auto commit message writing, code review comments | 🟡 Medium |
+| **Solution-Level Code Indexing** | Cross-project symbol index and reference tracking for large solutions | 🟡 Medium |
+| **Custom MCP Server Templates** | One-click deployment templates for common MCP servers (e.g., database query, API docs) | 🟢 Low |
+| **Local Model Support** | Support offline use via Ollama / LM Studio and other local inference backends | 🟢 Low |
+
+### 🎨 User Experience
+
+| Planned Item | Description | Priority |
+|-------------|-------------|----------|
+| **Internationalization (i18n)** | Bilingual English/Chinese UI toggle for chat window and options page | 🟢 Low |
+| **Code Lens** | In-editor AI action entry points (explain code, generate tests, find references) | 🟢 Low |
+| **More Built-in Skills** | Professional workflows like `debug-analyzer`, `api-designer`, `sql-optimizer` | 🟡 Medium |
+| **Session Export** | Export conversations as Markdown / PDF for sharing and archiving | 🟢 Low |
+
+> 💡 Feature suggestions and code contributions are welcome via [Issues](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/issues)!
 
 ---
 
