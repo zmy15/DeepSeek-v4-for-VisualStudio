@@ -384,7 +384,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     else if (chunk.StartsWith("[CACHE]"))
                     {
                         // ── Cache 统计信息 ── 过滤，不混入正文
-                        // 累计统计在流结束后通过 GetTotalCacheHitSummary 输出
+                        // 累计统计由 ChatHtmlService.BuildCacheHitFooterHtml 渲染为外侧卡片
                     }
                     else
                     {
@@ -513,13 +513,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 break;
             }
 
-            // ── 汇总累计 Cache 统计 ──
+            // ── 汇总累计 Cache 统计（日志）──
             LogTotalCacheHitRate(round);
-
-            // ── 将累计 Cache 统计追加到正文末尾（用户可见）──
-            string cacheSummary = GetTotalCacheHitSummary(round);
-            if (!string.IsNullOrEmpty(cacheSummary))
-                contentBuilder.Append(cacheSummary);
 
             return contentBuilder.ToString().Trim();
         }
