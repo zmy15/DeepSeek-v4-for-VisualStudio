@@ -583,13 +583,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 // ── 验证阶段使用专用 system prompt：不包含"先探索再修改"指令，
                 //     避免 AI 在验证时浪费 token 重复读取文件 ──
-                const string verifySystemPrompt =
+                // ── 注入工作区根目录信息，防止 AI 在验证阶段幻觉出错误路径 ──
+                string verifySystemPrompt =
                     "你是代码编译验证助手。你的唯一任务是编译验证已修改的代码。\n" +
                     "不要重新探索代码库——代码已经修改完毕，直接编译验证。\n" +
                     "如果编译失败，读取错误涉及的文件（仅相关行），修复后重新编译。\n" +
                     "不要使用 file_search / list_dir / grep_search 等探索工具。\n" +
                     "不要输出 apply_patch 文本格式——它是一个文本格式而非工具，请使用 replace_string_in_file 工具直接修改文件。\n" +
-                    "循环修复直到编译通过，或明确报告无法修复。";
+                    "循环修复直到编译通过，或明确报告无法修复。\n\n" +
+                    $"## 工作区信息\n当前工作区根目录: `{workspaceRoot}`\n" +
+                    $"所有文件操作请使用此目录下的 Windows 绝对路径。\n" +
+                    $"已修改的文件（绝对路径）:\n{string.Join("\n", changes.Select(c => $"- `{c.FilePath}`"))}";
 
                 // ── 验证阶段专用工具白名单：build + 只读 + 编辑工具（不含探索工具）──
                 var verifyToolWhitelist = new List<string>
@@ -731,10 +735,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             AddLog("WARN", $"[EditAgent] Healing 修正后仍失败 ({applyResult.ErrorMessage})，启用 create_file 兜底写入...");
                             try
                             {
-                                await TerminalWindowHelper.WriteCodeToFileAsync(
-                                    applyResult.FilePath, applyResult.FinalContent!);
-                                applyResult.Success = true;
-                                AddLog("INFO", $"[EditAgent] ✅ create_file 兜底成功: {resolvedPath}");
+                                // ── 项目文件拦截 ──
+                                bool fallbackAllowed = await EnsureProjectFileWriteConfirmedAsync(
+                                    resolvedPath, "Healing 兜底写入（Patch→create_file）");
+                                if (fallbackAllowed)
+                                {
+                                    await TerminalWindowHelper.WriteCodeToFileAsync(
+                                        applyResult.FilePath, applyResult.FinalContent!);
+                                    applyResult.Success = true;
+                                    AddLog("INFO", $"[EditAgent] ✅ create_file 兜底成功: {resolvedPath}");
+                                }
+                                else
+                                {
+                                    AddLog("WARN", $"[EditAgent] ⏭ 已跳过项目文件兜底写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
+                                }
                             }
                             catch (Exception fallbackEx)
                             {
@@ -766,8 +780,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // ── 通过 VS SDK 写入文件（正确集成编辑器，避免外部变更弹窗和行尾不一致）──
                     if (!string.IsNullOrEmpty(applyResult.FinalContent))
                     {
-                        await TerminalWindowHelper.WriteCodeToFileAsync(
-                            applyResult.FilePath, applyResult.FinalContent!);
+                        // ── 项目文件拦截：修改 .vcxproj/.sln 等前请求用户确认 ──
+                        bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
+                            resolvedPath, $"Patch 修改 ({applyResult.AppliedEdits.Count} 个编辑点)");
+                        if (writeAllowed)
+                        {
+                            await TerminalWindowHelper.WriteCodeToFileAsync(
+                                applyResult.FilePath, applyResult.FinalContent!);
+                        }
+                        else
+                        {
+                            AddLog("WARN", $"⏭ 已跳过项目文件写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
+                            applyResult.Success = false;
+                            applyResult.ErrorMessage = "用户拒绝修改项目文件";
+                        }
                     }
 
                     AddLog("INFO", $"✅ Patch 已应用: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑)");
@@ -854,10 +880,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             AddLog("WARN", $"[EditAgent] Healing 修正后仍失败 ({applyResult.ErrorMessage})，启用 create_file 兜底写入...");
                             try
                             {
-                                await TerminalWindowHelper.WriteCodeToFileAsync(
-                                    applyResult.FilePath, applyResult.FinalContent!);
-                                applyResult.Success = true;
-                                AddLog("INFO", $"[EditAgent] ✅ create_file 兜底成功: {resolvedPath}");
+                                // ── 项目文件拦截 ──
+                                bool fallbackAllowed = await EnsureProjectFileWriteConfirmedAsync(
+                                    resolvedPath, "Healing 兜底写入（InsertEdit→create_file）");
+                                if (fallbackAllowed)
+                                {
+                                    await TerminalWindowHelper.WriteCodeToFileAsync(
+                                        applyResult.FilePath, applyResult.FinalContent!);
+                                    applyResult.Success = true;
+                                    AddLog("INFO", $"[EditAgent] ✅ create_file 兜底成功: {resolvedPath}");
+                                }
+                                else
+                                {
+                                    AddLog("WARN", $"[EditAgent] ⏭ 已跳过项目文件兜底写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
+                                }
                             }
                             catch (Exception fallbackEx)
                             {
@@ -883,8 +919,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // ── 通过 VS SDK 写入文件 ──
                     if (!string.IsNullOrEmpty(applyResult.FinalContent))
                     {
-                        await TerminalWindowHelper.WriteCodeToFileAsync(
-                            applyResult.FilePath, applyResult.FinalContent!);
+                        // ── 项目文件拦截：修改 .vcxproj/.sln 等前请求用户确认 ──
+                        bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
+                            resolvedPath, $"InsertEdit 修改 ({applyResult.AppliedEdits.Count} 个编辑点)");
+                        if (writeAllowed)
+                        {
+                            await TerminalWindowHelper.WriteCodeToFileAsync(
+                                applyResult.FilePath, applyResult.FinalContent!);
+                        }
+                        else
+                        {
+                            AddLog("WARN", $"⏭ 已跳过项目文件写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
+                            applyResult.Success = false;
+                            applyResult.ErrorMessage = "用户拒绝修改项目文件";
+                        }
                     }
 
                     AddLog("INFO", $"✅ InsertEdit 已应用: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑)");
@@ -941,6 +989,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         await Task.Run(() => File.WriteAllText(resolvedPath, string.Empty, System.Text.Encoding.UTF8), ct);
                         AddLog("INFO", $"📄 预创建文件并加入项目: {Path.GetFileName(resolvedPath)}");
                         await AddFileToProjectAsync(resolvedPath, ct);
+                    }
+
+                    // ── 项目文件拦截：新建/修改 .vcxproj/.sln 等前请求用户确认 ──
+                    string createOpDesc = isNewFile
+                        ? $"新建项目文件: {Path.GetFileName(resolvedPath)}"
+                        : $"修改文件: {Path.GetFileName(resolvedPath)} (+{change.LinesAdded} -{change.LinesRemoved})";
+                    bool createWriteAllowed = await EnsureProjectFileWriteConfirmedAsync(resolvedPath, createOpDesc);
+                    if (!createWriteAllowed)
+                    {
+                        AddLog("WARN", $"⏭ 已跳过项目文件写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
+                        appliedResults.Add(new EditApplyResult
+                        {
+                            FilePath = resolvedPath,
+                            Success = false,
+                            OperationType = EditOperationType.CreateFile,
+                            ErrorMessage = "用户拒绝修改项目文件",
+                        });
+                        continue;
                     }
 
                     string? error = await TerminalWindowHelper.WriteCodeToFileAsync(
@@ -1583,6 +1649,65 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         #endregion
 
         #region Helpers
+
+        /// <summary>
+        /// 需要用户确认才能修改的项目文件扩展名集合。
+        /// 修改这些文件可能影响项目结构，需要用户明确许可。
+        /// </summary>
+        private static readonly HashSet<string> ProjectFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".vcxproj", ".csproj", ".fsproj", ".vbproj",
+            ".sln", ".slnx",
+            ".vcxproj.filters", ".vcxproj.user",
+            ".csproj.user", ".vbproj.user",
+            "CMakeLists.txt", "CMakeSettings.json",
+            "packages.config", "Directory.Build.props", "Directory.Build.targets",
+            ".props", ".targets",
+            "Makefile", "makefile", "GNUmakefile",
+            ".slnf",
+        };
+
+        /// <summary>
+        /// 检查文件是否为项目文件（需要用户确认才能修改）。
+        /// </summary>
+        private static bool IsProjectFile(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return false;
+            string fileName = Path.GetFileName(filePath);
+            string ext = Path.GetExtension(filePath);
+            return ProjectFileExtensions.Contains(fileName) || ProjectFileExtensions.Contains(ext);
+        }
+
+        /// <summary>
+        /// 在写入项目文件前请求用户确认。
+        /// 非项目文件直接返回 true（放行）。
+        /// </summary>
+        /// <param name="filePath">目标文件绝对路径</param>
+        /// <param name="operationDescription">操作描述（如"修改 leetcode.vcxproj"）</param>
+        /// <returns>true=允许写入, false=用户拒绝</returns>
+        private async Task<bool> EnsureProjectFileWriteConfirmedAsync(string filePath, string operationDescription = "")
+        {
+            if (!IsProjectFile(filePath))
+                return true; // 非项目文件，直接放行
+
+            string fileName = Path.GetFileName(filePath);
+            string desc = !string.IsNullOrEmpty(operationDescription)
+                ? operationDescription
+                : $"修改项目文件: {fileName}";
+
+            AddLog("WARN", $"⚠️ 检测到项目文件修改: {fileName}，请求用户确认...");
+
+            bool approved = await RequestPermissionAsync(
+                $"确认修改项目文件: {fileName}",
+                $"即将修改项目配置文件 `{fileName}`\n\n路径: {filePath}\n\n{desc}\n\n⚠️ 修改项目文件可能影响构建配置和项目结构。",
+                "file_write");
+
+            if (!approved)
+            {
+                AddLog("WARN", $"❌ 用户拒绝了项目文件修改: {fileName}");
+            }
+            return approved;
+        }
 
         private static AgentTaskPlan CreateSingleStepPlan(string userMessage)
         {

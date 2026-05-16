@@ -425,13 +425,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         private static Task<string> ReadFileAsync(Dictionary<string, System.Text.Json.JsonElement> args, string? workspaceRoot)
         {
-            // workspaceRoot not used for read_file, but normalize for consistency
             string filePath = GetStringArg(args, "filePath");
             if (string.IsNullOrEmpty(filePath))
                 return Task.FromResult("❌ read_file: 缺少 filePath 参数");
 
             if (!File.Exists(filePath))
-                return Task.FromResult($"❌ 文件不存在: {filePath}");
+            {
+                string wsHint = !string.IsNullOrEmpty(workspaceRoot) && Directory.Exists(workspaceRoot)
+                    ? $"\n💡 当前工作区根目录: `{workspaceRoot}`，请使用此目录下的绝对路径。"
+                    : "";
+                return Task.FromResult($"❌ 文件不存在: {filePath}{wsHint}");
+            }
 
             try
             {

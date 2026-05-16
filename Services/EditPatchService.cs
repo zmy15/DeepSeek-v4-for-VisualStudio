@@ -1418,19 +1418,43 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 解析文件路径（支持相对路径和绝对路径）。
+        /// 包含路径穿越防护：确保解析后的路径在工作区范围内。
         /// </summary>
         public static string ResolvePath(string filePath, string workspaceRoot)
         {
             if (string.IsNullOrWhiteSpace(filePath)) return filePath;
-            if (Path.IsPathRooted(filePath)) return filePath;
 
-            if (!string.IsNullOrEmpty(workspaceRoot))
+            string resolved;
+            if (Path.IsPathRooted(filePath))
+            {
+                resolved = Path.GetFullPath(filePath);
+            }
+            else if (!string.IsNullOrEmpty(workspaceRoot))
             {
                 string candidate = Path.Combine(workspaceRoot, filePath.Replace('/', '\\'));
-                return Path.GetFullPath(candidate);
+                resolved = Path.GetFullPath(candidate);
+            }
+            else
+            {
+                return filePath;
             }
 
-            return filePath;
+            // ── 路径穿越防护：确保解析后的路径在工作区根目录内 ──
+            if (!string.IsNullOrEmpty(workspaceRoot))
+            {
+                string normalizedWorkspace = Path.GetFullPath(workspaceRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string normalizedResolved = resolved.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                // 检查是否在工作区内（不区分大小写，Windows 文件系统）
+                if (!normalizedResolved.StartsWith(normalizedWorkspace + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(normalizedResolved, normalizedWorkspace, StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Warn($"[EditPatch] ⚠️ 路径穿越检测: {resolved} 不在工作区 {workspaceRoot} 内，拒绝访问");
+                    return filePath; // 返回原始路径，由调用方处理
+                }
+            }
+
+            return resolved;
         }
 
         #endregion
