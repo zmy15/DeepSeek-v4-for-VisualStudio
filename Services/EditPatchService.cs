@@ -664,6 +664,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return result;
             }
 
+            // ── 全文件替换检测：没有任何 ...existing code... 占位符 → 直接写入全文 ──
+            bool hasPlaceholders = segments.Any(s => s.IsPlaceholder);
+            if (!hasPlaceholders)
+            {
+                // AI 想完全替换文件内容（如重写整个算法），无需逐段匹配
+                Logger.Info($"[EditPatchService] InsertEdit 无 ...existing code... 标记，视为全文件替换: {result.FilePath}");
+                result.FinalContent = NormalizeToCrLf(normalizedEdit);
+                result.Success = true;
+                return result;
+            }
+
             // ── 对每个"修改段"进行匹配 ──
             var failedRegions = new List<string>();
             string workingContent = normalizedContent;
