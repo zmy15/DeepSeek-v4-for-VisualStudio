@@ -1,112 +1,149 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net472</TargetFramework>
-    <Nullable>enable</Nullable>
-	  <UseWPF>true</UseWPF>
-    <LangVersion>14</LangVersion>
+	<PropertyGroup>
+		<TargetFramework>net472</TargetFramework>
+		<Nullable>enable</Nullable>
+		<UseWPF>true</UseWPF>
+		<LangVersion>14</LangVersion>
 
-    <!-- VSIX settings -->
-    <VSSDKBuildToolsAutoSetup>true</VSSDKBuildToolsAutoSetup>
-    <GeneratePkgDefFile>true</GeneratePkgDefFile>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectCapability Include="CreateVsixContainer" />
-  </ItemGroup>
-  <ItemGroup>
-    <Reference Include="System.Design" />
-    <Reference Include="System.Net.Http" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.ComponentModel.Composition" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
-    <PackageReference Include="Markdig" Version="1.1.3" />
-    <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" ExcludeAssets="runtime" />
-    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="18.5.40034" />
-    <PackageReference Include="Microsoft.VisualStudio.Workspace" Version="17.12.19" />
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
-    <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.28000.1839" />
-    <PackageReference Include="NPOI" Version="2.8.0" />
-    <PackageReference Include="PdfPig" Version="0.1.14" />
-    <PackageReference Include="System.Drawing.Common" Version="10.0.7" />
-    <PackageReference Include="WebView2.Runtime.X64" Version="147.0.3912.98" />
-    <PackageReference Include="System.Net.Http.Json" Version="8.0.0" />
-    <!-- OCR 引擎 -->
-    <PackageReference Include="Sdcb.PaddleOCR" Version="3.0.1" />
-	<PackageReference Include="Sdcb.PaddleInference" Version="3.0.1" />
-    <PackageReference Include="Sdcb.PaddleOCR.Models.Local" Version="3.0.1" />
-    <PackageReference Include="Sdcb.PaddleInference.runtime.win64.mkl" Version="3.1.0.54" />
-    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.10.0.20241108" />
-  </ItemGroup>
-  <!-- ========================================================================
-    原生 DLL 部署修复（针对 VS Extension 场景）
-    ========================================================================
-    
-    问题背景：
-    1. VS 扩展运行时宿主是 devenv.exe，不在插件输出目录。
-    2. NuGet 原生 DLL（PaddleInference/OpenCvSharp）被部署到子目录
-       （dll\x64\），但 SetDllDirectory 只添加了根目录。
-    
-    修复策略：
-    - CopyNativeDlls：将所有原生 DLL 复制到输出根目录（本地调试验证用）
-    - OcrService.EnsureNativeDllSearchPath()：运行时预加载所有子目录中的 DLL
-    ======================================================================== -->
+		<!-- VSIX settings -->
+		<VSSDKBuildToolsAutoSetup>true</VSSDKBuildToolsAutoSetup>
+		<GeneratePkgDefFile>true</GeneratePkgDefFile>
+	</PropertyGroup>
+	<ItemGroup>
+		<ProjectCapability Include="CreateVsixContainer" />
+	</ItemGroup>
+	<ItemGroup>
+		<Reference Include="System.Design" />
+		<Reference Include="System.Net.Http" />
+		<Reference Include="System.Web" />
+		<Reference Include="System.ComponentModel.Composition" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+		<PackageReference Include="Markdig" Version="1.1.3" />
+		<PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" ExcludeAssets="runtime" />
+		<PackageReference Include="Microsoft.VSSDK.BuildTools" Version="18.5.40034" />
+		<PackageReference Include="Microsoft.VisualStudio.Workspace" Version="17.12.19" />
+		<PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
+		<PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.28000.1839" />
+		<PackageReference Include="NPOI" Version="2.8.0" />
+		<PackageReference Include="PdfPig" Version="0.1.14" />
+		<PackageReference Include="System.Drawing.Common" Version="10.0.7" />
+		<PackageReference Include="WebView2.Runtime.X64" Version="147.0.3912.98" />
+		<PackageReference Include="System.Net.Http.Json" Version="8.0.0" />
+		<!-- 显式引用 System.Memory 等 .NET Standard 桥接程序集，
+         VS SDK 的 PkgdefProjectOutputGroup 会过滤 System.*.dll，
+         需要单独的 VSIX 注入目标来确保它们被打包。 -->
+		<PackageReference Include="System.Memory" Version="4.6.3" />
+		<PackageReference Include="System.Buffers" Version="4.6.1" />
+		<PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2" />
+		<PackageReference Include="System.Numerics.Vectors" Version="4.6.1" />
+		<PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.0" />
+		<PackageReference Include="System.ValueTuple" Version="4.5.0" />
+		<!-- OCR 引擎：Windows 内置 + MCP 远程（已移除 PaddleOCR-Sharp 以减小包体）-->
+	</ItemGroup>
+	<ItemGroup>
+		<Folder Include="View\" />
+		<Folder Include="Services\" />
+		<Folder Include="Utils\" />
+		<Folder Include="Models\" />
+		<Folder Include="Settings\" />
+		<Folder Include="Commands\" />
+		<Folder Include="Resources\" />
+		<Folder Include="CodeCompletion\" />
+		<Folder Include="ToolWindows\" />
+	</ItemGroup>
+	<!-- 排除测试项目文件 -->
+	<ItemGroup>
+		<Compile Remove="DeepSeek_v4_for_VisualStudio.Tests\**\*.cs" />
+		<None Remove="DeepSeek_v4_for_VisualStudio.Tests\**\*" />
+	</ItemGroup>
+	<!-- 允许测试项目访问 internal 类型 -->
+	<ItemGroup>
+		<AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+			<_Parameter1>DeepSeek_v4_for_VisualStudio.Tests</_Parameter1>
+		</AssemblyAttribute>
+	</ItemGroup>
+	<ItemGroup>
+		<VSCTCompile Include="VSCommandTable.vsct">
+			<ResourceName>Menus.ctmenu</ResourceName>
+			<Generator>VsctGenerator</Generator>
+			<LastGenOutput>VSCommandTable.cs</LastGenOutput>
+		</VSCTCompile>
+	</ItemGroup>
+	<ItemGroup>
+		<Content Include="Resources\DeepSeekIcon.png">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<IncludeInVSIX>true</IncludeInVSIX>
+		</Content>
+		<!-- Skill 定义文件（内置技能） -->
+		<Content Include="BuiltInSkills\**\*.*">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<IncludeInVSIX>true</IncludeInVSIX>
+			<VSIXSubPath>BuiltInSkills</VSIXSubPath>
+		</Content>
+	</ItemGroup>
 
-  <!-- 将原生 DLL 从子目录复制到输出根目录（供本地调试和后续 VSIX 引用） -->
-  <Target Name="CopyNativeDlls" AfterTargets="AfterBuild">
-    <ItemGroup>
-      <!-- OpenCvSharp 原生 DLL -->
-      <NativeDlls Include="$(TargetDir)dll\x64\OpenCvSharpExtern.dll" />
-      <!-- PaddleInference 原生 DLL -->
-      <NativeDlls Include="$(TargetDir)dll\x64\paddle_inference_c.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\common.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\libiomp5md.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\mkldnn.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\mklml.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\onnxruntime.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\onnxruntime_providers_shared.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\paddle2onnx.dll" />
-    </ItemGroup>
-    <Copy SourceFiles="@(NativeDlls)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
-  </Target>
-  <ItemGroup>
-    <Folder Include="View\" />
-    <Folder Include="Services\" />
-    <Folder Include="Utils\" />
-    <Folder Include="Models\" />
-    <Folder Include="Settings\" />
-    <Folder Include="Commands\" />
-    <Folder Include="Resources\" />
-    <Folder Include="CodeCompletion\" />
-    <Folder Include="ToolWindows\" />
-  </ItemGroup>
-  <!-- 排除测试项目文件 -->
-  <ItemGroup>
-    <Compile Remove="DeepSeek_v4_for_VisualStudio.Tests\**\*.cs" />
-    <None Remove="DeepSeek_v4_for_VisualStudio.Tests\**\*" />
-  </ItemGroup>
-  <!-- 允许测试项目访问 internal 类型 -->
-  <ItemGroup>
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-      <_Parameter1>DeepSeek_v4_for_VisualStudio.Tests</_Parameter1>
-    </AssemblyAttribute>
-  </ItemGroup>
-  <ItemGroup>
-    <VSCTCompile Include="VSCommandTable.vsct">
-      <ResourceName>Menus.ctmenu</ResourceName>
-      <Generator>VsctGenerator</Generator>
-      <LastGenOutput>VSCommandTable.cs</LastGenOutput>
-    </VSCTCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="Resources\DeepSeekIcon.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <IncludeInVSIX>true</IncludeInVSIX>
-    </Content>
-    <!-- Skill 定义文件（内置技能） -->
-    <Content Include="BuiltInSkills\**\*.*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <IncludeInVSIX>true</IncludeInVSIX>
-      <VSIXSubPath>BuiltInSkills</VSIXSubPath>
-    </Content>
-  </ItemGroup>
+	<!-- ========================================================================
+     将 System.* .NET Standard 桥接程序集强制复制到输出目录
+     net472 SDK 项目中，MSBuild 认为 System.* 是 Framework 内置而跳过 CopyLocal。
+     但 Markdig 等 NuGet 包依赖的 System.Memory(4.0.5.0) 并非 .NET Framework 4.7.2
+     内置组件，必须显式复制到输出目录才能被 VSIX 打包和运行时解析。
+     ======================================================================== -->
+	<Target Name="CopySystemBridgeAssemblies" AfterTargets="AfterBuild">
+		<PropertyGroup>
+			<_NuGetRoot>$(NuGetPackageRoot)</_NuGetRoot>
+		</PropertyGroup>
+		<ItemGroup>
+			<_SystemBridgeAssembly Include="$(_NuGetRoot)system.memory\4.6.3\lib\netstandard2.0\System.Memory.dll" />
+			<_SystemBridgeAssembly Include="$(_NuGetRoot)system.buffers\4.6.1\lib\netstandard2.0\System.Buffers.dll" />
+			<_SystemBridgeAssembly Include="$(_NuGetRoot)system.runtime.compilerservices.unsafe\6.1.2\lib\netstandard2.0\System.Runtime.CompilerServices.Unsafe.dll" />
+			<_SystemBridgeAssembly Include="$(_NuGetRoot)system.numerics.vectors\4.6.1\lib\netstandard2.0\System.Numerics.Vectors.dll" />
+			<_SystemBridgeAssembly Include="$(_NuGetRoot)system.threading.tasks.extensions\4.6.0\lib\net461\System.Threading.Tasks.Extensions.dll" />
+			<_SystemBridgeAssembly Include="$(_NuGetRoot)system.valuetuple\4.5.0\lib\net462\System.ValueTuple.dll" />
+		</ItemGroup>
+		<Copy SourceFiles="@(_SystemBridgeAssembly)"
+		      DestinationFolder="$(TargetDir)"
+		      SkipUnchangedFiles="true"
+		      Condition="Exists('%(Identity)')" />
+	</Target>
+
+	<!-- ========================================================================
+     将 System.* 程序集注入 VSIX
+     VS SDK 的 PkgdefProjectOutputGroup 默认过滤掉 System.*.dll，
+     但 Markdig 等 NuGet 包依赖的 System.Memory/Buffers 等并非 Framework 内置，
+     必须显式打包进 VSIX 才能让 VS2022 扩展正常加载。
+     直接添加到 VSIXSourceItem（绕过 Content→VSIXSourceItem 的转换）。
+     ======================================================================== -->
+	<Target Name="IncludeSystemAssembliesInVsix" AfterTargets="GetVsixSourceItems">
+		<ItemGroup>
+			<VSIXSourceItem Include="$(TargetDir)System.Memory.dll"
+			                Condition="Exists('$(TargetDir)System.Memory.dll')">
+				<VSIXSubPath>.</VSIXSubPath>
+			</VSIXSourceItem>
+			<VSIXSourceItem Include="$(TargetDir)System.Buffers.dll"
+			                Condition="Exists('$(TargetDir)System.Buffers.dll')">
+				<VSIXSubPath>.</VSIXSubPath>
+			</VSIXSourceItem>
+			<VSIXSourceItem Include="$(TargetDir)System.Runtime.CompilerServices.Unsafe.dll"
+			                Condition="Exists('$(TargetDir)System.Runtime.CompilerServices.Unsafe.dll')">
+				<VSIXSubPath>.</VSIXSubPath>
+			</VSIXSourceItem>
+			<VSIXSourceItem Include="$(TargetDir)System.Numerics.Vectors.dll"
+			                Condition="Exists('$(TargetDir)System.Numerics.Vectors.dll')">
+				<VSIXSubPath>.</VSIXSubPath>
+			</VSIXSourceItem>
+			<VSIXSourceItem Include="$(TargetDir)System.Threading.Tasks.Extensions.dll"
+			                Condition="Exists('$(TargetDir)System.Threading.Tasks.Extensions.dll')">
+				<VSIXSubPath>.</VSIXSubPath>
+			</VSIXSourceItem>
+			<VSIXSourceItem Include="$(TargetDir)System.ValueTuple.dll"
+			                Condition="Exists('$(TargetDir)System.ValueTuple.dll')">
+				<VSIXSubPath>.</VSIXSubPath>
+			</VSIXSourceItem>
+			<VSIXSourceItem Include="$(TargetDir)System.Diagnostics.DiagnosticSource.dll"
+			                Condition="Exists('$(TargetDir)System.Diagnostics.DiagnosticSource.dll')">
+				<VSIXSubPath>.</VSIXSubPath>
+			</VSIXSourceItem>
+		</ItemGroup>
+	</Target>
 </Project>

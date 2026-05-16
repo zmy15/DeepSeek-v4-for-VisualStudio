@@ -4,6 +4,8 @@ using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.View;
 using Microsoft.VisualStudio.Shell;
 using System;
+using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,6 +33,68 @@ namespace DeepSeek_v4_for_VisualStudio
         /// GUID as a static ref for use with LoadPackage.
         /// </summary>
         public static readonly Guid PackageGuid = new(PackageGuidString);
+
+        /// <summary>
+        /// 静态构造函数：注册 AssemblyResolve 以处理 VS2022 中 System.Memory 等
+        /// .NET Standard 桥接程序集的版本绑定问题。
+        /// Markdig 编译时引用 System.Memory 4.0.5.0，但实际部署的是 NuGet 版本
+        /// (4.5.5, 程序集版本 4.0.1.2)，需要通过此处理器完成运行时重定向。
+        /// </summary>
+        static DeepSeek_v4_for_VisualStudioPackage()
+        {
+            AppDomain.CurrentDomain.AssemblyResolve += ResolveSystemAssembly;
+        }
+
+        private static readonly string[] SystemAssemblyNames = new[]
+        {
+            "System.Memory",
+            "System.Buffers",
+            "System.Runtime.CompilerServices.Unsafe",
+            "System.Numerics.Vectors",
+            "System.Threading.Tasks.Extensions",
+            "System.ValueTuple",
+            "System.Diagnostics.DiagnosticSource",
+        };
+
+        private static Assembly? ResolveSystemAssembly(object sender, ResolveEventArgs args)
+        {
+            var requestName = new AssemblyName(args.Name);
+
+            // 只处理已知的 System.* 桥接程序集
+            if (Array.IndexOf(SystemAssemblyNames, requestName.Name) < 0)
+                return null;
+
+            // 首先尝试按简单名称加载（已加载的程序集）
+            try
+            {
+                return Assembly.Load(requestName.Name);
+            }
+            catch (FileNotFoundException)
+            {
+                // 未加载，尝试从扩展目录加载 DLL
+            }
+
+            // 从扩展安装目录加载
+            try
+            {
+                var extensionDir = Path.GetDirectoryName(
+                    Assembly.GetExecutingAssembly().Location);
+                if (extensionDir != null)
+                {
+                    var dllPath = Path.Combine(extensionDir, requestName.Name + ".dll");
+                    if (File.Exists(dllPath))
+                    {
+                        return Assembly.LoadFrom(dllPath);
+                    }
+                }
+            }
+            catch
+            {
+                // 静默失败，返回 null 让 CLR 走默认流程
+            }
+
+            return null;
+        }
 
         public DeepSeekOptionsPage Options => (DeepSeekOptionsPage)GetDialogPage(typeof(DeepSeekOptionsPage));
 

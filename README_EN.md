@@ -32,7 +32,7 @@ It's more than a chat window; it's a complete **AI workflow system**:
 - **1M Token Context** — Handle large codebases with intelligent compression that preserves information
 - **Three Editing Methods** — Patch / Insert / Create with four-level matching for precise application
 - **RAG Retrieval-Augmented Generation** — Pluggable knowledge base integration
-- **Three OCR Engines** — Read your error screenshots
+- **Dual OCR Engines** — Read your error screenshots
 
 ---
 
@@ -49,7 +49,7 @@ It's more than a chat window; it's a complete **AI workflow system**:
 | 🔍 **RAG Retrieval** | Pluggable provider interface · Smart caching · Auto-injected into conversation context |
 | 🌐 **Web Search** | Baidu Qianfan (1500 free/month) + DuckDuckGo dual engine · Auto fallback on quota exhaustion |
 | 📄 **File Parsing** | 50+ formats · Code/Docs/PDF/Word/Excel all supported · Drag & drop parsing |
-| 🖼️ **Image OCR** | Windows built-in · PaddleOCR ≥95% · MCP OCR three engines |
+| 🖼️ **Image OCR** | Windows built-in · MCP remote OCR dual engines |
 | 📊 **Code Diff Preview** | Red/green diff markers in editor · Accept/Undo per hunk · Apply all at once |
 | 💡 **Ghost Text Completion** | Inline grey predictions · Context-aware · Configurable debounce delay |
 | 💬 **Chat Window** | WebView2 rendering · Markdown/code highlighting · Multi-session persistence · Live plan display |
@@ -219,13 +219,12 @@ Support drag-and-drop or paste of **50+ file formats**, automatically extracting
 
 ## Image OCR
 
-Three OCR engines for different scenarios:
+Two OCR engines for different scenarios:
 
 | Engine | Chinese Accuracy | Setup Difficulty | Best For |
-|--------|-----------------|------------------|----------|
-| **Windows Built-in** | Average | Zero config | English screenshots, quick lookups |
-| **PaddleOCR-Sharp** | ≥95% | Auto-download model | Chinese error screenshots (recommended) |
-| **MCP OCR** | Depends on server | Requires server config | When you have a custom OCR service |
+|------|-----------|----------|----------|
+| **Windows Built-in** | Average | Zero-config | English screenshots, quick view |
+| **MCP OCR** | Depends on server | Requires server config | Chinese / high-accuracy OCR (recommended) |
 
 > 💡 Simply `Ctrl+V` paste an error screenshot — AI automatically recognizes the text and analyzes the problem without manually typing error messages.
 
@@ -301,7 +300,7 @@ Visit [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) �
 | Enable Deep Thinking | ✅ On | Show model's reasoning process |
 | Reasoning Effort | `high` | Reasoning depth (high / max) |
 | Search Provider | `Baidu Qianfan` | Recommended for China, 1500 free/month |
-| OCR Engine | `PaddleOCR-Sharp` | Best for Chinese text recognition |
+| OCR Engine | `Windows Built-in` | Zero-config ready to use |
 | Show Diff Markers | ✅ On | Preview changes before applying |
 | Copilot Enable | ✅ On | Inline code completion |
 | Token Budget | `900000` | 1M context upper limit |
@@ -490,7 +489,7 @@ Check that your API Key is correct: `Tools → Options → DeepSeek Chat → API
 <details>
 <summary><b>Q: OCR Chinese recognition is inaccurate?</b></summary>
 
-Switch the OCR engine to `PaddleOCR-Sharp` (`Tools → Options → DeepSeek Chat → OCR Engine`). The ChineseV5 model will be automatically downloaded on first use.
+Configure an MCP OCR server (e.g., paddleocr-mcp) for high-accuracy Chinese OCR. `Tools → Options → DeepSeek Chat → MCP Configuration`.
 </details>
 
 <details>
@@ -516,7 +515,7 @@ No conflict. This extension's Ghost Text completion is independent of GitHub Cop
 ## Acknowledgments
 
 - [DeepSeek](https://www.deepseek.com/) — Powerful AI model support
-- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) — Excellent OCR engine
+- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) — Excellent OCR engine (available via MCP protocol)
 - [Markdig](https://github.com/xoofx/markdig) — Fast Markdown parser
 
 ---
