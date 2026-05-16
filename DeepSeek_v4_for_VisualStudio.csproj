@@ -146,49 +146,4 @@
 			</VSIXSourceItem>
 		</ItemGroup>
 	</Target>
-  <ItemGroup>
-    <Folder Include="View\" />
-    <Folder Include="Services\" />
-    <Folder Include="Utils\" />
-    <Folder Include="Models\" />
-    <Folder Include="Settings\" />
-    <Folder Include="Commands\" />
-    <Folder Include="Resources\" />
-    <Folder Include="CodeCompletion\" />
-    <Folder Include="ToolWindows\" />
-  </ItemGroup>
-  <!-- 排除测试项目文件 -->
-  <ItemGroup>
-    <Compile Remove="DeepSeek_v4_for_VisualStudio.Tests\**\*.cs" />
-    <None Remove="DeepSeek_v4_for_VisualStudio.Tests\**\*" />
-  </ItemGroup>
-  <!-- 允许测试项目访问 internal 类型 -->
-  <ItemGroup>
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-      <_Parameter1>DeepSeek_v4_for_VisualStudio.Tests</_Parameter1>
-    </AssemblyAttribute>
-  </ItemGroup>
-  <ItemGroup>
-    <VSCTCompile Include="VSCommandTable.vsct">
-      <ResourceName>Menus.ctmenu</ResourceName>
-      <Generator>VsctGenerator</Generator>
-      <LastGenOutput>VSCommandTable.cs</LastGenOutput>
-    </VSCTCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="Resources\DeepSeekIcon.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <IncludeInVSIX>true</IncludeInVSIX>
-    </Content>
-    <Content Include="Resources\icon.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <IncludeInVSIX>true</IncludeInVSIX>
-    </Content>
-    <!-- Skill 定义文件（内置技能） -->
-    <Content Include="BuiltInSkills\**\*.*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <IncludeInVSIX>true</IncludeInVSIX>
-      <VSIXSubPath>BuiltInSkills</VSIXSubPath>
-    </Content>
-  </ItemGroup>
 </Project>
