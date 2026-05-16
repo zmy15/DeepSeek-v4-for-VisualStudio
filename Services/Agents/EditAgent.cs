@@ -771,13 +771,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 if (applyResult.Success)
                 {
-                    // ── 新文件：先加入项目，再写入内容 ──
-                    if (patch.Action == PatchFileAction.Add && !File.Exists(resolvedPath))
-                    {
-                        await AddFileToProjectAsync(resolvedPath, ct);
-                    }
-
-                    // ── 通过 VS SDK 写入文件（正确集成编辑器，避免外部变更弹窗和行尾不一致）──
+                    // ── 先通过 VS SDK 写入文件（文件必须存在才能加入项目）──
                     if (!string.IsNullOrEmpty(applyResult.FinalContent))
                     {
                         // ── 项目文件拦截：修改 .vcxproj/.sln 等前请求用户确认 ──
@@ -796,11 +790,33 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         }
                     }
 
-                    AddLog("INFO", $"✅ Patch 已应用: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑)");
-                    NotifyFileChange(plan.PlanId,
-                        patch.Action == PatchFileAction.Add ? "create" : "modify",
-                        resolvedPath,
-                        $"{applyResult.AppliedEdits.Count} 个编辑点");
+                    // ── 新文件：写入后再加入项目（AddFileToProjectAsync 要求文件已存在）──
+                    bool isNewFile = patch.Action == PatchFileAction.Add;
+                    if (isNewFile && File.Exists(resolvedPath))
+                    {
+                        await AddFileToProjectAsync(resolvedPath, ct);
+                    }
+
+                    if (applyResult.Success)
+                    {
+                        AddLog("INFO", $"✅ Patch 已应用: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑)");
+                        NotifyFileChange(plan.PlanId,
+                            isNewFile ? "create" : "modify",
+                            resolvedPath,
+                            $"{applyResult.AppliedEdits.Count} 个编辑点");
+
+                        // ── 更新 plan.ChangedFiles 确保文件计数正确 ──
+                        if (!plan.ChangedFiles.Any(c => string.Equals(c.FilePath, resolvedPath, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            plan.ChangedFiles.Add(new FileChangeSummary
+                            {
+                                FilePath = resolvedPath,
+                                LinesAdded = applyResult.AppliedEdits.Count,
+                                LinesRemoved = 0,
+                                BriefDescription = $"{Path.GetFileName(resolvedPath)} (Patch)",
+                            });
+                        }
+                    }
                 }
                 else
                 {
@@ -935,9 +951,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         }
                     }
 
-                    AddLog("INFO", $"✅ InsertEdit 已应用: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑)");
-                    NotifyFileChange(plan.PlanId, "modify", resolvedPath,
-                        $"{applyResult.AppliedEdits.Count} 个编辑点");
+                    if (applyResult.Success)
+                    {
+                        AddLog("INFO", $"✅ InsertEdit 已应用: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑)");
+                        NotifyFileChange(plan.PlanId, "modify", resolvedPath,
+                            $"{applyResult.AppliedEdits.Count} 个编辑点");
+
+                        // ── 更新 plan.ChangedFiles 确保文件计数正确 ──
+                        if (!plan.ChangedFiles.Any(c => string.Equals(c.FilePath, resolvedPath, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            plan.ChangedFiles.Add(new FileChangeSummary
+                            {
+                                FilePath = resolvedPath,
+                                LinesAdded = applyResult.AppliedEdits.Count,
+                                LinesRemoved = 0,
+                                BriefDescription = $"{Path.GetFileName(resolvedPath)} (InsertEdit)",
+                            });
+                        }
+                    }
                 }
                 else
                 {
@@ -1779,12 +1810,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         sb.AppendLine($"  - 结果: {step.ResultSummary}");
 
                     // ── 包含步骤的 AI 响应内容（截断），确保重启后编辑详情不丢失 ──
-                    if (!string.IsNullOrEmpty(step.AiResponse) && plan.ChangedFiles.Count == 0)
+                    // 使用 HTML <pre> 标签替代 markdown ``` 代码块，避免 AI 响应中的特殊字符
+                    //（如 @@、+、- 前缀）被 WebView markdown 解析器拆散为多个独立 code block
+                    if (!string.IsNullOrEmpty(step.AiResponse))
                     {
                         string truncated = step.AiResponse.Length > 2000
                             ? step.AiResponse.Substring(0, 2000) + "\n…(内容已截断)"
                             : step.AiResponse;
-                        sb.AppendLine($"  <details><summary>📝 AI 响应详情</summary>\n\n  ```\n{truncated}\n  ```\n  </details>");
+                        // HTML 转义：防止 </pre> 等标签破坏结构
+                        string escaped = System.Net.WebUtility.HtmlEncode(truncated);
+                        sb.AppendLine($"  <details><summary>📝 AI 响应详情</summary>\n\n  <pre style='max-height:300px;overflow:auto;background:#1e1e1e;color:#d4d4d4;padding:8px;border-radius:4px;font-size:12px;'>{escaped}</pre>\n  </details>");
                     }
                 }
                 sb.AppendLine();
