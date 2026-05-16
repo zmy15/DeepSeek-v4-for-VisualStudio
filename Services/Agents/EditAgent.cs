@@ -1810,16 +1810,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         sb.AppendLine($"  - 结果: {step.ResultSummary}");
 
                     // ── 包含步骤的 AI 响应内容（截断），确保重启后编辑详情不丢失 ──
-                    // 使用 HTML <pre> 标签替代 markdown ``` 代码块，避免 AI 响应中的特殊字符
-                    //（如 @@、+、- 前缀）被 WebView markdown 解析器拆散为多个独立 code block
+                    // Markdig 配置了 DisableHtml，不能使用 <details>/<pre> HTML 标签。
+                    // 使用纯 markdown ``` 代码块（去除缩进确保被识别为 fenced code block）。
                     if (!string.IsNullOrEmpty(step.AiResponse))
                     {
                         string truncated = step.AiResponse.Length > 2000
                             ? step.AiResponse.Substring(0, 2000) + "\n…(内容已截断)"
                             : step.AiResponse;
-                        // HTML 转义：防止 </pre> 等标签破坏结构
-                        string escaped = System.Net.WebUtility.HtmlEncode(truncated);
-                        sb.AppendLine($"  <details><summary>📝 AI 响应详情</summary>\n\n  <pre style='max-height:300px;overflow:auto;background:#1e1e1e;color:#d4d4d4;padding:8px;border-radius:4px;font-size:12px;'>{escaped}</pre>\n  </details>");
+                        // 安全处理：如果内容含 ``` ，用 ' ' (全角单引号) 替代防止破坏外层代码块
+                        string safeContent = truncated.Replace("```", "'''");
+                        sb.AppendLine();
+                        sb.AppendLine("**📝 AI 响应详情:**");
+                        sb.AppendLine();
+                        sb.AppendLine("```");
+                        sb.AppendLine(safeContent);
+                        sb.AppendLine("```");
                     }
                 }
                 sb.AppendLine();
