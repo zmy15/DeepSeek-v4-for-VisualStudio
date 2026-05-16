@@ -102,6 +102,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <IncludeInVSIX>true</IncludeInVSIX>
     </Content>
+    <Content Include="Resources\icon.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </Content>
     <!-- Skill 定义文件（内置技能） -->
     <Content Include="BuiltInSkills\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
