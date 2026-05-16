@@ -25,8 +25,33 @@ namespace DeepSeek_v4_for_VisualStudio.View
     {
         #region Core Messaging
 
-#pragma warning disable VSTHRD100
+#pragma warning disable VSTHRD100 // async void 用于 WPF 事件链，已通过双层 try-catch 加固异常安全
         private async void SendMessage()
+        {
+            try
+            {
+                await SendMessageCoreAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[Render] SendMessage 致命异常（async void 安全网）: {ex.Message}", ex);
+                lock (_lock) { _isGenerating = false; }
+                _currentStreamingCts?.Dispose();
+                _currentStreamingCts = null;
+                UpdateButtonsState();
+                try
+                {
+                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    StatusLabel.Text = $"发生错误: {ex.Message}";
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>
+        /// SendMessage 的核心异步逻辑，从 async void 中分离以加固异常边界。
+        /// </summary>
+        private async Task SendMessageCoreAsync()
         {
             lock (_lock)
             {
@@ -55,19 +80,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _isGenerating = true;
             }
 
-            try
+            // 斜杠命令处理
+            string? skillInstructions = null;
+            if (!string.IsNullOrEmpty(userText) && userText.StartsWith("/"))
             {
-                // 斜杠命令处理
-                string? skillInstructions = null;
-                if (!string.IsNullOrEmpty(userText) && userText.StartsWith("/"))
+                skillInstructions = await ResolveSlashCommandAsync(userText);
+                if (skillInstructions == null)
                 {
-                    skillInstructions = await ResolveSlashCommandAsync(userText);
-                    if (skillInstructions == null)
-                    {
-                        InputTextBox.Text = string.Empty;
-                        lock (_lock) { _isGenerating = false; }
-                        return;
-                    }
+                    InputTextBox.Text = string.Empty;
+                    lock (_lock) { _isGenerating = false; }
+                    return;
+                }
                 }
 
                 if (string.IsNullOrEmpty(userText) && !hasAttachments)
@@ -852,21 +875,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _currentStreamingCts = null;
                     UpdateButtonsState();
                 }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"[Render] SendMessage 未处理异常: {ex.Message}", ex);
-                lock (_lock) { _isGenerating = false; }
-                _currentStreamingCts?.Dispose();
-                _currentStreamingCts = null;
-                UpdateButtonsState();
-                try
-                {
-                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = $"发生错误: {ex.Message}";
-                }
-                catch { }
-            }
         }
 #pragma warning restore VSTHRD100
 
@@ -916,7 +924,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             try
             {
                 if (_skillDiscoveryResult == null)
-                    _skillDiscoveryResult = SkillService.Instance.DiscoverSkillsAsync(_solutionPath).Result;
+                    _skillDiscoveryResult = await SkillService.Instance.DiscoverSkillsAsync(_solutionPath);
                 skillContext = SkillService.Instance.GenerateSkillsDiscoveryContext(_skillDiscoveryResult);
             }
             catch (Exception ex) { Logger.Warn($"[Skill] 构建技能上下文失败: {ex.Message}"); }

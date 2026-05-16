@@ -45,7 +45,11 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
             }
 
             Logger.Info("[补全] 文本视图已创建，开始绑定");
-            DeepSeek_v4_for_VisualStudioPackage package = GetPackageAsync().Result;
+
+            // 使用 JoinableTaskFactory.Run 替代 .Result，避免 UI 线程死锁
+            // VsTextViewCreated 本身已在 UI 线程，JTF.Run 允许安全的同步等待
+            DeepSeek_v4_for_VisualStudioPackage package =
+                ThreadHelper.JoinableTaskFactory.Run(async () => await GetPackageAsync());
 
             if (package == null || package.Options == null)
             {
