@@ -650,9 +650,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             _estimatedTokens -= removedTokens;
 
-            // 本地生成摘要（同步，无 LLM 调用）
-            var summary = _compressor.CompressTurnsAsync(
-                entriesToCompress, 1, compressUpTo).GetAwaiter().GetResult();
+            // 本地生成摘要（同步，无 LLM 调用）。
+            // 使用 Task.Run 将压缩计算卸载到线程池，避免阻塞 UI 线程。
+            var summary = System.Threading.Tasks.Task.Run(() =>
+                _compressor.CompressTurnsAsync(
+                    entriesToCompress, 1, compressUpTo)).GetAwaiter().GetResult();
 
             Logger.Info($"[ContextManager] 同步压缩第 1-{compressUpTo} 轮: " +
                 $"{removedTokens} → {summary.CompressedTokens} tokens " +

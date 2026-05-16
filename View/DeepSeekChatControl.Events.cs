@@ -835,8 +835,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 if (_skillDiscoveryResult == null)
                 {
-                    // 同步获取（首次使用时已有缓存）
-                    _skillDiscoveryResult = SkillService.Instance.DiscoverSkillsAsync(_solutionPath).Result;
+                    // 后台异步加载技能缓存，不阻塞 UI 线程。
+                    // InitializeSkills() 已在启动时触发加载，此处为兜底路径。
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            _skillDiscoveryResult = await SkillService.Instance.DiscoverSkillsAsync(_solutionPath);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Warn($"[Skill] 后台技能发现失败: {ex.Message}");
+                        }
+                    });
+                    // 首次无缓存时关闭弹出框，下次输入时将命中缓存
+                    if (SkillSuggestionPopup.IsOpen)
+                        SkillSuggestionPopup.IsOpen = false;
+                    return;
                 }
 
                 var allSkills = _skillDiscoveryResult?.Skills ?? new List<SkillDefinition>();

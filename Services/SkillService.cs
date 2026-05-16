@@ -275,7 +275,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 发现内置技能（随扩展发布 + 硬编码内置技能）。
         /// </summary>
-        private Task<List<SkillDefinition>> DiscoverBuiltInSkillsAsync()
+        private async Task<List<SkillDefinition>> DiscoverBuiltInSkillsAsync()
         {
             var skills = new List<SkillDefinition>();
 
@@ -289,8 +289,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     var builtInRoot = Path.Combine(extensionPath, "BuiltInSkills");
                     if (Directory.Exists(builtInRoot))
                     {
-                        // 同步等待（内置技能数量少，不需要异步）
-                        var discovered = DiscoverInSkillsRootAsync(builtInRoot, SkillSource.BuiltIn).Result;
+                        var discovered = await DiscoverInSkillsRootAsync(builtInRoot, SkillSource.BuiltIn);
                         skills.AddRange(discovered);
                     }
                 }
@@ -311,7 +310,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Logger.Error($"[SkillService] 内置技能发现失败: {ex.Message}");
             }
 
-            return Task.FromResult(skills);
+            return skills;
         }
 
         #endregion
