@@ -175,8 +175,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "- 每个文件可以有多个 @@ hunk\n" +
                 "- 文件重命名用 *** Move to: <new path>\n" +
                 "- 多个文件用多个独立的 Begin/End Patch 块\n\n" +
-                "### 方法2：insert_edit_into_file（适合多处修改）\n" +
-                "输出完整文件内容，未修改区域用标记占位：\n" +
+                "### 方法2：insert_edit_into_file（适合多处修改，大部分代码不变）\n" +
+                "输出完整文件内容，**未修改的区域必须用 ...existing code... 标记占位**：\n" +
                 "```insert_edit_into_file:完整/绝对/路径\n" +
                 "class Person {\n" +
                 "    // ...existing code...\n" +
@@ -188,23 +188,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "}\n" +
                 "```\n" +
                 "- 使用 ```insert_edit_into_file: 或 ```edit: 包裹\n" +
-                "- // ...existing code... 是固定的省略标记（也支持 # ...existing code... 和 <!-- ...existing code... -->）\n" +
-                "- 标记之间是你需要修改的代码段（含上下文，确保能精确定位）\n\n" +
-                "### 方法3：create_file / delete_file（新建/删除文件）\n" +
-                "新建文件使用 ```file: 格式（已有支持）：\n" +
+                "- **必须有** // ...existing code... 标记（也支持 # ...existing code... 和 <!-- ...existing code... -->）\n" +
+                "- 标记之间是你需要修改的代码段（含上下文，确保能精确定位）\n" +
+                "- **重要**：这是一个文本格式，不是工具调用 —— 直接在回复中输出代码块即可\n\n" +
+                "### 方法3：create_file / delete_file（新建文件 / 完全重写文件）\n" +
+                "新建文件或**完全替换文件内容**使用 ```file: 格式（已有支持）：\n" +
                 "```file:完整/绝对/路径\n" +
                 "// 完整的新文件内容\n" +
                 "```\n" +
+                "- **当整个文件的内容都要替换时，必须用 create_file 格式，不要用 insert_edit_into_file**\n" +
                 "删除文件使用：\n" +
                 "delete:完整/绝对/路径\n" +
                 "或\n" +
                 "delete_file:完整/绝对/路径\n\n" +
                 "## 方法选择指南\n" +
-                "- **小范围修改（1-3处）**：优先用 apply_patch\n" +
-                "- **跨文件多处修改**：每个文件用独立的 apply_patch 块\n" +
+                "- **小范围修改（1-3处局部改动）**：优先用 apply_patch\n" +
+                "- **多处修改但大部分代码不变**：用 insert_edit_into_file（必须带 ...existing code... 标记）\n" +
                 "- **新文件创建**：用 create_file (```file: 格式)\n" +
-                "- **大面积重构**：考虑 insert_edit_into_file\n" +
-                "- **文件删除**：用 delete: 格式\n\n" +
+                "- **完全重写文件（新旧内容完全不同）**：用 create_file 格式，不要用 insert_edit_into_file\n" +
+                "- **文件删除**：用 delete: 格式\n" +
+                "- **重要提醒**：以上三种都是文本格式，在回复中直接输出即可，不要作为工具调用\n\n" +
                 "## 步骤执行\n" +
                 "- 严格按照计划步骤顺序执行\n" +
                 "- 每步完成报告进度\n" +
@@ -891,7 +894,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         applyResult = await _editPatchService.ApplyInsertEditAsync(correctedEdit, workspaceRoot, ct);
 
                         // ── 兜底：Healing 修正后仍失败 → 尝试作为 create_file 写入完整内容 ──
-                        if (!applyResult.Success && !string.IsNullOrEmpty(applyResult.FinalContent))
+                        // 优先使用 applyResult.FinalContent（匹配成功时有值），
+                        // 其次使用 healing 修正后的内容（全替换场景下 FinalContent 可能为 null）
+                        string? fallbackContent = applyResult.FinalContent;
+                        if (string.IsNullOrEmpty(fallbackContent))
+                            fallbackContent = healingResponse.CorrectedInsertEditContent;
+                        if (string.IsNullOrEmpty(fallbackContent))
+                            fallbackContent = edit.FullContent;
+
+                        if (!applyResult.Success && !string.IsNullOrEmpty(fallbackContent))
                         {
                             AddLog("WARN", $"[EditAgent] Healing 修正后仍失败 ({applyResult.ErrorMessage})，启用 create_file 兜底写入...");
                             try
@@ -902,7 +913,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                 if (fallbackAllowed)
                                 {
                                     await TerminalWindowHelper.WriteCodeToFileAsync(
-                                        applyResult.FilePath, applyResult.FinalContent!);
+                                        applyResult.FilePath, fallbackContent!);
                                     applyResult.Success = true;
                                     AddLog("INFO", $"[EditAgent] ✅ create_file 兜底成功: {resolvedPath}");
                                 }
