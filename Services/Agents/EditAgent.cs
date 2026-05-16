@@ -562,15 +562,39 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 处理文件删除（delete: 格式，原有逻辑）──
             await ProcessFileDeletionsAsync(result, plan, context, ct);
 
-            // ── 收集所有变更到 changes 列表 ──
+            // ── 收集所有变更到 changes 列表（使用真实行数差异而非编辑块数量）──
             changes = appliedResults
                 .Where(r => r.Success)
-                .Select(r => new FileChangeSummary
+                .Select(r =>
                 {
-                    FilePath = r.FilePath,
-                    LinesAdded = r.AppliedEdits.Count,
-                    LinesRemoved = 0,
-                    BriefDescription = $"{Path.GetFileName(r.FilePath)} ({r.OperationType})",
+                    // 从 originalContents 计算真实行数变化
+                    int realAdded = 0;
+                    int realRemoved = 0;
+                    if (originalContents.TryGetValue(r.FilePath, out string? original))
+                    {
+                        string final = File.Exists(r.FilePath)
+                            ? File.ReadAllText(r.FilePath)
+                            : (r.FinalContent ?? string.Empty);
+                        int origLines = CountLines(original);
+                        int finalLines = CountLines(final);
+                        if (finalLines > origLines)
+                            realAdded = finalLines - origLines;
+                        else if (origLines > finalLines)
+                            realRemoved = origLines - finalLines;
+                    }
+                    else
+                    {
+                        // 新文件：用原始编辑块数作为近似值
+                        realAdded = r.AppliedEdits.Count;
+                    }
+
+                    return new FileChangeSummary
+                    {
+                        FilePath = r.FilePath,
+                        LinesAdded = realAdded,
+                        LinesRemoved = realRemoved,
+                        BriefDescription = $"{Path.GetFileName(r.FilePath)} ({r.OperationType})",
+                    };
                 })
                 .Union(plan.ChangedFiles)
                 .ToList();
@@ -578,6 +602,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             step.ResultSummary = changes.Count > 0
                 ? $"修改 {changes.Count} 个文件（格式: {operationType}）"
                 : $"未检测到文件变更（格式: {operationType}，已尝试匹配并应用编辑）";
+
+            // ── 编辑后健全性检查：检测括号不匹配等常见问题 ──
+            string? sanityWarnings = null;
+            if (changes.Count > 0)
+            {
+                var warnings = new List<string>();
+                foreach (var ch in changes)
+                {
+                    if (!File.Exists(ch.FilePath)) continue;
+                    string content = await Task.Run(() => File.ReadAllText(ch.FilePath), ct);
+                    int openBraces = content.Count(c => c == '{');
+                    int closeBraces = content.Count(c => c == '}');
+                    int openParens = content.Count(c => c == '(');
+                    int closeParens = content.Count(c => c == ')');
+                    if (openBraces != closeBraces)
+                        warnings.Add($"`{Path.GetFileName(ch.FilePath)}`: {{ {openBraces} vs }} {closeBraces} (差 {openBraces - closeBraces})");
+                    if (openParens != closeParens)
+                        warnings.Add($"`{Path.GetFileName(ch.FilePath)}`: ( {openParens} vs ) {closeParens} (差 {openParens - closeParens})");
+                }
+                if (warnings.Count > 0)
+                {
+                    sanityWarnings = string.Join("; ", warnings);
+                    AddLog("WARN", $"⚠️ 括号/括号不匹配: {sanityWarnings}");
+                }
+            }
 
             // ── 编译验证阶段（AI 可使用完整 EditTools，包括 build_solution）──
             if (changes.Count > 0 && !ct.IsCancellationRequested && !context.IsPlanningMode)
@@ -589,7 +638,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // ── 注入工作区根目录信息，防止 AI 在验证阶段幻觉出错误路径 ──
                 string verifySystemPrompt =
                     "你是代码编译验证助手。你的唯一任务是编译验证已修改的代码。\n" +
-                    "不要重新探索代码库——代码已经修改完毕，直接编译验证。\n" +
                     "如果编译失败，读取错误涉及的文件（仅相关行），修复后重新编译。\n" +
                     "不要使用 file_search / list_dir / grep_search 等探索工具。\n" +
                     "不要输出 apply_patch 文本格式——它是一个文本格式而非工具，请使用 replace_string_in_file 工具直接修改文件。\n" +
@@ -615,8 +663,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     verifySystemPrompt,
                     "## 代码修改已完成\n\n" +
                     $"已修改 {changes.Count} 个文件：{string.Join(", ", changes.Select(c => Path.GetFileName(c.FilePath)))}\n\n" +
+                    (sanityWarnings != null
+                        ? $"⚠️ **编辑后健全性检查发现可能的问题**: {sanityWarnings}\n" +
+                          $"请在验证时重点检查这些文件的括号/圆括号是否匹配，必要时用 read_file 查看文件末尾附近。\n\n"
+                        : "") +
                     "请立即执行以下操作：\n" +
-                    "1. 第一步就调用 build_solution 工具编译验证（不要先读文件！代码已经正确修改了）\n" +
+                    "1. 第一步就调用 build_solution 工具编译验证\n" +
                     "2. 如果编译失败，用 read_file 读取报错文件的相关行，用 replace_string_in_file 直接修复\n" +
                     "3. 修复后重新调用 build_solution 验证，直到编译通过，除非遇到无法修复的问题\n" +
                     "4. 编译通过后简短报告结果即可\n\n" +
@@ -808,14 +860,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             resolvedPath,
                             $"{applyResult.AppliedEdits.Count} 个编辑点");
 
-                        // ── 更新 plan.ChangedFiles 确保文件计数正确 ──
+                        // ── 更新 plan.ChangedFiles 确保文件计数正确（计算真实行数变化）──
                         if (!plan.ChangedFiles.Any(c => string.Equals(c.FilePath, resolvedPath, StringComparison.OrdinalIgnoreCase)))
                         {
+                            int added = 0, removed = 0;
+                            if (originalContents.TryGetValue(resolvedPath, out string? orig))
+                            {
+                                string final = applyResult.FinalContent ?? orig;
+                                int origLines = CountLines(orig);
+                                int finalLines = CountLines(final);
+                                if (finalLines > origLines) added = finalLines - origLines;
+                                else if (origLines > finalLines) removed = origLines - finalLines;
+                            }
+                            else { added = applyResult.AppliedEdits.Count; }
+
                             plan.ChangedFiles.Add(new FileChangeSummary
                             {
                                 FilePath = resolvedPath,
-                                LinesAdded = applyResult.AppliedEdits.Count,
-                                LinesRemoved = 0,
+                                LinesAdded = added,
+                                LinesRemoved = removed,
                                 BriefDescription = $"{Path.GetFileName(resolvedPath)} (Patch)",
                             });
                         }
@@ -968,14 +1031,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         NotifyFileChange(plan.PlanId, "modify", resolvedPath,
                             $"{applyResult.AppliedEdits.Count} 个编辑点");
 
-                        // ── 更新 plan.ChangedFiles 确保文件计数正确 ──
+                        // ── 更新 plan.ChangedFiles 确保文件计数正确（计算真实行数变化）──
                         if (!plan.ChangedFiles.Any(c => string.Equals(c.FilePath, resolvedPath, StringComparison.OrdinalIgnoreCase)))
                         {
+                            int added = 0, removed = 0;
+                            if (originalContents.TryGetValue(resolvedPath, out string? orig))
+                            {
+                                string final = applyResult.FinalContent ?? orig;
+                                int origLines = CountLines(orig);
+                                int finalLines = CountLines(final);
+                                if (finalLines > origLines) added = finalLines - origLines;
+                                else if (origLines > finalLines) removed = origLines - finalLines;
+                            }
+                            else { added = applyResult.AppliedEdits.Count; }
+
                             plan.ChangedFiles.Add(new FileChangeSummary
                             {
                                 FilePath = resolvedPath,
-                                LinesAdded = applyResult.AppliedEdits.Count,
-                                LinesRemoved = 0,
+                                LinesAdded = added,
+                                LinesRemoved = removed,
                                 BriefDescription = $"{Path.GetFileName(resolvedPath)} (InsertEdit)",
                             });
                         }
@@ -1820,13 +1894,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (!string.IsNullOrEmpty(step.ResultSummary))
                         sb.AppendLine($"  - 结果: {step.ResultSummary}");
 
-                    // ── 包含步骤的 AI 响应内容（截断），确保重启后编辑详情不丢失 ──
+                    // ── 包含步骤的 AI 响应内容（可滚动代码块，不截断）──
                     // Markdig 配置了 DisableHtml，不能使用 <details>/<pre> HTML 标签。
                     // 使用纯 markdown ``` 代码块（去除缩进确保被识别为 fenced code block）。
                     if (!string.IsNullOrEmpty(step.AiResponse))
                     {
-                        string truncated = step.AiResponse.Length > 2000
-                            ? step.AiResponse.Substring(0, 2000) + "\n…(内容已截断)"
+                        // 大幅提高截断上限，绝大多数响应不会被截断
+                        const int maxLen = 50000;
+                        string truncated = step.AiResponse.Length > maxLen
+                            ? step.AiResponse.Substring(0, maxLen) + "\n…(内容已截断，共 " + step.AiResponse.Length + " 字符)"
                             : step.AiResponse;
                         // 安全处理：如果内容含 ``` ，用 ' ' (全角单引号) 替代防止破坏外层代码块
                         string safeContent = truncated.Replace("```", "'''");

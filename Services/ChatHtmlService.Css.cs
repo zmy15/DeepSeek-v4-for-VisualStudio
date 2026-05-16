@@ -29,7 +29,7 @@ a:hover{text-decoration:underline}
 strong,b{color:#E8E8E8;font-weight:600}
 em,i{font-style:italic;color:#C8C8C8}
 code{background-color:#2D2D2D;color:#CE9178;padding:1px 5px;border-radius:3px;font-family:'Cascadia Code',Consolas,monospace;font-size:0.92em}
-pre{background-color:#252526;border-radius:6px;padding:28px 12px 10px 12px;margin:8px 0;overflow-x:auto;font-size:0.9em;line-height:1.5;position:relative}
+pre{background-color:#252526;border-radius:6px;padding:28px 12px 10px 12px;margin:8px 0;overflow-x:auto;overflow-y:auto;max-height:500px;font-size:0.9em;line-height:1.5;position:relative}
 pre code{background:transparent;color:#D4D4D4;padding:0;font-size:inherit;white-space:pre;display:block}
 ul,ol{padding-left:24px;margin:6px 0}
 li{margin:2px 0}
