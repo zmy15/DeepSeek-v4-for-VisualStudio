@@ -101,20 +101,10 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [DisplayName("OCR Engine")]
         [Description("选择图像 OCR 引擎:\n" +
                      "  • Windows Built-in — 系统内置，无需配置，准确率一般\n" +
-                     "  • PaddleOCR-Sharp — 深度学习引擎，中文准确率 ≥95%\n" +
-                     "    使用包自带 ChineseV5 本地模型，无需额外下载")]
+                     "  • 通过 MCP 协议使用远程 OCR 服务")]
         [TypeConverter(typeof(OcrEngineConverter))]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public string OcrEngine { get; set; } = "Windows Built-in";
-
-        [Category("OCR Settings")]
-        [DisplayName("📥 PaddleOCR Model Information")]
-        [Description("PaddleOCR 现使用 Sdcb.PaddleOCR 包自带 ChineseV5 本地模型。\n" +
-                     "无需手动下载推理模型，模型文件随 NuGet 包自动部署。\n" +
-                     "GitHub: https://github.com/sdcb/Sdcb.PaddleOCR")]
-        [Editor(typeof(DownloadLinkEditor), typeof(UITypeEditor))]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-        public string PaddleOcrInfoLink => "https://github.com/sdcb/Sdcb.PaddleOCR";
 
         // ═══════════════════════════════════════════════
         //  代码补全（幽灵文本）设置
@@ -231,12 +221,12 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     }
 
     /// <summary>
-    /// OCR 引擎下拉选项。
+    /// OCR 引擎下拉选项（PaddleOCR-Sharp 已移除以减小包体，仍可通过 MCP 使用远程 OCR）。
     /// </summary>
     internal class OcrEngineConverter : StringConverter
     {
         public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
-            => new(new[] { "Windows Built-in", "PaddleOCR-Sharp" });
+            => new(new[] { "Windows Built-in" });
     }
 }

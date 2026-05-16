@@ -406,42 +406,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 Logger.Info($"[OCR] 开始初始化，用户选择引擎: {_options.OcrEngine}");
 
-                // 设置 OCR 引擎类型
-                OcrService.CurrentEngine = _options.OcrEngine switch
-                {
-                    "PaddleOCR-Sharp" => OcrEngineType.PaddleOCR,
-                    _ => OcrEngineType.WindowsBuiltIn,
-                };
+                // 设置 OCR 引擎类型（PaddleOCR-Sharp 已移除）
+                OcrService.CurrentEngine = OcrEngineType.WindowsBuiltIn;
                 Logger.Info($"[OCR] 引擎类型已设置: {OcrService.CurrentEngine}");
 
-                // 设置插件根目录（用于 DLL 搜索路径）
-                if (_package != null)
-                {
-                    try
-                    {
-                        string? pluginRoot = System.IO.Path.GetDirectoryName(
-                            typeof(DeepSeek_v4_for_VisualStudioPackage).Assembly.Location);
-                        OcrService.PluginRootPath = pluginRoot;
-                        Logger.Info($"[OCR] 插件根目录: {pluginRoot}");
-
-                        // 将插件目录加入 Windows DLL 搜索路径（解决原生 DLL 加载问题）
-                        OcrService.EnsureNativeDllSearchPath();
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Info($"[OCR] 无法获取插件根目录: {ex.Message}");
-                    }
-                }
-
-                // 检查引擎状态（此调用可能触发程序集加载，已做防护）
+                // 检查引擎状态
                 string status = OcrService.GetEngineStatus();
                 bool ready = OcrService.IsEngineReady();
                 Logger.Info($"[OCR] 引擎状态: {status}, 就绪={ready}");
-
-                if (!ready && _options.OcrEngine != "Windows Built-in")
-                {
-                    Logger.Info($"[OCR] ⚠️ 所选引擎未就绪: {_options.OcrEngine}，将自动回退到 Windows 内置 OCR");
-                }
             }
             catch (Exception ex)
             {
@@ -633,8 +605,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
             }
 
-            // ── 校验 OCR 引擎状态 ──
-            if (_options != null && _options.OcrEngine != "Windows Built-in")
+            // ── 校验 OCR 引擎状态（PaddleOCR 已移除，仅检查 Windows 内置 OCR）──
             {
                 bool ocrReady = OcrService.IsEngineReady();
                 string ocrStatus = OcrService.GetEngineStatus();
@@ -643,7 +614,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (!ocrReady)
                 {
                     await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = $"⚠️ OCR 引擎未就绪: {_options.OcrEngine}。请检查模型文件路径。";
+                    StatusLabel.Text = "⚠️ Windows 内置 OCR 不可用。请检查系统语言包设置。";
                 }
             }
         }
