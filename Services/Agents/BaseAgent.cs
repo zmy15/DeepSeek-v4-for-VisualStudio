@@ -90,7 +90,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var sb = new StringBuilder();
             await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct))
             {
-                if (!chunk.StartsWith("[THINKING]") && !chunk.StartsWith("[TOOL_CALL]"))
+                if (IsContentChunk(chunk))
                     sb.Append(chunk);
             }
             LogCacheHitRate();
@@ -107,7 +107,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var sb = new StringBuilder();
             await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct))
             {
-                if (!chunk.StartsWith("[THINKING]") && !chunk.StartsWith("[TOOL_CALL]"))
+                if (IsContentChunk(chunk))
                     sb.Append(chunk);
             }
             LogCacheHitRate();
@@ -145,7 +145,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var sb = new StringBuilder();
             await foreach (var chunk in _apiService.ChatStreamAsync(history, null, ct))
             {
-                if (!chunk.StartsWith("[THINKING]") && !chunk.StartsWith("[TOOL_CALL]"))
+                if (IsContentChunk(chunk))
                     sb.Append(chunk);
             }
             LogCacheHitRate();
@@ -162,7 +162,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var sb = new StringBuilder();
             await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct))
             {
-                if (!chunk.StartsWith("[THINKING]") && !chunk.StartsWith("[TOOL_CALL]"))
+                if (IsContentChunk(chunk))
                     sb.Append(chunk);
             }
             LogCacheHitRate();
@@ -381,6 +381,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         string toolSummary = string.Join(", ", toolNames);
                         onToolCall?.Invoke(toolSummary);
                     }
+                    else if (chunk.StartsWith("[CACHE]"))
+                    {
+                        // ── Cache 统计信息 ── 过滤，不混入正文
+                        // 累计统计在流结束后通过 GetTotalCacheHitSummary 输出
+                    }
                     else
                     {
                         contentBuilder.Append(chunk);
@@ -511,6 +516,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 汇总累计 Cache 统计 ──
             LogTotalCacheHitRate(round);
 
+            // ── 将累计 Cache 统计追加到正文末尾（用户可见）──
+            string cacheSummary = GetTotalCacheHitSummary(round);
+            if (!string.IsNullOrEmpty(cacheSummary))
+                contentBuilder.Append(cacheSummary);
+
             return contentBuilder.ToString().Trim();
         }
 
@@ -576,6 +586,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
+        /// 生成累计 Cache 命中率摘要文本（用于附加到 AI 响应末尾，用户可见）。
+        /// </summary>
+        private string GetTotalCacheHitSummary(int finalRound)
+        {
+            try
+            {
+                long totalHit = _apiService?.TotalCacheHitTokens ?? 0;
+                long totalMiss = _apiService?.TotalCacheMissTokens ?? 0;
+                long totalCacheable = totalHit + totalMiss;
+                if (totalCacheable == 0) return string.Empty;
+
+                double rate = (double)totalHit / totalCacheable;
+                string icon = rate >= 0.95 ? "🟢" : rate >= 0.70 ? "🟡" : rate >= 0.30 ? "🟠" : "🔴";
+                long totalPrompt = _apiService?.TotalPromptTokens ?? 0;
+                long totalCompletion = _apiService?.TotalCompletionTokens ?? 0;
+
+                return $"\n\n---\n\n{icon} **Cache 命中率: {rate * 100:F1}%**" +
+                    $" · {totalHit:N0} 命中 / {totalMiss:N0} 未命中" +
+                    $" · Prompt {totalPrompt:N0} · Completion {totalCompletion:N0}" +
+                    (finalRound > 1 ? $" · {finalRound} 轮" : "");
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
         /// 执行单个工具调用（优先内置工具，其次 MCP 工具）。
         /// </summary>
         private async Task<string> ExecuteToolAsync(string toolName, string argumentsJson, string? workspaceRoot, CancellationToken ct)
@@ -607,6 +645,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         #endregion
 
         #region Shared Utility Methods
+
+        /// <summary>
+        /// 判断 chunk 是否为正文内容（过滤 [THINKING]/[TOOL_CALL]/[CACHE] 等控制前缀）。
+        /// </summary>
+        private static bool IsContentChunk(string chunk)
+        {
+            return !chunk.StartsWith("[THINKING]")
+                && !chunk.StartsWith("[TOOL_CALL]")
+                && !chunk.StartsWith("[CACHE]");
+        }
 
         /// <summary>
         /// 从 AI 返回结果中提取 JSON（可能被 markdown 代码块包裹）。
