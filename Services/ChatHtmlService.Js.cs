@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
 {
@@ -88,7 +88,6 @@ window.decorateCodeBlocks=function(container){{
         pre.appendChild(applyBtn);
     }});
 }};";
-";
         }
 
         private static string BuildDecorateAllCodeBlocksInvocation()
