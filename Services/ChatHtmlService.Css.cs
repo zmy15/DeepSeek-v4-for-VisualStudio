@@ -237,6 +237,23 @@ img{max-width:100%}
 .cache-stat-card .cache-bar-fill.medium{background:linear-gradient(90deg,#C8A84E,#8A7A3A)}
 .cache-stat-card .cache-bar-fill.low{background:linear-gradient(90deg,#E07878,#8A3A3A)}
 .cache-stat-card .cache-saved{color:#666;font-size:10px;white-space:nowrap}
+
+/* ── 终端命令审批卡片 ── */
+.terminal-approval-card{margin:8px 0;border:1px solid #CEA85C;border-radius:8px;background:#2E2A1A;overflow:hidden;animation:fadeIn .3s}
+.terminal-approval-card-header{padding:8px 12px;background:#3E2A1A;border-bottom:1px solid #5A3A2A;display:flex;align-items:center;gap:8px}
+.terminal-approval-card-header .icon{font-size:16px}
+.terminal-approval-card-header .title{color:#CEA85C;font-size:13px;font-weight:700}
+.terminal-approval-card-body{padding:10px 12px}
+.terminal-approval-card-body .warning-text{color:#D4C0A0;font-size:12px;margin-bottom:6px;line-height:1.5}
+.terminal-approval-card-body .cmd-detail{color:#C8C8C8;font-size:11px;margin-bottom:8px;line-height:1.5}
+.terminal-approval-card-body .cmd-block{background:#1A1A0E;color:#CEA85C;padding:8px 10px;border-radius:4px;font-size:12px;font-family:'Cascadia Code',Consolas,monospace;margin:4px 0 8px 0;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto}
+.terminal-approval-card-body .cmd-explanation{color:#A0A0A0;font-size:11px;font-style:italic;margin-bottom:8px;line-height:1.4}
+.terminal-approval-card-footer{display:flex;gap:8px;padding:8px 12px;border-top:1px solid #3A2A1A}
+.terminal-approval-card-footer button{padding:5px 18px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s;border:none}
+.terminal-approval-btn-allow{background:#2E7D32;color:#E0FFE0;border:1px solid #4CAF50 !important}
+.terminal-approval-btn-allow:hover{background:#388E3C;color:#FFF}
+.terminal-approval-btn-skip{background:#3C3C3C;color:#CCC;border:1px solid #555 !important}
+.terminal-approval-btn-skip:hover{background:#4A4A4A;color:#FFF}
 ";
 
 private const string AiAvatarHtml = "<span class='avatar avatar-ai'>AI</span>";

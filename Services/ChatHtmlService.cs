@@ -1043,6 +1043,56 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 构建终端命令审批 UI 的 JS 脚本（在聊天底部注入命令详情 + 允许/跳过按钮）。
+        /// </summary>
+        /// <param name="request">权限请求，其 ActionType 应为 "terminal_command"，
+        /// Title 为"运行 pwsh 命令?"，Command 为实际命令，FilePaths[0] 为命令说明。</param>
+        public static string BuildTerminalApprovalJs(AgentPermissionRequest request)
+        {
+            string escapedRequestId = EscapeJsString(request.RequestId);
+            string escapedTitle = EscapeJsString(request.Title);
+            string escapedCommand = EscapeJsString(request.Command);
+            string explanation = (request.FilePaths != null && request.FilePaths.Count > 0)
+                ? request.FilePaths[0] : string.Empty;
+            string escapedExplanation = EscapeJsString(explanation);
+
+            string cardInnerHtml =
+                "<div class=\"terminal-approval-card-header\">" +
+                "<span class=\"icon\">🖥️</span>" +
+                "<span class=\"title\">" + EscapeHtml(request.Title) + "</span>" +
+                "</div>" +
+                "<div class=\"terminal-approval-card-body\">" +
+                "<div class=\"warning-text\">⚠️ AI 请求在终端中执行以下命令，请确认后继续：</div>" +
+                "<div class=\"cmd-block\">" + EscapeHtml(request.Command) + "</div>" +
+                (!string.IsNullOrEmpty(explanation)
+                    ? "<div class=\"cmd-explanation\">📝 " + EscapeHtml(explanation) + "</div>"
+                    : "") +
+                "<div class=\"warning-text\" style=\"color:#CEA85C;font-weight:600\">此命令将修改系统状态，是否允许执行？</div>" +
+                "</div>" +
+                "<div class=\"terminal-approval-card-footer\">" +
+                $"<button class=\"terminal-approval-btn-allow\" onclick=\"window.__terminalApprove('{EscapeHtmlAttribute(request.RequestId)}')\">✅ 允许</button>" +
+                $"<button class=\"terminal-approval-btn-skip\" onclick=\"window.__terminalSkip('{EscapeHtmlAttribute(request.RequestId)}')\">⏭️ 跳过</button>" +
+                "</div>";
+
+            string escapedInnerHtml = EscapeJsString(cardInnerHtml);
+
+            return $@"
+(function(){{
+    var existing=document.getElementById('terminal-approval');
+    if(existing)existing.remove();
+
+    var div=document.createElement('div');
+    div.id='terminal-approval';
+    div.className='terminal-approval-card';
+    div.innerHTML={escapedInnerHtml};
+
+    var container=document.getElementById('chat-container');
+    if(container)container.appendChild(div);
+    window.scrollTo({{top:document.body.scrollHeight,behavior:'smooth'}});
+}})();";
+        }
+
+        /// <summary>
         /// 转义 HTML 属性值中的引号字符。
         /// </summary>
         private static string EscapeHtmlAttribute(string value)

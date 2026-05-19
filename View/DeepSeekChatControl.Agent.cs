@@ -785,6 +785,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// Agent 权限请求回调：在 WebView 中注入确认/拒绝按钮。
         /// 针对不同 ActionType 渲染不同的 UI：
         /// - "file_delete" → 文件删除确认卡片（含文件列表、确认/取消按钮）
+        /// - "terminal_command" → 终端命令审批卡片（含命令详情、允许/跳过按钮）
         /// - 其他 → 通用权限确认弹窗
         /// </summary>
         private void OnAgentPermissionRequested(AgentPermissionRequest request)
@@ -801,6 +802,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         js = ChatHtmlService.BuildFileDeleteConfirmationJs(request);
                         StatusLabel.Text = $"🗑️ 等待确认删除: {request.Title}";
+                    }
+                    else if (request.ActionType == "terminal_command")
+                    {
+                        js = ChatHtmlService.BuildTerminalApprovalJs(request);
+                        StatusLabel.Text = $"🖥️ 等待终端命令审批: {request.Command}";
                     }
                     else
                     {

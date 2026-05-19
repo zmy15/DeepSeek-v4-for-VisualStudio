@@ -1584,6 +1584,51 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                         });
                     }
+                    // ── 终端命令审批 ──
+                    else if (type == "terminalApprove")
+                    {
+                        string requestId = obj.TryGetProperty("requestId", out var termReqIdProp)
+                            ? termReqIdProp.GetString() ?? string.Empty : string.Empty;
+                        _agentDispatcher?.RespondToPermission(requestId, true);
+
+                        // 移除审批 UI
+                        _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+                        {
+                            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                            if (ChatWebView.CoreWebView2 != null)
+                            {
+                                try
+                                {
+                                    await ChatWebView.CoreWebView2.ExecuteScriptAsync(
+                                        "var p=document.getElementById('terminal-approval');if(p)p.remove();");
+                                    StatusLabel.Text = "✅ 终端命令已批准执行";
+                                }
+                                catch { }
+                            }
+                        });
+                    }
+                    else if (type == "terminalSkip")
+                    {
+                        string requestId = obj.TryGetProperty("requestId", out var termSkipReqIdProp)
+                            ? termSkipReqIdProp.GetString() ?? string.Empty : string.Empty;
+                        _agentDispatcher?.RespondToPermission(requestId, false);
+
+                        // 移除审批 UI
+                        _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+                        {
+                            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                            if (ChatWebView.CoreWebView2 != null)
+                            {
+                                try
+                                {
+                                    await ChatWebView.CoreWebView2.ExecuteScriptAsync(
+                                        "var p=document.getElementById('terminal-approval');if(p)p.remove();");
+                                    StatusLabel.Text = "⏭️ 已跳过终端命令";
+                                }
+                                catch { }
+                            }
+                        });
+                    }
                     else if (type == "fileDeleteConfirm")
                     {
                         string requestId = obj.TryGetProperty("requestId", out var delReqIdProp)

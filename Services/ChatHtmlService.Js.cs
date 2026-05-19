@@ -182,6 +182,12 @@ window.__fileDeleteConfirm=function(requestId){
 window.__fileDeleteCancel=function(requestId){
     window.__sendToHost({type:'fileDeleteConfirm',requestId:requestId,confirmed:false});
 };
+window.__terminalApprove=function(requestId){
+    window.__sendToHost({type:'terminalApprove',requestId:requestId});
+};
+window.__terminalSkip=function(requestId){
+    window.__sendToHost({type:'terminalSkip',requestId:requestId});
+};
 window.__executeHandoff=function(targetAgent,label){
     window.__sendToHost({type:'executeHandoff',targetAgent:targetAgent,label:label});
 };";

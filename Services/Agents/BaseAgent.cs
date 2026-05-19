@@ -654,9 +654,33 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 执行单个工具调用（优先内置工具，其次 MCP 工具）。
+        /// 对于 run_in_terminal 命令，需要用户审批后才能执行。
         /// </summary>
         private async Task<string> ExecuteToolAsync(string toolName, string argumentsJson, string? workspaceRoot, CancellationToken ct)
         {
+            // ── 终端命令需要用户审批 ──
+            if (toolName == "run_in_terminal" && BuiltInTools != null)
+            {
+                string command = string.Empty;
+                string explanation = string.Empty;
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(argumentsJson);
+                    if (doc.RootElement.TryGetProperty("command", out var cmdProp))
+                        command = cmdProp.GetString() ?? string.Empty;
+                    if (doc.RootElement.TryGetProperty("explanation", out var explProp))
+                        explanation = explProp.GetString() ?? string.Empty;
+                }
+                catch { }
+
+                if (!string.IsNullOrWhiteSpace(command))
+                {
+                    bool approved = await RequestTerminalApprovalAsync(command, explanation);
+                    if (!approved)
+                        return $"⏭️ 用户跳过了终端命令: {command}";
+                }
+            }
+
             // ── 1. 内置工具 ──
             if (BuiltInTools != null && BuiltInToolService.IsBuiltInTool(toolName))
             {
@@ -988,6 +1012,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             bool approved = await request.ResponseTcs.Task;
             PendingPermission = null;
             AddLog("INFO", $"{LocalizationService.Instance["agent.log.permissionResult"]}: {(approved ? "✅ 允许" : "❌ 拒绝")} → {title}");
+            return approved;
+        }
+
+        /// <summary>
+        /// 请求用户批准终端命令执行（显示命令详情和说明）。
+        /// </summary>
+        /// <param name="command">待执行的命令字符串</param>
+        /// <param name="explanation">命令用途说明</param>
+        /// <returns>true 表示用户允许执行，false 表示跳过</returns>
+        public async Task<bool> RequestTerminalApprovalAsync(string command, string explanation)
+        {
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            var request = new AgentPermissionRequest
+            {
+                Title = "运行 pwsh 命令?",
+                Command = command,
+                ActionType = "terminal_command",
+                FilePaths = new List<string> { explanation ?? string.Empty },
+                ResponseTcs = new TaskCompletionSource<bool>(),
+            };
+
+            PendingPermission = request;
+            PermissionRequested?.Invoke(request);
+            AddLog("INFO", $"🖥️ 等待终端命令审批: {command}");
+
+            bool approved = await request.ResponseTcs.Task;
+            PendingPermission = null;
+            AddLog("INFO", $"终端命令审批结果: {(approved ? "✅ 允许" : "⏭️ 跳过")} → {command}");
             return approved;
         }
 

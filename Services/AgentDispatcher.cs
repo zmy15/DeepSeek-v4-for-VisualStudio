@@ -174,7 +174,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 获取当前活跃的 BaseAgent 实例。
         /// </summary>
-        private BaseAgent? GetActiveAgent()
+        public BaseAgent? GetActiveAgent()
         {
             return ActiveAgentType switch
             {

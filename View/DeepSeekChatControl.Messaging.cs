@@ -677,6 +677,38 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 string toolResult;
                                 try
                                 {
+                                    // ── 终端命令需要用户审批 ──
+                                    if (acc.FunctionName == "run_in_terminal")
+                                    {
+                                        string cmd = string.Empty;
+                                        string exp = string.Empty;
+                                        try
+                                        {
+                                            using var doc = System.Text.Json.JsonDocument.Parse(acc.ArgumentsBuilder.ToString());
+                                            if (doc.RootElement.TryGetProperty("command", out var cmdProp))
+                                                cmd = cmdProp.GetString() ?? string.Empty;
+                                            if (doc.RootElement.TryGetProperty("explanation", out var expProp))
+                                                exp = expProp.GetString() ?? string.Empty;
+                                        }
+                                        catch { }
+
+                                        if (!string.IsNullOrWhiteSpace(cmd))
+                                        {
+                                            var activeAgent = _agentDispatcher?.GetActiveAgent();
+                                            if (activeAgent != null)
+                                            {
+                                                bool approved = await activeAgent.RequestTerminalApprovalAsync(cmd, exp);
+                                                if (!approved)
+                                                {
+                                                    toolResult = $"⏭️ 用户跳过了终端命令: {cmd}";
+                                                    _contextManager.AddToolResult(acc.Id, acc.FunctionName!, toolResult);
+                                                    Logger.Info($"[MCP] 工具 {acc.FunctionName} 被用户跳过");
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     // ── 优先内置工具，其次 MCP 工具 ──
                                     if (_builtInToolService != null
                                         && BuiltInToolService.IsBuiltInTool(acc.FunctionName!))
