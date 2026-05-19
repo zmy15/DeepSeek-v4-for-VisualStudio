@@ -531,6 +531,7 @@
   "session.deleted": "会话已删除",
   "session.saveFailed": "保存会话失败",
   "session.deleteFailed": "删除会话文件失败",
+  "session.generateTitlePrompt": "请根据以下对话内容，生成一个简洁的会话标题（不超过20个字，不要引号，不要省略号）：\n\n用户：{0}\n\n助手：{1}\n\n标题：",
 
   "═══════════════════════": "═══ Agent Definitions ═══",
 

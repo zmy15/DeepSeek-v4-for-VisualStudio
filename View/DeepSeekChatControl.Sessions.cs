@@ -123,7 +123,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     ? firstAssistantReply.Substring(0, 500) + "…"
                     : firstAssistantReply;
 
-                var prompt = $"请根据以下对话内容，生成一个简洁的会话标题（不超过20个字，不要引号，不要省略号）：\n\n用户：{userSnippet}\n\n助手：{assistantSnippet}\n\n标题：";
+                var prompt = string.Format(LocalizationService.Instance["session.generateTitlePrompt"], userSnippet, assistantSnippet);
 
                 var messages = new List<ChatApiMessage>
                 {
