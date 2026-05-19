@@ -248,6 +248,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         var capturedFileContext = fileContext;
                         var capturedRoute = routing;
                         var capturedMsgIdx = capturedUserMsgIndex;
+
+                        // ── 创建 Agent 路径的 CancellationTokenSource（停止按钮依赖此 CTS）──
+                        _currentStreamingCts?.Cancel();
+                        _currentStreamingCts?.Dispose();
+                        _currentStreamingCts = new CancellationTokenSource();
+                        var agentCts = _currentStreamingCts;
+
                         _ = Task.Run(async () =>
                         {
                             try

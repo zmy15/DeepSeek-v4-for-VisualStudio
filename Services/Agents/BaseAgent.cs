@@ -400,12 +400,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             }
                         }
                         catch (JsonException) { }
-
-                        var toolNames = toolCallAccumulator.Values
-                            .Where(a => !string.IsNullOrEmpty(a.FunctionName))
-                            .Select(a => a.FunctionName!);
-                        string toolSummary = string.Join(", ", toolNames);
-                        onToolCall?.Invoke(toolSummary);
+                        // ── onToolCall 移出流式循环，避免每个 delta chunk 都触发 ──
                     }
                     else if (chunk.StartsWith("[CACHE]"))
                     {
@@ -511,6 +506,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (toolCalls.Count > 0)
                 {
                     Logger.Info($"[Agent:{Definition.Name}] 检测到 {toolCalls.Count} 个工具调用: {string.Join(", ", toolCalls.Select(t => t.Function.Name))}");
+
+                    // ── 通知工具调用（每轮仅一次，避免流式 delta chunk 重复触发）──
+                    string toolSummary = string.Join(", ", toolCalls.Select(t => t.Function.Name));
+                    onToolCall?.Invoke(toolSummary);
 
                     // ── 添加 assistant 消息（含工具调用）──
                     messages.Add(new ChatApiMessage
