@@ -1037,11 +1037,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             PendingPermission = request;
             PermissionRequested?.Invoke(request);
-            AddLog("INFO", $"🖥️ 等待终端命令审批: {command}");
+            AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.waitingTerminalApproval"], command));
 
             bool approved = await request.ResponseTcs.Task;
             PendingPermission = null;
-            AddLog("INFO", $"终端命令审批结果: {(approved ? "✅ 允许" : "⏭️ 跳过")} → {command}");
+            AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.terminalApprovalResult"],
+                approved ? "✅ 允许" : "⏭️ 跳过", command));
             return approved;
         }
 

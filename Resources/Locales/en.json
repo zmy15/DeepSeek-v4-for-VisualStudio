@@ -551,6 +551,21 @@
 
   "agent.status.planStepsPlanned": "🤖 Plan Agent: {0} step(s) planned",
   "agent.status.handoffError": "❌ Handoff error: {0}",
+  "agent.log.callingAiToolLoop": "[EditAgent] Calling AI (tool loop mode, retry={0})...",
+  "agent.log.invalidEditFormat": "AI output format invalid (no valid edit block detected), retry {0}...",
+  "agent.log.retriesExhausted": "AI failed to output valid edit block after multiple retries, recording result as-is",
+  "agent.log.verifyPhaseStarted": "🔍 Edit complete, starting verification phase (AI can call build_solution etc.)...",
+  "agent.log.verifyPhaseComplete": "✅ Verification phase complete",
+  "agent.log.planningSkipVerify": "📋 Planning mode: skip per-step build verification, will run unified build after all steps",
+  "agent.log.newDiagnostics": "⚠️ File {0} introduced {1} new diagnostic(s): {2}",
+  "agent.log.fileWritten": "✅ Written: {0} (+{1} -{2})",
+  "agent.log.contextAccumulated": "Context accumulated ({0} chars)",
+  "agent.log.patchServiceMissing": "EditPatchService not injected, cannot process patch format",
+  "agent.log.parsedPatches": "[EditAgent] Parsed {0} Patch operation(s)",
+  "agent.log.finalBuildException": "Final build exception: {0}",
+  "agent.log.waitingTerminalApproval": "🖥️ Waiting for terminal command approval: {0}",
+  "agent.log.terminalApprovalResult": "Terminal command approval result: {0} → {1}",
+
   "agent.log.editStepPrefix": "Executing step",
   "agent.log.planStepsPlannedSuffix": "step(s) planned",
 

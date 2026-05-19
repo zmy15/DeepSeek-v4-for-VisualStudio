@@ -549,6 +549,21 @@
 
   "agent.status.planStepsPlanned": "🤖 Plan Agent: {0} 个步骤已规划",
   "agent.status.handoffError": "❌ Handoff 错误: {0}",
+  "agent.log.callingAiToolLoop": "[EditAgent] 调用 AI（工具循环模式，retry={0}）...",
+  "agent.log.invalidEditFormat": "AI 输出格式不正确（未检测到有效编辑块），第 {0} 次重试...",
+  "agent.log.retriesExhausted": "AI 多次重试后仍未输出有效编辑块，将原样记录结果",
+  "agent.log.verifyPhaseStarted": "🔍 编辑完成，启动验证阶段（AI 可调用 build_solution 等完整工具）...",
+  "agent.log.verifyPhaseComplete": "✅ 验证阶段完成",
+  "agent.log.planningSkipVerify": "📋 Planning 模式：跳过每步编译验证，将在所有步骤完成后统一构建",
+  "agent.log.newDiagnostics": "⚠️ 文件 {0} 引入 {1} 个新诊断问题: {2}",
+  "agent.log.fileWritten": "✅ 已写入: {0} (+{1} -{2})",
+  "agent.log.contextAccumulated": "上下文已累积 ({0} 字符)",
+  "agent.log.patchServiceMissing": "EditPatchService 未注入，无法处理 patch 格式",
+  "agent.log.parsedPatches": "[EditAgent] 解析到 {0} 个 Patch 操作",
+  "agent.log.finalBuildException": "最终编译异常: {0}",
+  "agent.log.waitingTerminalApproval": "🖥️ 等待终端命令审批: {0}",
+  "agent.log.terminalApprovalResult": "终端命令审批结果: {0} → {1}",
+
   "agent.log.editStepPrefix": "执行步骤",
   "agent.log.planStepsPlannedSuffix": "个步骤已规划",
 

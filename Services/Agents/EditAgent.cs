@@ -249,7 +249,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         context.AccumulatedContext = (context.AccumulatedContext ?? "") + "\n" + stepResult;
                         if (!string.IsNullOrEmpty(step.AiResponse) && step.AiResponse.Length < 3000)
                             context.AccumulatedContext += "\n" + step.AiResponse;
-                        AddLog("INFO", $"上下文已累积 ({context.AccumulatedContext.Length} 字符)");
+                        AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.contextAccumulated"], context.AccumulatedContext.Length));
                     }
                 }
 
@@ -286,7 +286,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
                     catch (Exception ex)
                     {
-                        AddLog("WARN", $"最终编译异常: {ex.Message}");
+                        AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.finalBuildException"], ex.Message));
                     }
                 }
             }
@@ -433,7 +433,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 var messages = BuildContextAwareMessages(Definition.SystemPrompt, currentPrompt);
 
                 // ── 使用工具调用循环：AI 可以先探索再修改 ──
-                AddLog("INFO", $"[EditAgent] 调用 AI（工具循环模式，retry={retry}）...");
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.callingAiToolLoop"], retry));
                 result = await CallAiWithToolLoopAsync(
                     messages,
                     workspaceRoot,
@@ -446,9 +446,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (hasValidEdit) break;
 
                 if (retry < maxFormatRetries)
-                    AddLog("WARN", $"AI 输出格式不正确（未检测到有效编辑块），第 {retry + 1} 次重试...");
+                    AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.invalidEditFormat"], retry + 1));
                 else
-                    AddLog("WARN", "AI 多次重试后仍未输出有效编辑块，将原样记录结果");
+                    AddLog("WARN", LocalizationService.Instance["agent.log.retriesExhausted"]);
             }
 
             step.AiResponse = result;
@@ -560,7 +560,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 编译验证阶段（AI 可使用完整 EditTools，包括 build_solution）──
             if (changes.Count > 0 && !ct.IsCancellationRequested && !context.IsPlanningMode)
             {
-                AddLog("INFO", "🔍 编辑完成，启动验证阶段（AI 可调用 build_solution 等完整工具）...");
+                AddLog("INFO", LocalizationService.Instance["agent.log.verifyPhaseStarted"]);
 
                 // ── 验证阶段专用 system prompt（从 i18n 加载，支持中英切换）──
                 // ⚠️ 缓存优化：作为 extraSystemMessages 注入而非替换 messages[0]，
@@ -625,12 +625,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (!string.IsNullOrWhiteSpace(verifyResult))
                 {
                     step.AiResponse = (step.AiResponse ?? "") + "\n\n## 验证\n\n" + verifyResult;
-                    AddLog("INFO", "✅ 验证阶段完成");
+                    AddLog("INFO", LocalizationService.Instance["agent.log.verifyPhaseComplete"]);
                 }
             }
             else if (changes.Count > 0 && context.IsPlanningMode)
             {
-                AddLog("INFO", "📋 Planning 模式：跳过每步编译验证，将在所有步骤完成后统一构建");
+                AddLog("INFO", LocalizationService.Instance["agent.log.planningSkipVerify"]);
             }
 
             // ── 编辑后诊断检查 ──
@@ -642,7 +642,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (newDiags.Count > 0)
                     {
                         editResult.NewDiagnostics = newDiags;
-                        AddLog("WARN", $"⚠️ 文件 {Path.GetFileName(editResult.FilePath)} 引入 {newDiags.Count} 个新诊断问题: {string.Join("; ", newDiags.Take(5))}");
+                        AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.newDiagnostics"],
+                            Path.GetFileName(editResult.FilePath), newDiags.Count,
+                            string.Join("; ", newDiags.Take(5))));
                     }
                 }
             }
@@ -676,12 +678,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             if (_editPatchService == null)
             {
-                AddLog("WARN", "EditPatchService 未注入，无法处理 patch 格式");
+                AddLog("WARN", LocalizationService.Instance["agent.log.patchServiceMissing"]);
                 return;
             }
 
             var patches = _editPatchService.ParsePatches(aiResult);
-            AddLog("INFO", $"[EditAgent] 解析到 {patches.Count} 个 Patch 操作");
+AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatches"], patches.Count));
 
             // ── 跟踪每个文件的内存内容，实现跨 Patch 原子性 ──
             // Key: 文件路径, Value: (是否已写入磁盘, 当前内存中的内容)
@@ -1116,7 +1118,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     if (error == null)
                     {
-                        AddLog("INFO", $"✅ 已写入: {resolvedPath} (+{change.LinesAdded} -{change.LinesRemoved})");
+                        AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.fileWritten"],
+                            resolvedPath, change.LinesAdded, change.LinesRemoved));
                         plan.ChangedFiles.Add(change);
 
                         string changeType = isNewFile ? "create" : "modify";
@@ -1665,13 +1668,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             return new AgentTaskPlan
             {
                 Intent = AgentIntent.CodeChange,
-                Title = "执行代码变更",
+                Title = LocalizationService.Instance["agent.step.executeCodeChange"],
                 Steps = new List<AgentStep>
                 {
                     new AgentStep
                     {
                         Index = 1,
-                        Title = "分析并修改代码",
+                        Title = LocalizationService.Instance["agent.step.analyzeAndModify"],
                         Description = userMessage,
                         RequiresApproval = false,
                     }
