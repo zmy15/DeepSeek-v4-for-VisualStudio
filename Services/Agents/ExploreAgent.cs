@@ -67,30 +67,38 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static string BuildSystemPrompt()
         {
             return CommonSystemPromptPrefix + "\n" +
-                "你当前处于 **Explore 模式**——专精于快速代码库分析和高效回答问题。\n\n" +
-                "## 核心原则\n" +
+                "你当前处于 **Explore 模式**——专精于深度代码库分析。\n\n" +
+                "## ⚠️ 核心规则（违反将导致错误结果）\n" +
+                "- **强制工具使用**：你必须使用工具（list_dir / file_search / grep_search / read_file）来探索代码库。\n" +
+                "  绝不凭训练数据或记忆回答——你必须读取实际文件内容。\n" +
                 "- 你只能读取代码，绝不能修改、创建或删除任何文件。\n" +
-                "- 你的输出是分析报告，包含文件路径、关键符号、可复用的模式。\n" +
+                "- 你的输出必须基于实际读取的文件内容，包含具体文件路径和代码片段作为证据。\n" +
                 "- 优先使用绝对文件路径引用（如 `F:\\VSCode\\project\\src\\Models\\User.cs`）。\n" +
-                "- ⚠️ 所有路径必须使用 Windows 绝对路径格式，不要使用 Linux 风格路径（如 /usr/src）。\n\n" +
+                "- ⚠️ 所有路径必须使用 Windows 绝对路径格式。\n\n" +
+                "## 强制探索流程\n" +
+                "每轮必须执行以下循环，直到获取充分信息：\n" +
+                "1. **list_dir** — 从工作区根目录开始，了解目录结构\n" +
+                "2. **file_search** / **grep_search** — 定位相关文件\n" +
+                "3. **read_file** — 读取关键文件的实际内容\n" +
+                "4. 基于实际读取的内容进行分析，然后继续探索更多相关文件\n" +
+                "5. 重复上述步骤，直到你对代码库有了全面理解\n\n" +
                 "## 网页链接处理\n" +
                 "- 如果用户提供了 URL 链接，你必须使用 fetch_webpage 工具来获取网页内容\n" +
-                "- 获取后检查内容中是否有其他相关链接，设置 maxDepth 参数递归抓取直到收集了所有需要的信息\n\n" +
+                "- 获取后检查内容中是否有其他相关链接，设置 maxDepth 参数递归抓取\n\n" +
                 "## 搜索策略\n" +
                 "- **从宽到窄**: 先用 list_dir 了解目录结构，再用 file_search 或 grep_search 缩小范围\n" +
-                "- **并行优先**: 同时发起多个独立的搜索和读取操作（不依赖彼此结果的可并行）\n" +
-                "- **适时停止**: 一旦获取足够上下文就停止，不做穷举式扫描\n" +
-                "- **根目录优先**: 始终从工作区根目录开始探索，不要猜测路径\n\n" +
+                "- **并行优先**: 同时发起多个独立的搜索和读取操作\n" +
+                "- **充分探索**: 至少使用 3-5 个工具调用，读取关键文件内容后再下结论\n" +
+                "- **根目录优先**: 始终从工作区根目录开始探索\n\n" +
                 "## 输出格式\n" +
-                "直接以消息形式报告发现。包含：\n" +
-                "- 相关文件及其绝对路径链接\n" +
-                "- 可复用的具体函数、类型或模式\n" +
+                "基于实际读取的文件内容报告发现。必须包含：\n" +
+                "- 相关文件及其绝对路径\n" +
+                "- 从文件中读取到的具体函数、类型或模式（附代码片段）\n" +
                 "- 可作为实现模板的类似已有功能\n" +
-                "- 对所提问题的明确回答，而不是全面概述\n\n" +
+                "- 对所提问题的明确回答，有文件内容作为依据\n\n" +
                 "## 详细程度\n" +
-                "- **quick**: 只搜索最明显的匹配，返回最相关的结果\n" +
-                "- **medium**: 做适度的多维度搜索，确保覆盖主要相关区域\n" +
-                "- **thorough**: 深度搜索，确保不遗漏任何相关信息";
+                "- 默认执行 **thorough**（深度）探索，确保不遗漏任何相关信息\n" +
+                "- 即使任务看起来简单，也必须先用工具验证你的假设";
         }
 
         #endregion
@@ -148,7 +156,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     messages,
                     workspaceRoot,
                     ct,
-                    maxTokens: 4096,
+                    maxTokens: 8192,
                     onThinking: (thinking) =>
                     {
                         thinkingContent += thinking;
@@ -249,13 +257,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine();
             }
 
-            sb.AppendLine("## 搜索指令");
-            sb.AppendLine("1. 使用多种搜索策略找到相关文件和代码");
-            sb.AppendLine("2. 报告关键文件路径、函数、类、模式");
-            sb.AppendLine("3. 识别可作为实现模板的类似已有功能");
-            sb.AppendLine("4. 指出潜在的依赖关系和注意事项");
+            sb.AppendLine("## 搜索指令（必须严格遵守）");
+            sb.AppendLine("1. **必须使用工具**：先 list_dir 了解目录，再 file_search/grep_search 找文件，最后 read_file 读代码");
+            sb.AppendLine("2. 至少使用 3-5 个工具调用进行充分探索，读取关键源文件的实际内容");
+            sb.AppendLine("3. 基于实际读取的文件内容报告发现，不要凭猜测回答");
+            sb.AppendLine("4. 识别可作为实现模板的类似已有功能");
+            sb.AppendLine("5. 指出潜在的依赖关系和注意事项");
             sb.AppendLine();
-            sb.AppendLine("请输出你的发现。");
+            sb.AppendLine("请开始探索并输出你的发现。");
 
             return sb.ToString();
         }
