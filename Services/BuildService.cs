@@ -233,8 +233,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 从 VS Task List 收集编译错误详情。
         /// 按文件分组，每个错误包含文件名、行号、错误描述。
+        /// 公开为 internal static，供 BuiltInToolService.get_errors 复用。
         /// </summary>
-        private static string CollectBuildErrors()
+        internal static string CollectBuildErrors()
         {
             var sb = new StringBuilder();
 
@@ -259,23 +260,61 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                             try
                             {
                                 var item = items[0];
-                                if (item is not IVsTaskItem2 item2)
-                                    continue;
 
-                                var catArray = new VSTASKCATEGORY[1];
-                                item2.Category(catArray);
-                                if (catArray[0] != VSTASKCATEGORY.CAT_BUILDCOMPILE)
-                                    continue;
+                                // ── 逐级尝试接口：IVsTaskItem3 → IVsTaskItem2 → 基础 IVsTaskItem ──
+                                string? fileName = null;
+                                int line = 0;
+                                int column = 0;
+                                string? text = null;
+                                VSTASKCATEGORY cat = VSTASKCATEGORY.CAT_MISC;
+                                VSTASKPRIORITY priority = VSTASKPRIORITY.TP_NORMAL;
 
-                                var priorityArray = new VSTASKPRIORITY[1];
-                                item2.get_Priority(priorityArray);
-                                if (priorityArray[0] != VSTASKPRIORITY.TP_HIGH)
-                                    continue;
+                                if (item is IVsTaskItem3 item3)
+                                {
+                                    // VS 2022+ 首选接口
+                                    var cat3 = new VSTASKCATEGORY[1];
+                                    item3.Category(cat3);
+                                    cat = cat3[0];
 
-                                item2.Document(out string fileName);
-                                item2.Line(out int line);
-                                item2.Column(out int column);
-                                item2.get_Text(out string text);
+                                    var pri3 = new VSTASKPRIORITY[1];
+                                    item3.get_Priority(pri3);
+                                    priority = pri3[0];
+
+                                    item3.Document(out fileName);
+                                    item3.Line(out line);
+                                    item3.Column(out column);
+                                    item3.get_Text(out text);
+                                }
+                                else if (item is IVsTaskItem2 item2)
+                                {
+                                    // VS 2010-2019 接口
+                                    var cat2 = new VSTASKCATEGORY[1];
+                                    item2.Category(cat2);
+                                    cat = cat2[0];
+
+                                    var pri2 = new VSTASKPRIORITY[1];
+                                    item2.get_Priority(pri2);
+                                    priority = pri2[0];
+
+                                    item2.Document(out fileName);
+                                    item2.Line(out line);
+                                    item2.Column(out column);
+                                    item2.get_Text(out text);
+                                }
+                                else
+                                {
+                                    // 基础 IVsTaskItem：只能获取文本，无法获取文件/行号
+                                    item.get_Text(out text);
+                                    // 通过 IVsTaskItem 的 NavigateTo 等方法无法获取位置信息，记录为未知位置
+                                }
+
+                                // ── 过滤：只收集编译错误（非警告/消息）──
+                                if (cat != VSTASKCATEGORY.CAT_BUILDCOMPILE)
+                                    continue;
+                                if (priority != VSTASKPRIORITY.TP_HIGH)
+                                    continue;
+                                if (string.IsNullOrWhiteSpace(text))
+                                    continue;
 
                                 string headingKey = !string.IsNullOrWhiteSpace(fileName)
                                     ? fileName : "(未知文件)";
@@ -288,11 +327,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                                     errorsByFile[headingKey] = new List<string>();
                                 errorsByFile[headingKey].Add(desc);
                             }
-                            catch { }
+                            catch (Exception ex)
+                            {
+                                Logger.Warn($"[BuildService] 跳过无法读取的 Task Item: {ex.Message}");
+                            }
                         }
 
                         if (errorsByFile.Count > 0)
                         {
+                            Logger.Info($"[BuildService] IVsTaskList 收集到 {errorsByFile.Sum(k => k.Value.Count)} 个编译错误，分布在 {errorsByFile.Count} 个文件");
                             foreach (var kvp in errorsByFile)
                             {
                                 sb.AppendLine($"### {kvp.Key}");
@@ -301,6 +344,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                                 sb.AppendLine();
                             }
                             return sb.ToString();
+                        }
+                        else
+                        {
+                            Logger.Info("[BuildService] IVsTaskList 中未找到编译错误条目，回退到 Output Window");
                         }
                     }
                 }

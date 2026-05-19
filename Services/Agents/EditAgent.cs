@@ -599,9 +599,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         : "") +
                     "请立即执行以下操作：\n" +
                     "1. 第一步就调用 build_solution 工具编译验证\n" +
-                    "2. 如果编译失败，用 read_file 读取报错文件的相关行，用 replace_string_in_file 直接修复\n" +
-                    "3. 修复后重新调用 build_solution 验证，直到编译通过，除非遇到无法修复的问题\n" +
-                    "4. 编译通过后简短报告结果即可\n\n" +
+                    "2. 如果编译失败且 build_solution 没有返回具体错误详情，调用 get_errors 获取错误列表\n" +
+                    "3. 根据错误信息，用 read_file 读取报错文件的相关行，用 replace_string_in_file 直接修复\n" +
+                    "4. 修复后重新调用 build_solution 验证，直到编译通过\n\n" +
+                    "⚠️ 重要规则：\n" +
+                    "- **始终使用 build_solution 工具进行编译**，不要尝试在终端中运行 cl.exe、msbuild、dotnet build 等命令\n" +
+                    "- build_solution 已内置 VS 编译环境，终端中这些工具可能不在 PATH 中而失败\n" +
+                    "- 如果 build_solution 返回的错误信息不完整，用 get_errors 补充获取\n" +
+                    "- 最多尝试修复 3 次，如果仍失败则报告剩余问题\n\n" +
                     "如果项目不支持构建（如纯脚本项目），请直接说明并跳过验证。";
 
                 // ── 使用 Definition.SystemPrompt 保持缓存前缀，验证指令通过 extraSystemMessages 注入 ──
@@ -1371,163 +1376,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
-        /// 从 VS Task List 收集编译错误详情（通过 VS SDK Interop，不再依赖 EnvDTE）。
-        /// 按文件分组，每个错误包含文件名、行号、错误描述。
+        /// 从 VS Task List 收集编译错误详情。
+        /// 委托给 BuildService.CollectBuildErrors() 统一实现。
         /// </summary>
         private static string CollectBuildErrors()
         {
-            var sb = new StringBuilder();
-
-            try
-            {
-                // ── 方案一：IVsTaskList（VS SDK Interop 原生接口）──
-                var taskList = (IVsTaskList?)Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider
-                    .GetService(typeof(SVsTaskList));
-                if (taskList != null)
-                {
-                    taskList.EnumTaskItems(out IVsEnumTaskItems? enumTasks);
-                    if (enumTasks != null)
-                    {
-                        var errorsByFile = new Dictionary<string, List<string>>(
-                            StringComparer.OrdinalIgnoreCase);
-
-                        IVsTaskItem[] items = new IVsTaskItem[1];
-                        uint[] fetched = new uint[1];
-
-                        while (enumTasks.Next(1, items, fetched) == VSConstants.S_OK && fetched[0] == 1)
-                        {
-                            try
-                            {
-                                var item = items[0];
-
-                                // 尝试转为 IVsTaskItem2 以获取扩展属性
-                                if (item is not IVsTaskItem2 item2)
-                                    continue;
-
-                                // 只收集构建编译类任务项
-                                var catArray = new VSTASKCATEGORY[1];
-                                item2.Category(catArray);
-                                if (catArray[0] != VSTASKCATEGORY.CAT_BUILDCOMPILE)
-                                    continue;
-
-                                // 只收集错误级别（跳过警告和消息）
-                                var priorityArray = new VSTASKPRIORITY[1];
-                                item2.get_Priority(priorityArray);
-                                if (priorityArray[0] != VSTASKPRIORITY.TP_HIGH)
-                                    continue;
-
-                                // 获取文件名（IVsTaskItem2.Document 为 out string）
-                                item2.Document(out string fileName);
-
-                                item2.Line(out int line);
-
-                                item2.Column(out int column);
-
-                                item2.get_Text(out string text);
-
-                                string headingKey = !string.IsNullOrWhiteSpace(fileName)
-                                    ? fileName
-                                    : "(未知文件)";
-
-                                string desc = line > 0
-                                    ? $"- **行 {line}**: {text}"
-                                    : $"- {text}";
-
-                                if (!errorsByFile.ContainsKey(headingKey))
-                                    errorsByFile[headingKey] = new List<string>();
-                                errorsByFile[headingKey].Add(desc);
-                            }
-                            catch
-                            {
-                                // 跳过无法读取的任务项
-                            }
-                        }
-
-                        if (errorsByFile.Count > 0)
-                        {
-                            foreach (var kvp in errorsByFile)
-                            {
-                                sb.AppendLine($"### {kvp.Key}");
-                                foreach (var desc in kvp.Value)
-                                    sb.AppendLine(desc);
-                                sb.AppendLine();
-                            }
-
-                            Logger.Info($"[BuildErrors] 从 Task List 收集到 {errorsByFile.Sum(k => k.Value.Count)} 个错误，" +
-                                $"涉及 {errorsByFile.Count} 个文件");
-                            return sb.ToString();
-                        }
-                    }
-                }
-
-                // ── 方案二：DTE 自动化对象（回退，读取 Build 输出窗格文本）──
-                try
-                {
-                    var dte = (EnvDTE.DTE?)Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider
-                        .GetService(typeof(EnvDTE.DTE));
-                    if (dte != null)
-                    {
-                        // 通过 GUID 找到 Build 输出窗格（语言无关）
-                        EnvDTE.Window window = dte.Windows.Item(EnvDTE.Constants.vsWindowKindOutput);
-                        EnvDTE.OutputWindow outputWin = (EnvDTE.OutputWindow)window.Object;
-
-                        // Build 输出窗格的 GUID
-                        const string buildPaneGuid = "{1BD8A850-02D1-11D1-BEE7-00A0C913D83C}";
-                        EnvDTE.OutputWindowPane? buildPane = null;
-                        foreach (EnvDTE.OutputWindowPane pane in outputWin.OutputWindowPanes)
-                        {
-                            if (pane.Guid == buildPaneGuid)
-                            {
-                                buildPane = pane;
-                                break;
-                            }
-                        }
-
-                        if (buildPane != null)
-                        {
-                            EnvDTE.TextDocument textDoc = buildPane.TextDocument;
-                            var sel = textDoc.Selection;
-                            sel.SelectAll();
-                            string output = sel.Text ?? string.Empty;
-
-                            if (!string.IsNullOrWhiteSpace(output))
-                            {
-                                // 提取 MSBuild 错误行: file(line,col): error CODE: message
-                                var errorLines = output
-                                    .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                                    .Where(line =>
-                                        line.Contains("error", StringComparison.OrdinalIgnoreCase)
-                                        && !line.Contains("0 Error", StringComparison.OrdinalIgnoreCase)
-                                        && !line.Contains("0 错误", StringComparison.OrdinalIgnoreCase))
-                                    .Take(30)
-                                    .Select(line => line.Trim())
-                                    .ToList();
-
-                                if (errorLines.Count > 0)
-                                {
-                                    sb.AppendLine("### 构建输出 (Output Window)");
-                                    foreach (var line in errorLines)
-                                        sb.AppendLine($"- {line}");
-                                    sb.AppendLine();
-
-                                    Logger.Info($"[BuildErrors] 从 Output 窗口收集到 {errorLines.Count} 行错误信息");
-                                    return sb.ToString();
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warn($"[BuildErrors] Output 窗口读取失败: {ex.Message}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn($"[BuildErrors] 错误收集失败: {ex.Message}");
-            }
-
-            return sb.ToString();
+            return BuildService.CollectBuildErrors();
         }
 
         /// <summary>

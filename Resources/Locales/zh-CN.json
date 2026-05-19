@@ -571,5 +571,40 @@
   "popup.skillSource.builtin": "⚙️ 内置",
   "popup.skillSource.project": "📁 项目",
   "popup.skillSource.user": "👤 用户",
-  "popup.skillSource.package": "📦 内置"
+  "popup.skillSource.package": "📦 内置",
+
+  "══════════════════": "═══ Diff Global Bar ═══",
+
+  "diff.global.filesChanged": "📊 {0} 个文件有变更",
+  "diff.global.bothStatus": "{0} 个已打开, {1} 个待处理",
+  "diff.global.activeOnly": "{0} 个编辑器内预览中",
+  "diff.global.pendingOnly": "{0} 个文件待打开后预览",
+  "diff.global.acceptAll": "✅ 接受全部",
+  "diff.global.undoAll": "↩️ 撤销全部",
+  "diff.global.allAccepted": "✅ 所有变更已确认",
+  "diff.global.allUndone": "↩️ 所有变更已撤销",
+
+  "══════════════════": "═══ Code Action Status ═══",
+
+  "codeAction.noCode": "⚠️ 没有代码可写入",
+  "codeAction.noTarget": "⚠️ 请先打开目标文件，或指定文件路径",
+  "codeAction.writeFailed": "❌ 写入失败: {0}",
+  "codeAction.previewMode": "📊 预览中 — 点击「确认变更」保留或「撤销」回退",
+  "codeAction.previewWithFile": "📊 预览中: {0}",
+  "codeAction.writeSuccess": "✅ 代码已写入文件",
+  "codeAction.writtenWithDetails": "✅ 已写入 {0}",
+  "codeAction.noOpenDoc": "⚠️ 没有打开的文档",
+
+  "══════════════════": "═══ Agent Status ═══",
+
+  "agent.status.analyzing": "🤖 Agent 正在分析任务...",
+  "agent.status.switchingTo": "🤖 切换到 {0} Agent...",
+  "agent.status.taskCancelled": "⚠️ Agent 任务已取消",
+  "agent.status.taskDoneFiles": "✅ Agent 任务完成 ({0} 个文件变更)",
+  "agent.status.taskDoneSteps": "✅ Agent 计划完成 ({0} 个步骤)",
+  "agent.status.errorWithMsg": "❌ Agent 错误: {0}",
+  "agent.status.busyRetry": "⚠️ AI 正在生成回复，请等待完成后再重试",
+  "agent.status.busyEdit": "⚠️ AI 正在生成回复，请等待完成后再编辑",
+  "agent.status.busyConfirm": "⚠️ AI 正在生成回复，请等待完成后再确认编辑",
+  "agent.status.regenerating": "正在重新生成…"
 }

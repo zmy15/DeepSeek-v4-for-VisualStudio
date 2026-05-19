@@ -1186,6 +1186,19 @@ private static string? GetSolutionPathFromIVsSolution()
                     AgentPopupTitle.Text = L["popup.agentTitle"];
                 if (SkillPopupTitle != null)
                     SkillPopupTitle.Text = L["popup.skillTitle"];
+
+                // ── Diff 全局控制栏按钮 ──
+                if (AcceptAllButton != null)
+                    AcceptAllButton.Content = L["diff.global.acceptAll"];
+                if (UndoAllButton != null)
+                    UndoAllButton.Content = L["diff.global.undoAll"];
+
+                // ── 状态栏默认文本 ──
+                if (StatusLabel != null && string.IsNullOrEmpty(StatusLabel.Text))
+                    StatusLabel.Text = L["status.ready"];
+
+                // ── 刷新 diff 栏（如果当前可见，更新文本为当前语言）──
+                RefreshDiffGlobalBar();
             }
             catch (Exception ex)
             {

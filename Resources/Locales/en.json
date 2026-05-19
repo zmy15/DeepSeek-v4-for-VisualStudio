@@ -573,5 +573,40 @@
   "popup.skillSource.builtin": "⚙️ Built-in",
   "popup.skillSource.project": "📁 Project",
   "popup.skillSource.user": "👤 User",
-  "popup.skillSource.package": "📦 Built-in"
+  "popup.skillSource.package": "📦 Built-in",
+
+  "══════════════════": "═══ Diff Global Bar ═══",
+
+  "diff.global.filesChanged": "📊 {0} file(s) changed",
+  "diff.global.bothStatus": "{0} open, {1} pending",
+  "diff.global.activeOnly": "{0} previewing in editor",
+  "diff.global.pendingOnly": "{0} file(s) pending preview",
+  "diff.global.acceptAll": "✅ Accept All",
+  "diff.global.undoAll": "↩️ Undo All",
+  "diff.global.allAccepted": "✅ All changes accepted",
+  "diff.global.allUndone": "↩️ All changes reverted",
+
+  "══════════════════": "═══ Code Action Status ═══",
+
+  "codeAction.noCode": "⚠️ No code to write",
+  "codeAction.noTarget": "⚠️ Please open a target file or specify a path",
+  "codeAction.writeFailed": "❌ Write failed: {0}",
+  "codeAction.previewMode": "📊 Previewing — click Confirm to keep or Revert to discard",
+  "codeAction.previewWithFile": "📊 Previewing: {0}",
+  "codeAction.writeSuccess": "✅ Code written to file",
+  "codeAction.writtenWithDetails": "✅ Written {0}",
+  "codeAction.noOpenDoc": "⚠️ No open document",
+
+  "══════════════════": "═══ Agent Status ═══",
+
+  "agent.status.analyzing": "🤖 Agent analyzing task...",
+  "agent.status.switchingTo": "🤖 Switching to {0} Agent...",
+  "agent.status.taskCancelled": "⚠️ Agent task cancelled",
+  "agent.status.taskDoneFiles": "✅ Agent task completed ({0} file(s) changed)",
+  "agent.status.taskDoneSteps": "✅ Agent plan completed ({0} step(s))",
+  "agent.status.errorWithMsg": "❌ Agent error: {0}",
+  "agent.status.busyRetry": "⚠️ AI is generating a response, please wait before retrying",
+  "agent.status.busyEdit": "⚠️ AI is generating a response, please wait before editing",
+  "agent.status.busyConfirm": "⚠️ AI is generating a response, please wait before confirming edit",
+  "agent.status.regenerating": "Regenerating…"
 }

@@ -463,30 +463,61 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
 
                     // ── 循环检测 ──
-                    // 收集本轮签名
-                    var roundSignatures = new List<string>();
-                    foreach (var tc in toolCalls)
+                    // 收集本轮签名并判断各工具是否成功
+                    var roundSignatures = new List<(string sig, string toolName, bool succeeded)>();
+                    for (int ti = 0; ti < toolCalls.Count; ti++)
                     {
+                        var tc = toolCalls[ti];
                         string sig = tc.Function.Name + "|" +
                             (tc.Function.Arguments.Length > 200
                                 ? tc.Function.Arguments.Substring(0, 200)
                                 : tc.Function.Arguments);
-                        callSignatureHistory.Add(sig);
-                        roundSignatures.Add(sig);
+
+                        // 判断该工具是否执行成功（结果不以 ❌ 开头）
+                        int toolMsgIdx = messages.Count - toolCalls.Count + ti;
+                        bool succeeded = toolMsgIdx < messages.Count
+                            && messages[toolMsgIdx].Role == "tool"
+                            && !(messages[toolMsgIdx].Content ?? "").StartsWith("❌");
+
+                        roundSignatures.Add((sig, tc.Function.Name, succeeded));
                     }
 
-                    // 检测同一调用重复
-                    foreach (var sig in roundSignatures)
+                    // ── 对成功的工具调用，从历史中清除其签名（重置计数）──
+                    // 这样 "build → 失败 → 修复 → build → 成功" 不会被误判为死循环
+                    var succeededToolNames = roundSignatures
+                        .Where(r => r.succeeded)
+                        .Select(r => r.toolName)
+                        .Distinct()
+                        .ToList();
+                    if (succeededToolNames.Count > 0)
                     {
-                        int repeatCount = callSignatureHistory.Count(s => s == sig);
-                        if (repeatCount >= maxRepeatedSameCall)
+                        callSignatureHistory.RemoveAll(s =>
+                            succeededToolNames.Any(tn => s.StartsWith(tn + "|")));
+                        consecutiveErrorRounds = 0; // 有成功工具调用，重置连续错误计数
+                    }
+
+                    // 将本轮签名加入历史
+                    foreach (var (sig, _, _) in roundSignatures)
+                    {
+                        callSignatureHistory.Add(sig);
+                    }
+
+                    // 检测同一调用重复（只看失败的工具）
+                    if (!loopDetected)
+                    {
+                        foreach (var (sig, toolName, succeeded) in roundSignatures)
                         {
-                            loopDetected = true;
-                            string toolName = sig.Split('|')[0];
-                            var L = LocalizationService.Instance;
-                            Logger.Warn($"[Agent:{Definition.Name}] {string.Format(L["agent.log.loopDetected"], toolName, repeatCount)}");
-                            contentBuilder.Append($"\n\n> ⚠️ {string.Format(L["agent.log.loopTerminated"], toolName, repeatCount)}");
-                            break;
+                            if (succeeded) continue; // 成功的工具调用不计入循环检测
+
+                            int repeatCount = callSignatureHistory.Count(s => s == sig);
+                            if (repeatCount >= maxRepeatedSameCall)
+                            {
+                                loopDetected = true;
+                                var L = LocalizationService.Instance;
+                                Logger.Warn($"[Agent:{Definition.Name}] {string.Format(L["agent.log.loopDetected"], toolName, repeatCount)}");
+                                contentBuilder.Append($"\n\n> ⚠️ {string.Format(L["agent.log.loopTerminated"], toolName, repeatCount)}");
+                                break;
+                            }
                         }
                     }
 
@@ -497,9 +528,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // 检测连续错误：检查本轮 tool 消息是否全部以 ❌ 开头
                     if (!loopDetected)
                     {
-                        int toolMsgStart = messages.Count - toolCalls.Count;
                         bool allErrors = toolCalls.Count > 0;
-                        for (int i = toolMsgStart; i < messages.Count && allErrors; i++)
+                        for (int i = messages.Count - toolCalls.Count; i < messages.Count && allErrors; i++)
                         {
                             if (messages[i].Role == "tool" && !(messages[i].Content ?? "").StartsWith("❌"))
                                 allErrors = false;

@@ -135,7 +135,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             try
             {
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                StatusLabel.Text = "🤖 Agent 正在分析任务...";
+                StatusLabel.Text = LocalizationService.Instance["agent.status.analyzing"];
 
                 // ── 清理上一轮 Agent 执行的追踪状态 ──
                 lock (_lock)
@@ -424,7 +424,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         await ChatWebView.CoreWebView2.ExecuteScriptAsync(frJs);
                     }
                     catch { }
-                    StatusLabel.Text = "就绪";
+                    StatusLabel.Text = LocalizationService.Instance["status.ready"];
 
                     // ── 如果有待处理的 Handoff，注入按钮 ──
                     if (_pendingHandoff != null && _agentStreamingMsgIndex >= 0)
@@ -958,7 +958,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
                 else
                 {
-                    StatusLabel.Text = "就绪";
+                    StatusLabel.Text = LocalizationService.Instance["status.ready"];
                 }
             }
             catch (Exception ex)
@@ -1180,7 +1180,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _ = Task.Run(async () =>
                     {
                         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                        StatusLabel.Text = "⚠️ AI 正在生成回复，请等待完成后再重试";
+                        StatusLabel.Text = LocalizationService.Instance["agent.status.busyRetry"];
                     });
                     return;
                 }
@@ -1289,7 +1289,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _ = Task.Run(async () =>
                     {
                         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                        StatusLabel.Text = "⚠️ AI 正在生成回复，请等待完成后再编辑";
+                        StatusLabel.Text = LocalizationService.Instance["agent.status.busyEdit"];
                     });
                     return;
                 }
@@ -1343,14 +1343,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
             lock (_lock) { _isGenerating = true; }
             UpdateButtonsState();
             InputTextBox.Text = string.Empty;
-            StatusLabel.Text = "正在重新生成…";
+            StatusLabel.Text = LocalizationService.Instance["agent.status.regenerating"];
 
             bool canProceed = await CheckAndRevertFileChangesAsync(userMsgIndex);
             if (!canProceed)
             {
                 lock (_lock) { _isGenerating = false; }
                 UpdateButtonsState();
-                StatusLabel.Text = "就绪";
+                StatusLabel.Text = LocalizationService.Instance["status.ready"];
                 return;
             }
 
@@ -1362,7 +1362,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     lock (_lock) { _isGenerating = false; }
                     UpdateButtonsState();
-                    StatusLabel.Text = "就绪";
+                    StatusLabel.Text = LocalizationService.Instance["status.ready"];
                     return;
                 }
 
@@ -1429,7 +1429,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Error($"HandleEditResendAsync 异常: {ex.Message}", ex);
                 lock (_lock) { _isGenerating = false; }
                 UpdateButtonsState();
-                StatusLabel.Text = "就绪";
+                StatusLabel.Text = LocalizationService.Instance["status.ready"];
             }
         }
 
@@ -1534,7 +1534,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (_options == null || string.IsNullOrEmpty(_options.ApiKey))
             {
-                StatusLabel.Text = "⚠️ 请先配置 API 密钥";
+                StatusLabel.Text = LocalizationService.Instance["status.apiKeyMissing"];
                 lock (_lock) { _isGenerating = false; }
                 UpdateButtonsState();
                 return;
@@ -1567,7 +1567,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             try
             {
-                StatusLabel.Text = "DeepSeek 思考中…";
+                StatusLabel.Text = LocalizationService.Instance["status.thinking"];
 
                 string userContent = userMsg.Content ?? string.Empty;
                 string enrichedContent = BuildRetryEnrichedContent(userMsg, userContent);
@@ -1626,7 +1626,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                         lock (_lock) { _isGenerating = false; }
                         UpdateButtonsState();
-                        StatusLabel.Text = "就绪";
+                        StatusLabel.Text = LocalizationService.Instance["status.ready"];
                         return;
                     }
                 }
@@ -1680,7 +1680,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         var thinking = chunk.Substring(10);
                         reasoningBuffer.Append(thinking);
-                        StatusLabel.Text = "DeepSeek 深度思考中…";
+                        StatusLabel.Text = LocalizationService.Instance["status.deepThinking"];
 
                         if (reasoningBuffer.Length - lastReasoningLength >= 80)
                         {
@@ -1708,7 +1708,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                         contentBuffer.Append(chunk);
                         streamRenderTick += chunk.Length;
-                        StatusLabel.Text = "DeepSeek 回复中...";
+                        StatusLabel.Text = LocalizationService.Instance["status.replying"];
 
                         if (streamRenderTick >= StreamRenderInterval)
                         {
@@ -1844,7 +1844,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _ = Task.Run(async () =>
                     {
                         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                        StatusLabel.Text = "⚠️ AI 正在生成回复，请等待完成后再确认编辑";
+                        StatusLabel.Text = LocalizationService.Instance["agent.status.busyConfirm"];
                     });
                     return;
                 }
@@ -1900,7 +1900,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             catch { }
 
-            StatusLabel.Text = "就绪";
+            StatusLabel.Text = LocalizationService.Instance["status.ready"];
         }
 
         #endregion

@@ -37,7 +37,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (string.IsNullOrWhiteSpace(code))
             {
-                StatusLabel.Text = "⚠️ 没有代码可写入";
+                StatusLabel.Text = LocalizationService.Instance["codeAction.noCode"];
                 Logger.Info("[CodeAction] WriteCodeToFileAsync: 代码为空，跳过");
                 return;
             }
@@ -81,7 +81,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
                 else
                 {
-                    StatusLabel.Text = "⚠️ 请先打开目标文件，或指定文件路径";
+                    StatusLabel.Text = LocalizationService.Instance["codeAction.noTarget"];
                     Logger.Info("[CodeAction] 未找到活动文档，无法写入");
                     return;
                 }
@@ -89,7 +89,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"写入文件失败: {ex.Message}", ex);
-                StatusLabel.Text = $"❌ 写入失败: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["codeAction.writeFailed"], ex.Message);
             }
         }
 
@@ -114,7 +114,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"确认写入失败: {ex.Message}", ex);
-                StatusLabel.Text = $"❌ 写入失败: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["codeAction.writeFailed"], ex.Message);
             }
         }
 
@@ -298,11 +298,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         && (_options == null || _options.ShowDiffMarkersInEditor))
                     {
                         EditorDiffMarkerService.Instance.BeginDiffPreview(wpfView, oldContent, newCode);
-                        StatusLabel.Text = "📊 预览中 — 点击「确认变更」保留或「撤销」回退";
+                        StatusLabel.Text = LocalizationService.Instance["codeAction.previewMode"];
                     }
                     else
                     {
-                        StatusLabel.Text = "✅ 代码已写入文件";
+                        StatusLabel.Text = LocalizationService.Instance["codeAction.writeSuccess"];
                     }
 
                     // ── 记录文件变更历史（用于后续重试回退）──
@@ -336,11 +336,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         && (_options == null || _options.ShowDiffMarkersInEditor))
                     {
                         EditorDiffMarkerService.Instance.BeginDiffPreview(wpfView, oldContent, newCode);
-                        StatusLabel.Text = "📊 预览中 — 点击「确认变更」保留或「撤销」回退";
+                        StatusLabel.Text = LocalizationService.Instance["codeAction.previewMode"];
                     }
                     else
                     {
-                        StatusLabel.Text = "✅ 代码已写入文件";
+                        StatusLabel.Text = LocalizationService.Instance["codeAction.writeSuccess"];
                     }
 
                     // ── 记录文件变更历史（用于后续重试回退）──
@@ -350,12 +350,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     return;
                 }
 
-                StatusLabel.Text = "⚠️ 没有打开的文档";
+                StatusLabel.Text = LocalizationService.Instance["codeAction.noOpenDoc"];
             }
             catch (Exception ex)
             {
                 Logger.Error($"替换代码失败: {ex.Message}", ex);
-                StatusLabel.Text = $"❌ 写入失败: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["codeAction.writeFailed"], ex.Message);
             }
         }
 

@@ -127,6 +127,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 };
 
                 window.Show(); // 非模态浮窗
+
+                // ── 通知 UI 刷新全局 diff 控制栏 ──
+                PendingDiffCountChanged?.Invoke();
+                Logger.Info($"[EditorDiff] 活跃 diff 窗口已创建: {title} (活跃={_activeWindows.Count}, 待处理={GetPendingCount()})");
             }
             catch (Exception ex)
             {
@@ -389,6 +393,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             try { existing.Close(); }
             catch { /* ignore */ }
+
+            // ── 通知 UI 刷新 ──
+            PendingDiffCountChanged?.Invoke();
         }
 
         private void RemoveWindow(ITextBuffer buffer)
@@ -397,6 +404,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 _activeWindows.Remove(buffer);
             }
+
+            // ── 通知 UI 刷新 ──
+            PendingDiffCountChanged?.Invoke();
         }
 
         private void UndoChangesInternal(ITextBuffer buffer, string originalContent)

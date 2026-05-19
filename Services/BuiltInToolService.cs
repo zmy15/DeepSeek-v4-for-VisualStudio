@@ -809,19 +809,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         private static Task<string> GetErrorsAsync(Dictionary<string, System.Text.Json.JsonElement> args)
         {
-            // 获取编译错误 — 这是一个简化实现，后续可通过 DTE.ErrorList 获取更准确的错误
+            // ── 委托给 BuildService.CollectBuildErrors() 获取真实编译错误 ──
             try
             {
-                var sb = new StringBuilder();
-                sb.AppendLine("🔧 编译错误检查");
-                sb.AppendLine();
-                sb.AppendLine("> 注意: 内置 get_errors 为简化实现。完整错误列表请查看 Visual Studio 的\"错误列表\"窗口。");
-                sb.AppendLine("> 建议使用 `dotnet build` 命令获取详细编译结果。");
-                return Task.FromResult(sb.ToString().TrimEnd());
+                string errors = BuildService.CollectBuildErrors();
+
+                if (!string.IsNullOrWhiteSpace(errors))
+                {
+                    var sb = new StringBuilder();
+                    sb.AppendLine("🔧 编译错误检查");
+                    sb.AppendLine();
+                    sb.AppendLine(errors);
+                    return Task.FromResult(sb.ToString().TrimEnd());
+                }
+
+                // ── 无编译错误时的回退信息 ──
+                return Task.FromResult("🔧 编译错误检查: 未检测到编译错误。如果刚完成构建且预期有错误，请先调用 build_solution 触发编译。");
             }
             catch (Exception ex)
             {
-                return Task.FromResult($"❌ 获取错误失败: {ex.Message}");
+                Logger.Warn($"[BuiltInTool] get_errors 异常: {ex.Message}");
+                return Task.FromResult($"❌ 获取编译错误失败: {ex.Message}\n💡 建议使用 build_solution 工具触发编译并获取错误详情。");
             }
         }
 

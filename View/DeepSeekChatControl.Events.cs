@@ -1669,7 +1669,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             EditorDiffMarkerService.Instance.AcceptAllChanges();
             RefreshDiffGlobalBar();
-            StatusLabel.Text = "✅ 所有变更已确认";
+            StatusLabel.Text = LocalizationService.Instance["diff.global.allAccepted"];
         }
 
         /// <summary>
@@ -1679,7 +1679,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             EditorDiffMarkerService.Instance.UndoAllChanges();
             RefreshDiffGlobalBar();
-            StatusLabel.Text = "↩️ 所有变更已撤销";
+            StatusLabel.Text = LocalizationService.Instance["diff.global.allUndone"];
         }
 
         /// <summary>
@@ -1688,6 +1688,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         public void RefreshDiffGlobalBar()
         {
+            // ── WPF 控件访问必须在 UI 线程 ──
+            if (!Dispatcher.CheckAccess())
+            {
+#pragma warning disable VSTHRD001 // 此处使用 BeginInvoke 是安全的 fire-and-forget 模式
+                _ = Dispatcher.BeginInvoke(new Action(RefreshDiffGlobalBar));
+#pragma warning restore VSTHRD001
+                return;
+            }
+
+            var L = LocalizationService.Instance;
             int activeCount = EditorDiffMarkerService.Instance.GetActiveCount();
             int pendingCount = EditorDiffMarkerService.Instance.GetPendingCount();
             int totalCount = activeCount + pendingCount;
@@ -1695,12 +1705,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (totalCount > 0)
             {
                 DiffGlobalBar.Visibility = Visibility.Visible;
-                DiffGlobalLabel.Text = $"📊 {totalCount} 个文件有变更";
+                DiffGlobalLabel.Text = string.Format(L["diff.global.filesChanged"], totalCount);
                 DiffGlobalDetail.Text = activeCount > 0 && pendingCount > 0
-                    ? $"{activeCount} 个已打开, {pendingCount} 个待处理"
+                    ? string.Format(L["diff.global.bothStatus"], activeCount, pendingCount)
                     : activeCount > 0
-                        ? $"{activeCount} 个编辑器内预览中"
-                        : $"{pendingCount} 个文件待打开后预览";
+                        ? string.Format(L["diff.global.activeOnly"], activeCount)
+                        : string.Format(L["diff.global.pendingOnly"], pendingCount);
             }
             else
             {
