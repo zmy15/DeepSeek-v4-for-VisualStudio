@@ -261,7 +261,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                             {
                                 var item = items[0];
 
-                                // ── 逐级尝试接口：IVsTaskItem3 → IVsTaskItem2 → 基础 IVsTaskItem ──
+                                // ── 使用 IVsTaskItem 基接口获取信息（VS 2022 SDK）──
                                 string? fileName = null;
                                 int line = 0;
                                 int column = 0;
@@ -269,44 +269,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                                 VSTASKCATEGORY cat = VSTASKCATEGORY.CAT_MISC;
                                 VSTASKPRIORITY priority = VSTASKPRIORITY.TP_NORMAL;
 
-                                if (item is IVsTaskItem3 item3)
-                                {
-                                    // VS 2022+ 首选接口
-                                    var cat3 = new VSTASKCATEGORY[1];
-                                    item3.Category(cat3);
-                                    cat = cat3[0];
+                                // IVsTaskItem3 / IVsTaskItem2 均继承自 IVsTaskItem，
+                                // Category/Document/Line/Column/get_Priority/get_Text 定义在基接口上
+                                var catArr = new VSTASKCATEGORY[1];
+                                item.Category(catArr);
+                                cat = catArr[0];
 
-                                    var pri3 = new VSTASKPRIORITY[1];
-                                    item3.get_Priority(pri3);
-                                    priority = pri3[0];
+                                var priArr = new VSTASKPRIORITY[1];
+                                item.get_Priority(priArr);
+                                priority = priArr[0];
 
-                                    item3.Document(out fileName);
-                                    item3.Line(out line);
-                                    item3.Column(out column);
-                                    item3.get_Text(out text);
-                                }
-                                else if (item is IVsTaskItem2 item2)
-                                {
-                                    // VS 2010-2019 接口
-                                    var cat2 = new VSTASKCATEGORY[1];
-                                    item2.Category(cat2);
-                                    cat = cat2[0];
-
-                                    var pri2 = new VSTASKPRIORITY[1];
-                                    item2.get_Priority(pri2);
-                                    priority = pri2[0];
-
-                                    item2.Document(out fileName);
-                                    item2.Line(out line);
-                                    item2.Column(out column);
-                                    item2.get_Text(out text);
-                                }
-                                else
-                                {
-                                    // 基础 IVsTaskItem：只能获取文本，无法获取文件/行号
-                                    item.get_Text(out text);
-                                    // 通过 IVsTaskItem 的 NavigateTo 等方法无法获取位置信息，记录为未知位置
-                                }
+                                item.Document(out fileName);
+                                item.Line(out line);
+                                item.Column(out column);
+                                item.get_Text(out text);
 
                                 // ── 过滤：只收集编译错误（非警告/消息）──
                                 if (cat != VSTASKCATEGORY.CAT_BUILDCOMPILE)
