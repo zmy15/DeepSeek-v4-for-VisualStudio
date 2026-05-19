@@ -61,18 +61,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return string.Empty;
 
             var sb = new StringBuilder();
-            sb.AppendLine("[对话历史摘要]");
-            sb.AppendLine("以下是早期对话的压缩摘要，包含了之前讨论的关键信息和决策：");
+            var L = LocalizationService.Instance;
+            sb.AppendLine(L["compress.historyHeader"]);
+            sb.AppendLine(L["compress.historyIntro"]);
             sb.AppendLine();
 
             foreach (var summary in _compressedSummaries.OrderBy(s => s.FromTurn))
             {
-                sb.AppendLine($"--- 第 {summary.FromTurn}-{summary.ToTurn} 轮摘要 ---");
+                sb.AppendLine(string.Format(L["compress.turnSeparator"], summary.FromTurn, summary.ToTurn));
                 sb.AppendLine(summary.Summary);
                 sb.AppendLine();
             }
 
-            sb.AppendLine("[/对话历史摘要]");
+            sb.AppendLine(L["compress.historyFooter"]);
             return sb.ToString();
         }
 
@@ -95,7 +96,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     FromTurn = fromTurn,
                     ToTurn = toTurn,
-                    Summary = "(空对话)",
+                    Summary = LocalizationService.Instance["compress.emptyConversation"],
                 };
 
             // 1. 拼接待压缩的对话文本
@@ -154,11 +155,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             var sb = new StringBuilder();
             foreach (var entry in entries)
             {
+                var L = LocalizationService.Instance;
                 string roleLabel = entry.Role switch
                 {
-                    "user" => "用户",
-                    "assistant" => "助手",
-                    "tool" => "工具结果",
+                    "user" => L["compress.roleUser"],
+                    "assistant" => L["compress.roleAssistant"],
+                    "tool" => L["compress.roleTool"],
                     _ => entry.Role,
                 };
 
@@ -176,7 +178,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     string reasoning = entry.ReasoningContent!.Length > 500
                         ? entry.ReasoningContent.Substring(0, 500) + "..."
                         : entry.ReasoningContent;
-                    sb.AppendLine($"[思考过程: {reasoning}]");
+                    sb.AppendLine(string.Format(LocalizationService.Instance["compress.thinkingLabel"], reasoning));
                 }
                 sb.AppendLine();
             }
@@ -198,7 +200,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             if (userMessages.Count > 0)
             {
-                sb.AppendLine("用户问题：");
+                sb.AppendLine(LocalizationService.Instance["compress.extractUserQuestion"]);
                 foreach (var msg in userMessages)
                 {
                     string content = msg.Content ?? "";
@@ -229,7 +231,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             if (files.Count > 0)
             {
-                sb.AppendLine("涉及文件：");
+                sb.AppendLine(LocalizationService.Instance["compress.extractFilesInvolved"]);
                 foreach (var f in files.Take(10))
                     sb.AppendLine($"  • {f}");
                 sb.AppendLine();
@@ -252,7 +254,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             if (errors.Count > 0)
             {
-                sb.AppendLine("错误/异常：");
+                sb.AppendLine(LocalizationService.Instance["compress.extractErrors"]);
                 foreach (var e in errors.Take(5))
                     sb.AppendLine($"  • {e}");
                 sb.AppendLine();
@@ -265,7 +267,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 string content = lastAssistant.Content ?? "";
                 if (content.Length > 300)
                     content = content.Substring(content.Length - 300);
-                sb.AppendLine("最后结论：");
+                sb.AppendLine(LocalizationService.Instance["compress.extractConclusion"]);
                 sb.AppendLine($"  {content.Trim()}");
             }
 

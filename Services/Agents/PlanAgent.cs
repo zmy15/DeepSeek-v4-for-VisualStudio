@@ -145,7 +145,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 else
                 {
                     result.Content = L["plan.noValidPlan"];
-                    AddLog("WARN", "计划生成失败：无有效步骤");
+                    AddLog("WARN", L["agent.plan.noValidSteps"]);
                 }
 
                 result.Logs.AddRange(_logs);
@@ -182,12 +182,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 var L = LocalizationService.Instance;
                 // ── 先让 AI 判断需要探索哪些代码区域 ──
                 string routingPrompt =
-                    "根据以下用户任务，列出需要探索的代码区域（最多3个）。" +
-                    "每个区域一行，只输出区域描述，不要其他内容。\n\n" +
+                    $"{L["agent.plan.discoveryPrompt"]}\n\n" +
                     $"{L["plan.userTask"]}: {userMessage}\n\n" +
                     (string.IsNullOrEmpty(context.SolutionPath) ? ""
-                        : $"解决方案路径: {context.SolutionPath}\n\n") +
-                    "需要探索的区域:";
+                        : $"Solution path: {context.SolutionPath}\n\n") +
+                    $"{L["agent.plan.discoveryPromptTail"]}";
 
                 string routingResponse = await CallAiShortAsync(
                     Definition.SystemPrompt, routingPrompt, context.CancellationToken);
@@ -233,7 +232,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
             catch (Exception ex)
             {
-                AddLog("WARN", $"发现阶段出错: {ex.Message}，继续规划");
+                AddLog("WARN", string.Format(LocalizationService.Instance["agent.plan.discoverError"], ex.Message));
             }
 
             return sb.ToString();
@@ -279,18 +278,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 extraSystemMessages.Add(new ChatApiMessage
                 {
                     Role = "system",
-                    Content = "## 代码库研究发现（以下内容由 Explore 子代理搜集）\n\n" + discoveryContext
+                    Content = LocalizationService.Instance["agent.plan.discoveryFallback"] + "\n\n" + discoveryContext
                 });
             }
             if (!string.IsNullOrEmpty(context.FileContext))
             {
                 string truncated = context.FileContext.Length > 2000
-                    ? context.FileContext.Substring(0, 2000) + "\n... (已截断)"
+                    ? context.FileContext.Substring(0, 2000) + "\n" + LocalizationService.Instance["agent.plan.truncatedSuffix"]
                     : context.FileContext;
                 extraSystemMessages.Add(new ChatApiMessage
                 {
                     Role = "system",
-                    Content = "## 用户提供的文件上下文\n\n" + truncated
+                    Content = LocalizationService.Instance["agent.plan.fileContextHeader"] + "\n\n" + truncated
                 });
             }
 
@@ -317,14 +316,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
             catch (Exception ex)
             {
-                AddLog("WARN", $"计划 JSON 解析失败: {ex.Message}");
+                AddLog("WARN", string.Format(LocalizationService.Instance["agent.plan.jsonParseFailed"], ex.Message));
             }
 
             // 回退：单步计划
             return new AgentTaskPlan
             {
                 Intent = AgentIntent.CodeChange,
-                Title = "执行代码变更",
+                Title = LocalizationService.Instance["agent.plan.executeChangesLabel"],
                 Steps = new List<AgentStep>
                 {
                     new AgentStep

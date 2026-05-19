@@ -51,7 +51,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (dteResult != null)
                 return dteResult;
 
-            return "⚠️ 无法启动构建：未找到可用的构建系统。请确认解决方案已正确加载。";
+            return LocalizationService.Instance["build.noBuildSystem"];
         }
 
         #region Build Methods
@@ -76,7 +76,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (isBusy != 0)
             {
                 Logger.Warn("[BuildService] 构建管理器正忙");
-                return "⚠️ 构建管理器正忙，请等待当前构建完成后重试。";
+                return LocalizationService.Instance["build.managerBusy"];
             }
 
             var buildEventsSink = new BuildEventsSink();
@@ -106,7 +106,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (!completed)
                 {
                     Logger.Warn("[BuildService] ⚠️ 构建超时（5 分钟）");
-                    return "⚠️ 构建超时（5 分钟），请手动检查构建状态。";
+                    return LocalizationService.Instance["build.timeout"];
                 }
 
                 return BuildResultFromEvents(buildEventsSink);
@@ -148,7 +148,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // 检查是否已有构建在进行
                 if (solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress)
                 {
-                    return "⚠️ 构建已在进行中，请等待完成。";
+                    return LocalizationService.Instance["build.alreadyInProgress"];
                 }
 
                 // 启动构建（DTE 方式是同步阻塞的，用 Task.Run 包裹）
@@ -169,17 +169,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (buildSuccess)
                 {
                     Logger.Info("[BuildService] ✅ DTE 构建成功");
-                    return "✅ 构建成功（DTE.SolutionBuild）";
+                    return LocalizationService.Instance["build.dteSuccess"];
                 }
 
                 // 收集错误
                 string errors = CollectBuildErrors();
                 var result = new StringBuilder();
-                result.AppendLine("⚠️ 构建完成，存在编译错误");
+                result.AppendLine(LocalizationService.Instance["build.completedWithErrors"]);
                 if (!string.IsNullOrEmpty(errors))
                 {
                     result.AppendLine();
-                    result.AppendLine("## 编译错误详情");
+                    result.AppendLine("## " + LocalizationService.Instance["build.errorDetails"]);
                     result.Append(errors);
                 }
                 return result.ToString();
@@ -187,7 +187,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             catch (Exception ex)
             {
                 Logger.Warn($"[BuildService] DTE 构建异常: {ex.Message}");
-                return $"⚠️ 构建失败 (DTE): {ex.Message}";
+                return string.Format(LocalizationService.Instance["build.dteFailed"], ex.Message);
             }
         }
 
@@ -202,22 +202,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (failed == 0 && cancelled == 0)
             {
                 Logger.Info($"[BuildService] ✅ 构建成功 ({succeeded} 个项目)");
-                return $"✅ 构建成功，{succeeded} 个项目通过";
+                return string.Format(LocalizationService.Instance["build.projectsPassed"], succeeded);
             }
 
             if (cancelled != 0)
             {
                 Logger.Info("[BuildService] ⚠️ 构建已取消");
-                return "⚠️ 构建已取消";
+                return LocalizationService.Instance["build.cancelled"];
             }
 
             string errors = CollectBuildErrors();
             var result = new StringBuilder();
-            result.AppendLine($"⚠️ 构建完成，{failed} 个项目失败");
+            result.AppendLine(string.Format(LocalizationService.Instance["build.projectsFailed"], failed));
             if (!string.IsNullOrEmpty(errors))
             {
                 result.AppendLine();
-                result.AppendLine("## 编译错误详情");
+                result.AppendLine("## " + LocalizationService.Instance["build.errorDetails"]);
                 result.Append(errors);
             }
 
@@ -293,10 +293,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                                     continue;
 
                                 string headingKey = !string.IsNullOrWhiteSpace(fileName)
-                                    ? fileName : "(未知文件)";
+                                    ? fileName : LocalizationService.Instance["build.unknownFile"];
 
                                 string desc = line > 0
-                                    ? $"- **行 {line}**: {text}"
+                                    ? string.Format(LocalizationService.Instance["build.errorAtLine"], line, text)
                                     : $"- {text}";
 
                                 if (!errorsByFile.ContainsKey(headingKey))
