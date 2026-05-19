@@ -457,7 +457,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var operationType = _editPatchService?.DetectOperationType(result)
                 ?? EditOperationType.CreateFile;
 
-            AddLog("INFO", $"[EditAgent] 检测到编辑类型: {operationType}");
+            AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editTypeDetected"], operationType));
 
             // ── 保存原始文件内容（用于最终 diff 比较）──
             var originalContents = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -553,7 +553,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (warnings.Count > 0)
                 {
                     sanityWarnings = string.Join("; ", warnings);
-                    AddLog("WARN", $"⚠️ 括号/括号不匹配: {sanityWarnings}");
+                    AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.braceParenMismatch"], sanityWarnings));
                 }
             }
 
@@ -813,11 +813,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     if (applyResult.Success)
                     {
-                        AddLog("INFO", $"✅ Patch 已匹配: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑) [内存中，待批量写盘]");
+                        AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.patchMatched"], resolvedPath, applyResult.AppliedEdits.Count));
                         NotifyFileChange(plan.PlanId,
                             isNewFile ? "create" : "modify",
                             resolvedPath,
-                            $"{applyResult.AppliedEdits.Count} 个编辑点");
+                            string.Format(LocalizationService.Instance["agent.log.patchEditPoints"], applyResult.AppliedEdits.Count));
 
                         // ── 更新 plan.ChangedFiles ──
                         if (!plan.ChangedFiles.Any(c => string.Equals(c.FilePath, resolvedPath, StringComparison.OrdinalIgnoreCase)))
@@ -992,7 +992,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         // ── 项目文件拦截：修改 .vcxproj/.sln 等前请求用户确认 ──
                         bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                            resolvedPath, $"InsertEdit 修改 ({applyResult.AppliedEdits.Count} 个编辑点)");
+                            resolvedPath, string.Format(LocalizationService.Instance["agent.log.insertEditPoints"], applyResult.AppliedEdits.Count));
                         if (writeAllowed)
                         {
                             await TerminalWindowHelper.WriteCodeToFileAsync(
@@ -1008,9 +1008,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     if (applyResult.Success)
                     {
-                        AddLog("INFO", $"✅ InsertEdit 已应用: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑)");
+                        AddLog("INFO", string.Format("✅ InsertEdit 已应用: {0} ({1} 个编辑)", resolvedPath, applyResult.AppliedEdits.Count));
                         NotifyFileChange(plan.PlanId, "modify", resolvedPath,
-                            $"{applyResult.AppliedEdits.Count} 个编辑点");
+                            string.Format(LocalizationService.Instance["agent.log.patchEditPoints"], applyResult.AppliedEdits.Count));
 
                         // ── 更新 plan.ChangedFiles 确保文件计数正确（计算真实行数变化）──
                         if (!plan.ChangedFiles.Any(c => string.Equals(c.FilePath, resolvedPath, StringComparison.OrdinalIgnoreCase)))
@@ -1913,7 +1913,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     })
                     .ToList();
 
-                sb.AppendLine("### 📊 文件变更统计");
+                sb.AppendLine(LocalizationService.Instance["agent.panel.fileChangeStats"]);
                 sb.AppendLine();
                 sb.AppendLine("| 文件 | 变更 |");
                 sb.AppendLine("|------|------|");

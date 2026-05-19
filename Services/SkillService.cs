@@ -648,7 +648,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (result == null || result.UserInvocableSkills.Count == 0)
                 return string.Empty;
 
-            var lines = new List<string> { "## 可用技能 (输入 / 调用)" };
+            var L = LocalizationService.Instance;
+            var lines = new List<string> { string.Format(L["skills.availableHeader"], "/") };
 
             foreach (var skill in result.UserInvocableSkills)
             {
@@ -669,7 +670,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (result == null || result.TotalCount == 0)
             {
                 Logger.Info("[SkillService] 📝 GenerateSkillsSummary: 无可用技能");
-                return "当前无可用技能。";
+                return LocalizationService.Instance["skills.noneAvailable"];
             }
 
             Logger.Info($"[SkillService] 📝 开始生成技能总结: 共 {result.TotalCount} 个技能 (项目: {result.ProjectSkillCount}, 用户: {result.UserSkillCount}, 内置: {result.TotalCount - result.ProjectSkillCount - result.UserSkillCount})");

@@ -42,7 +42,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 try
                 {
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = $"发生错误: {ex.Message}";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.error"], ex.Message);
                 }
                 catch { }
             }
@@ -67,7 +67,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (string.IsNullOrEmpty(userText))
                 {
                     _pendingEditMsgIndex = -1;
-                    StatusLabel.Text = "就绪";
+                    StatusLabel.Text = LocalizationService.Instance["status.ready"];
                     return;
                 }
                 await HandleEditResendAsync(_pendingEditMsgIndex, userText);
@@ -112,7 +112,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _messages.Add(warningMsg);
                     AddMessagesHtml("assistant", ApiKeyMissingMessage);
                     UpdateBrowser();
-                    StatusLabel.Text = "⚠️ 请先配置 API 密钥 (工具 → 选项 → DeepSeek Chat)";
+                    StatusLabel.Text = LocalizationService.Instance["status.apiKeyMissing"];
                     lock (_lock) { _isGenerating = false; }
                     return;
                 }
@@ -133,7 +133,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (_attachedFilePaths.Count > 0)
                 {
-                    StatusLabel.Text = "正在解析文件…";
+                    StatusLabel.Text = LocalizationService.Instance["status.parsingFile"];
                     parseResults = await FileParserService.ParseFilesAsync(_attachedFilePaths);
                     attachedFileNames = parseResults.Where(r => r.Success).Select(r => r.FileName).ToList();
                     fileContext = FileParserService.FormatParseResultsForContext(parseResults);
@@ -193,7 +193,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     if (string.IsNullOrWhiteSpace(agentRoutedUserText))
                     {
-                        StatusLabel.Text = $"已切换到 {explicitRoute.TargetAgent} Agent";
+                        StatusLabel.Text = string.Format(LocalizationService.Instance["status.switchedAgent"], explicitRoute.TargetAgent);
                         InputTextBox.Text = string.Empty;
                         lock (_lock) { _isGenerating = false; }
                         return;
@@ -264,7 +264,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                                 lock (_lock) { _isGenerating = false; }
                                 UpdateButtonsState();
-                                StatusLabel.Text = "就绪";
+                                StatusLabel.Text = LocalizationService.Instance["status.ready"];
                             }
                         });
                         return;
@@ -385,7 +385,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 UpdateButtonsState();
 
                 bool isWebSearchEnabled = _webSearchEngine != "Off";
-                StatusLabel.Text = isWebSearchEnabled ? "正在联网搜索…" : "DeepSeek 思考中…";
+                StatusLabel.Text = isWebSearchEnabled ? LocalizationService.Instance["status.webSearching"] : LocalizationService.Instance["status.thinking"];
 
                 _currentStreamingCts?.Cancel();
                 _currentStreamingCts?.Dispose();
@@ -400,7 +400,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     ApplyWebSearchConfig();
                     if (_webSearchEngine == "Baidu" && (_options == null || string.IsNullOrWhiteSpace(_options.BaiduApiKey)))
                     {
-                        StatusLabel.Text = "⚠️ 请先配置百度 API Key";
+                        StatusLabel.Text = LocalizationService.Instance["status.baiduKeyMissing"];
                         assistantMsg.Content = "⚠️ **百度搜索未配置**\n\n请通过 工具 → 选项 → DeepSeek Chat → Web Search 配置。\n";
                         assistantMsg.IsStreaming = false;
                         _ = UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, string.Empty, isComplete: true);
@@ -416,7 +416,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         try
                         {
-                            StatusLabel.Text = "AI 正在从附件中提取关键信息…";
+                            StatusLabel.Text = LocalizationService.Instance["status.extractingInfo"];
                             string? extractedKeyInfo = await ExtractKeyInfoForSearchAsync(fileContext, userText!, _currentStreamingCts.Token);
                             if (!string.IsNullOrWhiteSpace(extractedKeyInfo))
                             {
@@ -436,7 +436,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         {
                             try
                             {
-                                StatusLabel.Text = "AI 正在优化搜索词…";
+                                StatusLabel.Text = LocalizationService.Instance["status.optimizingSearch"];
                                 bool isBaidu = _webSearchEngine == "Baidu";
                                 var optimization = await OptimizeSearchQueryAsync(searchOptimizationInput, _currentStreamingCts.Token, isBaidu);
                                 if (optimization != null && !string.IsNullOrWhiteSpace(optimization.SearchQuery) && optimization.NeedSearch)
@@ -454,7 +454,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         if (searchResults.Count > 0)
                         {
                             string providerLabel = _webSearchService.ActiveProvider == SearchProvider.Baidu ? "百度搜索" : "DuckDuckGo";
-                            StatusLabel.Text = $"已获取 {searchResults.Count} 条搜索结果，正在抓取网页…";
+                            StatusLabel.Text = string.Format(LocalizationService.Instance["status.searchResults"], searchResults.Count);
                             assistantMsg.Content = $"🔍 已联网搜索到 {searchResults.Count} 条结果（{providerLabel}），正在抓取网页内容…\n\n";
                             _ = UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, string.Empty, isComplete: false);
 
@@ -478,7 +478,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 }
                             }
                             else
-                                StatusLabel.Text = "未找到搜索结果，使用内置知识回复…";
+                                StatusLabel.Text = LocalizationService.Instance["status.noSearchResults"];
                         }
                     }
                     catch (ApiKeyInvalidException ex)
@@ -496,7 +496,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     catch (Exception ex)
                     {
                         Logger.Error($"联网搜索异常: {ex.Message}", ex);
-                        StatusLabel.Text = "搜索失败，使用内置知识回复…";
+                        StatusLabel.Text = LocalizationService.Instance["status.searchFailed"];
                     }
                 }
 
@@ -582,7 +582,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             {
                                 var thinking = chunk.Substring(10);
                                 reasoningBuffer.Append(thinking);
-                                StatusLabel.Text = "DeepSeek 深度思考中…";
+                                StatusLabel.Text = LocalizationService.Instance["status.deepThinking"];
 
                                 if (reasoningBuffer.Length - lastReasoningLength >= 80)
                                 {
@@ -615,7 +615,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     }
                                 }
                                 catch (JsonException) { }
-                                StatusLabel.Text = $"调用工具: {string.Join(", ", toolCallAccumulator.Values.Where(a => !string.IsNullOrEmpty(a.FunctionName)).Select(a => a.FunctionName))}...";
+                                StatusLabel.Text = string.Format(LocalizationService.Instance["status.callingTool"], string.Join(", ", toolCallAccumulator.Values.Where(a => !string.IsNullOrEmpty(a.FunctionName)).Select(a => a.FunctionName)));
                             }
                             else if (chunk.StartsWith("[CACHE]"))
                             {
@@ -633,7 +633,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                                 contentBuffer.Append(chunk);
                                 streamRenderTick += chunk.Length;
-                                StatusLabel.Text = "DeepSeek 回复中...";
+                                StatusLabel.Text = LocalizationService.Instance["status.replying"];
 
                                 if (streamRenderTick >= StreamRenderInterval)
                                 {
@@ -650,9 +650,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         if (toolCallAccumulator.Count > 0)
                         {
                             Logger.Info($"[MCP] 检测到 {toolCallAccumulator.Count} 个工具调用");
-                            StatusLabel.Text = "正在执行 MCP 工具...";
+                            StatusLabel.Text = LocalizationService.Instance["status.executingMcp"];
 
-                            string toolCallSummary = "🔧 正在调用工具:\n";
+                            string toolCallSummary = LocalizationService.Instance["status.callingToolsHtml"] + "\n";
                             foreach (var acc in toolCallAccumulator.Values)
                                 toolCallSummary += $"- `{acc.FunctionName}`\n";
                             assistantMsg.Content = contentBuffer.Length > 0 ? contentBuffer.ToString() + "\n\n" + toolCallSummary : toolCallSummary;
@@ -862,7 +862,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 catch (Exception ex)
                 {
                     Logger.Error($"[Render] API 出错", ex);
-                    assistantMsg.Content = $"抱歉，发生了错误，请重试。\n\n```\n{ex.Message}\n```";
+                    assistantMsg.Content = string.Format(LocalizationService.Instance["status.apiError"], ex.Message);
                     assistantMsg.IsStreaming = false;
                     await UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
                 }
@@ -962,7 +962,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string level = stats.UsageRatio > 0.9 ? "⚠️" : stats.UsageRatio > 0.7 ? "ℹ️" : "";
                 Logger.Info($"[ContextStats] {level} Token: {stats.EstimatedTokens:N0}/{stats.TokenBudget:N0} ({stats.UsagePercent:F1}%) | 轮次: {stats.TurnCount} | 消息: {stats.MessageCount}");
                 if (stats.UsageRatio > 0.9)
-                    StatusLabel.Text = $"⚠️ 上下文使用率 {stats.UsagePercent:F0}% — 已触发压缩";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.compressionTriggered"], stats.UsagePercent);
             }
 
             return _contextManager.BuildApiMessages();
@@ -978,7 +978,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _isGenerating = false;
                 }
                 UpdateButtonsState();
-                StatusLabel.Text = "已停止";
+                    StatusLabel.Text = LocalizationService.Instance["status.stopped"];
             }
             catch (Exception ex) { Logger.Error($"StopGeneration 异常: {ex.Message}", ex); }
         }
@@ -1002,7 +1002,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 try
                 {
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = $"清空失败: {ex.Message}";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.clearFailed"], ex.Message);
                 }
                 catch { }
             }

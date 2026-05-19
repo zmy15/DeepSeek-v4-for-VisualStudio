@@ -330,7 +330,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     new AgentStep
                     {
                         Index = 1,
-                        Title = "分析并修改代码",
+                        Title = LocalizationService.Instance["agent.step.analyzeAndModify"],
                         Description = userMessage,
                         RequiresApproval = false,
                     }
@@ -458,14 +458,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             prompt.AppendLine("- **类/接口设计**: 该步骤涉及的关键类、接口的完整定义（含命名空间、访问修饰符、继承关系）");
             prompt.AppendLine("- **方法设计**: 关键方法的签名、参数说明、返回值、核心逻辑描述");
             prompt.AppendLine();
-            prompt.AppendLine("### 4. 📊 文件变更汇总");
+            prompt.AppendLine($"### 4. {LocalizationService.Instance["agent.panel.fileChangeSummary"]}");
             prompt.AppendLine("- 以表格形式列出所有文件变更（操作类型 | 文件路径 | 说明）");
             prompt.AppendLine();
-            prompt.AppendLine("### 5. 🔗 依赖关系");
+            prompt.AppendLine($"### 5. {LocalizationService.Instance["agent.panel.dependencies"]}");
             prompt.AppendLine("- 步骤之间的依赖关系（哪些步骤可并行，哪些需串行）");
             prompt.AppendLine("- 外部依赖（NuGet 包、API、配置文件等）");
             prompt.AppendLine();
-            prompt.AppendLine("### 6. ✅ 验证步骤");
+            prompt.AppendLine($"### 6. {LocalizationService.Instance["agent.panel.verification"]}");
             prompt.AppendLine("- 每个步骤完成后的验证方法（编译、运行测试、手动检查等）");
             prompt.AppendLine();
             prompt.AppendLine("## 注意事项");

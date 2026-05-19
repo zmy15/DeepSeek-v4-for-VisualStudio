@@ -615,7 +615,6 @@
                                   MinWidth="140" Margin="0,0,8,0"
                                   SelectionChanged="ModelComboBox_SelectionChanged" />
                         <CheckBox x:Name="ThinkingCheckBox"
-                                  Content="深度思考"
                                   VerticalAlignment="Center" Margin="0,0,8,0"
                                   Checked="ThinkingCheckBox_Changed"
                                   Unchecked="ThinkingCheckBox_Changed" />

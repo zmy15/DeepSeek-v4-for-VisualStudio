@@ -196,12 +196,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── i18n：输入框占位文字跟随语言 ──
             UpdateInputPlaceholder();
             UpdateAllTooltips();
+            UpdateUiLabels();
             LocalizationService.Instance.LanguageChanged += (_, _) =>
             {
                 Dispatcher.Invoke(() =>
                 {
                     UpdateInputPlaceholder();
                     UpdateAllTooltips();
+                    UpdateUiLabels();
                 });
             };
 
@@ -1162,6 +1164,26 @@ private static string? GetSolutionPathFromIVsSolution()
             catch (Exception ex)
             {
                 Logger.Warn($"[i18n] 更新 ToolTip 失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 更新 UI 标签文本（跟随 i18n 语言设置）。
+        /// 包括深度思考复选框等非 ToolTip 的 UI 元素。
+        /// </summary>
+        private void UpdateUiLabels()
+        {
+            try
+            {
+                var L = LocalizationService.Instance;
+
+                // 深度思考复选框
+                if (ThinkingCheckBox != null)
+                    ThinkingCheckBox.Content = L["chat.thinkingCheckbox"];
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[i18n] 更新 UI 标签失败: {ex.Message}");
             }
         }
 

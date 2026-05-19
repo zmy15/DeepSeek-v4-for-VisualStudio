@@ -461,7 +461,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             // ── 编辑按钮（仅在有索引时渲染） ──
             string editBtnHtml = messageIndex >= 0
-                ? $"<button id='edit-btn-{messageIndex}' class='msg-action-btn edit-btn' onclick='window.__editMessage({messageIndex})' title='编辑此消息'>✏️ 编辑</button>"
+                ? $"<button id='edit-btn-{messageIndex}' class='msg-action-btn edit-btn' onclick='window.__editMessage({messageIndex})' title='{LocalizationService.Instance["chat.html.editButtonTitle"]}'>✏️ {LocalizationService.Instance["chat.html.editButton"]}</button>"
                 : "";
 
             // ── 文件附件：可折叠的 &lt;details&gt; 块 ──
@@ -619,7 +619,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             // ── 重试按钮（非流式、非预渲染 HTML 消息、非生成中才显示） ──
             string retryBtnHtml = !isStreaming && !msg.IsHtml
-                ? $"<button id='retry-btn-{idx}' class='msg-action-btn retry-btn' onclick='window.__retryMessage({idx})' title='重新生成回答'>🔄 重试</button>"
+                ? $"<button id='retry-btn-{idx}' class='msg-action-btn retry-btn' onclick='window.__retryMessage({idx})' title='{LocalizationService.Instance["chat.html.retryButtonTitle"]}'>{LocalizationService.Instance["chat.html.retryButton"]}</button>"
                 : "";
 
             // ── 分支导航栏（重试产生的分叉，在AI气泡下方）──

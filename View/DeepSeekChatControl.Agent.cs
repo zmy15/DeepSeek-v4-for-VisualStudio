@@ -300,15 +300,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
                         int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
                         summaryBuilder.AppendLine(plan.IsCancelled
-                            ? "## ⚠️ 任务已取消"
+                            ? LocalizationService.Instance["agent.result.taskCancelled"]
                             : failed > 0
-                                ? $"## ⚠️ 任务完成 — {completed}/{plan.Steps.Count} 步成功，{failed} 步失败"
-                                : $"## ✅ 任务完成 — {completed}/{plan.Steps.Count} 步全部成功");
+                                ? string.Format(LocalizationService.Instance["agent.result.taskCompletedPartial"], completed, plan.Steps.Count, failed)
+                                : string.Format(LocalizationService.Instance["agent.result.taskCompletedSuccess"], completed, plan.Steps.Count));
                         summaryBuilder.AppendLine();
 
                         if (plan.ChangedFiles.Count > 0)
                         {
-                            summaryBuilder.AppendLine($"**文件变更**: {plan.ChangedFiles.Count} 个文件");
+                            summaryBuilder.AppendLine($"**{LocalizationService.Instance["agent.panel.fileChanges"]}**: {plan.ChangedFiles.Count} 个文件");
                             foreach (var f in plan.ChangedFiles)
                             {
                                 string fname = System.IO.Path.GetFileName(f.FilePath);
@@ -329,7 +329,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             .Replace("\n", "<br>");
                         thinkingDetailsHtml =
                             "<details class='reasoning-panel' style='margin-top:12px' open='true'>" +
-                            "<summary>📋 执行过程</summary>" +
+                            "<summary>" + LocalizationService.Instance["agent.panel.executionProcess"] + "</summary>" +
                             "<div class='reasoning-content'>" + escapedThinking + "</div>" +
                             "</details>";
                     }
@@ -620,7 +620,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         await ChatWebView.CoreWebView2.ExecuteScriptAsync(updateJs);
                     }
 
-                    StatusLabel.Text = $"🤖 Plan Agent: {plan.Steps.Count} 个步骤已规划";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["agent.status.planStepsPlanned"], plan.Steps.Count);
                 }
                 catch (Exception ex)
                 {
@@ -736,7 +736,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return msg;
             if (msg.StartsWith("阶段") || msg.Contains("/3:"))
                 return $"🔍 {msg}";
-            if (msg.StartsWith("执行步骤") || msg.Contains("个步骤已规划"))
+            if (msg.StartsWith(LocalizationService.Instance["agent.log.editStepPrefix"]) || msg.Contains(LocalizationService.Instance["agent.log.planStepsPlannedSuffix"]))
                 return msg;
             if (msg.StartsWith("Plan Agent 开始规划"))
                 return "🔍 开始分析任务，探索项目结构…";
@@ -948,10 +948,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         catch { }
                     }
 
-                    string finalContent = agentResult.Content ?? $"✅ 任务完成 — {plan.Steps.Count(s => s.Status == AgentStepStatus.Completed)}/{plan.Steps.Count} 步成功";
+                    string finalContent = agentResult.Content ?? string.Format(LocalizationService.Instance["agent.result.taskCompletedSuccess"], plan.Steps.Count(s => s.Status == AgentStepStatus.Completed), plan.Steps.Count);
                     StatusLabel.Text = plan.ChangedFiles.Count > 0
-                        ? $"✅ Agent 任务完成 ({plan.ChangedFiles.Count} 个文件变更)"
-                        : "✅ 计划执行完成";
+                        ? string.Format(LocalizationService.Instance["agent.result.completed"], plan.ChangedFiles.Count)
+                        : LocalizationService.Instance["agent.result.planCompleted"];
 
                     if (plan.ChangedFiles.Count > 0)
                         _pendingAgentFileChanges = new List<FileChangeSummary>(plan.ChangedFiles);
@@ -965,7 +965,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 Logger.Error($"[AgentHandoff] 执行失败: {ex.Message}", ex);
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                StatusLabel.Text = $"❌ Handoff 错误: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["agent.status.handoffError"], ex.Message);
             }
         }
 
@@ -988,27 +988,22 @@ namespace DeepSeek_v4_for_VisualStudio.View
             var fileList = string.Join("\n", changes.Select(c =>
                 $"  • {Path.GetFileName(c.FilePath)} (+{c.LinesAdded} -{c.LinesRemoved})"));
 
+            var L = LocalizationService.Instance;
             var result = MessageBox.Show(
-                $"此轮对话曾修改了 {changes.Count} 个文件：\n\n{fileList}\n\n" +
-                "是否回退这些更改后再重新生成？\n\n" +
-                "• 「是」— 回退文件到修改前的状态，然后重新生成\n" +
-                "• 「否」— 保留当前文件状态，基于现有代码重新生成\n" +
-                "• 「取消」— 不执行任何操作\n\n" +
-                "⚠️ 注意：选择「是」回退将把文件恢复到 AI 修改前的状态。\n" +
-                "如果此后您手动编辑过这些文件，您的修改也将丢失！",
-                "文件变更回退确认",
+                string.Format(L["agent.revert.message"], changes.Count, fileList),
+                L["agent.revert.title"],
                 MessageBoxButton.YesNoCancel,
                 MessageBoxImage.Warning);
 
             if (result == MessageBoxResult.Cancel)
             {
-                StatusLabel.Text = "已取消";
+                StatusLabel.Text = L["agent.revert.cancelled"];
                 return false;
             }
 
             if (result == MessageBoxResult.Yes)
             {
-                StatusLabel.Text = "正在回退文件变更…";
+                StatusLabel.Text = L["agent.revert.reverting"];
                 int revertedCount = 0;
                 int failedCount = 0;
 
@@ -1088,14 +1083,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 lock (_lock) { _fileChangeHistory.Remove(userMsgIndex); }
 
                 // 注入系统提示：告知 AI 对话历史中的代码可能已过时，应以磁盘最新文件为准
-                const string staleCodeHint =
-                    "⚠️ 系统提示：以上对话历史中包含的代码片段可能已过时。" +
-                    "请以磁盘上当前最新的文件内容为准进行分析和代码修改，" +
-                    "不要直接参考或复用对话历史中的旧代码。";
-                _contextManager.AddCustomMessage("system", staleCodeHint);
+                _contextManager.AddCustomMessage("system", LocalizationService.Instance["agent.revert.staleCodeHint"]);
 
-                StatusLabel.Text = "📝 保留文件变更，已提示 AI 参考最新文件…";
-                Logger.Info($"[FileHistory] 用户选择保留文件变更，已注入最新文件参考提示");
+                StatusLabel.Text = L["agent.revert.keepChanges"];
+                Logger.Info($"[FileHistory] {L["agent.revert.keepChanges"]}");
             }
 
             return true;

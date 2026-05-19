@@ -1625,7 +1625,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         string targetAgent = obj.TryGetProperty("targetAgent", out var targetProp)
                             ? targetProp.GetString() ?? "Edit" : "Edit";
                         string label = obj.TryGetProperty("label", out var labelProp)
-                            ? labelProp.GetString() ?? "开始实现" : "开始实现";
+                            ? labelProp.GetString() ?? LocalizationService.Instance["plan.handoff.label"] : LocalizationService.Instance["plan.handoff.label"];
                         _ = ExecuteAgentHandoffAsync(targetAgent, label);
                     }
                 }

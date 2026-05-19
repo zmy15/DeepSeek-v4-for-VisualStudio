@@ -597,13 +597,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             return result.Plan ?? new AgentTaskPlan
             {
                 Intent = AgentIntent.CodeChange,
-                Title = "执行代码变更",
+                Title = LocalizationService.Instance["agent.step.executeCodeChange"],
                 Steps = new List<AgentStep>
                 {
                     new AgentStep
                     {
                         Index = 1,
-                        Title = "分析并修改代码",
+                        Title = LocalizationService.Instance["agent.step.analyzeAndModify"],
                         Description = userMessage,
                         RequiresApproval = false,
                     }
