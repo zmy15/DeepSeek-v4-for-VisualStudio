@@ -1380,16 +1380,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             try
             {
+                var L = LocalizationService.Instance;
                 if (_mcpManager == null || _mcpManager.AllTools.Count == 0)
                 {
-                    McpConfigButton.ToolTip = "配置 MCP 服务器（未连接）";
+                    McpConfigButton.ToolTip = L["input.mcpNotConnected"];
                     McpConfigButton.Foreground = new SolidColorBrush(
                         Color.FromRgb(0x88, 0x88, 0x88));
                 }
                 else
                 {
                     int toolCount = _mcpManager.AllTools.Count;
-                    McpConfigButton.ToolTip = $"MCP 已连接: {toolCount} 个工具可用 (点击配置)";
+                    McpConfigButton.ToolTip = L.Format("input.mcpConnected", toolCount);
                     McpConfigButton.Foreground = new SolidColorBrush(
                         Color.FromRgb(0x4E, 0xC9, 0xB0));
                 }
@@ -1406,19 +1407,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private void UpdateWebSearchToggleAppearance()
         {
             bool isOn = _webSearchEngine != "Off";
-            // 按钮颜色与 Tooltip
+            var L = LocalizationService.Instance;
             if (isOn)
             {
-                // 保持激活色（若需区分引擎可再细化）
                 WebSearchToggleButton.Foreground = new SolidColorBrush(
                     Color.FromRgb(0x6C, 0xAF, 0xD9));
-                WebSearchToggleButton.ToolTip = "联网搜索: 已开启 (点击关闭)";
+                WebSearchToggleButton.ToolTip = L["input.webSearchOn"];
             }
             else
             {
                 WebSearchToggleButton.Foreground = new SolidColorBrush(
                     Color.FromRgb(0x88, 0x88, 0x88));
-                WebSearchToggleButton.ToolTip = "联网搜索: 已关闭 (点击开启)";
+                WebSearchToggleButton.ToolTip = L["input.webSearchOff"];
             }
 
             // 下拉框可见性：开启时显示，关闭时隐藏

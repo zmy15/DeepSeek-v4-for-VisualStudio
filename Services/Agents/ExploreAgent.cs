@@ -244,7 +244,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (context.ActivePlan != null)
             {
                 sb.AppendLine("## 当前计划信息");
-                sb.AppendLine($"任务: {context.ActivePlan.Title}");
+                sb.AppendLine($"{LocalizationService.Instance["explore.task"]}: {context.ActivePlan.Title}");
                 sb.AppendLine($"当前步骤: {context.ActivePlan.CurrentStepIndex}/{context.ActivePlan.Steps.Count}");
                 sb.AppendLine();
             }

@@ -58,9 +58,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     new AgentHandoff
                     {
-                        Label = "开始实现",
+                        Label = LocalizationService.Instance["plan.handoff.label"],
                         TargetAgent = AgentType.Edit,
-                        Prompt = "根据以下计划执行代码修改。严格按步骤执行，每步完成后报告进度。\n\n计划：",
+                        Prompt = LocalizationService.Instance["plan.handoff.prompt"],
                         AutoSend = false,
                         ShowContinueOn = true,
                     }
@@ -180,18 +180,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
 
                     // ── 设置 Handoff：计划完成后自动建议切换到 Edit Agent 执行 ──
+                    var L = LocalizationService.Instance;
                     result.Handoff = new AgentHandoff
                     {
-                        Label = "开始实现",
+                        Label = L["plan.handoff.label"],
                         TargetAgent = AgentType.Edit,
-                        Prompt = $"根据以下计划执行代码修改。\n\n计划: {plan.Title}\n步骤数: {plan.Steps.Count}\n\n严格按步骤执行，每步完成后报告进度。",
+                        Prompt = string.Format(L["plan.handoff.promptWithPlan"], plan.Title, plan.Steps.Count),
                         AutoSend = false,
                         ShowContinueOn = true,
                     };
                 }
                 else
                 {
-                    result.Content = "未能生成有效的实现计划。请提供更多信息或尝试不同的描述。";
+                    result.Content = L["plan.noValidPlan"];
                     AddLog("WARN", "计划生成失败：无有效步骤");
                 }
 
@@ -226,11 +227,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             try
             {
+                var L = LocalizationService.Instance;
                 // ── 先让 AI 判断需要探索哪些代码区域 ──
                 string routingPrompt =
                     "根据以下用户任务，列出需要探索的代码区域（最多3个）。" +
                     "每个区域一行，只输出区域描述，不要其他内容。\n\n" +
-                    $"用户任务: {userMessage}\n\n" +
+                    $"{L["plan.userTask"]}: {userMessage}\n\n" +
                     (string.IsNullOrEmpty(context.SolutionPath) ? ""
                         : $"解决方案路径: {context.SolutionPath}\n\n") +
                     "需要探索的区域:";
@@ -392,7 +394,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             string userMessage, AgentContext context)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("## 用户任务");
+            sb.AppendLine($"## {LocalizationService.Instance["plan.userTask"]}");
             sb.AppendLine(userMessage);
             sb.AppendLine();
 

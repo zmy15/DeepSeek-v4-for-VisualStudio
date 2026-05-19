@@ -308,28 +308,28 @@
                             Padding="2"
                             MinWidth="200">
                         <StackPanel>
-                            <MenuItem Header="📄 添加活动文档"
+                            <MenuItem x:Name="AddActiveDocMenuItem" Header="📄 添加活动文档"
                                       Click="AddActiveDocument_Click"
                                       ToolTip="将当前编辑器中的活动文档内容添加到对话上下文"
                                       Background="#2D2D2D" Foreground="#D4D4D4"
                                       Padding="10,6" FontSize="13" />
-                            <MenuItem Header="📁 添加项目文件…"
+                            <MenuItem x:Name="AddProjectFileMenuItem" Header="📁 添加项目文件…"
                                       Click="AddProjectFiles_Click"
                                       ToolTip="从项目中选择文件添加到对话上下文"
                                       Background="#2D2D2D" Foreground="#D4D4D4"
                                       Padding="10,6" FontSize="13" />
-                            <MenuItem Header="📦 添加项目全部文件"
+                            <MenuItem x:Name="AddAllFilesMenuItem" Header="📦 添加项目全部文件"
                                       Click="AddAllProjectFiles_Click"
                                       ToolTip="一键将当前解决方案中所有项目的源代码文件添加到对话上下文"
                                       Background="#2D2D2D" Foreground="#D4D4D4"
                                       Padding="10,6" FontSize="13" />
                             <Separator Background="#555555" Margin="4,2" />
-                            <MenuItem Header="✂️ 添加选中代码块"
+                            <MenuItem x:Name="AddSelectionMenuItem" Header="✂️ 添加选中代码块"
                                       Click="AddSelectedCode_Click"
                                       ToolTip="将编辑器中当前选中的代码块添加到对话上下文"
                                       Background="#2D2D2D" Foreground="#D4D4D4"
                                       Padding="10,6" FontSize="13" />
-                            <MenuItem Header="🐛 添加调试输出"
+                            <MenuItem x:Name="AddDebugMenuItem" Header="🐛 添加调试输出"
                                       Click="AddDebugOutput_Click"
                                       ToolTip="将 Visual Studio 输出窗口中的调试信息添加到对话上下文"
                                       Background="#2D2D2D" Foreground="#D4D4D4"
@@ -358,7 +358,7 @@
                 <!-- 输入框占位提示文字（无内容且无焦点时显示） -->
                 <TextBlock Grid.Row="0"
                            x:Name="InputPlaceholder"
-                           Text="输入问题，或 @选择Agent  /选择技能  @agent /skill 组合使用"
+                           Text="输入问题..."
                            Foreground="#555555"
                            FontSize="12"
                            Padding="40,8,8,4"
@@ -656,7 +656,7 @@
                                 <TextBlock Text="🔌" FontSize="14" />
                             </Button.Content>
                         </Button>
-                        <Button Content="+ 新对话" Click="NewChatButton_Click"
+                        <Button x:Name="NewChatButton" Content="+ 新对话" Click="NewChatButton_Click"
                                 Style="{StaticResource TransparentButton}"
                                 Margin="0,0,8,0" FontSize="12"
                                 Foreground="#4EC9B0" />

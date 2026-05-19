@@ -142,79 +142,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private static string BuildSystemPrompt()
         {
-            return CommonSystemPromptPrefix + "\n" +
-                "你当前处于 **Edit 模式**——专精于按计划执行代码修改。\n\n" +
-                "## 核心原则\n" +
-                "- 你有权修改项目文件，但要谨慎、精确\n" +
-                "- 每次修改后验证代码正确性（检查编译错误）\n" +
-                "- 遵循项目中已有的编码规范和架构模式\n" +
-                "- 优先使用项目已引入的框架和库\n" +
-                "- 删除文件前会要求用户确认，请只在必要时删除\n\n" +
-                "## 工作流程（重要！）\n" +
-                "- **必须先探索再修改**：使用 read_file / file_search / grep_search / list_dir 工具了解项目现有代码\n" +
-                "- 不要凭空猜测文件路径或代码结构——先读取相关文件确认\n" +
-                "- 探索完成后，基于实际代码进行修改\n\n" +
-                "## 代码编辑方法（三种，按优先级排列）\n\n" +
-                "### 方法1：apply_patch（首选，最快，推荐）\n" +
-                "自定义 diff 格式的补丁，适合局部修改。格式：\n" +
-                "```\n" +
-                "*** Begin Patch\n" +
-                "*** Update File: /path/to/file.ts\n" +
-                "@@ class MyClass\n" +
-                "@@     method():\n" +
-                "         context line\n" +
-                "-        old code to remove\n" +
-                "+        new code to add\n" +
-                "         context line\n" +
-                "*** End Patch\n" +
-                "```\n" +
-                "- 使用 *** Begin Patch / *** End Patch 包裹\n" +
-                "- *** Update File: / *** Add File: / *** Delete File: 声明操作\n" +
-                "- @@ 提供上下文定位（类名、函数名、命名空间等）\n" +
-                "- 行前缀: 空格=上下文行, - =删除行, + =新增行\n" +
-                "- 每个文件可以有多个 @@ hunk\n" +
-                "- 文件重命名用 *** Move to: <new path>\n" +
-                "- 多个文件用多个独立的 Begin/End Patch 块\n\n" +
-                "### 方法2：insert_edit_into_file（适合多处修改，大部分代码不变）\n" +
-                "输出完整文件内容，**未修改的区域必须用 ...existing code... 标记占位**：\n" +
-                "```insert_edit_into_file:完整/绝对/路径\n" +
-                "class Person {\n" +
-                "    // ...existing code...\n" +
-                "    age: number;\n" +
-                "    // ...existing code...\n" +
-                "    getAge() {\n" +
-                "        return this.age;\n" +
-                "    }\n" +
-                "}\n" +
-                "```\n" +
-                "- 使用 ```insert_edit_into_file: 或 ```edit: 包裹\n" +
-                "- **必须有** // ...existing code... 标记（也支持 # ...existing code... 和 <!-- ...existing code... -->）\n" +
-                "- 标记之间是你需要修改的代码段（含上下文，确保能精确定位）\n" +
-                "- **重要**：这是一个文本格式，不是工具调用 —— 直接在回复中输出代码块即可\n\n" +
-                "### 方法3：create_file / delete_file（新建文件 / 完全重写文件）\n" +
-                "新建文件或**完全替换文件内容**使用 ```file: 格式（已有支持）：\n" +
-                "```file:完整/绝对/路径\n" +
-                "// 完整的新文件内容\n" +
-                "```\n" +
-                "- **当整个文件的内容都要替换时，必须用 create_file 格式，不要用 insert_edit_into_file**\n" +
-                "删除文件使用：\n" +
-                "delete:完整/绝对/路径\n" +
-                "或\n" +
-                "delete_file:完整/绝对/路径\n\n" +
-                "## 方法选择指南\n" +
-                "- **小范围修改（1-3处局部改动）**：优先用 apply_patch\n" +
-                "- **多处修改但大部分代码不变**：用 insert_edit_into_file（必须带 ...existing code... 标记）\n" +
-                "- **新文件创建**：用 create_file (```file: 格式)\n" +
-                "- **完全重写文件（新旧内容完全不同）**：用 create_file 格式，不要用 insert_edit_into_file\n" +
-                "- **文件删除**：用 delete: 格式\n" +
-                "- **重要提醒**：以上三种都是文本格式，在回复中直接输出即可，不要作为工具调用\n\n" +
-                "## 步骤执行\n" +
-                "- 严格按照计划步骤顺序执行\n" +
-                "- 每步完成报告进度\n" +
-                "- 遇到错误不要静默跳过，报告并请求指导\n" +
-                "- **修改代码后，使用 build_solution 工具编译验证**\n" +
-                "- 如果编译失败，分析错误并修复，然后重新调用 build_solution 验证\n" +
-                "- 循环修复直到编译通过，或在多次失败后报告给用户";
+            return GetCommonSystemPromptPrefix() + LocalizationService.Instance["system.agent.editPromptFragment"];
         }
 
         #endregion
@@ -633,18 +561,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 AddLog("INFO", "🔍 编辑完成，启动验证阶段（AI 可调用 build_solution 等完整工具）...");
 
-                // ── 验证阶段使用专用 system prompt：不包含"先探索再修改"指令，
-                //     避免 AI 在验证时浪费 token 重复读取文件 ──
-                // ── 注入工作区根目录信息，防止 AI 在验证阶段幻觉出错误路径 ──
-                string verifySystemPrompt =
-                    "你是代码编译验证助手。你的唯一任务是编译验证已修改的代码。\n" +
-                    "如果编译失败，读取错误涉及的文件（仅相关行），修复后重新编译。\n" +
-                    "不要使用 file_search / list_dir / grep_search 等探索工具。\n" +
-                    "不要输出 apply_patch 文本格式——它是一个文本格式而非工具，请使用 replace_string_in_file 工具直接修改文件。\n" +
-                    "循环修复直到编译通过，或明确报告无法修复。\n\n" +
-                    $"## 工作区信息\n当前工作区根目录: `{workspaceRoot}`\n" +
-                    $"所有文件操作请使用此目录下的 Windows 绝对路径。\n" +
-                    $"已修改的文件（绝对路径）:\n{string.Join("\n", changes.Select(c => $"- `{c.FilePath}`"))}";
+                // ── 验证阶段使用专用 system prompt（从 i18n 加载，支持中英切换）──
+                string verifySystemPrompt = LocalizationService.Instance.Format(
+                    "system.agent.verifyPromptFragment",
+                    workspaceRoot,
+                    string.Join("\n", changes.Select(c => $"- `{c.FilePath}`")));
 
                 // ── 验证阶段专用工具白名单：build + 只读 + 编辑工具（不含探索工具）──
                 var verifyToolWhitelist = new List<string>
@@ -1895,7 +1816,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         public void Cancel()
         {
             _agentCts?.Cancel();
-            AddLog("WARN", "任务已取消");
+            AddLog("WARN", LocalizationService.Instance["edit.summary.cancelled"]);
         }
 
         private void NotifyPlanUpdated()
@@ -1905,29 +1826,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private static string BuildSummaryMarkdown(AgentTaskPlan plan, string? aiSummary = null)
         {
+            var L = LocalizationService.Instance;
+
             if (plan.IsCancelled)
-                return "⚠️ **任务已取消**";
+                return L["edit.summary.cancelled"];
 
             var sb = new StringBuilder();
-            sb.AppendLine("## ✅ 代码变更完成");
+            sb.AppendLine(L["edit.summary.complete"]);
             sb.AppendLine();
-            sb.AppendLine($"**任务**: {plan.Title}");
-            sb.AppendLine($"**修改文件数**: {plan.ChangedFiles.Count}");
+            sb.AppendLine($"**{L["edit.summary.taskLabel"]}**: {plan.Title}");
+            sb.AppendLine($"**{L["edit.summary.fileCount"]}**: {plan.ChangedFiles.Count}");
             sb.AppendLine();
 
             // ── AI 生成的文字总结 ──
             if (!string.IsNullOrWhiteSpace(aiSummary))
             {
-                sb.AppendLine("### 📝 变更摘要");
+                sb.AppendLine($"### {L["edit.summary.changeSummary"]}");
                 sb.AppendLine();
                 sb.AppendLine(aiSummary);
                 sb.AppendLine();
             }
 
-            // ── 步骤执行详情（即使无文件变更也展示，确保重启后内容不丢失）──
+            // ── 步骤执行详情 ──
             if (plan.Steps.Count > 0)
             {
-                sb.AppendLine("### 📋 步骤执行详情");
+                sb.AppendLine($"### {L["edit.summary.stepDetails"]}");
                 sb.AppendLine();
                 foreach (var step in plan.Steps)
                 {
@@ -1987,8 +1910,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     sb.AppendLine($"| `{fileName}` | {delta} |");
                 }
                 sb.AppendLine();
-                sb.AppendLine($"总变更: +{mergedFiles.Sum(c => c.LinesAdded)}"
-                    + $" -{mergedFiles.Sum(c => c.LinesRemoved)} 行");
+                sb.AppendLine(LocalizationService.Instance.Format("edit.summary.totalChanges",
+                    mergedFiles.Sum(c => c.LinesAdded),
+                    mergedFiles.Sum(c => c.LinesRemoved)));
             }
 
             return sb.ToString();
@@ -2004,13 +1928,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             try
             {
+                var L = LocalizationService.Instance;
                 var summaryPrompt = new StringBuilder();
-                summaryPrompt.AppendLine("你是一个代码审查助手。请用5-10句话总结以下代码变更。");
-                summaryPrompt.AppendLine("内容包括：改了什么、为什么改、改法思路、影响范围、新增/修改/删除的文件。");
-                summaryPrompt.AppendLine("不要评价代码质量，只做客观描述。");
+                summaryPrompt.AppendLine(L["edit.summary.genPrompt"]);
                 summaryPrompt.AppendLine();
-                summaryPrompt.AppendLine($"## 任务: {plan.Title}");
-                summaryPrompt.AppendLine($"共 {plan.Steps.Count} 步，成功 {plan.Steps.Count(s => s.Status == AgentStepStatus.Completed)} 步");
+                summaryPrompt.AppendLine(L.Format("edit.summary.taskHeader", plan.Title));
+                summaryPrompt.AppendLine(L.Format("edit.summary.stepCount", plan.Steps.Count, plan.Steps.Count(s => s.Status == AgentStepStatus.Completed)));
                 summaryPrompt.AppendLine();
 
                 // ── 合并相同文件 ──
@@ -2021,9 +1944,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 int totalAdded = mergedFiles.Sum(f => f.Added);
                 int totalRemoved = mergedFiles.Sum(f => f.Removed);
 
-                summaryPrompt.AppendLine($"## 变更统计: +{totalAdded} -{totalRemoved} 行，{mergedFiles.Count} 个文件");
+                summaryPrompt.AppendLine(L.Format("edit.summary.changeStats", totalAdded, totalRemoved, mergedFiles.Count));
                 summaryPrompt.AppendLine();
-                summaryPrompt.AppendLine("## 修改的文件");
+                summaryPrompt.AppendLine(L["edit.summary.modifiedFiles"]);
                 foreach (var file in mergedFiles)
                 {
                     summaryPrompt.AppendLine($"- **{file.Names}** (+{file.Added} -{file.Removed})");
@@ -2046,10 +1969,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     summaryPrompt.AppendLine($"- {status} {step.Title}: {summary}");
                 }
                 summaryPrompt.AppendLine();
-                summaryPrompt.AppendLine("请用中文输出变更摘要（5-10句话，包含改了什么、为什么改、改法思路）：");
+
+                // 语言跟随：根据当前语言选择摘要输出语言
+                bool isEnglish = !string.Equals(LocalizationService.Instance.CurrentLanguage, "zh-CN", StringComparison.OrdinalIgnoreCase);
+                string langInstruction = isEnglish
+                    ? "Please output the change summary in English (5-10 sentences covering what was changed, why, and approach):"
+                    : "请用中文输出变更摘要（5-10句话，包含改了什么、为什么改、改法思路）：";
+                summaryPrompt.AppendLine(langInstruction);
+
+                string shortSystemPrompt = isEnglish
+                    ? "You only output a code change summary in English, nothing else."
+                    : "你只输出中文代码变更摘要，不输出任何其他内容。";
 
                 string result = await CallAiShortAsync(
-                    "你只输出中文代码变更摘要，不输出任何其他内容。",
+                    shortSystemPrompt,
                     summaryPrompt.ToString(), ct, maxTokens: 400);
 
                 return result?.Trim() ?? string.Empty;
@@ -2091,7 +2024,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     string additionalCtx = "";
                     if (CurrentPlan != null)
                     {
-                        additionalCtx = $"当前任务: {CurrentPlan.Title}";
+                        additionalCtx = $"{LocalizationService.Instance["edit.plan.currentTask"]}: {CurrentPlan.Title}";
                         var completedSteps = CurrentPlan.Steps
                             .Where(s => s.Status == AgentStepStatus.Completed)
                             .ToList();
