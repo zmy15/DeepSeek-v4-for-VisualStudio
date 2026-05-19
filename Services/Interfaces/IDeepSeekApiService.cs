@@ -42,7 +42,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         IAsyncEnumerable<string> ChatStreamAsync(
             IEnumerable<ChatApiMessage> messages,
             List<ToolDefinition>? tools = null,
-            CancellationToken cancellationToken = default);
+            CancellationToken cancellationToken = default,
+            int? maxTokens = null);
 
         /// <summary>非流式完整调用</summary>
         Task<string> CompleteAsync(

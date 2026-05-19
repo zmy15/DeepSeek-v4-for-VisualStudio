@@ -709,58 +709,101 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 将日志条目格式化为思考气泡中的可读行。
         /// 过滤掉过于技术性的日志，保留用户关心的信息。
+        /// 支持中英文双语匹配，确保两种 locale 下都能正确展示进度。
         /// </summary>
         private static string FormatLogForThinking(AgentLogEntry entry)
         {
             string msg = entry.Message ?? string.Empty;
 
-            // 过滤纯内部日志
+            // ── 过滤纯内部日志（中英文双语匹配）──
             if (msg.StartsWith("[TokenUsage]") || msg.StartsWith("[Retry") || msg.StartsWith("[AgentDispatcher]"))
                 return string.Empty;
-            if (msg.Contains("上下文已累积") || msg.Contains("Planning 模式"))
+            if (msg.Contains("上下文已累积") || msg.Contains("Planning 模式")
+                || msg.Contains("context accumulated") || msg.Contains("Planning mode"))
                 return string.Empty;
 
-            // 格式化为可读的思考内容
-            if (msg.StartsWith("📄") || msg.StartsWith("📖") || msg.Contains("已读取"))
+            // ── 格式化为可读的思考内容 ──
+
+            // Emoji 前缀（locale-independent）
+            if (msg.StartsWith("📄") || msg.StartsWith("📖") || msg.Contains("已读取") || msg.Contains("read file"))
                 return msg;
             if (msg.StartsWith("✅") || msg.StartsWith("❌") || msg.StartsWith("⚠️"))
                 return msg;
             if (msg.StartsWith("🔨") || msg.StartsWith("🔧"))
                 return msg;
-            if (msg.StartsWith("阶段") || msg.Contains("/3:"))
+
+            // Phase 进度指示（中英文通用：包含 "/3:" 的模式）
+            if (msg.StartsWith("阶段") || msg.StartsWith("Phase") || msg.Contains("/3:"))
                 return $"🔍 {msg}";
-            if (msg.StartsWith(LocalizationService.Instance["agent.log.editStepPrefix"]) || msg.Contains(LocalizationService.Instance["agent.log.planStepsPlannedSuffix"]))
-                return msg;
-            if (msg.StartsWith("Plan Agent 开始规划"))
+
+            // Plan Agent 开始（中英文）
+            if (msg.StartsWith("Plan Agent 开始规划") || msg.StartsWith("Plan Agent started planning"))
                 return "🔍 开始分析任务，探索项目结构…";
-            if (msg.StartsWith("计划创建完成"))
+
+            // Plan Agent 完成 / 探索路由 / 发现完成（中英文）
+            if (msg.StartsWith("计划创建完成") || msg.StartsWith("Plan created")
+                || msg.StartsWith("探索路由") || msg.StartsWith("Explore routing")
+                || msg.StartsWith("发现阶段完成") || msg.StartsWith("Discovery phase complete"))
                 return msg;
-            if (msg.StartsWith("无计划"))
+
+            // 无计划 / 单步（中英文）
+            if (msg.StartsWith("无计划") || msg.StartsWith("No plan"))
                 return "📋 单步任务，直接执行代码修改…";
-            if (msg.Contains("编译通过"))
+
+            // 编译结果（中英文）
+            if (msg.Contains("编译通过") || msg.Contains("build passed") || msg.Contains("Build succeeded"))
                 return "✅ 编译验证通过";
-            if (msg.Contains("编译") && (msg.Contains("失败") || msg.Contains("错误")))
+            if ((msg.Contains("编译") || msg.Contains("build") || msg.Contains("Build"))
+                && (msg.Contains("失败") || msg.Contains("错误") || msg.Contains("failed") || msg.Contains("error")))
                 return $"⚠️ {msg}";
 
+            // Edit Agent 步骤前缀（使用 i18n）
+            var L = LocalizationService.Instance;
+            if (msg.StartsWith(L["agent.log.editStepPrefix"]) || msg.Contains(L["agent.log.planStepsPlannedSuffix"]))
+                return msg;
+
             // ── ExploreAgent 委托和发现日志 ──
-            if (msg.StartsWith("[EditAgent] 委托 ExploreAgent"))
+            if (msg.StartsWith("[EditAgent] 委托 ExploreAgent") || msg.StartsWith("[EditAgent] delegated ExploreAgent"))
                 return $"🔍 {msg.Replace("[EditAgent] ", "")}";
-            if (msg.StartsWith("[EditAgent] ExploreAgent 返回"))
+            if (msg.StartsWith("[EditAgent] ExploreAgent 返回") || msg.StartsWith("[EditAgent] ExploreAgent returned"))
                 return $"📁 {msg.Replace("[EditAgent] ", "")}";
             if (msg.StartsWith("[EditAgent]"))
                 return $"📝 {msg.Replace("[EditAgent] ", "")}";
+
+            // ── Plan Agent 转发的 Explore 日志 ──
             if (msg.StartsWith("[Explore] [Discover]"))
                 return string.Empty; // Explore 内部发现日志不展示
             if (msg.StartsWith("[Explore]"))
                 return $"🔍 {msg.Replace("[Explore] ", "")}";
 
-            // 其他日志：以 INFO 级别展示简要信息
+            // ── Plan Agent 自身进度日志（[Plan] 前缀）──
+            if (msg.StartsWith("[Plan]"))
+                return $"📋 {msg.Replace("[Plan] ", "")}";
+
+            // ── Plan Agent 关键日志（中英文通用匹配）──
+            // 匹配模式: "Phase X/Y:", "步骤 X/Y:", "step X/Y:", "📄 plan.md"
+            if (msg.Contains(" plan.md") || msg.Contains(": 成功") || msg.Contains(": succeeded"))
+                return msg;
+
+            // 其他日志：以 ERROR/WARN 级别展示简要信息
             if (entry.Level == "ERROR")
                 return $"❌ {msg}";
             if (entry.Level == "WARN")
                 return $"⚠️ {msg}";
 
-            return string.Empty; // INFO 级别默认不展示，避免刷屏
+            // ── Plan/Explore Agent 的 INFO 日志：展示进度给用户 ──
+            // 包含这些关键词的 INFO 日志对用户有意义，不应过滤
+            if (entry.Level == "INFO")
+            {
+                if (msg.Contains("/3:") || msg.Contains("Phase") || msg.Contains("阶段")
+                    || msg.StartsWith("Plan Agent") || msg.StartsWith("Plan created")
+                    || msg.StartsWith("计划创建完成") || msg.StartsWith("探索路由")
+                    || msg.StartsWith("Explore routing") || msg.StartsWith("发现阶段完成")
+                    || msg.StartsWith("Discovery phase"))
+                    return msg;
+            }
+
+            return string.Empty; // 其余 INFO 级别默认不展示，避免刷屏
         }
 
         /// <summary>

@@ -103,6 +103,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 // ── 阶段 2: 对齐 — 与用户澄清需求 ──
                 AddLog("INFO", L["agent.log.planPhaseAlign"]);
+                AddLog("INFO", "[Plan] 跳过对齐阶段（需求明确，无需澄清）");
 
                 // ── 阶段 3: 设计 — 产出实现计划 ──
                 AddLog("INFO", L["agent.log.planPhaseDesign"]);
@@ -296,9 +297,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 用户消息保持简洁（只有任务描述 + 指令），不含动态内容 ──
             string planPrompt = BuildPlanCreationPrompt(userMessage, context);
 
+            AddLog("INFO", "[Plan] 正在调用 AI 生成计划 JSON（可能需要 30-60 秒）...");
             string json = await CallAiLongAsync(
-                Definition.SystemPrompt, planPrompt, extraSystemMessages, ct, maxTokens: 2048);
+                Definition.SystemPrompt, planPrompt, extraSystemMessages, ct, maxTokens: 4096);
+            AddLog("INFO", "[Plan] AI 响应已收到，正在解析计划...");
 
+            // ── 诊断：记录原始响应用于调试 JSON 解析失败 ──
+            string rawResponse = json;
             json = ExtractJsonFromMarkdown(json);
 
             try
@@ -316,7 +321,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
             catch (Exception ex)
             {
+                // ── 诊断日志：记录原始响应片段以便排查 ──
+                string truncated = rawResponse.Length > 300
+                    ? rawResponse.Substring(0, 300) + "..."
+                    : rawResponse;
                 AddLog("WARN", string.Format(LocalizationService.Instance["agent.plan.jsonParseFailed"], ex.Message));
+                AddLog("INFO", $"[Plan] JSON 解析失败的原始响应 (前300字符): {truncated}");
             }
 
             // 回退：单步计划
@@ -407,6 +417,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             string userMessage, string discoveryContext, AgentTaskPlan plan, AgentContext context)
         {
             var ct = context.CancellationToken;
+            var L = LocalizationService.Instance;
 
             // 先将现有计划步骤序列化为 JSON 供 AI 参考
             string planJson = JsonSerializer.Serialize(plan, new JsonSerializerOptions
@@ -420,61 +431,63 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (!string.IsNullOrEmpty(discoveryContext))
             {
                 string truncated = discoveryContext.Length > 4000
-                    ? discoveryContext.Substring(0, 4000) + "\n... (已截断)"
+                    ? discoveryContext.Substring(0, 4000) + "\n" + L["agent.plan.truncatedSuffix"]
                     : discoveryContext;
                 extraSystemMessages.Add(new ChatApiMessage
                 {
                     Role = "system",
-                    Content = "## 代码库研究发现\n\n" + truncated
+                    Content = L["plan.md.codebaseFindings"] + "\n\n" + truncated
                 });
             }
             extraSystemMessages.Add(new ChatApiMessage
             {
                 Role = "system",
-                Content = "## 已生成的 JSON 计划\n```json\n" + planJson + "\n```"
+                Content = L["plan.md.jsonPlan"] + "\n```json\n" + planJson + "\n```"
             });
 
             // ── 用户消息保持简洁 ──
             var prompt = new StringBuilder();
-            prompt.AppendLine("## 用户原始需求");
+            prompt.AppendLine(L["plan.md.userTask"]);
             prompt.AppendLine(userMessage);
             prompt.AppendLine();
-            prompt.AppendLine("## 指令");
-            prompt.AppendLine("请基于以上信息（代码库研究发现和 JSON 计划已在 system 消息中提供），生成一份详细的实现计划 Markdown 文档。");
-            prompt.AppendLine("文档必须包含以下章节（用中文撰写）：");
+            prompt.AppendLine(L["plan.md.instructions"]);
+            prompt.AppendLine(L["plan.md.generatePrompt"]);
+            prompt.AppendLine(L["plan.md.mustContainSections"]);
             prompt.AppendLine();
-            prompt.AppendLine("### 1. 🎯 要实现的功能");
-            prompt.AppendLine("- 用自然语言描述本次要实现的完整功能列表");
+            prompt.AppendLine(L["plan.md.section1Title"]);
+            prompt.AppendLine(L["plan.md.section1Desc"]);
             prompt.AppendLine();
-            prompt.AppendLine("### 2. 🏗️ 实现方案");
-            prompt.AppendLine("- 总体技术思路和架构决策");
-            prompt.AppendLine("- 关键设计模式和原则");
+            prompt.AppendLine(L["plan.md.section2Title"]);
+            prompt.AppendLine(L["plan.md.section2Desc1"]);
+            prompt.AppendLine(L["plan.md.section2Desc2"]);
             prompt.AppendLine();
-            prompt.AppendLine("### 3. 📝 详细步骤");
-            prompt.AppendLine("对每个步骤展开描述：");
-            prompt.AppendLine("- **目标**: 该步骤要达成什么");
-            prompt.AppendLine("- **涉及文件**: 列出「✨ 新建」「✏️ 修改」「🗑️ 删除」的文件及其绝对路径（可基于项目结构推断）");
-            prompt.AppendLine("- **类/接口设计**: 该步骤涉及的关键类、接口的完整定义（含命名空间、访问修饰符、继承关系）");
-            prompt.AppendLine("- **方法设计**: 关键方法的签名、参数说明、返回值、核心逻辑描述");
+            prompt.AppendLine(L["plan.md.section3Title"]);
+            prompt.AppendLine(L["plan.md.section3Intro"]);
+            prompt.AppendLine(L["plan.md.section3Goal"]);
+            prompt.AppendLine(L["plan.md.section3Files"]);
+            prompt.AppendLine(L["plan.md.section3Design"]);
+            prompt.AppendLine(L["plan.md.section3Methods"]);
             prompt.AppendLine();
-            prompt.AppendLine($"### 4. {LocalizationService.Instance["agent.panel.fileChangeSummary"]}");
-            prompt.AppendLine("- 以表格形式列出所有文件变更（操作类型 | 文件路径 | 说明）");
+            prompt.AppendLine(L["agent.panel.fileChangeSummary"]);
+            prompt.AppendLine(L["plan.md.section4Desc"]);
             prompt.AppendLine();
-            prompt.AppendLine($"### 5. {LocalizationService.Instance["agent.panel.dependencies"]}");
-            prompt.AppendLine("- 步骤之间的依赖关系（哪些步骤可并行，哪些需串行）");
-            prompt.AppendLine("- 外部依赖（NuGet 包、API、配置文件等）");
+            prompt.AppendLine(L["agent.panel.dependencies"]);
+            prompt.AppendLine(L["plan.md.section5Desc1"]);
+            prompt.AppendLine(L["plan.md.section5Desc2"]);
             prompt.AppendLine();
-            prompt.AppendLine($"### 6. {LocalizationService.Instance["agent.panel.verification"]}");
-            prompt.AppendLine("- 每个步骤完成后的验证方法（编译、运行测试、手动检查等）");
+            prompt.AppendLine(L["agent.panel.verification"]);
+            prompt.AppendLine(L["plan.md.section6Desc"]);
             prompt.AppendLine();
-            prompt.AppendLine("## 注意事项");
-            prompt.AppendLine("- 直接输出 Markdown，不要包裹在代码块中");
-            prompt.AppendLine("- 类/接口/方法设计尽可能具体，包含完整的签名和关键实现逻辑");
-            prompt.AppendLine("- 文件路径使用项目内的绝对路径");
-            prompt.AppendLine("- 保持专业、清晰、可执行");
+            prompt.AppendLine(L["plan.md.notes"]);
+            prompt.AppendLine(L["plan.md.note1"]);
+            prompt.AppendLine(L["plan.md.note2"]);
+            prompt.AppendLine(L["plan.md.note3"]);
+            prompt.AppendLine(L["plan.md.note4"]);
 
+            AddLog("INFO", "[Plan] 正在调用 AI 生成详细计划文档 plan.md（可能需要 60-120 秒）...");
             string markdown = await CallAiLongAsync(
                 Definition.SystemPrompt, prompt.ToString(), extraSystemMessages, ct, maxTokens: 4096);
+            AddLog("INFO", "[Plan] plan.md 内容已生成，正在保存...");
 
             // 如果 AI 返回了代码块包裹的内容，去掉包裹
             markdown = markdown.Trim();
@@ -518,11 +531,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             string filePath = Path.Combine(dir, "plan.md");
 
             // 写入文件头
+            var L = LocalizationService.Instance;
             var sb = new StringBuilder();
-            sb.AppendLine($"# 📋 实现计划");
+            sb.AppendLine(L["plan.md.savedTitle"]);
             sb.AppendLine();
-            sb.AppendLine($"> **生成时间**: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine($"> **解决方案**: {context.SolutionPath ?? "（无）"}");
+            sb.AppendLine(string.Format(L["plan.md.savedGeneratedAt"], DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
+            sb.AppendLine(string.Format(L["plan.md.savedSolution"], context.SolutionPath ?? "（无）"));
             sb.AppendLine();
             sb.AppendLine("---");
             sb.AppendLine();

@@ -99,7 +99,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public async IAsyncEnumerable<string> ChatStreamAsync(
             IEnumerable<ChatApiMessage> messages,
             List<ToolDefinition>? tools = null,
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
+            int? maxTokens = null)
         {
             var request = new DeepSeekChatRequest
             {
@@ -109,7 +110,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Thinking = new ThinkingControl { Type = _thinkingEnabled ? "enabled" : "disabled" },
                 ReasoningEffort = _thinkingEnabled ? _reasoningEffort : null,
                 Tools = tools,
-                ToolChoice = tools != null && tools.Count > 0 ? "auto" : null
+                ToolChoice = tools != null && tools.Count > 0 ? "auto" : null,
+                MaxTokens = maxTokens
             };
 
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, ChatEndpoint)

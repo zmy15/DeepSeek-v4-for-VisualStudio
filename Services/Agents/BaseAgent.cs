@@ -99,7 +99,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var messages = BuildContextAwareMessages(systemPrompt, userPrompt);
 
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -116,7 +116,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var messages = BuildContextAwareMessages(systemPrompt, userPrompt);
 
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -139,9 +139,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var messages = BuildContextAwareMessages(systemPrompt, userPrompt, extraSystemMessages);
 
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens))
             {
-                if (!chunk.StartsWith("[THINKING]") && !chunk.StartsWith("[TOOL_CALL]"))
+                if (IsContentChunk(chunk))
                     sb.Append(chunk);
             }
             LogCacheHitRate();
@@ -154,7 +154,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         protected async Task<string> CallAiWithHistoryAsync(List<ChatApiMessage> history, CancellationToken ct, int maxTokens = 4096)
         {
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(history, null, ct))
+            await foreach (var chunk in _apiService.ChatStreamAsync(history, null, ct, maxTokens))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -171,7 +171,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             var messages = ctxManager.BuildApiMessages();
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -721,17 +721,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 从 AI 返回结果中提取 JSON（可能被 markdown 代码块包裹）。
+        /// 同时剥离 DeepSeek V4 可能在 content 中输出的 XML 风格思考标签（如 &lt;thinking&gt;...&lt;/thinking&gt;）。
         /// </summary>
         protected static string ExtractJsonFromMarkdown(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return "{}";
 
-            int jsonStart = text.IndexOf('{');
-            int jsonEnd = text.LastIndexOf('}');
-            if (jsonStart >= 0 && jsonEnd > jsonStart)
-                return text.Substring(jsonStart, jsonEnd - jsonStart + 1);
+            // ── 剥离 XML 风格的思考标签（DeepSeek V4 有时会将推理输出到 content 字段）──
+            // 支持的标签: <thinking>, <analysis>, <reasoning>, <plan>
+            string cleaned = System.Text.RegularExpressions.Regex.Replace(
+                text,
+                @"</?(?:thinking|analysis|reasoning|plan|reflection)[^>]*>",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-            return text.Trim();
+            int jsonStart = cleaned.IndexOf('{');
+            int jsonEnd = cleaned.LastIndexOf('}');
+            if (jsonStart >= 0 && jsonEnd > jsonStart)
+                return cleaned.Substring(jsonStart, jsonEnd - jsonStart + 1);
+
+            return cleaned.Trim();
         }
 
         /// <summary>
