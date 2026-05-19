@@ -174,7 +174,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 _agentThinkingContent.Clear();
 
-                // ── 检查是否已有 retry fork 占位，有则复用 ──
+                // ── 检查是否已有 retry fork 占位，有则复用，避免产生多余气泡 ──
                 bool reusedPlaceholder = false;
                 lock (_lock)
                 {
@@ -187,7 +187,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             && lastNode.Message.IsStreaming
                             && string.IsNullOrEmpty(lastNode.Message.Content))
                         {
-                            // 复用占位，不显示思考气泡
+                            // 复用占位，更新内容为 Agent 分析状态
+                            lastNode.Message.Content = LocalizationService.Instance["agent.status.analyzing"];
                             _agentStreamingMsgIndex = _messages.Count - 1;
                             reusedPlaceholder = true;
                             Logger.Info($"[Agent] 复用 retry fork 占位 (idx={_agentStreamingMsgIndex})");
@@ -200,7 +201,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     var thinkingMsg = new ChatMessage
                     {
                         Role = "assistant",
-                        Content = string.Empty,
+                        Content = LocalizationService.Instance["agent.status.analyzing"],
                         ReasoningContent = string.Empty,
                         Timestamp = DateTime.Now,
                         IsStreaming = true,
@@ -212,7 +213,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         _messages.Add(thinkingMsg);
                         _agentStreamingMsgIndex = _messages.Count - 1;
                     }
+                    AddMessagesHtml("assistant", thinkingMsg.Content);
                 }
+                else
+                {
+                    AddMessagesHtml("assistant", LocalizationService.Instance["agent.status.analyzing"]);
+                }
+                UpdateBrowser();
                 await TaskScheduler.Default;
 
                 var editAgent = _agentDispatcher.EditAgent;

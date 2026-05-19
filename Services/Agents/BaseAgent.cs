@@ -129,17 +129,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 调用 AI 进行长回答，支持注入额外的系统级上下文（如 discoveryContext）。
         /// extraSystemMessages 插入在历史与用户消息之间，保持 messages[0] 稳定可缓存。
         /// </summary>
+        /// <param name="toolChoice">工具调用策略。Plan Agent Design 阶段应传 "none" 以禁用工具调用，避免 DSML 泄露。</param>
         protected async Task<string> CallAiLongAsync(
             string systemPrompt,
             string userPrompt,
             List<ChatApiMessage> extraSystemMessages,
             CancellationToken ct,
-            int maxTokens = 4096)
+            int maxTokens = 4096,
+            string? toolChoice = null)
         {
             var messages = BuildContextAwareMessages(systemPrompt, userPrompt, extraSystemMessages);
 
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, toolChoice))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -721,17 +723,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 从 AI 返回结果中提取 JSON（可能被 markdown 代码块包裹）。
-        /// 同时剥离 DeepSeek V4 可能在 content 中输出的 XML 风格思考标签（如 &lt;thinking&gt;...&lt;/thinking&gt;）。
+        /// 同时剥离 DeepSeek V4 可能在 content 中输出的 XML 风格标签。
+        /// 当 tools=null 时，DeepSeek 会将工具调用意图以 DSML/function_call 等标签泄露到 content。
         /// </summary>
         protected static string ExtractJsonFromMarkdown(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return "{}";
 
-            // ── 剥离 XML 风格的思考标签（DeepSeek V4 有时会将推理输出到 content 字段）──
-            // 支持的标签: <thinking>, <analysis>, <reasoning>, <plan>
+            // ── 剥离 XML 风格的标签（DeepSeek V4 可能将推理/工具调用泄露到 content 字段）──
+            // thinking/analysis/reasoning/plan/reflection: 推理过程标签
+            // DSML/function_call/function_calls/tool_call/tool_calls: 工具调用意图标签（tools=null 时泄露）
             string cleaned = System.Text.RegularExpressions.Regex.Replace(
                 text,
-                @"</?(?:thinking|analysis|reasoning|plan|reflection)[^>]*>",
+                @"</?(?:thinking|analysis|reasoning|plan|reflection|DSML|function_calls?|tool_calls?)[^>]*>",
                 "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 

@@ -100,8 +100,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             IEnumerable<ChatApiMessage> messages,
             List<ToolDefinition>? tools = null,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
-            int? maxTokens = null)
+            int? maxTokens = null,
+            string? toolChoice = null)
         {
+            // toolChoice 优先级: 显式传入 > 有 tools 时 auto > null(不发送)
+            string? effectiveToolChoice = toolChoice
+                ?? (tools != null && tools.Count > 0 ? "auto" : null);
+
             var request = new DeepSeekChatRequest
             {
                 Model = _model,
@@ -110,7 +115,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Thinking = new ThinkingControl { Type = _thinkingEnabled ? "enabled" : "disabled" },
                 ReasoningEffort = _thinkingEnabled ? _reasoningEffort : null,
                 Tools = tools,
-                ToolChoice = tools != null && tools.Count > 0 ? "auto" : null,
+                ToolChoice = effectiveToolChoice,
                 MaxTokens = maxTokens
             };
 

@@ -299,7 +299,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             AddLog("INFO", "[Plan] 正在调用 AI 生成计划 JSON（可能需要 30-60 秒）...");
             string json = await CallAiLongAsync(
-                Definition.SystemPrompt, planPrompt, extraSystemMessages, ct, maxTokens: 4096);
+                Definition.SystemPrompt, planPrompt, extraSystemMessages, ct,
+                maxTokens: 4096, toolChoice: "none");
             AddLog("INFO", "[Plan] AI 响应已收到，正在解析计划...");
 
             // ── 诊断：记录原始响应用于调试 JSON 解析失败 ──
@@ -486,7 +487,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             AddLog("INFO", "[Plan] 正在调用 AI 生成详细计划文档 plan.md（可能需要 60-120 秒）...");
             string markdown = await CallAiLongAsync(
-                Definition.SystemPrompt, prompt.ToString(), extraSystemMessages, ct, maxTokens: 4096);
+                Definition.SystemPrompt, prompt.ToString(), extraSystemMessages, ct,
+                maxTokens: 4096, toolChoice: "none");
             AddLog("INFO", "[Plan] plan.md 内容已生成，正在保存...");
 
             // 如果 AI 返回了代码块包裹的内容，去掉包裹
