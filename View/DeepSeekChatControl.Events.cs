@@ -857,27 +857,28 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var allSkills = _skillDiscoveryResult?.Skills ?? new List<SkillDefinition>();
 
                 // 添加内置元命令
+                var L = LocalizationService.Instance;
                 var metaCommands = new List<SkillSuggestionItem>
                 {
                     new SkillSuggestionItem
                     {
                         Name = "help",
-                        Description = "显示所有可用技能和帮助信息",
-                        Source = "⚙️ 内置",
+                        Description = L["popup.skillDesc.help"],
+                        Source = L["popup.skillSource.builtin"],
                         IsMeta = true,
                     },
                     new SkillSuggestionItem
                     {
                         Name = "create-skill",
-                        Description = "创建新的自定义 Skill 模板文件",
-                        Source = "⚙️ 内置",
+                        Description = L["popup.skillDesc.createSkill"],
+                        Source = L["popup.skillSource.builtin"],
                         IsMeta = true,
                     },
                     new SkillSuggestionItem
                     {
                         Name = "refresh-skills",
-                        Description = "强制刷新技能缓存",
-                        Source = "⚙️ 内置",
+                        Description = L["popup.skillDesc.refreshSkills"],
+                        Source = L["popup.skillSource.builtin"],
                         IsMeta = true,
                     },
                 };
@@ -890,9 +891,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         Description = s.Description,
                         Source = s.Source switch
                         {
-                            SkillSource.Project => "📁 项目",
-                            SkillSource.User => "👤 用户",
-                            SkillSource.BuiltIn => "📦 内置",
+                            SkillSource.Project => L["popup.skillSource.project"],
+                            SkillSource.User => L["popup.skillSource.user"],
+                            SkillSource.BuiltIn => L["popup.skillSource.package"],
                             _ => "❓"
                         },
                         IsMeta = false,
@@ -1054,38 +1055,39 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             try
             {
+                var L = LocalizationService.Instance;
                 var agents = new List<AgentSuggestionItem>
                 {
                     new AgentSuggestionItem
                     {
                         Name = "ask",
                         Icon = "💬",
-                        Description = "纯问答模式，不修改代码，适合解释、分析、讨论",
-                        ArgumentHint = "输入问题",
+                        Description = L["popup.agentDesc.ask"],
+                        ArgumentHint = L["popup.agentHint.ask"],
                         AgentType = AgentType.Ask,
                     },
                     new AgentSuggestionItem
                     {
                         Name = "explore",
                         Icon = "🔍",
-                        Description = "只读探索模式，搜索项目文件、分析代码结构",
-                        ArgumentHint = "输入搜索/分析内容",
+                        Description = L["popup.agentDesc.explore"],
+                        ArgumentHint = L["popup.agentHint.explore"],
                         AgentType = AgentType.Explore,
                     },
                     new AgentSuggestionItem
                     {
                         Name = "plan",
                         Icon = "📋",
-                        Description = "规划模式，分析任务并生成分步计划（不修改代码）",
-                        ArgumentHint = "输入要规划的任务",
+                        Description = L["popup.agentDesc.plan"],
+                        ArgumentHint = L["popup.agentHint.plan"],
                         AgentType = AgentType.Plan,
                     },
                     new AgentSuggestionItem
                     {
                         Name = "edit",
                         Icon = "🔨",
-                        Description = "代码编辑模式，按计划逐步修改项目代码并验证",
-                        ArgumentHint = "输入要修改的内容",
+                        Description = L["popup.agentDesc.edit"],
+                        ArgumentHint = L["popup.agentHint.edit"],
                         AgentType = AgentType.Edit,
                     },
                 };

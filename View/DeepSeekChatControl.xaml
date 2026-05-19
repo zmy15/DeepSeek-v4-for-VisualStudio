@@ -390,7 +390,7 @@
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0"
-                                       Text="💡 可用技能 (↑↓ 选择, Enter 确认, Esc 取消)"
+                                       x:Name="SkillPopupTitle"
                                        FontSize="11"
                                        Foreground="#888888"
                                        Margin="8,6,8,4" />
@@ -486,7 +486,7 @@
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0"
-                                       Text="🤖 可用 Agent (↑↓ 选择, Enter 确认, Esc 取消)"
+                                       x:Name="AgentPopupTitle"
                                        FontSize="11"
                                        Foreground="#888888"
                                        Margin="8,6,8,4" />

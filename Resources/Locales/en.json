@@ -380,6 +380,7 @@
   "status.callingTool": "Calling tool: {0}...",
   "status.callingToolsHtml": "🔧 Calling tools:",
   "status.stopped": "Stopped",
+  "status.editMessageHint": "✏️ Editing message (Esc cancel, Enter confirm)",
   "status.apiError": "Sorry, an error occurred. Please try again.\n\n```\n{0}\n```",
   "status.compressionTriggered": "⚠️ Context usage {0:F0}% — compression triggered",
   "status.clearFailed": "Clear failed: {0}",
@@ -554,5 +555,23 @@
   "agent.log.planStepsPlannedSuffix": "step(s) planned",
 
   "skills.availableHeader": "## Available Skills (type {0} to invoke)",
-  "skills.noneAvailable": "No skills available."
+  "skills.noneAvailable": "No skills available.",
+
+  "popup.agentTitle": "🤖 Available Agents (↑↓ select, Enter confirm, Esc cancel)",
+  "popup.skillTitle": "💡 Available Skills (↑↓ select, Enter confirm, Esc cancel)",
+  "popup.agentDesc.ask": "Q&A mode, no code changes — for explanations, analysis, discussions",
+  "popup.agentDesc.explore": "Read-only exploration mode — search project files, analyze code structure",
+  "popup.agentDesc.plan": "Planning mode — analyze tasks and generate step-by-step plans (no code changes)",
+  "popup.agentDesc.edit": "Code editing mode — modify project code step by step with verification",
+  "popup.agentHint.ask": "Ask a question",
+  "popup.agentHint.explore": "Search/analyze...",
+  "popup.agentHint.plan": "Describe the task to plan",
+  "popup.agentHint.edit": "Describe the change to make",
+  "popup.skillDesc.help": "Show all available skills and help information",
+  "popup.skillDesc.createSkill": "Create a new custom Skill template file",
+  "popup.skillDesc.refreshSkills": "Force refresh the skill cache",
+  "popup.skillSource.builtin": "⚙️ Built-in",
+  "popup.skillSource.project": "📁 Project",
+  "popup.skillSource.user": "👤 User",
+  "popup.skillSource.package": "📦 Built-in"
 }

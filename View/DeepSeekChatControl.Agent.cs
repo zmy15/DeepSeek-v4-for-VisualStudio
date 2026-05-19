@@ -1325,7 +1325,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             InputTextBox.CaretIndex = InputTextBox.Text.Length;
             InputTextBox.Focus();
 
-            StatusLabel.Text = $"✏️ 编辑消息（Esc 取消，Enter 确认）";
+            StatusLabel.Text = LocalizationService.Instance["status.editMessageHint"];
         }
 
         /// <summary>

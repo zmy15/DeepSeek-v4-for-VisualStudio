@@ -1180,6 +1180,12 @@ private static string? GetSolutionPathFromIVsSolution()
                 // 深度思考复选框
                 if (ThinkingCheckBox != null)
                     ThinkingCheckBox.Content = L["chat.thinkingCheckbox"];
+
+                // @agent / /skill 弹出框标题
+                if (AgentPopupTitle != null)
+                    AgentPopupTitle.Text = L["popup.agentTitle"];
+                if (SkillPopupTitle != null)
+                    SkillPopupTitle.Text = L["popup.skillTitle"];
             }
             catch (Exception ex)
             {
