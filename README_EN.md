@@ -291,7 +291,52 @@ git clone https://github.com/zmy15/DeepSeek-v4-for-VisualStudio.git
 ---
 
 ## Quick Start
+🌐 Internationalization (i18n)
 
+DeepSeek v4 for Visual Studio supports **Chinese and English** interfaces, automatically following your system language, or manually switchable.
+
+### Automatic Language Detection
+
+The extension automatically detects your Windows system UI language on startup:
+- **Chinese system** → Displays Chinese UI and prompts
+- **English / Other systems** → Displays English UI and prompts
+
+### Manual Language Switching
+
+1. Open `Tools → Options → DeepSeek Chat`
+2. Find the **Language / 语言** category
+3. Select from the **Display Language / 显示语言** dropdown:
+   - `auto` — Auto-detect system language (default)
+   - `zh-CN` — Force Chinese
+   - `en` — Force English
+4. Click "OK" — the interface updates immediately
+
+### Custom Translations
+
+You can create custom translation files to override default translations:
+
+1. Create `zh-CN.user.json` or `en.user.json` in the extension's `Resources\Locales\` directory
+2. Add the key-value pairs you want to override, for example:
+
+```json
+{
+  "ui.welcomeMessage": "Hello! This is my custom welcome message!\nStart asking!"
+}
+```
+
+3. Restart Visual Studio or toggle the language to apply
+
+### Coverage
+
+i18n covers the following:
+- **UI Text** — Tool window titles, button labels, dialogs
+- **AI Prompts** — System prompts, skill prompts, Agent routing prompts
+- **Output Messages** — Welcome messages, error messages, API status messages
+- **Settings Page** — All option display names and descriptions
+
+---
+
+## 
 ### ① Get an API Key
 
 Visit [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) → Create API Key → Copy.
@@ -557,7 +602,6 @@ The following features have reserved interfaces or infrastructure in the archite
 | Planned Item | Description | Priority |
 |-------------|-------------|----------|
 | **Internationalization (i18n)** | Bilingual English/Chinese UI toggle for chat window and options page | 🟢 Low |
-| **Code Lens** | In-editor AI action entry points (explain code, generate tests, find references) | 🟢 Low |
 | **More Built-in Skills** | Professional workflows like `debug-analyzer`, `api-designer`, `sql-optimizer` | 🟡 Medium |
 | **Session Export** | Export conversations as Markdown / PDF for sharing and archiving | 🟢 Low |
 

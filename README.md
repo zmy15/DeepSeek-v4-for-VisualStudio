@@ -601,7 +601,6 @@ DeepSeek_v4_for_VisualStudio.Tests/
 | 计划项 | 说明 | 优先级 |
 |--------|------|--------|
 | **多语言国际化 (i18n)** | 聊天窗口和选项页的英文/中文双语界面切换 | 🟢 低 |
-| **代码镜头 (Code Lens)** | 编辑器内嵌的 AI 操作入口（解释代码、生成测试、查找引用） | 🟢 低 |
 | **更多内置 Skills** | 如 `debug-analyzer`、`api-designer`、`sql-optimizer` 等专业工作流 | 🟡 中 |
 | **会话导出** | 支持导出对话为 Markdown / PDF，便于分享和归档 | 🟢 低 |
 
