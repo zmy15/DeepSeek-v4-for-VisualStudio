@@ -100,12 +100,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (!string.IsNullOrWhiteSpace(apiKey))
             {
                 _activeProvider = SearchProvider.Baidu;
-                Logger.Info("搜索提供商切换为: 百度千帆");
+                Logger.Info(LocalizationService.Instance["websearch.providerSwitched"]);
             }
             else
             {
                 _activeProvider = SearchProvider.DuckDuckGo;
-                Logger.Info("未配置百度 API Key，使用 DuckDuckGo 搜索");
+                Logger.Info(LocalizationService.Instance["websearch.baiduNotConfigured"]);
             }
         }
 
@@ -139,7 +139,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                         // 百度返回空结果，可能是额度问题，回退到 DuckDuckGo
                         _activeProvider = SearchProvider.DuckDuckGo;
-                        Logger.Info("百度搜索返回空结果，尝试 DuckDuckGo");
+                        Logger.Info(LocalizationService.Instance["websearch.baiduEmptyResult"]);
                     }
                     catch (BaiduQuotaExhaustedException ex)
                     {
@@ -169,7 +169,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             catch (OperationCanceledException)
             {
-                Logger.Info("联网搜索已取消");
+                Logger.Info(LocalizationService.Instance["websearch.cancelled"]);
                 return new List<WebSearchResult>();
             }
             catch (Exception ex)
@@ -440,7 +440,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 _isBaiduQuotaExhausted = false;
                 _activeProvider = SearchProvider.Baidu;
-                Logger.Info("百度搜索额度状态已重置，重新尝试百度搜索");
+                Logger.Info(LocalizationService.Instance["websearch.baiduQuotaReset"]);
             }
         }
 
@@ -555,7 +555,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public async Task<string?> ValidateBaiduApiKeyAsync()
         {
             if (string.IsNullOrWhiteSpace(_baiduApiKey))
-                return "百度 API Key 未配置";
+                return LocalizationService.Instance["websearch.baiduApiKeyMissing"];
 
             try
             {

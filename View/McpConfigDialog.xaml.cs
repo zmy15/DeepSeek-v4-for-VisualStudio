@@ -167,7 +167,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             var json = JsonPasteTextBox.Text?.Trim();
             if (string.IsNullOrWhiteSpace(json))
             {
-                ParseStatusLabel.Text = "⚠️ 请先粘贴 JSON 配置";
+                ParseStatusLabel.Text = LocalizationService.Instance["mcp.status.pasteJsonHint"];
                 ParseStatusLabel.Foreground = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(0xCE, 0x91, 0x78));
                 return;
@@ -178,7 +178,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var parsed = McpConfigParser.Parse(json);
                 if (parsed.Count == 0)
                 {
-                    ParseStatusLabel.Text = "⚠️ 未能识别任何 MCP 服务器配置，请检查 JSON 格式";
+                    ParseStatusLabel.Text = "⚠️ " + LocalizationService.Instance["mcp.status.noServersDetected"];
                     ParseStatusLabel.Foreground = new System.Windows.Media.SolidColorBrush(
                         System.Windows.Media.Color.FromRgb(0xCE, 0x91, 0x78));
                     return;
@@ -208,7 +208,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                 }
 
-                ParseStatusLabel.Text = $"✅ 识别成功: 新增 {added} 个, 更新 {updated} 个服务器";
+                ParseStatusLabel.Text = string.Format(LocalizationService.Instance["mcp.status.detectSuccess"], $"新增 {added} 个, 更新 {updated} 个");
                 ParseStatusLabel.Foreground = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(0x4E, 0xC9, 0xB0));
 
@@ -217,7 +217,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             catch (Exception ex)
             {
-                ParseStatusLabel.Text = $"❌ 解析失败: {ex.Message}";
+                ParseStatusLabel.Text = string.Format("❌ {0}: {1}", LocalizationService.Instance["mcp.status.parseFailed"], ex.Message);
                 ParseStatusLabel.Foreground = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(0xF4, 0x87, 0x71));
             }
@@ -233,7 +233,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             var newServer = new McpServerConfig
             {
-                Name = "新服务器",
+                Name = LocalizationService.Instance["mcp.newServerDefaultName"],
                 Command = "npx",
                 Args = "-y @anthropic/mcp-filesystem C:\\",
                 Enabled = true,
@@ -351,8 +351,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (sender is Button btn && btn.Tag is McpServerConfig config)
             {
                 var result = MessageBox.Show(
-                    $"确定要删除 MCP 服务器 \"{config.Name}\" 吗？",
-                    "确认删除",
+                    string.Format(LocalizationService.Instance["mcp.confirmDeleteMessage"], config.Name),
+                    LocalizationService.Instance["mcp.confirmDeleteTitle"],
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Question);
 

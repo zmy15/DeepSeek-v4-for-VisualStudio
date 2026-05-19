@@ -53,8 +53,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 Type = AgentType.Ask,
                 Name = "Ask",
-                Description = "回答技术问题、解释代码、讨论方案。纯问答模式，不修改代码。",
-                ArgumentHint = "输入你的技术问题",
+                Description = LocalizationService.Instance["agent.ask.description"],
+                ArgumentHint = LocalizationService.Instance["agent.ask.argumentHint"],
                 UserInvocable = true,
                 DisableModelInvocation = false,
                 AllowedTools = new List<string>(AskTools),
@@ -63,17 +63,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     new AgentHandoff
                     {
-                        Label = "修改代码",
+                        Label = LocalizationService.Instance["agent.ask.handoffEditLabel"],
                         TargetAgent = AgentType.Edit,
-                        Prompt = "用户需要修改代码。请根据以下上下文执行代码变更：\n\n",
+                        Prompt = LocalizationService.Instance["agent.ask.handoffEditPrompt"],
                         AutoSend = false,
                         ShowContinueOn = true,
                     },
                     new AgentHandoff
                     {
-                        Label = "制定计划",
+                        Label = LocalizationService.Instance["agent.ask.handoffPlanLabel"],
                         TargetAgent = AgentType.Plan,
-                        Prompt = "用户需要详细的实现计划。请研究代码库并制定方案：\n\n",
+                        Prompt = LocalizationService.Instance["agent.ask.handoffPlanPrompt"],
                         AutoSend = false,
                         ShowContinueOn = true,
                     },
@@ -84,26 +84,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private static string BuildSystemPrompt()
         {
-            return CommonSystemPromptPrefix + "\n" +
-                "你当前处于 **Ask 模式**——一个专注技术问答的 AI 编程助手。\n\n" +
-                "## 核心能力\n" +
-                "- 解释代码逻辑和架构设计\n" +
-                "- 分析技术问题和 Bug 根因\n" +
-                "- 讨论实现方案和最佳实践\n" +
-                "- 回答各类编程和技术问题\n\n" +
-                "## 行为准则\n" +
-                "- 回答简洁、准确、直接\n" +
-                "- 优先给出可运行的代码示例\n" +
-                "- 涉及代码时明确指出文件路径和行号\n" +
-                "- 优先使用用户项目已有的框架和库\n" +
-                "- 如果问题模糊，先追问澄清再回答\n\n" +
-                "## 网页链接处理\n" +
-                "- 如果用户提供了 URL 链接，你必须使用 fetch_webpage 工具来获取网页内容\n" +
-                "- 获取后检查内容中是否有其他相关链接，设置 maxDepth 参数递归抓取直到收集了所有需要的信息\n\n" +
-                "## 重要限制\n" +
-                "- 你只能回答问题，不能修改任何项目文件\n" +
-                "- 如果用户需要修改代码，建议他们切换到 Edit 模式\n" +
-                "- 如果需要详细的实现计划，建议使用 Plan 模式";
+            return CommonSystemPromptPrefix + LocalizationService.Instance["agent.ask.systemPromptFragment"];
         }
 
         #endregion
@@ -116,7 +97,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
-            AddLog("INFO", $"Ask Agent 开始回答: \"{userMessage.Truncate(100)}\"");
+            AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.askStarted"], userMessage.Truncate(100)));
 
             var result = new AgentResult
             {
@@ -165,20 +146,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 string aiResponse = await CallAiWithHistoryAsync(messages, ct, maxTokens: 4096);
                 result.Content = aiResponse;
 
-                AddLog("INFO", $"Ask Agent 完成 ({aiResponse.Length} 字符)");
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.askDone"], aiResponse.Length));
                 result.Logs.AddRange(_logs);
             }
             catch (OperationCanceledException)
             {
                 result.Success = false;
-                result.ErrorMessage = "回答已取消";
-                AddLog("WARN", "回答已取消");
+                result.ErrorMessage = LocalizationService.Instance["agent.log.askCancelled"];
+                AddLog("WARN", LocalizationService.Instance["agent.log.askCancelled"]);
             }
             catch (Exception ex)
             {
                 result.Success = false;
                 result.ErrorMessage = ex.Message;
-                AddLog("ERROR", $"回答失败: {ex.Message}");
+                AddLog("ERROR", string.Format(LocalizationService.Instance["agent.log.askFailed"], ex.Message));
             }
 
             return result;

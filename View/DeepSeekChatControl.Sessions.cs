@@ -34,7 +34,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             return new ChatSession
             {
                 Id = Guid.NewGuid().ToString("N"),
-                Title = "新对话",
+                Title = LocalizationService.Instance["session.new"],
                 CreatedAt = DateTime.Now,
                 LastActiveAt = DateTime.Now,
             };
@@ -89,7 +89,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private void AutoTitleSession()
         {
             if (_activeSession == null) return;
-            if (_activeSession.Title != "新对话") return;
+            if (_activeSession.Title != LocalizationService.Instance["session.new"]) return;
 
             var firstUserMsg = _messages.FirstOrDefault(m => m.Role == "user");
             if (firstUserMsg == null || string.IsNullOrWhiteSpace(firstUserMsg.Content))
@@ -113,7 +113,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 if (_apiService == null) return;
                 if (_activeSession == null) return;
-                if (_activeSession.Title != "新对话") return;
+                if (_activeSession.Title != LocalizationService.Instance["session.new"]) return;
 
                 // 截断过长的内容以控制 token 消耗
                 string userSnippet = firstUserMessage.Length > 500
@@ -141,7 +141,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     if (title.Length > 30)
                         title = title.Substring(0, 30);
 
-                    if (!string.IsNullOrWhiteSpace(title) && _activeSession.Title == "新对话")
+                    if (!string.IsNullOrWhiteSpace(title) && _activeSession.Title == LocalizationService.Instance["session.new"])
                     {
                         _activeSession.Title = title;
                         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
@@ -171,7 +171,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private void FallbackAutoTitle(string firstUserMessage)
         {
             if (_activeSession == null) return;
-            if (_activeSession.Title != "新对话") return;
+            if (_activeSession.Title != LocalizationService.Instance["session.new"]) return;
 
             string title = firstUserMessage.Trim();
             int newlineIdx = title.IndexOf('\n');
@@ -404,12 +404,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             UpdateBrowser();
 
             InputTextBox.Focus();
-            Logger.Info("创建新会话");
+            Logger.Info(LocalizationService.Instance["session.createNew"]);
             }
             catch (Exception ex)
             {
                 Logger.Error($"CreateNewChat 异常: {ex.Message}", ex);
-                StatusLabel.Text = $"创建新会话失败: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["session.createNew"] + ": {0}", ex.Message);
             }
         }
 
@@ -552,7 +552,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     _activeSession.ApiHistory.Clear();
                     _activeSession.TreeDataJson = null;
-                    _activeSession.Title = "新对话";
+                    _activeSession.Title = LocalizationService.Instance["session.new"];
                 }
 
                 var welcomeMsg = new ChatMessage
@@ -576,7 +576,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 RebuildMessagesHtml();
                 _browserInitialized = false;
                 UpdateBrowser();
-                Logger.Info("已清空当前会话消息");
+                Logger.Info(LocalizationService.Instance["session.clearConfirm"]);
             }
             catch (Exception ex)
             {

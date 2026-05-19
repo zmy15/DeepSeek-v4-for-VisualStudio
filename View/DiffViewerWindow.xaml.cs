@@ -57,7 +57,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             if (!string.IsNullOrEmpty(title))
             {
-                Title = $"📊 代码差异对比 — {title}";
+                Title = string.Format("{0} — {1}", LocalizationService.Instance["diff.windowTitle"], title);
             }
 
             // 创建并嵌入差异查看器
@@ -94,7 +94,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"[DiffViewerWindow] 创建查看器失败: {ex.Message}", ex);
-                BottomStatusLabel.Text = $"❌ 创建差异视图失败: {ex.Message}";
+                BottomStatusLabel.Text = string.Format(LocalizationService.Instance["diff.createFailed"], ex.Message);
             }
         }
 

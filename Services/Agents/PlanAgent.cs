@@ -44,8 +44,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 Type = AgentType.Plan,
                 Name = "Plan",
-                Description = "研究和规划多步骤实现方案。深入分析需求，研究代码库，与用户对齐后产出详细计划。",
-                ArgumentHint = "描述要规划的目标或问题",
+                Description = LocalizationService.Instance["agent.plan.description"],
+                ArgumentHint = LocalizationService.Instance["agent.plan.argumentHint"],
                 UserInvocable = true,
                 DisableModelInvocation = false,
                 AllowedTools = new List<string>(ExploreAgent.DefaultReadTools)
@@ -71,55 +71,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private static string BuildSystemPrompt()
         {
-            return CommonSystemPromptPrefix + "\n" +
-                "你当前处于 **Plan 模式**——与用户合作创建详细的、可执行的实现计划。\n\n" +
-                "你的职责是研究代码库 → 与用户对齐 → 将发现和决策整理成全面计划。\n" +
-                "这种迭代方法在实际实现之前就捕获边缘情况和非显而易见的需求。\n\n" +
-                "你的唯一职责是规划。绝不开始实现。\n\n" +
-                "## 规则\n" +
-                "- 如果你考虑使用文件编辑工具——停止。计划是给别人执行的。\n" +
-                "- 使用 vscode_askQuestions 工具随时澄清需求——不要做大假设\n" +
-                "- 在实现之前呈现一个经过充分研究的、没有遗漏的计划\n" +
-                "- **强制**：在制定完整方案前，必须先用 Explore 子代理深入理解项目代码结构、现有模块依赖、命名规范和架构模式。\n" +
-                "  不了解项目结构和现有代码就制定计划是不可接受的。\n" +
-                "- 如果用户提供了 URL 链接，你必须使用 fetch_webpage 工具获取网页内容，并检查是否有其他相关链接需要递归抓取。\n\n" +
-                "## 工作流\n" +
-                "基于用户输入循环以下阶段。这是迭代的，不是线性的。\n\n" +
-                "### 0. 项目理解 (Project Understanding) — **必须最先执行**\n" +
-                "在制定任何计划之前，你必须先理解项目的整体结构：\n" +
-                "- 启动 1-3 个 Explore 子代理了解项目文件结构、关键模块、依赖关系\n" +
-                "- 结合用户提问中的关键词和上下文，识别相关的现有代码\n" +
-                "- 了解项目使用的框架、库、编码规范和测试框架\n" +
-                "- 如果用户提供了特定的文件路径或代码片段，优先分析这些内容\n" +
-                "- 只有在充分理解项目结构后，才能进入发现阶段\n\n" +
-                "### 1. 发现 (Discovery)\n" +
-                "启动 Explore 子代理收集上下文、可作为实现模板的类似已有功能、以及潜在阻碍或歧义。\n" +
-                "当任务跨越多个独立区域（如前后端、不同功能、不同仓库）时，并行启动 2-3 个 Explore 子代理。\n\n" +
-                "### 2. 对齐 (Alignment)\n" +
-                "如果研究揭示了重大歧义或需要验证假设：\n" +
-                "- 使用 vscode_askQuestions 与用户澄清意图\n" +
-                "- 呈现发现的技术约束或替代方案\n" +
-                "- 如果回答显著改变了范围，回到发现阶段\n\n" +
-                "### 3. 设计 (Design)\n" +
-                "一旦上下文清晰，起草全面的实现计划。\n" +
-                "计划应反映：\n" +
-                "- 结构简洁到可扫描，详细到可执行\n" +
-                "- 逐步实现，明确依赖关系——标记哪些步骤可并行，哪些依赖前置步骤\n" +
-                "- 对于多步骤计划，分组为独立可验证的阶段\n" +
-                "- 自动化和手动的验证步骤\n" +
-                "- 可复用或参考的关键架构——引用具体函数、类型或模式，而非仅文件名\n" +
-                "- 需要修改的关键文件（含完整路径）\n" +
-                "- 明确的范围边界——包含什么和刻意排除什么\n\n" +
-                "## 输出格式\n" +
-                "计划应输出为 JSON:\n" +
-                "```json\n" +
-                "{\n" +
-                "  \"title\": \"任务标题\",\n" +
-                "  \"steps\": [\n" +
-                "    { \"index\": 1, \"title\": \"步骤标题\", \"description\": \"详细描述\", \"requiresApproval\": false }\n" +
-                "  ]\n" +
-                "}\n" +
-                "```";
+            return CommonSystemPromptPrefix + LocalizationService.Instance["agent.plan.systemPromptFragment"];
         }
 
         #endregion
@@ -132,7 +84,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
-            AddLog("INFO", $"Plan Agent 开始规划: \"{userMessage.Truncate(100)}\"");
+            var L = LocalizationService.Instance;
+            AddLog("INFO", string.Format(L["agent.log.planStarted"], userMessage.Truncate(100)));
 
             var result = new AgentResult
             {
@@ -145,22 +98,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 var ct = context.CancellationToken;
 
                 // ── 阶段 1: 发现 — 通过 Explore 子代理了解代码库 ──
-                AddLog("INFO", "阶段 1/3: 发现 — 研究代码库...");
+                AddLog("INFO", L["agent.log.planPhaseDiscover"]);
                 string discoveryContext = await RunDiscoveryAsync(userMessage, context);
 
                 // ── 阶段 2: 对齐 — 与用户澄清需求 ──
-                AddLog("INFO", "阶段 2/3: 对齐 — 分析需求...");
+                AddLog("INFO", L["agent.log.planPhaseAlign"]);
 
                 // ── 阶段 3: 设计 — 产出实现计划 ──
-                AddLog("INFO", "阶段 3/3: 设计 — 创建实现计划...");
+                AddLog("INFO", L["agent.log.planPhaseDesign"]);
                 var plan = await CreatePlanAsync(userMessage, discoveryContext, context);
                 result.Plan = plan;
 
-                var L = LocalizationService.Instance;
-
                 if (plan != null && plan.Steps.Count > 0)
                 {
-                    AddLog("INFO", $"计划创建完成: {plan.Steps.Count} 个步骤 → \"{plan.Title}\"");
+                    AddLog("INFO", string.Format(L["agent.log.planDone"], plan.Steps.Count, plan.Title));
                     result.Content = FormatPlanAsMarkdown(plan);
 
                     // ── 生成详细 plan.md 文件 ──
@@ -171,10 +122,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         string planFilePath = await SavePlanMarkdownAsync(planMarkdown, context);
                         plan.PlanFilePath = planFilePath;
                         context.PlanFilePath = planFilePath;
-                        AddLog("INFO", $"📄 plan.md 已保存: {planFilePath}");
+                        AddLog("INFO", string.Format(L["agent.log.planMdSaved"], planFilePath));
 
                         // 在结果内容中附加 plan.md 路径信息
-                        result.Content += $"\n\n---\n📄 详细计划已保存至: `{planFilePath}`\n（执行完成后自动清理）";
+                        result.Content += string.Format(L["agent.log.planMdAppended"], planFilePath);
                     }
                     catch (Exception ex)
                     {
@@ -202,14 +153,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             catch (OperationCanceledException)
             {
                 result.Success = false;
-                result.ErrorMessage = "规划已取消";
-                AddLog("WARN", "规划已取消");
+                result.ErrorMessage = L["agent.log.planCancelled"];
+                AddLog("WARN", L["agent.log.planCancelled"]);
             }
             catch (Exception ex)
             {
                 result.Success = false;
                 result.ErrorMessage = ex.Message;
-                AddLog("ERROR", $"规划失败: {ex.Message}");
+                AddLog("ERROR", string.Format(L["agent.log.planFailed"], ex.Message));
             }
 
             return result;
@@ -253,7 +204,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     areas.Add(userMessage); // 回退：直接搜索用户消息
                 }
 
-                AddLog("INFO", $"探索路由: {areas.Count} 个区域 → [{string.Join(", ", areas)}]");
+                AddLog("INFO", string.Format(L["agent.log.exploreRouting"], areas.Count, string.Join(", ", areas)));
 
                 // ── 并行启动 Explore 子代理 ──
                 var exploreTasks = new List<Task<SubagentResult>>();
@@ -277,8 +228,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
                 }
 
-                AddLog("INFO", $"发现阶段完成: {exploreResults.Length} 个子代理，"
-                    + $"{exploreResults.Count(r => r.Success)} 成功");
+                var L2 = LocalizationService.Instance;
+                AddLog("INFO", string.Format(L2["agent.log.exploreDone"], exploreResults.Length, exploreResults.Count(r => r.Success)));
             }
             catch (Exception ex)
             {

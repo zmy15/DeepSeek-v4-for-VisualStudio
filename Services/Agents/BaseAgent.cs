@@ -316,8 +316,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 round++;
                 if (round > safetyLimit)
                 {
-                    Logger.Warn($"[Agent:{Definition.Name}] 达到安全上限 {safetyLimit} 轮，强制结束");
-                    contentBuilder.Append("\n\n> ⚠️ 工具调用已达安全上限，分析可能不完整。");
+                    var L = LocalizationService.Instance;
+                    Logger.Warn($"[Agent:{Definition.Name}] {string.Format(L["agent.log.safetyLimit"], safetyLimit)}");
+                    contentBuilder.Append($"\n\n> ⚠️ {string.Format(L["agent.log.safetyLimit"], safetyLimit)}");
                     break;
                 }
 
@@ -482,8 +483,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         {
                             loopDetected = true;
                             string toolName = sig.Split('|')[0];
-                            Logger.Warn($"[Agent:{Definition.Name}] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次");
-                            contentBuilder.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次，已自动终止循环。");
+                            var L = LocalizationService.Instance;
+                            Logger.Warn($"[Agent:{Definition.Name}] {string.Format(L["agent.log.loopDetected"], toolName, repeatCount)}");
+                            contentBuilder.Append($"\n\n> ⚠️ {string.Format(L["agent.log.loopTerminated"], toolName, repeatCount)}");
                             break;
                         }
                     }
@@ -511,8 +513,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         if (consecutiveErrorRounds >= maxConsecutiveErrors)
                         {
                             loopDetected = true;
-                            Logger.Warn($"[Agent:{Definition.Name}] 🔄 连续 {consecutiveErrorRounds} 轮工具调用全部返回错误，强制结束");
-                            contentBuilder.Append($"\n\n> ⚠️ 连续 {consecutiveErrorRounds} 轮工具调用均失败，已自动终止。");
+                            var L = LocalizationService.Instance;
+                            Logger.Warn($"[Agent:{Definition.Name}] {string.Format(L["agent.log.consecutiveErrors"], consecutiveErrorRounds)}");
+                            contentBuilder.Append($"\n\n> ⚠️ {string.Format(L["agent.log.consecutiveErrors"], consecutiveErrorRounds)}");
                         }
                     }
 
@@ -950,11 +953,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             PendingPermission = request;
             PermissionRequested?.Invoke(request);
-            AddLog("INFO", $"等待用户许可: {title}");
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.waitingPermission"], title));
 
             bool approved = await request.ResponseTcs.Task;
             PendingPermission = null;
-            AddLog("INFO", $"权限请求结果: {(approved ? "✅ 允许" : "❌ 拒绝")} → {title}");
+            AddLog("INFO", $"{LocalizationService.Instance["agent.log.permissionResult"]}: {(approved ? "✅ 允许" : "❌ 拒绝")} → {title}");
             return approved;
         }
 
@@ -996,7 +999,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             PendingPermission = request;
             PermissionRequested?.Invoke(request);
-            AddLog("INFO", $"等待用户确认删除: {title}");
+            AddLog("INFO", $"{LocalizationService.Instance["agent.log.waitingDeleteConfirm"]}: {title}");
 
             bool approved = await request.ResponseTcs.Task;
             PendingPermission = null;

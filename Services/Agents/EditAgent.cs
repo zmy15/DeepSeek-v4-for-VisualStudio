@@ -130,8 +130,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 Type = AgentType.Edit,
                 Name = "Edit",
-                Description = "执行代码修改。按计划逐步修改文件，支持构建验证和权限确认。",
-                ArgumentHint = "描述要执行的代码修改任务",
+                Description = LocalizationService.Instance["agent.edit.description"],
+                ArgumentHint = LocalizationService.Instance["agent.edit.argumentHint"],
                 UserInvocable = true,
                 AllowedTools = new List<string>(EditTools),
                 SubAgents = new List<AgentType>(),
@@ -173,7 +173,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             else
             {
                 // ── 没有计划，作为单步代码修改执行 ──
-                AddLog("INFO", "无计划，执行单步代码修改...");
+                AddLog("INFO", LocalizationService.Instance["agent.log.editNoPlan"]);
                 var plan = CreateSingleStepPlan(userMessage);
                 await ExecutePlanAsync(plan, context);
                 result.Plan = plan;
@@ -215,18 +215,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     step.Status = AgentStepStatus.InProgress;
                     NotifyPlanUpdated();
 
-                    AddLog("INFO", $"执行步骤 {step.Index}/{plan.Steps.Count}: {step.Title}");
+                    var L = LocalizationService.Instance;
+                    AddLog("INFO", string.Format(L["agent.log.editStepExec"], step.Index, plan.Steps.Count, step.Title));
 
                     try
                     {
                         await ExecuteStepAsync(step, plan, context);
                         step.Status = AgentStepStatus.Completed;
-                        AddLog("INFO", $"✅ 步骤 {step.Index} 完成: {step.ResultSummary ?? "OK"}");
+                        AddLog("INFO", string.Format(L["agent.log.editStepDone"], step.Index, step.ResultSummary ?? "OK"));
                     }
                     catch (OperationCanceledException)
                     {
                         step.Status = AgentStepStatus.Skipped;
-                        AddLog("WARN", $"⏭ 步骤 {step.Index} 已取消");
+                        AddLog("WARN", string.Format(L["agent.log.editStepSkipped"], step.Index));
                         plan.IsCancelled = true;
                         break;
                     }
@@ -234,7 +235,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         step.Status = AgentStepStatus.Failed;
                         step.ResultSummary = ex.Message;
-                        AddLog("ERROR", $"❌ 步骤 {step.Index} 失败: {ex.Message}");
+                        AddLog("ERROR", string.Format(L["agent.log.editStepFailed"], step.Index, ex.Message));
                     }
 
                     NotifyPlanUpdated();
@@ -259,7 +260,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (context.IsPlanningMode && plan.ChangedFiles.Count > 0
                     && !plan.IsCancelled && !_agentCts!.IsCancellationRequested)
                 {
-                    AddLog("INFO", "🔨 Planning 模式：所有步骤完成，执行最终编译验证...");
+                    AddLog("INFO", LocalizationService.Instance["agent.log.editFinalBuild"]);
                     NotifyPlanUpdated();
                     try
                     {
@@ -278,10 +279,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         }
                         string oneLine = finalBuildResult.Split(new[] { '\r', '\n' },
                             StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? finalBuildResult;
-                        if (finalBuildResult.Contains("✅") || finalBuildResult.Contains("0 个错误"))
-                            AddLog("INFO", $"✅ 最终编译通过: {oneLine}");
+                        if (finalBuildResult.Contains("✅") || finalBuildResult.Contains("0 个错误") || finalBuildResult.Contains("0 errors"))
+                            AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editFinalBuildOk"], oneLine));
                         else
-                            AddLog("WARN", $"⚠️ 最终编译存在问题: {oneLine}");
+                            AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.editFinalBuildWarn"], oneLine));
                     }
                     catch (Exception ex)
                     {
@@ -561,7 +562,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 AddLog("INFO", "🔍 编辑完成，启动验证阶段（AI 可调用 build_solution 等完整工具）...");
 
-                // ── 验证阶段使用专用 system prompt（从 i18n 加载，支持中英切换）──
+                // ── 验证阶段专用 system prompt（从 i18n 加载，支持中英切换）──
+                // ⚠️ 缓存优化：作为 extraSystemMessages 注入而非替换 messages[0]，
+                //    保持 Definition.SystemPrompt 在 messages[0] 不变，
+                //    使 DeepSeek Prompt Cache 能命中编辑阶段已缓存的前缀。
                 string verifySystemPrompt = LocalizationService.Instance.Format(
                     "system.agent.verifyPromptFragment",
                     workspaceRoot,
@@ -580,8 +584,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     "get_terminal_output",
                 };
 
-                var verifyMessages = BuildContextAwareMessages(
-                    verifySystemPrompt,
+                // ── 将验证专用指令作为额外 system 消息注入，保持 messages[0] 不变 ──
+                var verifyExtraSystemMessages = new List<ChatApiMessage>
+                {
+                    new ChatApiMessage { Role = "system", Content = verifySystemPrompt }
+                };
+
+                string verifyUserMessage =
                     "## 代码修改已完成\n\n" +
                     $"已修改 {changes.Count} 个文件：{string.Join(", ", changes.Select(c => Path.GetFileName(c.FilePath)))}\n\n" +
                     (sanityWarnings != null
@@ -593,7 +602,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     "2. 如果编译失败，用 read_file 读取报错文件的相关行，用 replace_string_in_file 直接修复\n" +
                     "3. 修复后重新调用 build_solution 验证，直到编译通过，除非遇到无法修复的问题\n" +
                     "4. 编译通过后简短报告结果即可\n\n" +
-                    "如果项目不支持构建（如纯脚本项目），请直接说明并跳过验证。");
+                    "如果项目不支持构建（如纯脚本项目），请直接说明并跳过验证。";
+
+                // ── 使用 Definition.SystemPrompt 保持缓存前缀，验证指令通过 extraSystemMessages 注入 ──
+                var verifyMessages = BuildContextAwareMessages(
+                    Definition.SystemPrompt,
+                    verifyUserMessage,
+                    verifyExtraSystemMessages);
 
                 string verifyResult = await CallAiWithToolLoopAsync(
                     verifyMessages,

@@ -83,7 +83,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                             container.Sessions.Add(new ChatSession
                             {
                                 Id = Guid.NewGuid().ToString("N"),
-                                Title = "新对话",
+                                Title = LocalizationService.Instance["session.new"],
                                 CreatedAt = DateTime.Now,
                                 LastActiveAt = DateTime.Now,
                             });
@@ -130,7 +130,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             catch (Exception ex)
             {
-                Logger.Error("保存会话失败", ex);
+                Logger.Error(LocalizationService.Instance["session.saveFailed"], ex);
             }
         }
 
@@ -150,7 +150,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             catch (Exception ex)
             {
-                Logger.Error("删除会话文件失败", ex);
+                Logger.Error(LocalizationService.Instance["session.deleteFailed"], ex);
             }
         }
 
@@ -169,9 +169,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (session.ApiHistory.Count > 0) return false;
 
             // 标题被修改过 → 使用过
-            if (!string.IsNullOrEmpty(session.Title) && session.Title != "新对话") return false;
+            if (!string.IsNullOrEmpty(session.Title) && session.Title != LocalizationService.Instance["session.new"]) return false;
 
-            // 无 TreeData、无 ApiHistory、标题为"新对话" → 未使用
+            // 无 TreeData、无 ApiHistory、标题为默认 → 未使用
             return true;
         }
 

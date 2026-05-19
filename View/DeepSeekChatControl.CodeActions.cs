@@ -308,7 +308,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // ── 记录文件变更历史（用于后续重试回退）──
                     RecordManualCodeChange(oldContent, newCode, GetActiveDocumentPath());
 
-                    Logger.Info("代码已成功写入编辑器");
+                    Logger.Info(LocalizationService.Instance["write.appliedToEditor"]);
                     return;
                 }
 
