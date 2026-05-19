@@ -1,3 +1,4 @@
+using DeepSeek_v4_for_VisualStudio.Services;
 using Microsoft.VisualStudio.Shell;
 using System;
 using System.Runtime.InteropServices;
@@ -16,8 +17,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         public DeepSeekChatWindowPane() : base(null)
         {
-            this.Caption = "DeepSeek Chat";
+            this.Caption = LocalizationService.Instance["chat.windowTitle"];
             this.Content = new DeepSeekChatControl();
+
+            // 订阅语言变更以动态更新标题
+            LocalizationService.Instance.LanguageChanged += (_, _) =>
+            {
+                this.Caption = LocalizationService.Instance["chat.windowTitle"];
+            };
         }
 
         /// <summary>

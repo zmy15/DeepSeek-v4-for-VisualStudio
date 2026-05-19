@@ -1,0 +1,213 @@
+{
+  "═════════════════════════": "═══ System Prompts ═══",
+
+  "system.defaultSystemPrompt": "You are DeepSeek Chat, an AI programming assistant deeply integrated into Visual Studio. Your core capabilities include: explaining code logic, locating and fixing bugs, refactoring and optimizing code, generating unit tests, and answering technical questions. Follow these guidelines:\n- Provide concise, accurate, and direct answers, prioritizing runnable code solutions.\n- When suggesting code changes, clearly specify file paths and line numbers.\n- Prefer using existing frameworks and libraries in the user's project; do not introduce unnecessary dependencies.\n- If the user's question is ambiguous, ask for clarification before making suggestions.\n- Respond in the user's language; use the same language for code comments.\n- When users need real-time information, file system operations, or specific task execution, actively use available tools to complete tasks.\n- **If the user provides a URL, you MUST use the fetch_webpage tool to retrieve the page content.**\n  After fetching, check for related links in the content and set the maxDepth parameter to recursively crawl until all needed information is collected.\n- When generating or modifying code, follow these comment conventions (choose the appropriate format by language):\n  - C#: Public classes, interfaces, methods, properties, fields → must use XML documentation comments (///).\n  - C/C++: Public classes, structs, functions, global variables → header file declarations must use documentation comments (/// or /** */, Doxygen style).\n  - Other languages (VB.NET, F#, Python, etc.): Use the language's standard documentation comment syntax.\n  - All documentation comments must: describe the responsibility/purpose in the user's language; methods/functions must describe each parameter, return value, and possible exceptions; properties/fields must describe the data they store.\n  - Complex logic, non-obvious algorithms, or tactical decisions within methods must have inline // comments explaining them.\n  - Comments should focus on 'why' rather than 'what', avoiding line-by-line code translation.",
+
+  "system.skillSystemPromptFragment": "\n\n---\n## Skills System\n\nYou have access to a **skills system** that can load specialized task workflows on demand during conversation.\n\n### When Skills Are Invoked\nSkills are invoked in **3 scenarios**:\n\n1. **User explicit invocation** — When the user types `/skillname`, the system automatically injects the skill's complete instructions.\n   You must strictly follow the steps defined in the skill.\n\n2. **AI semantic auto-matching** — When the user's question or task **semantically matches** a skill's description,\n   you should proactively identify it and declare at the beginning of your response: \"I will use the **{skillname}** skill to help you.\"\n   Then follow the skill instructions. Matching criteria:\n   - User intent highly overlaps with keywords in the skill description\n   - User task matches scenarios described in the skill's \"When to Use\" section\n   - User explicitly mentions the skill's related tech stack or workflow\n\n3. **Context inference** — When the conversation context accumulates to a point where a specific skill is needed (e.g., after multiple rounds of debugging, code review is needed),\n   you should proactively suggest and load the appropriate skill.\n\n### How to Use Skills\n- Skills are listed in the `<available_skills>` block with name and description.\n- Once a skill is loaded, strictly follow the **procedure steps** defined in the skill.\n- Skills may include resources: `scripts/` (executable scripts), `references/` (reference docs), `assets/` (templates).\n- If a skill requires running a script, execute it in the terminal.\n- **Never invent skills** — only use skills actually listed in `<available_skills>`.\n\n### Skill Matching Examples\n- User says \"review this code for me\" → matches `code-review` skill\n- User says \"check for security issues\" → matches `code-review` skill (description includes security audit)\n- User says \"how's the performance of this function\" → matches `code-review` skill (description includes code quality)\n\n**Available Skills:**\n{0}\n\nUsers can also type `/skillname` for explicit invocation, or `/help` to see all skills.",
+
+  "system.multiAgentSystemPromptFragment": "\n\n---\n## Multi-Agent Collaboration System\n\nYou are currently working in a multi-agent collaboration environment. The system has the following specialized agents:\n\n- **Ask Agent** — Pure technical Q&A, code explanation, solution discussion. Cannot modify code.\n- **Plan Agent** — Research the codebase and create detailed implementation plans. Cannot modify code.\n- **Explore Agent** — Read-only codebase search sub-agent. Invoked in parallel by Plan Agent.\n- **Edit Agent** — Execute code modifications. Modify files step by step according to the plan.\n\n### Agent Collaboration Flow\n1. User asks → System auto-routes to the appropriate Agent\n2. Complex tasks → Plan Agent researches the codebase first, produces implementation plan\n3. Plan Agent can launch multiple Explore sub-agents in parallel to accelerate research\n4. Plan confirmed → Handoff to Edit Agent for code modifications\n5. Edit Agent executes step by step, reporting progress at each step\n\n### Handoff Mechanism\nWhen the user says \"start implementing\" or \"execute the plan\", the current Agent can transfer control to the Edit Agent.\nThe handoff carries the complete plan and context.\n\n### User Commands\n- `@ask question` — Explicitly use Ask Agent\n- `@plan task` — Explicitly use Plan Agent\n- `@edit task` — Explicitly use Edit Agent\n- `/skillname` — Invoke a skill\n- `/help` — View available skills",
+
+  "system.skillRoutingSystemPrompt": "You are a skill router. Your only task is: based on the user's question and available skills list, determine if a skill should be invoked. Return only JSON, nothing else.",
+
+  "system.skillRoutingUserPrompt": "Based on the following user question and available skills list, determine if a skill should be invoked.\n\nAvailable skills summary:\n{0}\n\nUser question:\n{1}\n\nRules:\n1. If the user's question semantically matches a skill's description or \"When to Use\", return that skill name.\n2. If the user's question is casual chat, simple Q&A, or doesn't need specialized skill intervention, set skill to null.\n3. If matched, set confidence to high/medium/low.\n4. Return only JSON, no other text.\n\nJSON format:\n{{\"skill\":\"skill-name\",\"confidence\":\"high|medium|low\",\"reason\":\"brief matching reason\"}}\n\nReturn routing decision JSON:",
+
+  "system.agentRoutingSystemPrompt": "You are an Agent router. Your only task is: based on the user's message, determine which Agent to route to. Return only JSON, nothing else.",
+
+  "system.agentRoutingUserPrompt": "Determine which Agent the following user message should be routed to.\n\nAvailable Agents:\n- Ask: Pure technical Q&A, code explanation, solution discussion\n- Plan: Complex tasks requiring research before implementation planning\n- Edit: Clear, narrowly-scoped code modifications\n\nRules:\n1. If the task involves 3+ files or needs architecture design → Plan\n2. If it's a clear code modification with narrow scope → Edit\n3. If it's pure Q&A or chat → Ask\n4. Return only JSON: {{\"targetAgent\":\"Ask|Plan|Edit\",\"confidence\":\"high|medium|low\",\"needsPlanning\":true|false,\"reason\":\"reason\"}}\n\nUser message: {0}\n\nRouting JSON:",
+
+  "system.searchOptimizationSystemBaidu": "You only return JSON, nothing else.",
+
+  "system.searchOptimizationUserBaidu": "You are a search query optimization assistant. Based on the user's question and conversation context, generate optimized web search keywords.\n\nRules:\n1. Extract core search intent, remove irrelevant words\n2. Keywords should be concise and precise, no more than 72 characters (each CJK character = 2 chars)\n3. If time-sensitive info is needed, set search_recency to week/month/semiyear/year\n4. If the user is just chatting/greeting/asking code questions (no web search needed), set need_search to false\n5. Do not remove time information if present in the content\n6. Strictly return JSON format, no other text\n\nJSON format:\n{{\"search_query\":\"optimized keywords\",\"search_recency\":null,\"need_search\":true}}\n\n{0}\n\nReturn optimized search JSON:",
+
+  "system.searchOptimizationSystemDuckDuckGo": "You only return optimized search keywords, nothing else.",
+
+  "system.searchOptimizationUserDuckDuckGo": "You are a search query optimization assistant. Based on the user's question, generate optimized web search keywords.\n\nRules:\n1. Extract core search intent, remove irrelevant words\n2. Keywords should be concise and precise, no more than 72 characters (each CJK character = 2 chars)\n3. If the user doesn't need web search, reply NO_SEARCH\n4. Return only the optimized keywords themselves, no explanations, punctuation, or formatting\n5. Do not remove time information if present in the content\n{0}\n\nOptimized keywords:",
+
+  "system.fileExtractionSystem": "You only return key information extracted from the document, nothing else. If no useful information can be extracted, reply only NO_INFO.",
+
+  "system.fileExtractionUser": "You are an information extraction assistant. Please extract key information from the following user-uploaded file content to optimize web search queries.\n\nExtraction rules:\n1. Extract core topics, technical terms, version numbers, API names, error codes, and other searchable key information from the document\n2. Ignore redundant details in code (like variable assignments, comments), focus on conceptual, searchable content\n3. If the user's question indicates a direction, prioritize extracting information related to the question\n4. Output format: plain text, concisely list key information points, no more than 300 characters\n5. If the document content is unrelated to the user's question or cannot extract useful info, reply NO_INFO\n6. Return only extracted information, no explanations or formatting marks\n\nUser question: {0}\n\nFile content:\n{1}\n\nExtract key information:",
+
+  "system.builtInSkillCodeReview": "---\nname: code-review\ndescription: 'Review code quality, security, performance. Use when: code review, checking code quality, finding bugs, security audit, PR review.'\nargument-hint: '[file or code]'\nuser-invocable: true\n---\n\n# Code Review\n\n## When to Use\n- User requests code review or code inspection\n- Self-review before submitting a PR\n- Finding potential bugs, security vulnerabilities, or performance issues\n\n## Procedure\n1. Read the code provided by the user or in the currently open file\n2. Analyze the following aspects:\n   - **Correctness**: Logic errors, edge cases, null references\n   - **Security**: SQL injection, XSS, sensitive information exposure\n   - **Performance**: Unnecessary allocations, N+1 queries, algorithm complexity\n   - **Maintainability**: Naming conventions, code duplication, comment quality\n   - **Best Practices**: Framework conventions, design pattern usage\n3. Rank issues by severity (Critical/Medium/Suggestion)\n4. Provide specific fix suggestions and code examples for each issue\n5. Give an overall assessment and improvement roadmap\n\n## Output Format\n- Use Markdown tables to summarize issues\n- Each issue includes: location, severity, description, fix suggestion",
+
+  "════════════════════════": "═══ UI Messages ═══",
+
+  "ui.welcomeMessage": "Hello! I'm DeepSeek Chat, your AI programming assistant.\n\nI can help you with:\n- Explaining code\n- Fixing bugs\n- Refactoring code\n- Generating tests\n- Answering technical questions\n\nStart asking!",
+
+  "ui.apiKeyMissingMessage": "⚠️ **API Key Not Configured**\n\nPlease configure your DeepSeek API key via **Tools → Options → DeepSeek Chat**.\n\nGet your key: https://platform.deepseek.com/api_keys",
+
+  "═══════════════════════": "═══ Settings Labels ═══",
+
+  "settings.category.api": "API Settings",
+  "settings.category.model": "Model Settings",
+  "settings.category.webSearch": "Web Search",
+  "settings.category.editor": "Editor",
+  "settings.category.ocr": "OCR Settings",
+  "settings.category.copilot": "Copilot",
+  "settings.category.context": "Context Management",
+  "settings.category.i18n": "Language / 语言",
+
+  "settings.apiKey.displayName": "API Key",
+  "settings.apiKey.description": "DeepSeek API key. Obtain from https://platform.deepseek.com/api_keys",
+
+  "settings.systemPrompt.displayName": "System Prompt",
+  "settings.systemPrompt.description": "System prompt that defines the AI assistant's behavior and role",
+
+  "settings.selectedModel.displayName": "Selected Model",
+  "settings.selectedModel.description": "The DeepSeek model to use",
+
+  "settings.enableThinking.displayName": "Enable Deep Thinking",
+  "settings.enableThinking.description": "Enable deep thinking mode (Reasoning)",
+
+  "settings.reasoningEffort.displayName": "Reasoning Effort",
+  "settings.reasoningEffort.description": "Reasoning intensity: high or max",
+
+  "settings.enableWebSearch.displayName": "Enable Web Search",
+  "settings.enableWebSearch.description": "Enable web search functionality. When enabled, a web search toggle will appear in the chat window.",
+
+  "settings.searchProvider.displayName": "Search Provider",
+  "settings.searchProvider.description": "Select search engine: Baidu (Baidu Qianfan, requires API Key, 1500 free/month) or DuckDuckGo (completely free)",
+
+  "settings.baiduApiKey.displayName": "Baidu Qianfan API Key",
+  "settings.baiduApiKey.description": "Baidu Qianfan AppBuilder API Key. Get from: https://console.bce.baidu.com/ai_apaas/accessKey\n⚠️ Billing: 1500 free calls/month (~50/day). Beyond that, pay-as-you-go.\nWhen free quota is exhausted, automatically switches to DuckDuckGo.\nPost-pay setup: https://console.bce.baidu.com/ai_apaas/resource\nBilling details: https://cloud.baidu.com/doc/qianfan/s/Mmh4sv6ec",
+
+  "settings.showDiffMarkers.displayName": "Show Diff Markers In Editor",
+  "settings.showDiffMarkers.description": "After AI writes code, show red/green line markers in the editor (green=added, red=deleted) with confirm/revert buttons. When disabled, changes take effect directly without preview.",
+
+  "settings.ocrEngine.displayName": "OCR Engine",
+  "settings.ocrEngine.description": "Select image OCR engine:\n  • Windows Built-in — System built-in, no configuration needed, moderate accuracy\n  • Remote OCR service via MCP protocol",
+
+  "settings.copilotEnabled.displayName": "Enable Code Completion",
+  "settings.copilotEnabled.description": "Enable inline code completion (ghost text) in the editor. When enabled, DeepSeek will provide code completion suggestions as you type. Press Tab to accept, Escape to cancel.",
+
+  "settings.copilotInterval.displayName": "Completion Delay (ms)",
+  "settings.copilotInterval.description": "How many milliseconds to wait after you stop typing before requesting completion suggestions.",
+
+  "settings.copilotNextEdit.displayName": "Continue Completion After Accept",
+  "settings.copilotNextEdit.description": "When enabled, accepting a completion immediately triggers a new prediction.",
+
+  "settings.copilotModel.displayName": "Completion Model",
+  "settings.copilotModel.description": "Optional: specify a different model for code completion. Leave empty to use the default model. A faster model (like deepseek-v4-flash) is recommended.",
+
+  "settings.tokenBudget.displayName": "Token Budget Limit",
+  "settings.tokenBudget.description": "DeepSeek V4 has a 1M token context window.\nThis setting controls the maximum tokens sent to the API (reserving 100K for model output).\nDefault is 900,000. Reduce to lower API costs; increase for more context.",
+
+  "settings.enableAutoCompression.displayName": "Enable Auto Compression",
+  "settings.enableAutoCompression.description": "When context approaches the token budget, automatically compress early conversation into summaries\nrather than deleting old messages. When disabled, falls back to the old truncation behavior.",
+
+  "settings.compressionThreshold.displayName": "Compression Trigger Threshold (%)",
+  "settings.compressionThreshold.description": "Trigger auto-compression when context usage reaches this percentage.\nDefault 85%, i.e., triggers at ~765K tokens of a 900K budget.",
+
+  "settings.preserveRecentTurns.displayName": "Preserve Recent Turns",
+  "settings.preserveRecentTurns.description": "During compression, keep the most recent N turns of conversation uncompressed.\nDefault 3 turns. Increase to preserve more immediate context.",
+
+  "settings.enableRag.displayName": "Enable RAG",
+  "settings.enableRag.description": "Enable Retrieval-Augmented Generation (RAG) to automatically retrieve relevant documents from the knowledge base before conversation.\nRequires configuring a RAG provider (such as a local vector database).",
+
+  "settings.ragTopK.displayName": "RAG Retrieval Count",
+  "settings.ragTopK.description": "Maximum number of documents to retrieve from the knowledge base per query. Default 5.",
+
+  "settings.showContextStats.displayName": "Context Stats Indicator",
+  "settings.showContextStats.description": "Show current token usage in the status bar (used/budget).",
+
+  "settings.language.displayName": "Display Language / 显示语言",
+  "settings.language.description": "Choose display language. Select 'Auto' to follow system language.\n选择显示语言。「自动」则跟随系统语言。",
+
+  "══════════════════════════": "═══ Chat UI Strings ═══",
+
+  "chat.windowTitle": "DeepSeek Chat",
+  "chat.deleteConversation": "Delete Current Conversation",
+  "chat.confirmDeleteConversation": "Are you sure you want to delete the current conversation? This action cannot be undone.",
+  "chat.sendMessage": "Send Message",
+  "chat.thinking": "Thinking...",
+  "chat.generating": "Generating...",
+  "chat.copyCode": "Copy Code",
+  "chat.insertCode": "Insert Code",
+  "chat.saveToFile": "Save to File",
+  "chat.acceptChanges": "Accept Changes",
+  "chat.rejectChanges": "Reject Changes",
+  "chat.exportConversation": "Export Conversation",
+  "chat.clearConversation": "Clear Conversation",
+  "chat.newConversation": "New Conversation",
+  "chat.webSearch.enabled": "Web Search: On",
+  "chat.webSearch.disabled": "Web Search: Off",
+  "chat.agentMode": "Agent Mode",
+  "chat.contextStats": "Tokens: {0} / {1}",
+
+  "══════════════════════════════": "═══ MCP Configuration ═══",
+
+  "mcp.title": "MCP Server Configuration",
+  "mcp.addServer": "Add Server",
+  "mcp.removeServer": "Remove Server",
+  "mcp.save": "Save & Reconnect",
+  "mcp.cancel": "Cancel",
+  "mcp.detectAndAdd": "🔍 Detect & Add",
+  "mcp.serverName": "Server Name",
+  "mcp.command": "Command:",
+  "mcp.arguments": "Args:",
+  "mcp.environmentVariables": "Environment:",
+  "mcp.enabled": "Enabled",
+  "mcp.pasteJson": "Paste JSON config (auto-detect Claude Desktop / VS Code / Cursor format)",
+  "mcp.configuredServers": "Configured MCP Servers",
+  "mcp.testConnection": "Test connection to this MCP server",
+  "mcp.deleteServer": "Delete this server",
+  "mcp.formatHint": "Format: KEY1=VALUE1;KEY2=VALUE2",
+  "mcp.transport": "Transport:",
+
+  "══════════════════════════════": "═══ OCR Messages ═══",
+
+  "ocr.recognizing": "Recognizing...",
+  "ocr.recognitionComplete": "Recognition complete",
+  "ocr.recognitionFailed": "Recognition failed",
+  "ocr.imageTooLarge": "Image file too large",
+  "ocr.noTextDetected": "No text detected",
+  "ocr.engineNotAvailable": "OCR engine not available",
+  "ocr.exception": "Recognition exception",
+
+  "══════════════════════════════": "═══ Build Messages ═══",
+
+  "build.success": "Build succeeded",
+  "build.failed": "Build failed",
+  "build.errorDetails": "Build error details",
+  "build.noErrors": "No build errors",
+
+  "══════════════════════════════": "═══ Agent Messages ═══",
+
+  "agent.planCreated": "Plan created",
+  "agent.planCancelled": "Plan cancelled",
+  "agent.planFailed": "Plan failed",
+  "agent.planCompleted": "Plan execution completed",
+  "agent.exploreRouting": "Explore routing",
+  "agent.editApplied": "Changes applied",
+  "agent.editFailed": "Changes failed",
+
+  "══════════════════════════════": "═══ Persistence ═══",
+
+  "persist.sessionNotFound": "Session file not found",
+  "persist.sessionsLoaded": "Loaded {0} session(s)",
+  "persist.saveFailed": "Save failed",
+  "persist.exportSuccess": "Export successful",
+  "persist.importSuccess": "Import successful",
+
+  "══════════════════════════════": "═══ API / Service ═══",
+
+  "api.requestFailed": "API request failed",
+  "api.timeout": "Request timed out",
+  "api.rateLimited": "Too many requests, please try again later",
+  "api.unauthorized": "API key is invalid or expired",
+
+  "══════════════════════════════": "═══ General ═══",
+
+  "general.ok": "OK",
+  "general.cancel": "Cancel",
+  "general.yes": "Yes",
+  "general.no": "No",
+  "general.save": "Save",
+  "general.delete": "Delete",
+  "general.close": "Close",
+  "general.error": "Error",
+  "general.warning": "Warning",
+  "general.info": "Information",
+  "general.loading": "Loading...",
+  "general.noResults": "No results",
+  "general.auto": "Auto"
+}

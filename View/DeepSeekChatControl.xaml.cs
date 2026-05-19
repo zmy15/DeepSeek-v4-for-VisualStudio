@@ -35,9 +35,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
     {
         #region Constants
 
-        private const string WelcomeMessage = AiPrompts.WelcomeMessage;
+        private static string WelcomeMessage => AiPrompts.WelcomeMessage;
 
-        private const string ApiKeyMissingMessage = AiPrompts.ApiKeyMissingMessage;
+        private static string ApiKeyMissingMessage => AiPrompts.ApiKeyMissingMessage;
 
         /// <summary>
         /// 流式更新间隔（字符数），每累积这么多字符触发一次 DOM 更新。

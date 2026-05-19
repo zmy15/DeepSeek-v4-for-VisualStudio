@@ -112,6 +112,12 @@ namespace DeepSeek_v4_for_VisualStudio
             // 设置全局 Options 实例，供静态工具类读取设置
             DeepSeekOptionsPage.Instance = Options;
 
+            // 初始化国际化服务（根据用户设置或系统语言自动选择语言）
+            InitializeLocalization();
+
+            // 订阅设置变更事件，当用户切换语言时热更新
+            DeepSeekOptionsPage.SettingsChanged += OnSettingsChanged;
+
             // 初始化 DI 容器
             CompositionRoot.Build();
 
@@ -135,6 +141,51 @@ namespace DeepSeek_v4_for_VisualStudio
                     System.Diagnostics.Debug.WriteLine($"[DeepSeek] Failed to show tool window: {ex.Message}");
                 }
             });
+        }
+
+        #endregion
+
+        #region Localization
+
+        /// <summary>
+        /// 初始化国际化服务。
+        /// 根据用户选项中的语言设置或系统 UI 语言自动选择语言。
+        /// </summary>
+        private void InitializeLocalization()
+        {
+            string? languageOverride = Options?.Language;
+            if (string.IsNullOrEmpty(languageOverride) ||
+                string.Equals(languageOverride, "auto", StringComparison.OrdinalIgnoreCase))
+            {
+                languageOverride = null; // 自动检测系统语言
+            }
+
+            LocalizationService.Instance.Initialize(languageOverride);
+        }
+
+        /// <summary>
+        /// 设置变更回调：当用户在选项页修改语言设置时热更新。
+        /// </summary>
+        private void OnSettingsChanged()
+        {
+            try
+            {
+                string? language = Options?.Language;
+                if (!string.IsNullOrEmpty(language) &&
+                    !string.Equals(language, "auto", StringComparison.OrdinalIgnoreCase))
+                {
+                    LocalizationService.Instance.SetLanguage(language);
+                }
+                else
+                {
+                    // 重新自动检测
+                    LocalizationService.Instance.Initialize(null);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[I18n] Failed to reload language: {ex.Message}");
+            }
         }
 
         #endregion

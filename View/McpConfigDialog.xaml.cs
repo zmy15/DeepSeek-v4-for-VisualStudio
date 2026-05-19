@@ -31,6 +31,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             InitializeComponent();
 
+            // 应用本地化字符串
+            ApplyLocalization();
+
+            // 订阅语言变更事件以动态刷新
+            LocalizationService.Instance.LanguageChanged += (_, _) => ApplyLocalization();
+
             _servers = new ObservableCollection<McpServerConfig>(
                 currentServers?.Select(s => CloneForDisplay(s)) ?? new List<McpServerConfig>());
 
@@ -47,6 +53,36 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
                 catch { }
             }
+        }
+
+        /// <summary>
+        /// 应用当前语言的本地化字符串到对话框所有 UI 元素。
+        /// </summary>
+        private void ApplyLocalization()
+        {
+            var L = LocalizationService.Instance;
+
+            // 窗口标题
+            Title = L["mcp.title"];
+
+            // 标题标签
+            TitleLabel.Text = "⚙️ " + L["mcp.title"];
+
+            // JSON 粘贴区域
+            PasteJsonLabel.Text = "📋 " + L["mcp.pasteJson"];
+
+            // 按钮
+            ParseJsonButton.Content = L["mcp.detectAndAdd"];
+            ClearJsonButton.Content = L["general.delete"];
+            AddServerButton.Content = "+ " + L["mcp.addServer"];
+            SaveButton.Content = L["mcp.save"];
+            CancelButton.Content = L["general.cancel"];
+
+            // 服务器列表
+            ServersLabel.Text = "📡 " + L["mcp.configuredServers"];
+
+            // 字段标签 (在 DataTemplate 中，无法通过 x:Name 访问，使用固定英文标签)
+            // "Command:", "Args:", "Environment:" 在 XAML 中已设为英文默认值
         }
 
         /// <summary>

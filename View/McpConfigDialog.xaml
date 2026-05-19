@@ -4,7 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         mc:Ignorable="d"
-        Title="MCP 服务器配置" Height="600" Width="850"
+        Title="MCP Server Configuration" Height="600" Width="850"
         MinHeight="450" MinWidth="700"
         WindowStartupLocation="CenterOwner"
         Background="#2D2D2D"
@@ -117,7 +117,8 @@
         </Grid.RowDefinitions>
 
         <!-- ═══ 标题 ═══ -->
-        <TextBlock Grid.Row="0" Text="⚙️ MCP 服务器配置"
+        <TextBlock Grid.Row="0" x:Name="TitleLabel"
+                   Text="⚙️ MCP Server Configuration"
                    FontSize="18" FontWeight="Bold"
                    Margin="0,0,0,12"/>
 
@@ -136,7 +137,8 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.ColumnSpan="2"
-                           Text="📋 粘贴 JSON 配置（支持 Claude Desktop / VS Code / Cursor 格式自动识别）"
+                           x:Name="PasteJsonLabel"
+                           Text="📋 Paste JSON config (auto-detect Claude Desktop / VS Code / Cursor format)"
                            FontSize="12" Foreground="#888888" Margin="0,0,0,6"/>
 
                 <TextBox Grid.Row="1" Grid.Column="0"
@@ -144,14 +146,14 @@
                          AcceptsReturn="True" MinHeight="80" MaxHeight="150"
                          TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                          FontFamily="Consolas" FontSize="12"
-                         ToolTip="粘贴 MCP 服务器 JSON 配置（Claude Desktop 格式或数组格式均可）"/>
+                         ToolTip="Paste MCP server JSON config (Claude Desktop format or array format)"/>
 
                 <StackPanel Grid.Row="1" Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Bottom">
-                    <Button Content="🔍 识别并添加"
+                    <Button x:Name="ParseJsonButton" Content="🔍 Detect &amp; Add"
                             Style="{StaticResource PrimaryButton}"
                             Click="ParseJsonButton_Click"
                             Margin="0,0,0,6"/>
-                    <Button Content="清空" Style="{StaticResource ToolbarButton}"
+                    <Button x:Name="ClearJsonButton" Content="Clear" Style="{StaticResource ToolbarButton}"
                             Click="ClearJsonButton_Click"
                             FontSize="12" Foreground="#888888"/>
                 </StackPanel>
@@ -173,10 +175,10 @@
                 </Grid.RowDefinitions>
 
                 <Grid Grid.Row="0" Margin="0,0,0,8">
-                    <TextBlock Text="📡 已配置的 MCP 服务器"
+                    <TextBlock x:Name="ServersLabel" Text="📡 Configured MCP Servers"
                                FontSize="14" FontWeight="SemiBold"
                                VerticalAlignment="Center"/>
-                    <Button Content="+ 手动添加" HorizontalAlignment="Right"
+                    <Button x:Name="AddServerButton" Content="+ Add Manually" HorizontalAlignment="Right"
                             Style="{StaticResource PrimaryButton}"
                             Click="AddServerButton_Click"
                             FontSize="12" Padding="8,4"/>
@@ -207,25 +209,25 @@
                                                   IsChecked="{Binding Enabled}"
                                                   VerticalAlignment="Center"
                                                   Margin="0,0,8,0"
-                                                  ToolTip="启用/禁用此 MCP 服务器"/>
+                                                  ToolTip="Enable/Disable this MCP server"/>
                                         <TextBox Grid.Row="0" Grid.Column="1"
                                                  Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
                                                  FontWeight="Bold" FontSize="14"
                                                  Background="Transparent" BorderThickness="0"
-                                                 ToolTip="服务器名称"/>
+                                                 ToolTip="Server name"/>
 
                                         <!-- 操作按钮 -->
                                         <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal">
-                                            <Button Content="🔄 测试" Style="{StaticResource ToolbarButton}"
+                                            <Button Content="🔄 Test" Style="{StaticResource ToolbarButton}"
                                                     FontSize="11" Foreground="#4EC9B0"
                                                     Tag="{Binding}"
                                                     Click="TestServerButton_Click"
-                                                    ToolTip="测试连接此 MCP 服务器"/>
+                                                    ToolTip="Test connection to this MCP server"/>
                                             <Button Content="✕" Style="{StaticResource ToolbarButton}"
                                                     FontSize="12" Foreground="#F48771"
                                                     Tag="{Binding}"
                                                     Click="DeleteServerButton_Click"
-                                                    ToolTip="删除此服务器"/>
+                                                    ToolTip="Delete this server"/>
                                         </StackPanel>
 
                                         <!-- 命令 + 参数 -->
@@ -236,12 +238,12 @@
                                                 <ColumnDefinition Width="Auto"/>
                                                 <ColumnDefinition Width="2*"/>
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="命令:" Foreground="#888888"
+                                            <TextBlock Grid.Column="0" x:Name="CommandLabel" Text="Command:" Foreground="#888888"
                                                        FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                             <TextBox Grid.Column="1"
                                                      Text="{Binding Command, UpdateSourceTrigger=PropertyChanged}"
                                                      FontSize="12" FontFamily="Consolas"/>
-                                            <TextBlock Grid.Column="2" Text="参数:" Foreground="#888888"
+                                            <TextBlock Grid.Column="2" x:Name="ArgsLabel" Text="Args:" Foreground="#888888"
                                                        FontSize="12" VerticalAlignment="Center" Margin="12,0,6,0"/>
                                             <TextBox Grid.Column="3"
                                                      Text="{Binding Args, UpdateSourceTrigger=PropertyChanged}"
@@ -254,19 +256,19 @@
                                                 <ColumnDefinition Width="Auto"/>
                                                 <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="环境变量:" Foreground="#888888"
+                                            <TextBlock Grid.Column="0" x:Name="EnvLabel" Text="Environment:" Foreground="#888888"
                                                        FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                             <TextBox Grid.Column="1"
                                                      Text="{Binding Environment, UpdateSourceTrigger=PropertyChanged}"
                                                      FontSize="12" FontFamily="Consolas"
-                                                     ToolTip="格式: KEY1=VALUE1;KEY2=VALUE2"/>
+                                                     ToolTip="Format: KEY1=VALUE1;KEY2=VALUE2"/>
                                         </Grid>
 
                                         <!-- 状态信息 -->
                                         <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
                                                    Foreground="#569CD6" FontSize="11"
                                                    Margin="20,2,0,0">
-                                            <Run Text="传输:"/>
+                                            <Run Text="Transport:"/>
                                             <Run Text="{Binding Transport, Mode=OneWay}" Foreground="#6A9955"/>
                                         </TextBlock>
                                     </Grid>
@@ -299,10 +301,10 @@
         <!-- ═══ 底部按钮 ═══ -->
         <StackPanel Grid.Row="4" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button Content="保存并重连" Style="{StaticResource PrimaryButton}"
+            <Button x:Name="SaveButton" Content="Save &amp; Reconnect" Style="{StaticResource PrimaryButton}"
                     Click="SaveAndReconnectButton_Click"
                     FontSize="14" Padding="16,8"/>
-            <Button Content="取消" Style="{StaticResource ToolbarButton}"
+            <Button x:Name="CancelButton" Content="Cancel" Style="{StaticResource ToolbarButton}"
                     Click="CancelButton_Click"
                     Margin="12,0,0,0" Foreground="#888888"/>
         </StackPanel>

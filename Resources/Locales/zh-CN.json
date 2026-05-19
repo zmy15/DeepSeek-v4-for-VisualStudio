@@ -1,0 +1,213 @@
+{
+  "═════════════════════════": "═══ System Prompts ═══",
+
+  "system.defaultSystemPrompt": "你是 DeepSeek Chat，一个深度集成在 Visual Studio 中的 AI 编程助手。你的核心能力包括：解释代码逻辑、定位并修复 Bug、重构优化代码、生成单元测试、回答各类技术问题。请遵循以下准则：\n- 回答应简洁、准确、直接，优先给出可运行的代码方案。\n- 涉及代码修改时，明确指出文件路径和具体行号。\n- 优先使用用户项目已有的框架和库，不引入不必要的依赖。\n- 如果用户的问题模糊不清，先追问澄清再给出建议。\n- 使用中文回答，代码中的注释也使用中文。\n- 当用户需要获取实时信息、操作文件系统或执行特定任务时，积极使用可用的工具（tools）来完成任务。\n- **如果用户提供了 URL 链接，你必须使用 fetch_webpage 工具来获取网页内容。**\n  获取后检查内容中是否有其他相关链接，设置 maxDepth 参数递归抓取直到收集了所有需要的信息。\n- 生成或修改代码时，必须遵循以下注释规范（按语言选择对应格式）：\n  - C#：公共类、接口、方法、属性、字段→必须使用 XML 文档注释（///）。\n  - C/C++：公共类、结构体、函数、全局变量→头文件声明处必须使用文档注释（/// 或 /** */，Doxygen 风格）。\n  - 其他语言（如 VB.NET、F#、Python 等）：使用该语言标准文档注释语法。\n  - 所有文档注释均需：用中文描述职责/用途；方法/函数需说明每个参数、返回值及可能抛出的异常；属性/字段需说明存储的数据含义。\n  - 方法内部的复杂逻辑、非直观算法或临时决策，必须添加行内 // 注释进行解释。\n  - 注释应聚焦于「为什么这么做」而非「做了什么」，避免逐行翻译代码。",
+
+  "system.skillSystemPromptFragment": "\n\n---\n## 技能系统 (Skills)\n\n你拥有一个**技能系统**，可以在对话中按需加载专业化的任务工作流。\n\n### 技能调用时机\n技能在以下 **3 种情况** 下被调用：\n\n1. **用户显式调用** — 用户输入 `/技能名` 时，系统会自动注入该技能的完整指令。\n   此时你必须严格按照技能中的步骤执行。\n\n2. **AI 语义自动匹配** — 当用户的问题或任务**语义上匹配**某个技能的描述时，\n   你应当主动识别并在回答开头声明：「我将使用 **{技能名}** 技能来帮助你。」\n   然后按照技能指令执行。匹配依据：\n   - 用户意图与技能 description 中的关键词高度重合\n   - 用户任务与技能「何时使用」部分描述的场景一致\n   - 用户明确提到技能相关的技术栈或工作流\n\n3. **上下文推断** — 当对话上下文累积到需要特定技能介入时（如多轮调试后\n   需要代码审查），你应当主动建议并加载相应技能。\n\n### 如何使用技能\n- 技能在 `<available_skills>` 块中列出，包含名称和描述。\n- 加载技能后，严格遵循技能中定义的**步骤流程 (Procedure)**。\n- 技能可附带资源：`scripts/`（可执行脚本）、`references/`（参考文档）、`assets/`（模板）。\n- 如果技能要求运行脚本，使用终端执行。\n- **绝不虚构技能** — 只使用 `<available_skills>` 中实际列出的技能。\n\n### 技能匹配示例\n- 用户说「帮我 review 一下这段代码」→ 匹配 `code-review` 技能\n- 用户说「检查安全问题」→ 匹配 `code-review` 技能（description 含 security audit）\n- 用户说「这个函数的性能怎么样」→ 匹配 `code-review` 技能（description 含 code quality）\n\n**可用技能列表：**\n{0}\n\n用户也可以输入 `/技能名` 来显式调用，输入 `/help` 查看所有技能。",
+
+  "system.multiAgentSystemPromptFragment": "\n\n---\n## 多 Agent 协作系统\n\n你当前正在一个多 Agent 协作环境中工作。系统有以下专职 Agent：\n\n- **Ask Agent** — 纯技术问答、代码解释、方案讨论。不能修改代码。\n- **Plan Agent** — 研究代码库并制定详细实现计划。不能修改代码。\n- **Explore Agent** — 代码库只读搜索子代理。被 Plan Agent 并行调用。\n- **Edit Agent** — 执行代码修改。按计划逐步修改文件。\n\n### Agent 协作流程\n1. 用户提问 → 系统自动路由到合适的 Agent\n2. 复杂任务 → Plan Agent 先研究代码库，产出实现计划\n3. Plan Agent 可并行启动多个 Explore 子代理加速研究\n4. 计划确认后 → Handoff 给 Edit Agent 执行代码修改\n5. Edit Agent 按步骤执行，每步报告进度\n\n### Handoff 机制\n当用户说「开始实现」或「执行计划」时，当前 Agent 可以将控制权移交给 Edit Agent。\nHandoff 时会携带完整的计划和上下文。\n\n### 用户命令\n- `@ask 问题` — 显式使用 Ask Agent\n- `@plan 任务` — 显式使用 Plan Agent\n- `@edit 任务` — 显式使用 Edit Agent\n- `/技能名` — 调用技能（Skill）\n- `/help` — 查看可用技能列表",
+
+  "system.skillRoutingSystemPrompt": "你是一个技能路由器。你的唯一任务是：根据用户的问题和可用技能列表，判断是否应该调用某个技能。只返回 JSON，不返回任何其他内容。",
+
+  "system.skillRoutingUserPrompt": "根据以下用户问题和可用技能列表，判断是否应该调用某个技能。\n\n可用技能总结：\n{0}\n\n用户问题：\n{1}\n\n规则：\n1. 如果用户的问题与某个技能的 description 或「何时使用」语义匹配，返回该技能名称。\n2. 如果用户问题是普通聊天、简单问答、或不需要专业技能介入，skill 设为 null。\n3. 如果匹配到技能，confidence 设为 high/medium/low。\n4. 只返回 JSON，不要包含任何其他文本。\n\nJSON 格式：\n{{\"skill\":\"skill-name\",\"confidence\":\"high|medium|low\",\"reason\":\"简短匹配理由\"}}\n\n请返回路由判断 JSON：",
+
+  "system.agentRoutingSystemPrompt": "你是一个 Agent 路由器。你的唯一任务是：根据用户消息判断应该路由到哪个 Agent。只返回 JSON，不返回任何其他内容。",
+
+  "system.agentRoutingUserPrompt": "判断以下用户消息应路由到哪个 Agent。\n\n可用 Agent：\n- Ask: 纯技术问答、代码解释、方案讨论\n- Plan: 复杂任务，需要先研究再制定实现计划\n- Edit: 明确的、范围小的代码修改\n\n规则：\n1. 如果任务涉及3个以上文件或需要架构设计 → Plan\n2. 如果是明确的代码修改且范围清晰 → Edit\n3. 如果是纯问答或聊天 → Ask\n4. 只返回 JSON: {{\"targetAgent\":\"Ask|Plan|Edit\",\"confidence\":\"high|medium|low\",\"needsPlanning\":true|false,\"reason\":\"理由\"}}\n\n用户消息: {0}\n\n路由 JSON:",
+
+  "system.searchOptimizationSystemBaidu": "你只返回 JSON，不返回任何其他内容。",
+
+  "system.searchOptimizationUserBaidu": "你是一个搜索查询优化助手。根据用户的问题和对话上下文，生成优化的联网搜索关键词。\n\n规则：\n1. 提取核心搜索意图，去除无关词汇\n2. 关键词应简洁精准，不超过72个字符（一个汉字=2字符）\n3. 如需时效性信息，设置 search_recency 为 week/month/semiyear/year\n4. 如果用户只是聊天/问候/代码问题（不需要联网），设置 need_search 为 false\n5. 如果内容携带时间信息，请不要移除\n6. 严格返回 JSON 格式，不要包含任何其他文本\n\nJSON 格式：\n{{\"search_query\":\"优化后的关键词\",\"search_recency\":null,\"need_search\":true}}\n\n{0}\n\n请返回优化后的搜索 JSON：",
+
+  "system.searchOptimizationSystemDuckDuckGo": "你只返回优化后的搜索关键词，不返回任何其他内容。",
+
+  "system.searchOptimizationUserDuckDuckGo": "你是一个搜索查询优化助手。根据用户的问题，生成优化的联网搜索关键词。\n\n规则：\n1. 提取核心搜索意图，去除无关词汇\n2. 关键词应简洁精准，不超过72个字符（一个汉字=2字符）\n3. 如果用户不需要联网搜索，回复 NO_SEARCH\n4. 只返回优化后的关键词本身，不要任何解释、标点或格式\n5. 如果内容携带时间信息，请不要移除\n{0}\n\n优化后的关键词：",
+
+  "system.fileExtractionSystem": "你只返回从文档中提取的关键信息，不返回任何其他内容。如果无法提取有效信息，只回复 NO_INFO。",
+
+  "system.fileExtractionUser": "你是一个信息提取助手。请从以下用户上传的文件内容中提取关键信息，用于优化联网搜索查询。\n\n提取规则：\n1. 提取文档中的核心主题、技术名词、版本号、API 名称、错误码等可搜索的关键信息\n2. 忽略代码中的冗余细节（如变量赋值、注释），关注概念性、可检索的内容\n3. 如果用户的问题指明了方向，优先提取与问题相关的信息\n4. 输出格式：纯文本，简洁列出关键信息点，不超过 300 字\n5. 如果文档内容与用户问题无关或无法提取有效信息，回复 NO_INFO\n6. 只返回提取的信息，不要任何解释或格式标记\n\n用户问题：{0}\n\n文件内容：\n{1}\n\n请提取关键信息：",
+
+  "system.builtInSkillCodeReview": "---\nname: code-review\ndescription: '审查代码质量、安全性、性能。Use when: code review, checking code quality, finding bugs, security audit, PR review.'\nargument-hint: '[file or code]'\nuser-invocable: true\n---\n\n# 代码审查\n\n## 何时使用\n- 用户请求代码审查或代码检查\n- 提交 PR 前进行自查\n- 发现潜在的 Bug、安全漏洞或性能问题\n\n## 流程\n1. 阅读用户提供或当前打开的文件中的代码\n2. 分析以下方面：\n   - **正确性**: 逻辑错误、边界条件、空引用\n   - **安全性**: SQL 注入、XSS、敏感信息泄露\n   - **性能**: 不必要的分配、N+1 查询、算法复杂度\n   - **可维护性**: 命名规范、代码重复、注释质量\n   - **最佳实践**: 框架约定、设计模式使用\n3. 按严重程度排列问题（严重/中等/建议）\n4. 为每个问题提供具体的修复建议和代码示例\n5. 给出总体评价和改进路线图\n\n## 输出格式\n- 使用 Markdown 表格汇总问题\n- 每个问题包含：位置、严重程度、描述、修复建议",
+
+  "════════════════════════": "═══ UI Messages ═══",
+
+  "ui.welcomeMessage": "你好！我是 DeepSeek Chat，你的 AI 编程助手。\n\n我可以帮你：\n- 解释代码\n- 修复 Bug\n- 重构代码\n- 生成测试\n- 回答技术问题\n\n开始提问吧！",
+
+  "ui.apiKeyMissingMessage": "⚠️ **未配置 API 密钥**\n\n请通过菜单 **工具 → 选项 → DeepSeek Chat** 配置你的 DeepSeek API 密钥。\n\n获取密钥：https://platform.deepseek.com/api_keys",
+
+  "═══════════════════════": "═══ Settings Labels ═══",
+
+  "settings.category.api": "API Settings",
+  "settings.category.model": "Model Settings",
+  "settings.category.webSearch": "Web Search",
+  "settings.category.editor": "Editor",
+  "settings.category.ocr": "OCR Settings",
+  "settings.category.copilot": "Copilot",
+  "settings.category.context": "Context Management",
+  "settings.category.i18n": "Language / 语言",
+
+  "settings.apiKey.displayName": "API Key",
+  "settings.apiKey.description": "DeepSeek API 密钥，从 https://platform.deepseek.com/api_keys 获取",
+
+  "settings.systemPrompt.displayName": "System Prompt",
+  "settings.systemPrompt.description": "系统提示词，定义 AI 助手的行为角色",
+
+  "settings.selectedModel.displayName": "Selected Model",
+  "settings.selectedModel.description": "使用的 DeepSeek 模型",
+
+  "settings.enableThinking.displayName": "Enable Deep Thinking",
+  "settings.enableThinking.description": "启用深度思考模式 (Reasoning)",
+
+  "settings.reasoningEffort.displayName": "Reasoning Effort",
+  "settings.reasoningEffort.description": "推理强度: high 或 max",
+
+  "settings.enableWebSearch.displayName": "Enable Web Search",
+  "settings.enableWebSearch.description": "启用联网搜索功能。启用后可在聊天窗口中使用联网搜索开关。",
+
+  "settings.searchProvider.displayName": "Search Provider",
+  "settings.searchProvider.description": "选择搜索引擎: Baidu (百度千帆, 需 API Key, 每月1500次免费) 或 DuckDuckGo (完全免费)",
+
+  "settings.baiduApiKey.displayName": "Baidu Qianfan API Key",
+  "settings.baiduApiKey.description": "百度千帆 AppBuilder API Key。获取地址: https://console.bce.baidu.com/ai_apaas/accessKey\n⚠️ 计费提醒: 每月免费 1500 次（约每天 50 次），超出后按量后付费。\n免费额度耗尽后会自动切换至 DuckDuckGo。\n开通后付费: https://console.bce.baidu.com/ai_apaas/resource\n计费详情: https://cloud.baidu.com/doc/qianfan/s/Mmh4sv6ec",
+
+  "settings.showDiffMarkers.displayName": "Show Diff Markers In Editor",
+  "settings.showDiffMarkers.description": "AI 代码写入后，在编辑器内显示红绿行标记预览（绿色=新增行，红色=已删除行），并提供确认/撤销按钮。关闭后变更直接生效不预览。",
+
+  "settings.ocrEngine.displayName": "OCR Engine",
+  "settings.ocrEngine.description": "选择图像 OCR 引擎:\n  • Windows Built-in — 系统内置，无需配置，准确率一般\n  • 通过 MCP 协议使用远程 OCR 服务",
+
+  "settings.copilotEnabled.displayName": "启用代码补全",
+  "settings.copilotEnabled.description": "在编辑器中启用内联代码补全（幽灵文本）。启用后，DeepSeek 将在你输入时提供代码补全建议。按 Tab 接受，按 Escape 取消。",
+
+  "settings.copilotInterval.displayName": "补全延迟 (毫秒)",
+  "settings.copilotInterval.description": "停止输入后等待多少毫秒再请求补全建议。",
+
+  "settings.copilotNextEdit.displayName": "接受后继续补全",
+  "settings.copilotNextEdit.description": "启用后，接受一条补全会立即触发新的预测。",
+
+  "settings.copilotModel.displayName": "补全专用模型",
+  "settings.copilotModel.description": "可选：为代码补全指定不同的模型。留空则使用默认模型。建议使用速度较快的模型（如 deepseek-v4-flash）。",
+
+  "settings.tokenBudget.displayName": "Token 预算上限",
+  "settings.tokenBudget.description": "DeepSeek V4 拥有 1M Token 上下文窗口。\n此设置控制发送给 API 的最大 Token 数（预留 100K 给模型输出）。\n默认 900,000。减小此值可降低 API 费用，增大可容纳更多上下文。",
+
+  "settings.enableAutoCompression.displayName": "启用自动压缩",
+  "settings.enableAutoCompression.description": "当上下文接近 Token 预算时，自动将早期对话压缩为摘要，\n而非直接删除旧消息。关闭后回退到旧的截断行为。",
+
+  "settings.compressionThreshold.displayName": "压缩触发阈值 (%)",
+  "settings.compressionThreshold.description": "上下文使用率达到此百分比时触发自动压缩。\n默认 85%，即 900K 预算中约 765K tokens 时触发。",
+
+  "settings.preserveRecentTurns.displayName": "保留最近轮次",
+  "settings.preserveRecentTurns.description": "压缩时保留最近 N 轮完整对话不被压缩。\n默认 3 轮。增大可保留更多即时上下文。",
+
+  "settings.enableRag.displayName": "启用 RAG",
+  "settings.enableRag.description": "启用检索增强生成（RAG），在对话前自动从知识库检索相关文档。\n需要配置 RAG 提供者（如本地向量数据库）。",
+
+  "settings.ragTopK.displayName": "RAG 检索数量",
+  "settings.ragTopK.description": "每次查询从知识库检索的最大文档数。默认 5。",
+
+  "settings.showContextStats.displayName": "上下文统计指示器",
+  "settings.showContextStats.description": "在状态栏显示当前 Token 使用量（已用/预算）。",
+
+  "settings.language.displayName": "界面语言 / Language",
+  "settings.language.description": "选择显示语言。选择「自动」则跟随系统语言。\nSelect display language. 'Auto' follows system language.",
+
+  "══════════════════════════": "═══ Chat UI Strings ═══",
+
+  "chat.windowTitle": "DeepSeek Chat",
+  "chat.deleteConversation": "删除当前对话",
+  "chat.confirmDeleteConversation": "确定要删除当前对话吗？此操作不可撤销。",
+  "chat.sendMessage": "发送消息",
+  "chat.thinking": "思考中...",
+  "chat.generating": "生成中...",
+  "chat.copyCode": "复制代码",
+  "chat.insertCode": "插入代码",
+  "chat.saveToFile": "保存到文件",
+  "chat.acceptChanges": "确认变更",
+  "chat.rejectChanges": "撤销变更",
+  "chat.exportConversation": "导出对话",
+  "chat.clearConversation": "清空对话",
+  "chat.newConversation": "新建对话",
+  "chat.webSearch.enabled": "联网搜索: 开",
+  "chat.webSearch.disabled": "联网搜索: 关",
+  "chat.agentMode": "Agent 模式",
+  "chat.contextStats": "Token: {0} / {1}",
+
+  "══════════════════════════════": "═══ MCP Configuration ═══",
+
+  "mcp.title": "MCP 服务器配置",
+  "mcp.addServer": "添加服务器",
+  "mcp.removeServer": "删除服务器",
+  "mcp.save": "保存并重连",
+  "mcp.cancel": "取消",
+  "mcp.detectAndAdd": "🔍 识别并添加",
+  "mcp.serverName": "服务器名称",
+  "mcp.command": "命令:",
+  "mcp.arguments": "参数:",
+  "mcp.environmentVariables": "环境变量:",
+  "mcp.enabled": "启用",
+  "mcp.pasteJson": "粘贴 JSON 配置（支持 Claude Desktop / VS Code / Cursor 格式自动识别）",
+  "mcp.configuredServers": "已配置的 MCP 服务器",
+  "mcp.testConnection": "测试连接此 MCP 服务器",
+  "mcp.deleteServer": "删除此服务器",
+  "mcp.formatHint": "格式: KEY1=VALUE1;KEY2=VALUE2",
+  "mcp.transport": "传输:",
+
+  "══════════════════════════════": "═══ OCR Messages ═══",
+
+  "ocr.recognizing": "开始识别...",
+  "ocr.recognitionComplete": "识别完成",
+  "ocr.recognitionFailed": "识别失败",
+  "ocr.imageTooLarge": "图像文件过大",
+  "ocr.noTextDetected": "未检测到文字",
+  "ocr.engineNotAvailable": "OCR 引擎不可用",
+  "ocr.exception": "识别异常",
+
+  "══════════════════════════════": "═══ Build Messages ═══",
+
+  "build.success": "构建成功",
+  "build.failed": "构建失败",
+  "build.errorDetails": "编译错误详情",
+  "build.noErrors": "无编译错误",
+
+  "══════════════════════════════": "═══ Agent Messages ═══",
+
+  "agent.planCreated": "规划已创建",
+  "agent.planCancelled": "规划已取消",
+  "agent.planFailed": "规划失败",
+  "agent.planCompleted": "规划执行完成",
+  "agent.exploreRouting": "探索路由",
+  "agent.editApplied": "修改已应用",
+  "agent.editFailed": "修改失败",
+
+  "══════════════════════════════": "═══ Persistence ═══",
+
+  "persist.sessionNotFound": "会话文件不存在",
+  "persist.sessionsLoaded": "已加载 {0} 个会话",
+  "persist.saveFailed": "保存失败",
+  "persist.exportSuccess": "导出成功",
+  "persist.importSuccess": "导入成功",
+
+  "══════════════════════════════": "═══ API / Service ═══",
+
+  "api.requestFailed": "API 请求失败",
+  "api.timeout": "请求超时",
+  "api.rateLimited": "请求频率过高，请稍后重试",
+  "api.unauthorized": "API 密钥无效或已过期",
+
+  "══════════════════════════════": "═══ General ═══",
+
+  "general.ok": "确定",
+  "general.cancel": "取消",
+  "general.yes": "是",
+  "general.no": "否",
+  "general.save": "保存",
+  "general.delete": "删除",
+  "general.close": "关闭",
+  "general.error": "错误",
+  "general.warning": "警告",
+  "general.info": "信息",
+  "general.loading": "加载中...",
+  "general.noResults": "无结果",
+  "general.auto": "自动 (Auto)"
+}

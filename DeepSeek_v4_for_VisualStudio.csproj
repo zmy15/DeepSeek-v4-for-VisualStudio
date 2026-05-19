@@ -79,6 +79,12 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<IncludeInVSIX>true</IncludeInVSIX>
 		</Content>
+		<!-- 国际化语言资源文件 -->
+		<Content Include="Resources\Locales\*.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<IncludeInVSIX>true</IncludeInVSIX>
+			<VSIXSubPath>Resources\Locales</VSIXSubPath>
+		</Content>
 		<!-- Skill 定义文件（内置技能） -->
 		<Content Include="BuiltInSkills\**\*.*">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

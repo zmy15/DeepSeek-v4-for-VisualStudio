@@ -188,6 +188,18 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [Description("在状态栏显示当前 Token 使用量（已用/预算）。")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public bool ShowContextStats { get; set; } = true;
+
+        // ═══════════════════════════════════════════════
+        //  国际化 (i18n) 设置
+        // ═══════════════════════════════════════════════
+
+        [Category("Language / 语言")]
+        [DisplayName("界面语言 / Language")]
+        [Description("选择显示语言。选择「自动」则跟随系统语言。\n" +
+                     "Select display language. 'Auto' follows system language.")]
+        [TypeConverter(typeof(LanguageConverter))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public string Language { get; set; } = "auto";
     }
 
     /// <summary>
@@ -228,5 +240,15 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
             => new(new[] { "Windows Built-in" });
+    }
+
+    /// <summary>
+    /// 语言选择下拉选项。
+    /// </summary>
+    internal class LanguageConverter : StringConverter
+    {
+        public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
+        public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
+            => new(new[] { "auto", "zh-CN", "en" });
     }
 }
