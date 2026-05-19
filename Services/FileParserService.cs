@@ -117,13 +117,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <returns>文件对话框过滤器字符串</returns>
         public static string GetFileFilter()
         {
-            return "所有支持的文件|*.txt;*.c;*.py;*.cs;*.cpp;*.h;*.java;*.js;*.ts;*.html;*.css;*.xml;*.json;*.yaml;*.yml;*.md;*.sql;*.doc;*.docx;*.xls;*.xlsx;*.pdf;*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff;*.tif|" +
-                   "文本文件|*.txt;*.c;*.py;*.cs;*.cpp;*.h;*.java;*.js;*.ts;*.html;*.css;*.xml;*.json;*.yaml;*.yml;*.md;*.sql;*.csv|" +
-                   "Word 文档|*.doc;*.docx|" +
-                   "Excel 文档|*.xls;*.xlsx|" +
-                   "PDF 文档|*.pdf|" +
-                   "图像文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff;*.tif|" +
-                   "所有文件|*.*";
+            var L = LocalizationService.Instance;
+            return $"{L["file.filter.allSupported"]}|*.txt;*.c;*.py;*.cs;*.cpp;*.h;*.java;*.js;*.ts;*.html;*.css;*.xml;*.json;*.yaml;*.yml;*.md;*.sql;*.doc;*.docx;*.xls;*.xlsx;*.pdf;*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff;*.tif|" +
+                   $"{L["file.filter.textFiles"]}|*.txt;*.c;*.py;*.cs;*.cpp;*.h;*.java;*.js;*.ts;*.html;*.css;*.xml;*.json;*.yaml;*.yml;*.md;*.sql;*.csv|" +
+                   $"{L["file.filter.wordDocs"]}|*.doc;*.docx|" +
+                   $"{L["file.filter.excelDocs"]}|*.xls;*.xlsx|" +
+                   $"{L["file.filter.pdfDocs"]}|*.pdf|" +
+                   $"{L["file.filter.imageFiles"]}|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff;*.tif|" +
+                   $"{L["file.filter.allFiles"]}|*.*";
         }
 
         /// <summary>
@@ -145,7 +146,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // 检查文件是否存在
                 if (!File.Exists(filePath))
                 {
-                    result.Error = $"文件不存在: {filePath}";
+                    result.Error = string.Format(LocalizationService.Instance["file.notFound"], filePath);
                     return result;
                 }
 
@@ -155,8 +156,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 long warningSize = PdfExtensions.Contains(ext) ? PdfSizeWarningBytes : FileSizeWarningBytes;
                 if (fileInfo.Length > warningSize)
                 {
-                    Logger.Warn($"文件较大: {filePath} ({FormatFileSize(fileInfo.Length)})，" +
-                        $"解析可能需要较长时间。");
+                    Logger.Warn(string.Format(LocalizationService.Instance["file.tooLarge"],
+                        filePath, FormatFileSize(fileInfo.Length)));
                 }
 
                 // 文本文件直接以 UTF-8 读取
@@ -186,7 +187,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
                 else
                 {
-                    result.Error = $"不支持的文件格式: {ext}";
+                    result.Error = string.Format(LocalizationService.Instance["file.unsupportedFormat"], ext);
                     return result;
                 }
 
@@ -205,7 +206,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             catch (Exception ex)
             {
                 Logger.Error($"文件解析失败: {filePath}", ex);
-                result.Error = $"解析失败: {ex.Message}";
+                result.Error = string.Format(LocalizationService.Instance["file.parseFailed"], ex.Message);
             }
 
             return result;

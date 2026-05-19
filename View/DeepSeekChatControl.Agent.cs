@@ -174,7 +174,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 _agentThinkingContent.Clear();
 
-                // ── 检查是否已有 retry fork 占位，有则复用，避免产生多余气泡 ──
+                // ── 检查是否已有 retry fork 占位，有则复用 ──
                 bool reusedPlaceholder = false;
                 lock (_lock)
                 {
@@ -187,8 +187,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             && lastNode.Message.IsStreaming
                             && string.IsNullOrEmpty(lastNode.Message.Content))
                         {
-                            // 复用占位，更新内容为 Agent 分析状态
-                            lastNode.Message.Content = "🤖 Agent 正在分析任务…";
+                            // 复用占位，不显示思考气泡
                             _agentStreamingMsgIndex = _messages.Count - 1;
                             reusedPlaceholder = true;
                             Logger.Info($"[Agent] 复用 retry fork 占位 (idx={_agentStreamingMsgIndex})");
@@ -201,25 +200,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     var thinkingMsg = new ChatMessage
                     {
                         Role = "assistant",
-                        Content = "🤖 Agent 正在分析任务…",
+                        Content = string.Empty,
                         ReasoningContent = string.Empty,
                         Timestamp = DateTime.Now,
                         IsStreaming = true,
                         IsRendered = false,
-                        AgentType = routing?.TargetAgent ?? _agentDispatcher.ActiveAgentType, // 记录 Agent 类型
+                        AgentType = routing?.TargetAgent ?? _agentDispatcher.ActiveAgentType,
                     };
                     lock (_lock)
                     {
                         _messages.Add(thinkingMsg);
                         _agentStreamingMsgIndex = _messages.Count - 1;
                     }
-                    AddMessagesHtml("assistant", thinkingMsg.Content);
                 }
-                else
-                {
-                    AddMessagesHtml("assistant", "🤖 Agent 正在分析任务…");
-                }
-                UpdateBrowser();
                 await TaskScheduler.Default;
 
                 var editAgent = _agentDispatcher.EditAgent;

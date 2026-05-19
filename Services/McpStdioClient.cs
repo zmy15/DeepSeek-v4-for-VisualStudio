@@ -59,7 +59,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             var command = _config.Command;
 
             Logger.Info($"[MCP] 启动服务器: {command} {resolvedArgs}");
-            progress?.Invoke($"启动进程 {command}...");
+            progress?.Invoke(string.Format(LocalizationService.Instance["mcp.startingProcess"], command));
 
             var psi = new ProcessStartInfo
             {
@@ -105,9 +105,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 else
                 {
                     throw new McpException(
-                        $"找不到命令 '{command}'。\n\n" +
-                        $"请确保已安装该工具并将其所在目录添加到系统 PATH 环境变量中。\n" +
-                        $"配置: Win+R → sysdm.cpl → 高级 → 环境变量 → Path → 添加目录 → 重启 VS");
+                        string.Format(LocalizationService.Instance["mcp.commandNotFound"], command));
                 }
             }
 
@@ -118,14 +116,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 string stderr = "";
                 try { stderr = _process.StandardError.ReadToEnd(); } catch { }
                 int exitCode = _process.ExitCode;
+                string errorOutput = string.IsNullOrWhiteSpace(stderr) ? "(no output)" : TruncateForDisplay(stderr, 300);
                 throw new McpException(
-                    $"进程 '{command}' 启动后立即退出 (exit code: {exitCode})。\n\n" +
-                    $"完整命令: {command} {resolvedArgs}\n" +
-                    $"错误输出: {(string.IsNullOrWhiteSpace(stderr) ? "(无输出)" : TruncateForDisplay(stderr, 300))}\n\n" +
-                    $"常见原因:\n" +
-                    $"• Token/API Key 无效或为空\n" +
-                    $"• 依赖包未安装（如 pip install paddleocr-mcp）\n" +
-                    $"• 命令参数格式不正确");
+                    string.Format(LocalizationService.Instance["mcp.processExitedEarly"],
+                        command, exitCode, command, resolvedArgs, errorOutput));
             }
 
             _process.Exited += OnProcessExited;
@@ -143,12 +137,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (_process.HasExited)
             {
                 throw new McpException(
-                    $"进程 '{command}' 在初始化期间退出 (exit code: {_process.ExitCode})。\n" +
-                    $"请检查服务器配置、Token 和网络连接。");
+                    string.Format(LocalizationService.Instance["mcp.processExitedDuringInit"],
+                        command, _process.ExitCode));
             }
 
             // ── Initialize 握手 ──
-            progress?.Invoke("正在 MCP 握手 (initialize)...");
+            progress?.Invoke(LocalizationService.Instance["mcp.handshaking"]);
             var initParams = new InitializeParams
             {
                 ProtocolVersion = "2024-11-05",
@@ -169,8 +163,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (_process.HasExited)
             {
                 throw new McpException(
-                    $"进程在握手期间退出 (exit code: {_process.ExitCode})。\n" +
-                    $"服务器 '{command}' 可能因配置错误或 Token 无效而终止。");
+                    string.Format(LocalizationService.Instance["mcp.processExitedDuringHandshake"],
+                        _process.ExitCode, command));
             }
 
             if (initResponse.Error != null)
@@ -189,7 +183,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 列举工具 ──
             if (ServerInfo?.Capabilities?.Tools != null)
             {
-                progress?.Invoke("正在获取工具列表 (tools/list)...");
+                progress?.Invoke(LocalizationService.Instance["mcp.fetchingTools"]);
                 await RefreshToolsAsync(cancellationToken).ConfigureAwait(false);
             }
         }
@@ -244,13 +238,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     IsError = true,
                     Content = new List<ToolContentItem>
                     {
-                        new ToolContentItem { Type = "text", Text = $"错误: {response.Error.Message}" }
+                        new ToolContentItem { Type = "text", Text = string.Format(LocalizationService.Instance["mcp.toolError"], response.Error.Message) }
                     }
                 };
             }
 
             var result = DeserializeResult<ToolCallResult>(response);
-            return result ?? new ToolCallResult { IsError = true, Content = new List<ToolContentItem> { new ToolContentItem { Type = "text", Text = "空响应" } } };
+            return result ?? new ToolCallResult { IsError = true, Content = new List<ToolContentItem> { new ToolContentItem { Type = "text", Text = LocalizationService.Instance["mcp.emptyResponse"] } } };
         }
 
         #endregion
@@ -295,7 +289,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     lock (_lock) { _pendingRequests.Remove(id); }
                     throw new McpException(
                         $"MCP 请求超时 (15s): {method} (id={id})。\n" +
-                        $"服务器进程状态: {(_process?.HasExited == true ? $"已退出 (code={_process.ExitCode})" : "运行中")}");
+                        $"{LocalizationService.Instance["mcp.serverProcessStatus"]}: {(_process?.HasExited == true ? string.Format(LocalizationService.Instance["mcp.processStatusExited"], _process.ExitCode) : LocalizationService.Instance["mcp.processStatusRunning"])}");
                 }
                 return await tcs.Task;
             }
@@ -331,7 +325,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private async Task SendLineAsync(string json)
         {
             if (_process?.StandardInput == null)
-                throw new McpException("进程 stdin 不可用");
+                throw new McpException(LocalizationService.Instance["mcp.stdinUnavailable"]);
 
             await _process.StandardInput.WriteLineAsync(json);
             await _process.StandardInput.FlushAsync();
