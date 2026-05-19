@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -337,6 +338,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // 使用自定义白名单或默认 Definition.AllowedTools
                     var effectiveWhitelist = toolWhitelist ?? Definition.AllowedTools;
 
+                    if (Definition.Type != AgentType.Edit && effectiveWhitelist != null)
+                    {
+                        var modifyingTools = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            "replace_string_in_file", "create_file", "create_directory", 
+                            "edit_notebook_file", "delete_file", "apply_patch", 
+                            "run_in_terminal", "write_file", "edit_file"
+                        };
+                        effectiveWhitelist = effectiveWhitelist.Where(t => !modifyingTools.Contains(t)).ToList();
+                    }
+
                     // 内置工具
                     if (BuiltInTools != null)
                     {
@@ -411,9 +423,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 LogCacheHitRate(round);
 
                 // ── 处理工具调用 ──
+                var toolCalls = new List<ToolCall>();
                 if (toolCallAccumulator.Count > 0)
                 {
-                    var toolCalls = toolCallAccumulator.Values
+                    toolCalls = toolCallAccumulator.Values
                         .Where(a => !string.IsNullOrEmpty(a.FunctionName))
                         .Select(a => new ToolCall
                         {
@@ -425,9 +438,78 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                 Arguments = a.ArgumentsBuilder.ToString()
                             }
                         }).ToList();
+                }
 
-                    if (toolCalls.Count == 0) break;
+                if (toolCalls.Count == 0 && contentBuilder.Length > 0)
+                {
+                    var contentText = contentBuilder.ToString();
+                    
+                    // Parse leaked DSML / XML format
+                    var xmlMatches = Regex.Matches(contentText, @"(?:<｜｜DSML｜｜|<)invoke\s+name=""([^""]+)""[^>]*>(.*?)(?:</｜｜DSML｜｜|</)invoke>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                    foreach (Match m in xmlMatches)
+                    {
+                        string name = m.Groups[1].Value;
+                        string inner = m.Groups[2].Value;
+                        var paramMatches = Regex.Matches(inner, @"(?:<｜｜DSML｜｜|<)parameter\s+name=""([^""]+)""[^>]*>(.*?)(?:</｜｜DSML｜｜|</)parameter>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                        var dict = new Dictionary<string, object>();
+                        foreach (Match pm in paramMatches)
+                        {
+                            dict[pm.Groups[1].Value] = pm.Groups[2].Value;
+                        }
+                        toolCalls.Add(new ToolCall
+                        {
+                            Id = "call_" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                            Type = "function",
+                            Function = new ToolCallFunction
+                            {
+                                Name = name,
+                                Arguments = JsonSerializer.Serialize(dict)
+                            }
+                        });
+                    }
 
+                    // Parse leaked ReAct format
+                    var reactMatches = Regex.Matches(contentText, @"Action:\s*(?<name>\w+)\s*Action Input:\s*(?<args>\{.*?\})", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                    foreach (Match m in reactMatches)
+                    {
+                        toolCalls.Add(new ToolCall
+                        {
+                            Id = "call_" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                            Type = "function",
+                            Function = new ToolCallFunction
+                            {
+                                Name = m.Groups["name"].Value,
+                                Arguments = m.Groups["args"].Value
+                            }
+                        });
+                    }
+
+                    if (toolCalls.Count > 0)
+                    {
+                        Logger.Info($"[Agent:{Definition.Name}] (Fallback) 从内容中解析到 {toolCalls.Count} 个工具调用");
+                    }
+                }
+
+                // ── 拦截非 Edit Agent 的修改工具调用 ──
+                if (Definition.Type != AgentType.Edit && toolCalls.Count > 0)
+                {
+                    var modifyingTools = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        "replace_string_in_file", "create_file", "create_directory", 
+                        "edit_notebook_file", "delete_file", "apply_patch", 
+                        "run_in_terminal", "write_file", "edit_file"
+                    };
+                    int removed = toolCalls.RemoveAll(tc => modifyingTools.Contains(tc.Function.Name));
+                    if (removed > 0)
+                    {
+                        Logger.Warn($"[Agent:{Definition.Name}] 拦截了 {removed} 个被禁止的修改文件工具调用");
+                    }
+                }
+
+                if (toolCalls.Count == 0) break;
+
+                if (toolCalls.Count > 0)
+                {
                     Logger.Info($"[Agent:{Definition.Name}] 检测到 {toolCalls.Count} 个工具调用: {string.Join(", ", toolCalls.Select(t => t.Function.Name))}");
 
                     // ── 添加 assistant 消息（含工具调用）──
@@ -465,61 +547,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
 
                     // ── 循环检测 ──
-                    // 收集本轮签名并判断各工具是否成功
-                    var roundSignatures = new List<(string sig, string toolName, bool succeeded)>();
-                    for (int ti = 0; ti < toolCalls.Count; ti++)
+                    // 收集本轮签名
+                    var roundSignatures = new List<string>();
+                    foreach (var tc in toolCalls)
                     {
-                        var tc = toolCalls[ti];
                         string sig = tc.Function.Name + "|" +
                             (tc.Function.Arguments.Length > 200
                                 ? tc.Function.Arguments.Substring(0, 200)
                                 : tc.Function.Arguments);
-
-                        // 判断该工具是否执行成功（结果不以 ❌ 开头）
-                        int toolMsgIdx = messages.Count - toolCalls.Count + ti;
-                        bool succeeded = toolMsgIdx < messages.Count
-                            && messages[toolMsgIdx].Role == "tool"
-                            && !(messages[toolMsgIdx].Content ?? "").StartsWith("❌");
-
-                        roundSignatures.Add((sig, tc.Function.Name, succeeded));
-                    }
-
-                    // ── 对成功的工具调用，从历史中清除其签名（重置计数）──
-                    // 这样 "build → 失败 → 修复 → build → 成功" 不会被误判为死循环
-                    var succeededToolNames = roundSignatures
-                        .Where(r => r.succeeded)
-                        .Select(r => r.toolName)
-                        .Distinct()
-                        .ToList();
-                    if (succeededToolNames.Count > 0)
-                    {
-                        callSignatureHistory.RemoveAll(s =>
-                            succeededToolNames.Any(tn => s.StartsWith(tn + "|")));
-                        consecutiveErrorRounds = 0; // 有成功工具调用，重置连续错误计数
-                    }
-
-                    // 将本轮签名加入历史
-                    foreach (var (sig, _, _) in roundSignatures)
-                    {
                         callSignatureHistory.Add(sig);
+                        roundSignatures.Add(sig);
                     }
 
-                    // 检测同一调用重复（只看失败的工具）
-                    if (!loopDetected)
+                    // 检测同一调用重复
+                    foreach (var sig in roundSignatures)
                     {
-                        foreach (var (sig, toolName, succeeded) in roundSignatures)
+                        int repeatCount = callSignatureHistory.Count(s => s == sig);
+                        if (repeatCount >= maxRepeatedSameCall)
                         {
-                            if (succeeded) continue; // 成功的工具调用不计入循环检测
-
-                            int repeatCount = callSignatureHistory.Count(s => s == sig);
-                            if (repeatCount >= maxRepeatedSameCall)
-                            {
-                                loopDetected = true;
-                                var L = LocalizationService.Instance;
-                                Logger.Warn($"[Agent:{Definition.Name}] {string.Format(L["agent.log.loopDetected"], toolName, repeatCount)}");
-                                contentBuilder.Append($"\n\n> ⚠️ {string.Format(L["agent.log.loopTerminated"], toolName, repeatCount)}");
-                                break;
-                            }
+                            loopDetected = true;
+                            string toolName = sig.Split('|')[0];
+                            Logger.Warn($"[Agent:{Definition.Name}] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次");
+                            contentBuilder.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次，已自动终止循环。");
+                            break;
                         }
                     }
 
@@ -530,8 +580,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // 检测连续错误：检查本轮 tool 消息是否全部以 ❌ 开头
                     if (!loopDetected)
                     {
+                        int toolMsgStart = messages.Count - toolCalls.Count;
                         bool allErrors = toolCalls.Count > 0;
-                        for (int i = messages.Count - toolCalls.Count; i < messages.Count && allErrors; i++)
+                        for (int i = toolMsgStart; i < messages.Count && allErrors; i++)
                         {
                             if (messages[i].Role == "tool" && !(messages[i].Content ?? "").StartsWith("❌"))
                                 allErrors = false;
@@ -545,9 +596,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         if (consecutiveErrorRounds >= maxConsecutiveErrors)
                         {
                             loopDetected = true;
-                            var L = LocalizationService.Instance;
-                            Logger.Warn($"[Agent:{Definition.Name}] {string.Format(L["agent.log.consecutiveErrors"], consecutiveErrorRounds)}");
-                            contentBuilder.Append($"\n\n> ⚠️ {string.Format(L["agent.log.consecutiveErrors"], consecutiveErrorRounds)}");
+                            Logger.Warn($"[Agent:{Definition.Name}] 🔄 连续 {consecutiveErrorRounds} 轮工具调用全部返回错误，强制结束");
+                            contentBuilder.Append($"\n\n> ⚠️ 连续 {consecutiveErrorRounds} 轮工具调用均失败，已自动终止。");
                         }
                     }
 
