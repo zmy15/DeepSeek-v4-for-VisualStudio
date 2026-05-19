@@ -113,7 +113,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     _attachedFilePaths.Add(tempFilePath);
                     RefreshAttachedFilesUI();
-                    StatusLabel.Text = $"📷 已从剪贴板粘贴图像: {System.IO.Path.GetFileName(tempFilePath)}";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.clipboardImagePasted"], System.IO.Path.GetFileName(tempFilePath));
                     Logger.Info($"TryPasteClipboardImage: 图片已添加为附件 - {tempFilePath}");
                 }
                 else
@@ -126,7 +126,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"TryPasteClipboardImage 失败: {ex.Message}", ex);
-                StatusLabel.Text = $"粘贴图像失败: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["status.clipboardPasteFailed"], ex.Message);
                 return false;
             }
         }
@@ -161,7 +161,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     _attachedFilePaths.Add(tempFilePath);
                     RefreshAttachedFilesUI();
-                    StatusLabel.Text = $"📷 已从剪贴板粘贴图像: {System.IO.Path.GetFileName(tempFilePath)}";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.clipboardImagePasted"], System.IO.Path.GetFileName(tempFilePath));
                     Logger.Info($"ExecutePasteImage: 图片已添加为附件 - {tempFilePath}");
                 }
 
@@ -170,7 +170,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"ExecutePasteImage 失败: {ex.Message}", ex);
-                StatusLabel.Text = $"粘贴图像失败: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["status.clipboardPasteFailed"], ex.Message);
             }
         }
 

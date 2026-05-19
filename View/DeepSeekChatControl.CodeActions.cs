@@ -592,7 +592,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"[CodeAction] 执行写入失败: {ex.Message}", ex);
-                StatusLabel.Text = $"❌ 写入失败: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["status.codeWriteFailed"], ex.Message);
             }
         }
 

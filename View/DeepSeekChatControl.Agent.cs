@@ -245,7 +245,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (agentResult.Handoff != null && agentResult.Handoff.AutoSend)
                 {
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = $"🤖 切换到 {agentResult.Handoff.TargetAgent} Agent...";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentSwitched"], agentResult.Handoff.TargetAgent);
 
                     await TaskScheduler.Default;
 
@@ -470,14 +470,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         await ChatWebView.CoreWebView2.ExecuteScriptAsync(frJs);
                     }
                     catch { }
-                    StatusLabel.Text = $"❌ Agent 错误: {agentResult.ErrorMessage}";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentError"], agentResult.ErrorMessage);
                 }
             }
             catch (Exception ex)
             {
                 Logger.Error($"[AgentDispatcher] 工作流异常: {ex.Message}", ex);
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                StatusLabel.Text = $"❌ Agent 错误: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentError"], ex.Message);
             }
             finally
             {
@@ -678,7 +678,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         }
                     }
 
-                    StatusLabel.Text = $"🤖 Agent: 步骤 {plan.CurrentStepIndex}/{plan.Steps.Count}";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentStepProgress"], plan.CurrentStepIndex, plan.Steps.Count);
                 }
                 catch (Exception ex)
                 {
@@ -801,17 +801,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     if (request.ActionType == "file_delete")
                     {
                         js = ChatHtmlService.BuildFileDeleteConfirmationJs(request);
-                        StatusLabel.Text = $"🗑️ 等待确认删除: {request.Title}";
+                        StatusLabel.Text = string.Format(LocalizationService.Instance["status.deleteWaitingConfirm"], request.Title);
                     }
                     else if (request.ActionType == "terminal_command")
                     {
                         js = ChatHtmlService.BuildTerminalApprovalJs(request);
-                        StatusLabel.Text = $"🖥️ 等待终端命令审批: {request.Command}";
+                        StatusLabel.Text = string.Format(LocalizationService.Instance["status.terminalWaitingApproval"], request.Command);
                     }
                     else
                     {
                         js = ChatHtmlService.BuildPermissionRequestJs(request);
-                        StatusLabel.Text = $"🔐 等待确认: {request.Title}";
+                        StatusLabel.Text = string.Format(LocalizationService.Instance["status.waitingConfirm"], request.Title);
                     }
 
                     await ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
@@ -889,7 +889,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             try
             {
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                StatusLabel.Text = $"🤖 切换到 {targetAgent} Agent — 正在执行计划...";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentHandoff"], targetAgent);
 
                 // ── 隐藏 handoff 按钮（防止重复点击）──
                 if (ChatWebView.CoreWebView2 != null)

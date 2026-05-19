@@ -198,7 +198,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         }
                         else
                         {
-                            StatusLabel.Text = $"⚠️ 不支持的文件格式: {System.IO.Path.GetExtension(filePath)}";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.fileFormatUnsupported"], System.IO.Path.GetExtension(filePath));
                         }
                     }
                 }
@@ -276,7 +276,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 检查是否已添加
                 if (_attachedFilePaths.Contains(filePath, StringComparer.OrdinalIgnoreCase))
                 {
-                    StatusLabel.Text = $"ℹ️ 文件已在上下文中: {System.IO.Path.GetFileName(filePath)}";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.context.fileAlreadyAttached"], System.IO.Path.GetFileName(filePath));
                     return;
                 }
 
@@ -285,7 +285,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     _attachedFilePaths.Add(filePath);
                     RefreshAttachedFilesUI();
-                    StatusLabel.Text = $"📄 已添加上下文: {System.IO.Path.GetFileName(filePath)} ({language})";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.context.fileAttached"], System.IO.Path.GetFileName(filePath), language);
                     Logger.Info($"[AddContext] 活动文档已添加: {filePath}, 语言={language}");
                 }
                 else
@@ -304,14 +304,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     _attachedFilePaths.Add(tempPath);
                     RefreshAttachedFilesUI();
-                    StatusLabel.Text = $"📄 已添加上下文: {System.IO.Path.GetFileName(filePath)} ({language})";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.context.fileAttached"], System.IO.Path.GetFileName(filePath), language);
                     Logger.Info($"[AddContext] 活动文档已保存为临时文件并添加: {tempPath}");
                 }
             }
             catch (Exception ex)
             {
                 Logger.Error($"添加活动文档失败: {ex.Message}", ex);
-                StatusLabel.Text = $"❌ 添加活动文档失败: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["status.addDocFailed"], ex.Message);
             }
         }
 
@@ -367,11 +367,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var dte = (EnvDTE.DTE)Package.GetGlobalService(typeof(EnvDTE.DTE));
                 if (dte?.Solution == null || !dte.Solution.IsOpen)
                 {
-                    StatusLabel.Text = "⚠️ 当前没有打开的解决方案";
+                    StatusLabel.Text = LocalizationService.Instance["status.search.noSolution"];
                     return;
                 }
 
-                StatusLabel.Text = "正在扫描项目文件…";
+                StatusLabel.Text = LocalizationService.Instance["status.search.scanningFiles"];
                 int addedCount = 0;
                 int skippedCount = 0;
                 var sourceExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -408,7 +408,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"添加项目全部文件失败: {ex.Message}", ex);
-                StatusLabel.Text = $"❌ 添加项目全部文件失败: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["status.addAllFilesFailed"], ex.Message);
             }
         }
 
@@ -482,7 +482,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var doc = dte?.ActiveDocument;
                 if (doc == null)
                 {
-                    StatusLabel.Text = "⚠️ 没有打开的活动文档";
+                    StatusLabel.Text = LocalizationService.Instance["status.context.noActiveDoc"];
                     return;
                 }
 
@@ -490,14 +490,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var selection = textDoc.Selection as EnvDTE.TextSelection;
                 if (selection == null || selection.IsEmpty)
                 {
-                    StatusLabel.Text = "⚠️ 请先在编辑器中选中代码块";
+                    StatusLabel.Text = LocalizationService.Instance["status.context.noSelection"];
                     return;
                 }
 
                 string selectedCode = selection.Text;
                 if (string.IsNullOrWhiteSpace(selectedCode))
                 {
-                    StatusLabel.Text = "⚠️ 选中的代码块为空";
+                    StatusLabel.Text = LocalizationService.Instance["status.context.selectionEmpty"];
                     return;
                 }
 
@@ -515,13 +515,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 _attachedFilePaths.Add(tempPath);
                 RefreshAttachedFilesUI();
-                StatusLabel.Text = $"✂️ 已添加选中代码块 ({selectedCode.Length} 字符, {language})";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["status.context.selectionAttached"], selectedCode.Length, language);
                 Logger.Info($"[AddContext] 选中代码块已添加: {tempPath}, 长度={selectedCode.Length}, 语言={language}");
             }
             catch (Exception ex)
             {
                 Logger.Error($"添加选中代码块失败: {ex.Message}", ex);
-                StatusLabel.Text = $"❌ 添加选中代码块失败: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["status.addSelectionFailed"], ex.Message);
             }
         }
 
@@ -539,7 +539,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var dte = (EnvDTE80.DTE2)Package.GetGlobalService(typeof(EnvDTE.DTE));
                 if (dte == null)
                 {
-                    StatusLabel.Text = "⚠️ 无法获取 Visual Studio 环境";
+                    StatusLabel.Text = LocalizationService.Instance["status.context.noDebugEnv"];
                     return;
                 }
 
@@ -548,7 +548,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (string.IsNullOrWhiteSpace(debugOutput))
                 {
-                    StatusLabel.Text = "⚠️ 未找到调试输出，请确认已运行调试并查看输出窗口";
+                    StatusLabel.Text = LocalizationService.Instance["status.context.noDebugOutput"];
                     return;
                 }
 
@@ -575,7 +575,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"添加调试输出失败: {ex.Message}", ex);
-                StatusLabel.Text = $"❌ 添加调试输出失败: {ex.Message}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["status.addDebugFailed"], ex.Message);
             }
         }
 
@@ -1331,7 +1331,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 提示百度未配置 Key 的情况
                 if (_webSearchEngine == "Baidu" && (_options == null || string.IsNullOrWhiteSpace(_options.BaiduApiKey)))
                 {
-                    StatusLabel.Text = "⚠️ 百度搜索需要 API Key，请在 工具→选项→DeepSeek Chat→Web Search 中配置";
+                    StatusLabel.Text = LocalizationService.Instance["status.search.baiduKeyRequired"];
                 }
                 else
                 {
@@ -1454,7 +1454,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (_webSearchEngine == "Baidu" && (_options == null || string.IsNullOrWhiteSpace(_options.BaiduApiKey)))
                 {
-                    StatusLabel.Text = "⚠️ 百度搜索需要 API Key，请在 工具→选项→DeepSeek Chat→Web Search 中配置";
+                    StatusLabel.Text = LocalizationService.Instance["status.search.baiduKeyRequired"];
                 }
             }
             catch (Exception ex)
@@ -1601,7 +1601,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 {
                                     await ChatWebView.CoreWebView2.ExecuteScriptAsync(
                                         "var p=document.getElementById('terminal-approval');if(p)p.remove();");
-                                    StatusLabel.Text = "✅ 终端命令已批准执行";
+                                    StatusLabel.Text = LocalizationService.Instance["status.terminalApproved"];
                                 }
                                 catch { }
                             }
@@ -1623,7 +1623,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 {
                                     await ChatWebView.CoreWebView2.ExecuteScriptAsync(
                                         "var p=document.getElementById('terminal-approval');if(p)p.remove();");
-                                    StatusLabel.Text = "⏭️ 已跳过终端命令";
+                                    StatusLabel.Text = LocalizationService.Instance["status.terminalSkipped"];
                                 }
                                 catch { }
                             }
