@@ -32,7 +32,8 @@
 - **1M Token 上下文** — 承载大型代码库，智能压缩不丢信息
 - **三种编辑方法** — Patch / Insert / Create，四级匹配精准应用
 - **RAG 检索增强** — 可插拔的知识库集成
-- **双 OCR 引擎** — 读懂你的报错截图
+- **双 OCR 引擎** — 读懂你的报错截图（Windows 内置 / MCP 远程）
+- **🌐 国际化 (i18n)** — 中英文自动切换，用户可自定义翻译
 
 ---
 
@@ -50,6 +51,7 @@
 | 🌐 **联网搜索** | 百度千帆 (月1500次免费) + DuckDuckGo 双引擎 · 额度耗尽自动切换 |
 | 📄 **文件解析** | 50+ 格式 · 代码/文档/PDF/Word/Excel 全支持 · 拖拽即解析 |
 | 🖼️ **图像 OCR** | Windows 内置 · MCP 远程 OCR 双引擎 |
+| 🌐 **国际化** | 中英文界面自动切换 · 选项页手动选择 · 用户自定义翻译 |
 | 📊 **代码差异预览** | 编辑器内红绿 Diff 标记 · 确认/撤销/一键应用 |
 | 💡 **Ghost Text 补全** | 行内灰色预测 · 上下文感知 · 可配置防抖延迟 |
 | 💬 **聊天窗口** | WebView2 渲染 · Markdown/代码高亮 · 多会话持久化 · 计划实时展示 |
@@ -421,7 +423,7 @@ i18n 覆盖以下内容：
 | `RagService` | RAG 提供者注册、激活、检索结果注入 |
 | `ConversationContextManager` | 对话上下文构建，Token 预算管理，消息修剪 |
 | `WebSearchService` | 双引擎搜索，自动切换，关键词智能生成 |
-| `OcrService` | 三引擎 OCR 统一接口 |
+| `OcrService` | 双引擎 OCR 统一接口（Windows / MCP） |
 | `FileParserService` | 50+ 格式文件文本提取 |
 | `ChatHtmlService` | WebView2 HTML/CSS/JS 生成，Markdown 渲染 |
 | `CodeDiffService` | 代码差异计算与编辑器标记 |
