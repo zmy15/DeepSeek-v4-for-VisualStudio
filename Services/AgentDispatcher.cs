@@ -218,6 +218,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     askAgent.ExploreAgent = ExploreAgent;
             }
 
+            // ── 注入 ExploreAgent 到 PlanAgent，使其发现阶段能正确执行工具调用 ──
+            // PlanAgent 内部创建的 ExploreAgent 缺少工具服务注入，必须替换为
+            // AgentDispatcher 中已正确注入 BuiltInTools/McpManager 的实例。
+            if (agent is PlanAgent planAgent)
+            {
+                if (planAgent.ExploreAgent == null)
+                    planAgent.ExploreAgent = ExploreAgent;
+            }
+
             // 绑定事件（如果尚未绑定）
             agent.PermissionRequested -= OnAgentPermissionRequested;
             agent.PermissionRequested += OnAgentPermissionRequested;

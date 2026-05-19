@@ -26,14 +26,47 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     /// </summary>
     public class PlanAgent : BaseAgent
     {
-        private readonly ExploreAgent _exploreAgent;
+        private ExploreAgent? _exploreAgent;
+
+        /// <summary>
+        /// ExploreAgent 引用，由 AgentDispatcher 注入。
+        /// 用于在发现阶段并行探索代码库。
+        /// 设置时自动转发 ExploreAgent 的日志和文件变更事件。
+        /// </summary>
+        public ExploreAgent? ExploreAgent
+        {
+            get => _exploreAgent;
+            set
+            {
+                if (_exploreAgent != null)
+                {
+                    _exploreAgent.LogEntryAdded -= OnExploreLog;
+                    _exploreAgent.FileChangeNotified -= OnExploreFileChange;
+                }
+                _exploreAgent = value;
+                if (_exploreAgent != null)
+                {
+                    _exploreAgent.LogEntryAdded += OnExploreLog;
+                    _exploreAgent.FileChangeNotified += OnExploreFileChange;
+                }
+            }
+        }
+
+        private void OnExploreLog(AgentLogEntry entry)
+        {
+            AddLog(entry.Level, $"[Explore] {entry.Message}");
+        }
+
+        private void OnExploreFileChange(AgentFileChangeEventArgs args)
+        {
+            NotifyFileChange(args.PlanId, args.ChangeType, args.FilePath, args.Detail);
+        }
 
         public PlanAgent(DeepSeekApiService apiService) : base(apiService, AgentType.Plan)
         {
             _exploreAgent = new ExploreAgent(apiService);
-            // ── 转发 ExploreAgent 的日志到 PlanAgent（进而到 AgentDispatcher → UI）──
-            _exploreAgent.LogEntryAdded += (entry) => AddLog(entry.Level, $"[Explore] {entry.Message}");
-            _exploreAgent.FileChangeNotified += (args) => NotifyFileChange(args.PlanId, args.ChangeType, args.FilePath, args.Detail);
+            _exploreAgent.LogEntryAdded += OnExploreLog;
+            _exploreAgent.FileChangeNotified += OnExploreFileChange;
         }
 
         #region Agent Definition
@@ -256,7 +289,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var result = new SubagentResult { TaskId = taskId };
             try
             {
-                var exploreResult = await _exploreAgent.ExecuteAsync(prompt, context);
+                // ── 确保内部 ExploreAgent 拥有工具服务（兜底）──
+                // AgentDispatcher 通过 ExploreAgent 属性注入后，此检查为幂等空操作。
+                // 但如果因任何原因属性未被注入（如测试环境），此处从 PlanAgent 自身传播。
+                if (_exploreAgent != null)
+                {
+                    if (_exploreAgent.BuiltInTools == null && this.BuiltInTools != null)
+                        _exploreAgent.BuiltInTools = this.BuiltInTools;
+                    if (_exploreAgent.McpManager == null && this.McpManager != null)
+                        _exploreAgent.McpManager = this.McpManager;
+                }
+
+                var exploreResult = await _exploreAgent!.ExecuteAsync(prompt, context);
                 result.Success = exploreResult.Success;
                 result.Findings = exploreResult.Content;
             }
