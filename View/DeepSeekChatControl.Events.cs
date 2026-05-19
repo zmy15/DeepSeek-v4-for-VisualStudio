@@ -1440,7 +1440,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string? selected = WebSearchEngineComboBox.SelectedItem as string;
                 string newEngine = selected switch
                 {
-                    string s when s.Contains("百度") => "Baidu",
+                    string s when s.Contains("百度") || s.Contains("Baidu") => "Baidu",
                     string s when s.Contains("DuckDuckGo") => "DuckDuckGo",
                     _ => "Off"
                 };

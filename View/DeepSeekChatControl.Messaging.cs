@@ -401,7 +401,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     if (_webSearchEngine == "Baidu" && (_options == null || string.IsNullOrWhiteSpace(_options.BaiduApiKey)))
                     {
                         StatusLabel.Text = LocalizationService.Instance["status.baiduKeyMissing"];
-                        assistantMsg.Content = "⚠️ **百度搜索未配置**\n\n请通过 工具 → 选项 → DeepSeek Chat → Web Search 配置。\n";
+                        assistantMsg.Content = LocalizationService.Instance["websearch.notConfigured"];
                         assistantMsg.IsStreaming = false;
                         _ = UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, string.Empty, isComplete: true);
                         _isGenerating = false;
@@ -453,9 +453,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         capturedSearchResults = searchResults;
                         if (searchResults.Count > 0)
                         {
-                            string providerLabel = _webSearchService.ActiveProvider == SearchProvider.Baidu ? "百度搜索" : "DuckDuckGo";
+                            string providerLabel = _webSearchService.ActiveProvider == SearchProvider.Baidu
+                                ? LocalizationService.Instance["websearch.searchEngine.baidu"]
+                                : LocalizationService.Instance["websearch.searchEngine.duckduckgo"];
                             StatusLabel.Text = string.Format(LocalizationService.Instance["status.searchResults"], searchResults.Count);
-                            assistantMsg.Content = $"🔍 已联网搜索到 {searchResults.Count} 条结果（{providerLabel}），正在抓取网页内容…\n\n";
+                            assistantMsg.Content = string.Format(LocalizationService.Instance["websearch.searchResultsHtml"],
+                                searchResults.Count, providerLabel);
                             _ = UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, string.Empty, isComplete: false);
 
                             await EnrichSearchContextAsync(searchResults, _currentStreamingCts.Token);
@@ -466,8 +469,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         {
                             if (_webSearchService.IsBaiduQuotaExhausted)
                             {
-                                engineSwitchNote = "⚠️ 百度搜索免费额度已用尽，已自动切换至 DuckDuckGo。";
-                                assistantMsg.Content = "⚠️ 百度额度已耗尽，已切换至 DuckDuckGo…\n\n";
+                                engineSwitchNote = LocalizationService.Instance["websearch.quotaExhausted"];
+                                assistantMsg.Content = LocalizationService.Instance["websearch.quotaExhaustedShort"];
                                 _ = UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, string.Empty, isComplete: false);
                                 searchResults = await _webSearchService.SearchAsync(optimizedQuery, _currentStreamingCts.Token);
                                 capturedSearchResults = searchResults;
@@ -484,7 +487,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     catch (ApiKeyInvalidException ex)
                     {
                         Logger.Error($"[Render] 百度 API Key 无效", ex);
-                        assistantMsg.Content = "⚠️ 百度搜索 API Key 无效，请检查配置。";
+                        assistantMsg.Content = LocalizationService.Instance["websearch.invalidApiKey"];
                         assistantMsg.IsStreaming = false;
                         await UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
                         lock (_lock) { _messages.Remove(assistantMsg); }
@@ -503,7 +506,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (string.IsNullOrEmpty(engineSwitchNote) && _webSearchEngine == "Baidu"
                     && _webSearchService != null && _webSearchService.ActiveProvider == SearchProvider.DuckDuckGo)
                 {
-                    engineSwitchNote = "⚠️ 百度搜索未返回结果，已自动切换至 DuckDuckGo。";
+                    engineSwitchNote = LocalizationService.Instance["websearch.noResultsFallback"];
                 }
                 if (!string.IsNullOrEmpty(engineSwitchNote))
                     _pendingWarnings.Add(engineSwitchNote!);
@@ -834,7 +837,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     if (capturedSearchResults.Count > 0)
                     {
-                        string providerLabel = _webSearchService?.ActiveProvider == SearchProvider.Baidu ? "百度搜索" : "DuckDuckGo";
+                        string providerLabel = _webSearchService?.ActiveProvider == SearchProvider.Baidu
+                            ? LocalizationService.Instance["websearch.searchEngine.baidu"]
+                            : LocalizationService.Instance["websearch.searchEngine.duckduckgo"];
                         string searchCardJs = ChatHtmlService.BuildSearchResultsInjectionJs(assistantMsgIndex, capturedSearchResults, providerLabel);
                         await ChatWebView.CoreWebView2.ExecuteScriptAsync(searchCardJs);
                     }

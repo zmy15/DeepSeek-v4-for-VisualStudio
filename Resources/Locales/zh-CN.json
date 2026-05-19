@@ -396,6 +396,8 @@
   "status.agentHandoff": "🤖 切换到 {0} Agent — 正在执行计划...",
   "status.codeWriteFailed": "❌ 写入失败: {0}",
 
+  "status.mcpConnected": "MCP 已连接: {0} 个工具可用",
+
   "status.extractingInfo": "AI 正在从附件中提取关键信息…",
   "status.optimizingSearch": "AI 正在优化搜索词…",
   "status.searchResults": "已获取 {0} 条搜索结果，正在抓取网页…",
@@ -530,6 +532,14 @@
   "websearch.cancelled": "联网搜索已取消",
   "websearch.baiduQuotaReset": "百度搜索额度状态已重置，重新尝试百度搜索",
   "websearch.baiduApiKeyMissing": "百度 API Key 未配置",
+  "websearch.searchEngine.baidu": "百度搜索",
+  "websearch.searchEngine.duckduckgo": "DuckDuckGo",
+  "websearch.notConfigured": "⚠️ **百度搜索未配置**\n\n请通过 工具 → 选项 → DeepSeek Chat → Web Search 配置。\n",
+  "websearch.invalidApiKey": "⚠️ 百度搜索 API Key 无效，请检查配置。",
+  "websearch.quotaExhausted": "⚠️ 百度搜索免费额度已用尽，已自动切换至 DuckDuckGo。",
+  "websearch.quotaExhaustedShort": "⚠️ 百度额度已耗尽，已切换至 DuckDuckGo…\n\n",
+  "websearch.noResultsFallback": "⚠️ 百度搜索未返回结果，已自动切换至 DuckDuckGo。",
+  "websearch.searchResultsHtml": "🔍 已联网搜索到 {0} 条结果（{1}），正在抓取网页内容…\n\n",
 
   "═════════════════════": "═══ Code Write ═══",
 

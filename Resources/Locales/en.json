@@ -398,6 +398,8 @@
   "status.agentHandoff": "🤖 Switched to {0} Agent \u2014 executing plan...",
   "status.codeWriteFailed": "❌ Write failed: {0}",
 
+  "status.mcpConnected": "MCP connected: {0} tool(s) available",
+
   "status.extractingInfo": "AI extracting key info from attachments…",
   "status.optimizingSearch": "AI optimizing search terms…",
   "status.searchResults": "Found {0} search result(s), fetching pages…",
@@ -532,6 +534,14 @@
   "websearch.cancelled": "Web search cancelled",
   "websearch.baiduQuotaReset": "Baidu search quota status reset, retrying Baidu search",
   "websearch.baiduApiKeyMissing": "Baidu API Key not configured",
+  "websearch.searchEngine.baidu": "Baidu",
+  "websearch.searchEngine.duckduckgo": "DuckDuckGo",
+  "websearch.notConfigured": "⚠️ **Baidu Search Not Configured**\n\nPlease configure via Tools → Options → DeepSeek Chat → Web Search.\n",
+  "websearch.invalidApiKey": "⚠️ Baidu Search API Key is invalid, please check configuration.",
+  "websearch.quotaExhausted": "⚠️ Baidu free quota exhausted, automatically switched to DuckDuckGo.",
+  "websearch.quotaExhaustedShort": "⚠️ Baidu quota exhausted, switched to DuckDuckGo…\n\n",
+  "websearch.noResultsFallback": "⚠️ Baidu returned no results, automatically switched to DuckDuckGo.",
+  "websearch.searchResultsHtml": "🔍 Found {0} result(s) from web search ({1}), fetching page content…\n\n",
 
   "══════════════════════════════": "═══ Code Write ═══",
 

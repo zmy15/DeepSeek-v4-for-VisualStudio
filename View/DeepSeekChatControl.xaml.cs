@@ -217,7 +217,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             ThinkingCheckBox.IsChecked = true;
 
             // 联网搜索: 默认关闭
-            WebSearchEngineComboBox.ItemsSource = new[] { "🔍 百度搜索", "🦆 DuckDuckGo" };
+            var L = LocalizationService.Instance;
+            WebSearchEngineComboBox.ItemsSource = new[] { "🔍 " + L["websearch.searchEngine.baidu"], "🦆 " + L["websearch.searchEngine.duckduckgo"] };
             WebSearchEngineComboBox.SelectedIndex = 0; // 默认百度
 
             _webSearchEngine = "Off";
@@ -499,7 +500,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (toolCount > 0)
                 {
                     Logger.Info($"[MCP] MCP 初始化完成，共 {toolCount} 个工具可用");
-                    StatusLabel.Text = $"MCP 已连接: {toolCount} 个工具可用";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.mcpConnected"], toolCount);
                 }
             }
             catch (Exception ex)

@@ -625,7 +625,7 @@
                         <ComboBox x:Name="WebSearchEngineComboBox"
                             MinWidth="110" Margin="0,0,8,0"
                             SelectionChanged="WebSearchEngineComboBox_SelectionChanged"
-                            ToolTip="选择搜索引擎。百度搜索需在 工具→选项→DeepSeek Chat 中配置 API Key"
+                            ToolTip="Select search engine"
                             Visibility="Collapsed" />
                         <!-- 保留 Collapsed，由代码控制显示/隐藏 -->
 
