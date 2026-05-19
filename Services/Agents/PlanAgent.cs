@@ -103,7 +103,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 // ── 阶段 2: 对齐 — 与用户澄清需求 ──
                 AddLog("INFO", L["agent.log.planPhaseAlign"]);
-                AddLog("INFO", "[Plan] 跳过对齐阶段（需求明确，无需澄清）");
+                bool alignmentNeeded = await CheckAlignmentNeededAsync(userMessage, discoveryContext, context);
+                if (alignmentNeeded)
+                {
+                    AddLog("INFO", L["agent.log.planAlignNeeded"]);
+                    await RunAlignmentAsync(userMessage, discoveryContext, context);
+                }
+                else
+                {
+                    AddLog("INFO", L["agent.log.planAlignSkipped"]);
+                }
 
                 // ── 阶段 3: 设计 — 产出实现计划 ──
                 AddLog("INFO", L["agent.log.planPhaseDesign"]);
@@ -130,7 +139,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
                     catch (Exception ex)
                     {
-                        AddLog("WARN", $"plan.md 生成失败（非致命）: {ex.Message}");
+                        AddLog("WARN", string.Format(L["agent.log.planMdGenFailed"], ex.Message));
                     }
 
                     // ── 设置 Handoff：计划完成后自动建议切换到 Edit Agent 执行 ──
@@ -222,7 +231,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     if (exploreResult.Success && !string.IsNullOrEmpty(exploreResult.Findings))
                     {
-                        sb.AppendLine($"## 探索区域: {exploreResult.TaskId}");
+                        sb.AppendLine(string.Format(L["plan.discovery.areaHeader"], exploreResult.TaskId));
                         sb.AppendLine(exploreResult.Findings);
                         sb.AppendLine();
                     }
@@ -261,7 +270,156 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         #endregion
 
+        #region Alignment Phase
+
+        /// <summary>
+        /// 使用 AI 快速判断是否需要与用户对齐需求。
+        /// 返回 true 表示 AI 有需要澄清的问题。
+        /// </summary>
+        private async Task<bool> CheckAlignmentNeededAsync(
+            string userMessage, string discoveryContext, AgentContext context)
+        {
+            var L = LocalizationService.Instance;
+            AddLog("INFO", L["agent.log.planAlignCheck"]);
+
+            try
+            {
+                string checkPrompt =
+                    $"用户任务: {userMessage}\n\n" +
+                    $"代码库研究发现:\n{discoveryContext.Truncate(2000)}\n\n" +
+                    "基于以上信息，在制定实现计划之前，你是否需要向用户提问澄清需求？\n" +
+                    "只回复 YES 或 NO。";
+
+                string response = await CallAiShortAsync(
+                    Definition.SystemPrompt, checkPrompt, context.CancellationToken, maxTokens: 16);
+
+                bool needed = response.Trim().StartsWith("YES", StringComparison.OrdinalIgnoreCase);
+                AddLog("INFO", string.Format(L["agent.log.planAlignCheckResult"], needed ? "需要对齐" : "无需对齐"));
+                return needed;
+            }
+            catch (Exception ex)
+            {
+                AddLog("WARN", $"对齐检查失败（默认跳过）: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 运行对齐阶段：使用工具调用循环让 AI 通过 vscode_askQuestions 向用户提问。
+        /// </summary>
+        private async Task RunAlignmentAsync(
+            string userMessage, string discoveryContext, AgentContext context)
+        {
+            var L = LocalizationService.Instance;
+            var ct = context.CancellationToken;
+
+            try
+            {
+                // ── 构建对齐对话的消息列表 ──
+                var messages = new List<ChatApiMessage>
+                {
+                    new ChatApiMessage { Role = "system", Content = Definition.SystemPrompt },
+                };
+
+                // 注入发现上下文
+                if (!string.IsNullOrEmpty(discoveryContext))
+                {
+                    messages.Add(new ChatApiMessage
+                    {
+                        Role = "system",
+                        Content = L["agent.plan.discoveryFallback"] + "\n\n" +
+                                  discoveryContext.Truncate(3000)
+                    });
+                }
+
+                // 对齐指令
+                messages.Add(new ChatApiMessage
+                {
+                    Role = "user",
+                    Content = $"用户任务: {userMessage}\n\n" +
+                              "请使用 vscode_askQuestions 工具向用户提问，澄清任何模糊的需求或技术决策。\n" +
+                              "每次只问 1-2 个最关键的问题。获得用户回复后，可以继续追问或结束对齐。\n" +
+                              "当你认为需求已经足够清晰时，回复 DONE 结束对齐阶段。"
+                });
+
+                // ── 使用工具调用循环（仅允许 vscode_askQuestions）──
+                string alignmentResult = await CallAiWithToolLoopAsync(
+                    messages,
+                    context.SolutionPath,
+                    ct,
+                    maxTokens: 2048,
+                    toolWhitelist: new List<string> { "vscode_askQuestions" });
+
+                AddLog("INFO", $"[Plan] 对齐阶段完成 ({alignmentResult.Truncate(200)})");
+            }
+            catch (OperationCanceledException)
+            {
+                AddLog("WARN", "[Plan] 对齐阶段被用户取消");
+            }
+            catch (Exception ex)
+            {
+                AddLog("WARN", $"[Plan] 对齐阶段出错（非致命，继续规划）: {ex.Message}");
+            }
+        }
+
+        #endregion
+
         #region Plan Creation
+
+        /// <summary>
+        /// 剥离 DeepSeek V4 泄露到 content 中的 DSML/工具调用 XML 标签。
+        /// 当 toolChoice=none 时，DeepSeek V4 仍可能在 content 中输出工具调用意图的 XML 片段。
+        /// 此方法移除所有已知的 DSML 标签及其内容，保留纯文本/JSON。
+        /// </summary>
+        private static string StripDsmlContent(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return text;
+
+            // ── 移除完整的 DSML/工具调用 XML 块（含嵌套内容）──
+            // 匹配 DSML, function_calls, tool_calls, invoke, parameter 等标签
+            string[] blockTags = {
+                "DSML", "function_calls?", "tool_calls?", "invoke", "parameter",
+                "vscode_askQuestions", "runSubagent", "tool_result",
+                "file_search", "grep_search", "list_dir", "read_file",
+                "semantic_search", "fetch_webpage", "run_in_terminal",
+                "create_file", "replace_string_in_file", "edit_notebook_file",
+                "create_directory"
+            };
+
+            string result = text;
+            foreach (var tag in blockTags)
+            {
+                // 移除自闭合标签
+                result = System.Text.RegularExpressions.Regex.Replace(
+                    result,
+                    @"<\s*" + tag + @"(\s+[^>]*)?\s*/\s*>",
+                    "",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                // 移除配对标签及其内容
+                result = System.Text.RegularExpressions.Regex.Replace(
+                    result,
+                    @"<\s*" + tag + @"(\s+[^>]*)?\s*>.*?</\s*" + tag + @"\s*>",
+                    "",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+            }
+
+            // ── 移除残留的独立开标签/闭标签 ──
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result,
+                @"</?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|vscode_askQuestions|runSubagent|tool_result)[^>]*>",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // ── 移除 <｜end▁of▁thinking｜>  and  thinking 伪标签 ──
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result,
+                @"</?\s*(?:response|thinking|analysis|reasoning|plan|reflection)[^>]*>",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            return result.Trim();
+        }
 
         /// <summary>
         /// 使用 AI 创建实现计划（JSON 格式）。
@@ -269,6 +427,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private async Task<AgentTaskPlan?> CreatePlanAsync(
             string userMessage, string discoveryContext, AgentContext context)
         {
+            var L = LocalizationService.Instance;
             var ct = context.CancellationToken;
 
             // ── 构建额外的 system 消息（发现上下文），放在历史之后、用户消息之前 ──
@@ -297,14 +456,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 用户消息保持简洁（只有任务描述 + 指令），不含动态内容 ──
             string planPrompt = BuildPlanCreationPrompt(userMessage, context);
 
-            AddLog("INFO", "[Plan] 正在调用 AI 生成计划 JSON（可能需要 30-60 秒）...");
+            AddLog("INFO", L["agent.log.planGeneratingJson"]);
             string json = await CallAiLongAsync(
                 Definition.SystemPrompt, planPrompt, extraSystemMessages, ct,
-                maxTokens: 4096, toolChoice: "none");
-            AddLog("INFO", "[Plan] AI 响应已收到，正在解析计划...");
+                maxTokens: 8192, toolChoice: "none");
+            AddLog("INFO", L["agent.log.planJsonReceived"]);
 
             // ── 诊断：记录原始响应用于调试 JSON 解析失败 ──
             string rawResponse = json;
+            // 先剥离 DSML/XML 标签（DeepSeek V4 可能在 toolChoice=none 时仍泄露工具调用意图到 content）
+            json = StripDsmlContent(json);
             json = ExtractJsonFromMarkdown(json);
 
             try
@@ -326,8 +487,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 string truncated = rawResponse.Length > 300
                     ? rawResponse.Substring(0, 300) + "..."
                     : rawResponse;
-                AddLog("WARN", string.Format(LocalizationService.Instance["agent.plan.jsonParseFailed"], ex.Message));
-                AddLog("INFO", $"[Plan] JSON 解析失败的原始响应 (前300字符): {truncated}");
+                var L2 = LocalizationService.Instance;
+                AddLog("WARN", string.Format(L2["agent.plan.jsonParseFailed"], ex.Message));
+                AddLog("INFO", string.Format(L2["agent.log.planJsonRawResponse"], truncated));
             }
 
             // 回退：单步计划
@@ -355,23 +517,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static string BuildPlanCreationPrompt(
             string userMessage, AgentContext context)
         {
+            var SB = LocalizationService.Instance;
             var sb = new StringBuilder();
-            sb.AppendLine($"## {LocalizationService.Instance["plan.userTask"]}");
+            sb.AppendLine($"## {SB["plan.userTask"]}");
             sb.AppendLine(userMessage);
             sb.AppendLine();
 
             if (!string.IsNullOrEmpty(context.SolutionPath))
             {
-                sb.AppendLine($"## 解决方案路径");
+                sb.AppendLine(SB["plan.creation.solutionPath"]);
                 sb.AppendLine(context.SolutionPath);
                 sb.AppendLine();
             }
 
-            sb.AppendLine("## 指令");
-            sb.AppendLine("根据以上信息和代码库研究发现（已在 system 消息中提供），创建一个详细的实现计划。");
-            sb.AppendLine("计划应是逐步的、可执行的，包含验证步骤。");
+            sb.AppendLine(SB["plan.creation.instructions"]);
+            sb.AppendLine(SB["plan.creation.instruction1"]);
+            sb.AppendLine(SB["plan.creation.instruction2"]);
             sb.AppendLine();
-            sb.AppendLine("输出 JSON 格式:");
+            sb.AppendLine(SB["plan.creation.jsonFormat"]);
             sb.AppendLine("{");
             sb.AppendLine("  \"title\": \"任务标题\",");
             sb.AppendLine("  \"steps\": [");
@@ -379,7 +542,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine("  ]");
             sb.AppendLine("}");
             sb.AppendLine();
-            sb.AppendLine("请输出计划 JSON:");
+            sb.AppendLine(SB["plan.creation.outputJson"]);
 
             return sb.ToString();
         }
@@ -389,23 +552,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         private static string FormatPlanAsMarkdown(AgentTaskPlan plan)
         {
+            var L = LocalizationService.Instance;
             var sb = new StringBuilder();
-            sb.AppendLine($"## 📋 实现计划: {plan.Title}");
+            sb.AppendLine(string.Format(L["plan.format.title"], plan.Title));
             sb.AppendLine();
-            sb.AppendLine($"共 {plan.Steps.Count} 个步骤：");
+            sb.AppendLine(string.Format(L["plan.format.stepCount"], plan.Steps.Count));
             sb.AppendLine();
 
             for (int i = 0; i < plan.Steps.Count; i++)
             {
                 var step = plan.Steps[i];
                 string icon = step.RequiresApproval ? "🔐" : "📌";
-                sb.AppendLine($"{icon} **步骤 {step.Index}**: {step.Title}");
+                sb.AppendLine(string.Format(L["plan.format.stepItem"], icon, step.Index, step.Title));
                 sb.AppendLine($"   {step.Description}");
                 sb.AppendLine();
             }
 
             sb.AppendLine("---");
-            sb.AppendLine("✅ 计划就绪，是否开始执行？");
+            sb.AppendLine(L["plan.format.readyToExecute"]);
 
             return sb.ToString();
         }
@@ -485,11 +649,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             prompt.AppendLine(L["plan.md.note3"]);
             prompt.AppendLine(L["plan.md.note4"]);
 
-            AddLog("INFO", "[Plan] 正在调用 AI 生成详细计划文档 plan.md（可能需要 60-120 秒）...");
+            AddLog("INFO", L["agent.log.planGeneratingMd"]);
             string markdown = await CallAiLongAsync(
                 Definition.SystemPrompt, prompt.ToString(), extraSystemMessages, ct,
-                maxTokens: 4096, toolChoice: "none");
-            AddLog("INFO", "[Plan] plan.md 内容已生成，正在保存...");
+                maxTokens: 16384, toolChoice: "none");
+            AddLog("INFO", L["agent.log.planMdGenerated"]);
 
             // 如果 AI 返回了代码块包裹的内容，去掉包裹
             markdown = markdown.Trim();
