@@ -23,6 +23,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private readonly WebSearchService? _webSearchService;
         private readonly IBuildService? _buildService;
 
+        /// <summary>
+        /// i18n 便捷访问器。
+        /// </summary>
+        private static LocalizationService L => LocalizationService.Instance;
+
         public BuiltInToolService(McpManagerService? mcpManager = null, WebSearchService? webSearchService = null, IBuildService? buildService = null)
         {
             _mcpManager = mcpManager;
@@ -46,8 +51,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Function = new ToolFunction
                     {
                         Name = "list_dir",
-                        Description = "列出指定目录的内容。返回子目录和文件名列表。用于探索项目结构。\n" +
-                            "重要：如果不知道绝对路径，先使用当前工作区根目录。路径必须是 Windows 绝对路径（如 F:\\project\\src），不要使用 Linux 风格路径（如 /home/user）。",
+                        Description = L["tool.list_dir.desc"],
                         Parameters = new
                         {
                             type = "object",
@@ -69,7 +73,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Function = new ToolFunction
                     {
                         Name = "read_file",
-                        Description = "读取文件内容。可指定行范围以读取大文件的部分内容。路径必须是 Windows 绝对路径。",
+                        Description = L["tool.read_file.desc"],
                         Parameters = new
                         {
                             type = "object",
@@ -101,7 +105,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Function = new ToolFunction
                     {
                         Name = "file_search",
-                        Description = "使用 glob 模式搜索文件。支持 ** 递归匹配。例如: **/*.cs, src/**/*.ts。在工作区根目录下搜索。",
+                        Description = L["tool.file_search.desc"],
                         Parameters = new
                         {
                             type = "object",
@@ -128,7 +132,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Function = new ToolFunction
                     {
                         Name = "grep_search",
-                        Description = "在文件中搜索文本或正则表达式。用于查找特定符号、函数名、字符串等。在工作区根目录下搜索。",
+                        Description = L["tool.grep_search.desc"],
                         Parameters = new
                         {
                             type = "object",
@@ -165,7 +169,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Function = new ToolFunction
                     {
                         Name = "get_errors",
-                        Description = "获取当前工作区中的编译错误和警告。用于检查代码质量。",
+                        Description = L["tool.get_errors.desc"],
                         Parameters = new
                         {
                             type = "object",
@@ -188,10 +192,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Function = new ToolFunction
                     {
                         Name = "fetch_webpage",
-                        Description = "获取指定 URL 的网页内容并提取纯文本。支持递归抓取页面中引用的相关链接。\n" +
-                            "使用场景：用户提供了网页链接需要阅读内容时调用此工具。\n" +
-                            "域名会自动进行 Punycode 编码以防止同形异义攻击（IDN Homograph Attack）。\n" +
-                            "注意：此工具只能获取 HTTP/HTTPS 网页，且每次调用应只传入一个 URL。",
+                        Description = L["tool.fetch_webpage.desc"],
                         Parameters = new
                         {
                             type = "object",
@@ -223,10 +224,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Function = new ToolFunction
                     {
                         Name = "build_solution",
-                        Description = "构建/编译当前解决方案。用于验证代码修改后是否能成功编译。\n" +
-                            "返回构建成功/失败状态及编译错误详情。\n" +
-                            "使用场景：修改代码后，调用此工具验证修改是否引入编译错误。\n" +
-                            "注意：此工具会触发完整的解决方案构建，可能需要一些时间。",
+                        Description = L["tool.build_solution.desc"],
                         Parameters = new
                         {
                             type = "object",
@@ -239,6 +237,153 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                                 }
                             },
                             required = new string[] { }
+                        }
+                    }
+                },
+                new ToolDefinition
+                {
+                    Type = "function",
+                    Function = new ToolFunction
+                    {
+                        Name = "replace_string_in_file",
+                        Description = L["tool.replace_string_in_file.desc"],
+                        Parameters = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                filePath = new
+                                {
+                                    type = "string",
+                                    description = "要修改的文件的绝对路径（Windows 格式）"
+                                },
+                                oldString = new
+                                {
+                                    type = "string",
+                                    description = "要替换的原始文本（必须精确匹配，包括所有空白和缩进）"
+                                },
+                                newString = new
+                                {
+                                    type = "string",
+                                    description = "替换后的新文本"
+                                }
+                            },
+                            required = new[] { "filePath", "oldString", "newString" }
+                        }
+                    }
+                },
+                new ToolDefinition
+                {
+                    Type = "function",
+                    Function = new ToolFunction
+                    {
+                        Name = "multi_replace_string_in_file",
+                        Description = L["tool.multi_replace_string_in_file.desc"],
+                        Parameters = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                replacements = new
+                                {
+                                    type = "array",
+                                    items = new
+                                    {
+                                        type = "object",
+                                        properties = new
+                                        {
+                                            filePath = new { type = "string", description = "要修改的文件的绝对路径" },
+                                            oldString = new { type = "string", description = "要替换的原始文本" },
+                                            newString = new { type = "string", description = "替换后的新文本" }
+                                        },
+                                        required = new[] { "filePath", "oldString", "newString" }
+                                    },
+                                    description = "替换操作数组"
+                                }
+                            },
+                            required = new[] { "replacements" }
+                        }
+                    }
+                },
+                new ToolDefinition
+                {
+                    Type = "function",
+                    Function = new ToolFunction
+                    {
+                        Name = "create_file",
+                        Description = L["tool.create_file.desc"],
+                        Parameters = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                filePath = new
+                                {
+                                    type = "string",
+                                    description = "要创建/覆盖的文件的绝对路径（Windows 格式）"
+                                },
+                                content = new
+                                {
+                                    type = "string",
+                                    description = "文件的完整内容"
+                                }
+                            },
+                            required = new[] { "filePath", "content" }
+                        }
+                    }
+                },
+                new ToolDefinition
+                {
+                    Type = "function",
+                    Function = new ToolFunction
+                    {
+                        Name = "run_in_terminal",
+                        Description = L["tool.run_in_terminal.desc"],
+                        Parameters = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                command = new
+                                {
+                                    type = "string",
+                                    description = "要执行的 shell 命令"
+                                },
+                                explanation = new
+                                {
+                                    type = "string",
+                                    description = "命令用途的简短说明"
+                                },
+                                mode = new
+                                {
+                                    type = "string",
+                                    description = "执行模式：sync（等待完成）或 async（后台运行）。默认 sync。",
+                                    @enum = new[] { "sync", "async" }
+                                }
+                            },
+                            required = new[] { "command", "explanation" }
+                        }
+                    }
+                },
+                new ToolDefinition
+                {
+                    Type = "function",
+                    Function = new ToolFunction
+                    {
+                        Name = "get_terminal_output",
+                        Description = L["tool.get_terminal_output.desc"],
+                        Parameters = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                id = new
+                                {
+                                    type = "string",
+                                    description = "终端执行 ID（由 run_in_terminal 异步模式返回）"
+                                }
+                            },
+                            required = new[] { "id" }
                         }
                     }
                 }
@@ -303,6 +448,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     "get_errors" => await GetErrorsAsync(args),
                     "fetch_webpage" => await FetchWebpageAsync(args),
                     "build_solution" => await BuildSolutionAsync(args, workspaceRoot),
+                    "replace_string_in_file" => await ReplaceStringInFileAsync(args, workspaceRoot),
+                    "multi_replace_string_in_file" => await MultiReplaceStringInFileAsync(args, workspaceRoot),
+                    "create_file" => await CreateFileAsync(args, workspaceRoot),
+                    "run_in_terminal" => await RunInTerminalAsync(args),
+                    "get_terminal_output" => await GetTerminalOutputAsync(args),
                     _ => null  // 不是内置工具
                 };
             }
@@ -319,7 +469,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             return toolName switch
             {
-                "list_dir" or "read_file" or "file_search" or "grep_search" or "get_errors" or "fetch_webpage" or "build_solution" => true,
+                "list_dir" or "read_file" or "file_search" or "grep_search" or "get_errors"
+                    or "fetch_webpage" or "build_solution"
+                    or "replace_string_in_file" or "multi_replace_string_in_file" or "create_file"
+                    or "run_in_terminal" or "get_terminal_output" => true,
                 _ => false
             };
         }
@@ -812,6 +965,238 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Logger.Error($"[BuiltInTool] build_solution 异常: {ex.Message}", ex);
                 return $"❌ 构建失败: {ex.Message}";
             }
+        }
+
+        #endregion
+
+        #region Edit Tools
+
+        /// <summary>
+        /// 执行 replace_string_in_file 工具 — 在文件中精确替换字符串。
+        /// </summary>
+        private static async Task<string> ReplaceStringInFileAsync(Dictionary<string, System.Text.Json.JsonElement> args, string? workspaceRoot)
+        {
+            string filePath = GetStringArg(args, "filePath");
+            string oldString = GetStringArg(args, "oldString");
+            string newString = GetStringArg(args, "newString");
+
+            if (string.IsNullOrEmpty(filePath))
+                return "❌ replace_string_in_file: 缺少 filePath 参数";
+            if (string.IsNullOrEmpty(oldString))
+                return "❌ replace_string_in_file: 缺少 oldString 参数";
+
+            filePath = ResolvePath(filePath, workspaceRoot);
+
+            if (!File.Exists(filePath))
+                return $"❌ replace_string_in_file: 文件不存在: {filePath}";
+
+            try
+            {
+                string content = await Task.Run(() => File.ReadAllText(filePath, System.Text.Encoding.UTF8));
+                string normalizedContent = content.Replace("\r\n", "\n").Replace("\r", "\n");
+                string normalizedOld = oldString.Replace("\r\n", "\n").Replace("\r", "\n");
+                string normalizedNew = newString.Replace("\r\n", "\n").Replace("\r", "\n");
+
+                int index = normalizedContent.IndexOf(normalizedOld, StringComparison.Ordinal);
+                if (index < 0)
+                    return $"❌ replace_string_in_file: 未在文件中找到要替换的文本。请用 read_file 确认文件当前内容。文件: {Path.GetFileName(filePath)}";
+
+                // 检查是否有多处匹配（oldString 不唯一）
+                int secondIndex = normalizedContent.IndexOf(normalizedOld, index + 1, StringComparison.Ordinal);
+                if (secondIndex >= 0)
+                    return $"❌ replace_string_in_file: oldString 在文件中匹配了多处（至少位置 {index} 和 {secondIndex}）。请使用包含更多上下文的更精确字符串，或使用 multi_replace_string_in_file。";
+
+                string newContent = normalizedContent.Substring(0, index)
+                    + normalizedNew
+                    + normalizedContent.Substring(index + normalizedOld.Length);
+
+                // 恢复 CRLF 行尾
+                newContent = newContent.Replace("\n", "\r\n");
+
+                await Task.Run(() => File.WriteAllText(filePath, newContent, System.Text.Encoding.UTF8));
+                return $"✅ 已替换: {Path.GetFileName(filePath)}";
+            }
+            catch (Exception ex)
+            {
+                return $"❌ replace_string_in_file 失败: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// 执行 multi_replace_string_in_file 工具 — 批量字符串替换。
+        /// </summary>
+        private static async Task<string> MultiReplaceStringInFileAsync(Dictionary<string, System.Text.Json.JsonElement> args, string? workspaceRoot)
+        {
+            if (!args.TryGetValue("replacements", out var element) ||
+                element.ValueKind != System.Text.Json.JsonValueKind.Array)
+                return "❌ multi_replace_string_in_file: 缺少 replacements 数组参数";
+
+            var results = new List<string>();
+            int successCount = 0;
+            int failCount = 0;
+
+            foreach (var item in element.EnumerateArray())
+            {
+                if (item.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    continue;
+
+                var singleArgs = new Dictionary<string, System.Text.Json.JsonElement>();
+                foreach (var prop in item.EnumerateObject())
+                    singleArgs[prop.Name] = prop.Value;
+
+                string filePath = GetStringArg(singleArgs, "filePath");
+                string oldStr = GetStringArg(singleArgs, "oldString");
+                string newStr = GetStringArg(singleArgs, "newString");
+
+                if (string.IsNullOrEmpty(filePath) || string.IsNullOrEmpty(oldStr))
+                {
+                    failCount++;
+                    continue;
+                }
+
+                string result = await ReplaceStringInFileAsync(singleArgs, workspaceRoot);
+                results.Add($"{Path.GetFileName(filePath)}: {result}");
+                if (result.StartsWith("✅")) successCount++;
+                else failCount++;
+            }
+
+            string summary = $"🔧 multi_replace_string_in_file: 成功 {successCount}, 失败 {failCount}";
+            return summary + "\n" + string.Join("\n", results);
+        }
+
+        /// <summary>
+        /// 执行 create_file 工具 — 创建或覆盖文件。
+        /// </summary>
+        private static async Task<string> CreateFileAsync(Dictionary<string, System.Text.Json.JsonElement> args, string? workspaceRoot)
+        {
+            string filePath = GetStringArg(args, "filePath");
+            string content = GetStringArg(args, "content");
+
+            if (string.IsNullOrEmpty(filePath))
+                return "❌ create_file: 缺少 filePath 参数";
+
+            filePath = ResolvePath(filePath, workspaceRoot);
+
+            try
+            {
+                string? dir = Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                string normalizedContent = (content ?? string.Empty)
+                    .Replace("\r\n", "\n").Replace("\r", "\n")
+                    .Replace("\n", "\r\n"); // 统一为 CRLF
+
+                bool existed = File.Exists(filePath);
+                await Task.Run(() => File.WriteAllText(filePath, normalizedContent, System.Text.Encoding.UTF8));
+
+                return existed
+                    ? $"✅ 已覆盖文件: {Path.GetFileName(filePath)}"
+                    : $"✅ 已创建文件: {Path.GetFileName(filePath)}";
+            }
+            catch (Exception ex)
+            {
+                return $"❌ create_file 失败: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// 执行 run_in_terminal 工具 — 在终端中运行命令。
+        /// 由于在 VS 扩展环境中，此工具通过 System.Diagnostics.Process 启动命令。
+        /// </summary>
+        private static async Task<string> RunInTerminalAsync(Dictionary<string, System.Text.Json.JsonElement> args)
+        {
+            string command = GetStringArg(args, "command");
+            string mode = GetStringArg(args, "mode");
+
+            if (string.IsNullOrEmpty(command))
+                return "❌ run_in_terminal: 缺少 command 参数";
+
+            bool isAsync = string.Equals(mode, "async", StringComparison.OrdinalIgnoreCase);
+
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-NoProfile -Command \"{command}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = Directory.GetCurrentDirectory(),
+                };
+
+                using var process = System.Diagnostics.Process.Start(psi);
+                if (process == null)
+                    return "❌ run_in_terminal: 无法启动进程";
+
+                if (isAsync)
+                {
+                    // 异步模式：启动后立即返回
+                    string pid = process.Id.ToString();
+                    _ = Task.Run(() => { process.WaitForExit(); });
+                    return $"🚀 终端命令已启动 (PID: {pid}, 模式: async)\n命令: {command}";
+                }
+                else
+                {
+                    // 同步模式：等待完成
+                    string stdout = await process.StandardOutput.ReadToEndAsync();
+                    string stderr = await process.StandardError.ReadToEndAsync();
+                    await Task.Run(() => process.WaitForExit());
+
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"📟 终端输出 (退出码: {process.ExitCode}):");
+                    if (!string.IsNullOrWhiteSpace(stdout))
+                    {
+                        sb.AppendLine(stdout.Length > 50000 ? stdout.Substring(0, 50000) + "\n... (已截断)" : stdout);
+                    }
+                    if (!string.IsNullOrWhiteSpace(stderr))
+                    {
+                        sb.AppendLine("--- STDERR ---");
+                        sb.AppendLine(stderr.Length > 10000 ? stderr.Substring(0, 10000) + "\n... (已截断)" : stderr);
+                    }
+                    return sb.ToString().TrimEnd();
+                }
+            }
+            catch (Exception ex)
+            {
+                return $"❌ run_in_terminal 失败: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// 执行 get_terminal_output 工具 — 获取终端输出。
+        /// 由于终端生命周期管理的限制，此工具返回简要说明。
+        /// </summary>
+        private static Task<string> GetTerminalOutputAsync(Dictionary<string, System.Text.Json.JsonElement> args)
+        {
+            string id = GetStringArg(args, "id");
+            if (string.IsNullOrEmpty(id))
+                return Task.FromResult("❌ get_terminal_output: 缺少 id 参数");
+
+            // 简化实现：异步终端输出可通过 VS 输出窗口查看
+            return Task.FromResult(
+                $"📟 终端 ID: {id}\n" +
+                "💡 提示：异步终端命令的输出请直接查看 VS 输出窗口或终端面板。\n" +
+                "如果命令仍在运行中，请稍后重试。");
+        }
+
+        /// <summary>
+        /// 解析文件路径（支持相对于工作区根目录的路径）。
+        /// </summary>
+        private static string ResolvePath(string filePath, string? workspaceRoot)
+        {
+            if (string.IsNullOrEmpty(filePath))
+                return filePath;
+
+            if (Path.IsPathRooted(filePath))
+                return filePath;
+
+            if (!string.IsNullOrEmpty(workspaceRoot))
+                return Path.Combine(workspaceRoot, filePath);
+
+            return Path.Combine(Directory.GetCurrentDirectory(), filePath);
         }
 
         #endregion

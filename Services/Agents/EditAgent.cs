@@ -742,23 +742,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var patches = _editPatchService.ParsePatches(aiResult);
             AddLog("INFO", $"[EditAgent] 解析到 {patches.Count} 个 Patch 操作");
 
+            // ── 跟踪每个文件的内存内容，实现跨 Patch 原子性 ──
+            // Key: 文件路径, Value: (是否已写入磁盘, 当前内存中的内容)
+            var fileState = new Dictionary<string, (bool written, string content)>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var patch in patches)
             {
                 if (ct.IsCancellationRequested) break;
 
                 string resolvedPath = EditPatchService.ResolvePath(patch.FilePath, workspaceRoot);
 
-                // ── 保存原始内容 ──
+                // ── 保存原始内容（仅首次）──
                 if (!originalContents.ContainsKey(resolvedPath))
                 {
                     string original = File.Exists(resolvedPath)
                         ? await Task.Run(() => File.ReadAllText(resolvedPath), ct)
                         : string.Empty;
                     originalContents[resolvedPath] = original;
+
+                    // 初始化内存状态：以原始文件内容为起点
+                    fileState[resolvedPath] = (written: false, content: original);
                 }
 
-                // ── 应用 Patch ──
-                var applyResult = await _editPatchService.ApplyPatchAsync(patch, workspaceRoot, ct);
+                // ── 使用内存中的最新内容进行匹配（避免读盘拿到旧内容）──
+                string currentContent = fileState.TryGetValue(resolvedPath, out var state)
+                    ? state.content
+                    : originalContents[resolvedPath];
+
+                var applyResult = await _editPatchService.ApplyPatchWithContentAsync(
+                    patch, workspaceRoot, ct, existingContent: currentContent);
 
                 if (!applyResult.Success && applyResult.FailedHunks != null && applyResult.FailedHunks.Count > 0)
                 {
@@ -770,7 +782,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     var healingRequest = new HealingRequest
                     {
                         FilePath = resolvedPath,
-                        CurrentFileContent = originalContents.TryGetValue(resolvedPath, out string? orig1) ? orig1 : "",
+                        CurrentFileContent = currentContent,
                         OriginalOperationType = EditOperationType.ApplyPatch,
                         FailedPatch = patch,
                         FailureReason = applyResult.ErrorMessage ?? "未知原因",
@@ -778,11 +790,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     var healingResponse = await _editPatchService.HealFailedEditAsync(healingRequest, ct);
 
+                    // ── Healing 兜底：降级模型失败 → 用完整模型重试一次 ──
+                    if (healingResponse?.Success != true || healingResponse.CorrectedPatch == null)
+                    {
+                        AddLog("WARN", $"[EditAgent] 降级模型 healing 失败 ({healingResponse?.ErrorMessage ?? "无响应"})，尝试完整模型...");
+                        healingResponse = await _editPatchService.HealFailedEditWithFullModelAsync(healingRequest, ct);
+                    }
+
                     if (healingResponse?.Success == true && healingResponse.CorrectedPatch != null)
                     {
                         AddLog("INFO", "[EditAgent] Healing 成功，使用修正后的 Patch 重试...");
-                        applyResult = await _editPatchService.ApplyPatchAsync(
-                            healingResponse.CorrectedPatch, workspaceRoot, ct);
+                        applyResult = await _editPatchService.ApplyPatchWithContentAsync(
+                            healingResponse.CorrectedPatch, workspaceRoot, ct, existingContent: currentContent);
 
                         // ── 兜底：Healing 修正后仍失败 → 尝试作为 create_file 写入完整内容 ──
                         if (!applyResult.Success && !string.IsNullOrEmpty(applyResult.FinalContent))
@@ -790,7 +809,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             AddLog("WARN", $"[EditAgent] Healing 修正后仍失败 ({applyResult.ErrorMessage})，启用 create_file 兜底写入...");
                             try
                             {
-                                // ── 项目文件拦截 ──
                                 bool fallbackAllowed = await EnsureProjectFileWriteConfirmedAsync(
                                     resolvedPath, "Healing 兜底写入（Patch→create_file）");
                                 if (fallbackAllowed)
@@ -798,6 +816,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                     await TerminalWindowHelper.WriteCodeToFileAsync(
                                         applyResult.FilePath, applyResult.FinalContent!);
                                     applyResult.Success = true;
+                                    fileState[resolvedPath] = (written: true, content: applyResult.FinalContent!);
                                     AddLog("INFO", $"[EditAgent] ✅ create_file 兜底成功: {resolvedPath}");
                                 }
                                 else
@@ -813,7 +832,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
                     else
                     {
-                        AddLog("ERROR", $"[EditAgent] Healing 失败: {healingResponse?.ErrorMessage ?? "未知"}");
+                        AddLog("ERROR", $"[EditAgent] Healing 完全失败: {healingResponse?.ErrorMessage ?? "未知"}");
                     }
                 }
                 else if (!applyResult.Success)
@@ -826,16 +845,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 if (applyResult.Success)
                 {
-                    // ── 先通过 VS SDK 写入文件（文件必须存在才能加入项目）──
+                    // ── 更新内存中的文件内容（延迟写盘，保证原子性）──
                     if (!string.IsNullOrEmpty(applyResult.FinalContent))
                     {
-                        // ── 项目文件拦截：修改 .vcxproj/.sln 等前请求用户确认 ──
+                        fileState[resolvedPath] = (written: false, content: applyResult.FinalContent!);
+                    }
+
+                    // ── 新文件：需要先写入再加入项目 ──
+                    bool isNewFile = patch.Action == PatchFileAction.Add;
+                    if (isNewFile)
+                    {
+                        // 新文件必须立即写入磁盘才能加入项目
                         bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                            resolvedPath, $"Patch 修改 ({applyResult.AppliedEdits.Count} 个编辑点)");
+                            resolvedPath, $"Patch 新建文件");
                         if (writeAllowed)
                         {
                             await TerminalWindowHelper.WriteCodeToFileAsync(
                                 applyResult.FilePath, applyResult.FinalContent!);
+                            fileState[resolvedPath] = (written: true, content: applyResult.FinalContent!);
+
+                            if (File.Exists(resolvedPath))
+                                await AddFileToProjectAsync(resolvedPath, ct);
                         }
                         else
                         {
@@ -845,22 +875,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         }
                     }
 
-                    // ── 新文件：写入后再加入项目（AddFileToProjectAsync 要求文件已存在）──
-                    bool isNewFile = patch.Action == PatchFileAction.Add;
-                    if (isNewFile && File.Exists(resolvedPath))
-                    {
-                        await AddFileToProjectAsync(resolvedPath, ct);
-                    }
-
                     if (applyResult.Success)
                     {
-                        AddLog("INFO", $"✅ Patch 已应用: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑)");
+                        AddLog("INFO", $"✅ Patch 已匹配: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑) [内存中，待批量写盘]");
                         NotifyFileChange(plan.PlanId,
                             isNewFile ? "create" : "modify",
                             resolvedPath,
                             $"{applyResult.AppliedEdits.Count} 个编辑点");
 
-                        // ── 更新 plan.ChangedFiles 确保文件计数正确（计算真实行数变化）──
+                        // ── 更新 plan.ChangedFiles ──
                         if (!plan.ChangedFiles.Any(c => string.Equals(c.FilePath, resolvedPath, StringComparison.OrdinalIgnoreCase)))
                         {
                             int added = 0, removed = 0;
@@ -887,6 +910,28 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 else
                 {
                     AddLog("ERROR", $"❌ Patch 应用失败: {resolvedPath} - {applyResult.ErrorMessage}");
+                }
+            } // foreach patch
+
+            // ── 原子写盘：所有 Patch 匹配成功后，统一批量写入文件 ──
+            foreach (var kvp in fileState)
+            {
+                if (kvp.Value.written) continue; // 已写入（新文件等）
+                if (ct.IsCancellationRequested) break;
+
+                string filePath = kvp.Key;
+                string finalContent = kvp.Value.content;
+
+                bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
+                    filePath, $"Patch 批量写入（原子模式）");
+                if (writeAllowed)
+                {
+                    await TerminalWindowHelper.WriteCodeToFileAsync(filePath, finalContent);
+                    AddLog("INFO", $"💾 批量写盘: {Path.GetFileName(filePath)}");
+                }
+                else
+                {
+                    AddLog("WARN", $"⏭ 已跳过批量写盘（用户拒绝）: {Path.GetFileName(filePath)}");
                 }
             }
         }

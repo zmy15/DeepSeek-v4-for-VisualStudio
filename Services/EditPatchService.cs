@@ -36,6 +36,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private readonly DeepSeekApiService _apiService;
         private const string ExistingCodeMarker = "...existing code...";
 
+        /// <summary>
+        /// i18n 便捷访问器。
+        /// </summary>
+        private static LocalizationService L => LocalizationService.Instance;
+
         // ── Patch 格式正则 ──
         private static readonly Regex PatchBlockRegex = new(
             @"\*\*\*\s*Begin\s*Patch\s*\r?\n(?<body>.*?)\r?\n\s*\*\*\*\s*End\s*Patch",
@@ -432,6 +437,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string workspaceRoot,
             CancellationToken ct)
         {
+            return await ApplyPatchWithContentAsync(patch, workspaceRoot, ct, existingContent: null);
+        }
+
+        /// <summary>
+        /// 尝试将 Patch 操作应用到文件（支持预加载内容，避免重复读盘）。
+        /// 当 existingContent 不为 null 时，直接使用该内容进行匹配而不从磁盘读取。
+        /// 用于同一文件的多 Patch 原子应用场景。
+        /// </summary>
+        public async Task<EditApplyResult> ApplyPatchWithContentAsync(
+            PatchOperation patch,
+            string workspaceRoot,
+            CancellationToken ct,
+            string? existingContent = null)
+        {
             var result = new EditApplyResult
             {
                 FilePath = ResolvePath(patch.FilePath, workspaceRoot),
@@ -464,7 +483,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return result;
             }
 
-            string fileContent = await Task.Run(() => File.ReadAllText(result.FilePath), ct);
+            // 优先使用预加载内容（避免同一文件多次读盘 + 保证原子性）
+            string fileContent = existingContent
+                ?? await Task.Run(() => File.ReadAllText(result.FilePath), ct);
             var failedHunks = new List<PatchHunk>();
 
             foreach (var hunk in patch.Hunks)
@@ -499,7 +520,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 result.Success = false;
                 result.FailedHunks = failedHunks;
-                result.ErrorMessage = $"{failedHunks.Count}/{patch.Hunks.Count} 个 Hunk 匹配失败";
+                result.ErrorMessage = L.Format("edit.hunksFailed", failedHunks.Count, patch.Hunks.Count);
                 return result;
             }
 
@@ -567,27 +588,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             else
             {
-                // 非精确匹配时，在原始文件中找到最佳匹配区间
-                // 使用原始搜索模式在附近查找
+                // 非精确匹配时，用行计数定位匹配区间的结束位置。
+                // 不能直接用 searchPattern.Length 估算，因为 searchPattern 的格式
+                // （缩进、空白）可能与实际文件不同，导致长度膨胀。
+                // 改为：从 matchPos 开始，按 searchPattern 的行数在文件中定位结束行。
+                matchEndPos = FindMatchEndByLineCount(fileContent, matchPos, searchPattern);
+
+                // 兜底：如果行计数定位失败（如大文件截断），回退到保守估算
+                if (matchEndPos <= matchPos)
+                {
+                    matchEndPos = Math.Min(matchPos + searchPattern.Length + 50, fileContent.Length);
+                }
+
+                // 尝试在附近找到精确匹配（安全区间内优先精确）
                 int exactPos = fileContent.IndexOf(searchPattern, matchPos, StringComparison.Ordinal);
-                if (exactPos >= 0 && exactPos - matchPos < 200)
+                if (exactPos >= 0 && exactPos - matchPos >= 0 && exactPos - matchPos < 500)
                 {
                     matchPos = exactPos;
                     matchEndPos = exactPos + searchPattern.Length;
                 }
-                else
-                {
-                    // 估算：搜索文本长度加上一些缓冲
-                    matchEndPos = Math.Min(matchPos + searchPattern.Length + 50, fileContent.Length);
-                    // 尝试在附近找到换行边界
-                    int nextNewline = fileContent.IndexOf('\n', matchEndPos);
-                    if (nextNewline >= 0 && nextNewline - matchEndPos < 200)
-                        matchEndPos = nextNewline + 1;
-                }
             }
 
-            string matchedText = fileContent.Substring(matchPos,
-                Math.Min(matchEndPos - matchPos, fileContent.Length - matchPos));
+            // 安全边界检查
+            int safeEndPos = Math.Min(matchEndPos, fileContent.Length);
+            int safeLen = Math.Max(0, safeEndPos - matchPos);
+            string matchedText = fileContent.Substring(matchPos, safeLen);
 
             // ── 计算行列位置 ──
             var (startLine, startCol) = GetLineColumn(fileContent, matchPos);
@@ -660,7 +685,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (segments.Count == 0)
             {
                 result.Success = false;
-                result.ErrorMessage = "未检测到 ...existing code... 标记";
+                result.ErrorMessage = L["edit.noExistingCodeMarker"];
                 return result;
             }
 
@@ -1161,7 +1186,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 string response = await _apiService.CompleteAsync(
                     new List<ChatApiMessage>
                     {
-                        new ChatApiMessage { Role = "system", Content = "你是一个代码编辑修正助手。根据当前文件的实际内容，修正无法匹配的编辑操作，使其可以精确应用到文件中。只需输出修正后的编辑内容，不要添加任何解释。" },
+                        new ChatApiMessage { Role = "system", Content = L["edit.healingSystemPrompt"] },
                         new ChatApiMessage { Role = "user", Content = prompt },
                     },
                     ct);
@@ -1174,7 +1199,47 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return new HealingResponse
                 {
                     Success = false,
-                    ErrorMessage = $"Healing 请求失败: {ex.Message}",
+                    ErrorMessage = L.Format("edit.healingRequestFailed", ex.Message),
+                };
+            }
+        }
+
+        /// <summary>
+        /// 使用完整模型（更强的指令遵循能力）重试 healing。
+        /// 当降级模型 healing 失败时调用。使用更严格的格式要求和格式示例。
+        /// </summary>
+        public async Task<HealingResponse?> HealFailedEditWithFullModelAsync(
+            HealingRequest request, CancellationToken ct)
+        {
+            try
+            {
+                var prompt = BuildHealingPrompt(request);
+
+                // 强化格式要求，附带完整示例 — 从 i18n 加载
+                string systemPrompt = L["edit.healingFullSystemPrompt"];
+
+                string response = await _apiService.CompleteAsync(
+                    new List<ChatApiMessage>
+                    {
+                        new ChatApiMessage { Role = "system", Content = systemPrompt },
+                        new ChatApiMessage { Role = "user", Content = prompt },
+                    },
+                    ct);
+
+                var result = ParseHealingResponse(response, request);
+                if (result?.Success != true)
+                {
+                    Logger.Warn($"[EditPatchService] 完整模型 healing 也失败: {result?.ErrorMessage ?? "无法解析"}");
+                }
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[EditPatchService] 完整模型 Healing 异常: {ex.Message}");
+                return new HealingResponse
+                {
+                    Success = false,
+                    ErrorMessage = L.Format("edit.healingFullModelFailed", ex.Message),
                 };
             }
         }
@@ -1185,8 +1250,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private static string BuildHealingPrompt(HealingRequest request)
         {
             var sb = new StringBuilder();
+            var L = LocalizationService.Instance;
 
-            sb.AppendLine("## 文件当前内容");
+            sb.AppendLine(L["edit.healingHeaderCurrent"]);
             sb.AppendLine("```");
             sb.AppendLine(request.CurrentFileContent.Length > 10000
                 ? request.CurrentFileContent.Substring(0, 10000) + "\n... (内容已截断)"
@@ -1194,33 +1260,33 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             sb.AppendLine("```");
             sb.AppendLine();
 
-            sb.AppendLine("## 失败的编辑操作");
-            sb.AppendLine($"操作类型: {request.OriginalOperationType}");
-            sb.AppendLine($"失败原因: {request.FailureReason}");
+            sb.AppendLine(L["edit.healingHeaderFailed"]);
+            sb.AppendLine(L.Format("edit.operationTypeLabel", request.OriginalOperationType));
+            sb.AppendLine(L.Format("edit.failureReasonLabel", request.FailureReason));
             sb.AppendLine();
 
             if (request.OriginalOperationType == EditOperationType.ApplyPatch && request.FailedPatch != null)
             {
-                sb.AppendLine("原始 Patch:");
+                sb.AppendLine(L["edit.healingHeaderOriginalPatch"]);
                 sb.AppendLine("```");
                 sb.AppendLine(request.FailedPatch.RawText);
                 sb.AppendLine("```");
                 sb.AppendLine();
-                sb.AppendLine("请根据当前文件的实际内容，修正上面的 Patch，使其可以精确匹配并应用。");
-                sb.AppendLine("输出修正后的 *** Begin Patch / *** End Patch 格式。");
-                sb.AppendLine("注意调整 @@ 上下文标记和上下文行以匹配实际文件内容。");
+                sb.AppendLine(L["edit.healingInstructionPatch"]);
+                sb.AppendLine(L["edit.healingOutputFormat"]);
+                sb.AppendLine(L["edit.healingAdjustHint"]);
             }
             else if (request.OriginalOperationType == EditOperationType.InsertEditIntoFile)
             {
-                sb.AppendLine("原始 insert_edit_into_file 内容:");
+                sb.AppendLine(L["edit.healingHeaderOriginalInsert"]);
                 sb.AppendLine("```");
                 sb.AppendLine((request.FailedInsertEditContent ?? "").Length > 10000
                     ? request.FailedInsertEditContent!.Substring(0, 10000) + "\n... (内容已截断)"
                     : request.FailedInsertEditContent ?? "");
                 sb.AppendLine("```");
                 sb.AppendLine();
-                sb.AppendLine("请根据当前文件的实际内容，修正上面的编辑，使 ...existing code... 标记之间的修改段能精确匹配文件中的对应代码。");
-                sb.AppendLine("输出修正后的完整文件内容（带 ...existing code... 标记）。");
+                sb.AppendLine(L["edit.healingInstructionInsert"]);
+                sb.AppendLine(L["edit.healingOutputFormatInsert"]);
             }
 
             return sb.ToString();
@@ -1233,7 +1299,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             if (string.IsNullOrWhiteSpace(response))
             {
-                return new HealingResponse { Success = false, ErrorMessage = "Healing 模型返回空响应" };
+                return new HealingResponse { Success = false, ErrorMessage = L["edit.healingEmptyResponse"] };
             }
 
             var result = new HealingResponse { Success = true };
@@ -1248,7 +1314,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 else
                 {
                     result.Success = false;
-                    result.ErrorMessage = "Healing 响应中未找到有效的 Patch";
+                    result.ErrorMessage = L["edit.healingNoPatch"];
                 }
             }
             else if (request.OriginalOperationType == EditOperationType.InsertEditIntoFile)
@@ -1332,6 +1398,50 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             return origIdx;
+        }
+
+        /// <summary>
+        /// 通过行计数定位非精确匹配的结束位置。
+        /// 避免用 searchPattern.Length 估算（searchPattern 的缩进/空白可能与实际文件不同导致长度膨胀）。
+        /// 原理：从 matchPos 开始，找到 searchPattern 行数对应的文件行数 → 返回这些行之后的位置。
+        /// </summary>
+        /// <param name="fileContent">文件完整内容</param>
+        /// <param name="matchPos">匹配起始位置（0-based 字符偏移）</param>
+        /// <param name="searchPattern">搜索模式文本（行间用 \n 分隔）</param>
+        /// <returns>匹配结束位置（0-based 字符偏移），指向匹配内容最后一行的下一个字符</returns>
+        private static int FindMatchEndByLineCount(string fileContent, int matchPos, string searchPattern)
+        {
+            if (string.IsNullOrEmpty(searchPattern) || matchPos >= fileContent.Length)
+                return Math.Min(matchPos + 1, fileContent.Length);
+
+            // 计算 searchPattern 的逻辑行数
+            int searchLineCount = 1;
+            for (int i = 0; i < searchPattern.Length; i++)
+                if (searchPattern[i] == '\n') searchLineCount++;
+
+            // 从 matchPos 开始，在文件中向前扫描 searchLineCount 个换行
+            int pos = matchPos;
+            int linesFound = 1; // matchPos 所在的行算第 1 行
+
+            while (pos < fileContent.Length && linesFound < searchLineCount)
+            {
+                if (fileContent[pos] == '\n')
+                {
+                    linesFound++;
+                    if (linesFound >= searchLineCount)
+                    {
+                        pos++; // 跳过这个 \n，指向下一行开头
+                        break;
+                    }
+                }
+                pos++;
+            }
+
+            // 如果文件行数不够，返回文件末尾
+            if (linesFound < searchLineCount)
+                return fileContent.Length;
+
+            return Math.Min(pos, fileContent.Length);
         }
 
         /// <summary>

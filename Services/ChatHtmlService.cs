@@ -18,6 +18,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         #region Constants
 
         /// <summary>
+        /// i18n 便捷访问器。
+        /// </summary>
+        private static LocalizationService L => LocalizationService.Instance;
+
+        /// <summary>
         /// Markdig 解析管道：启用高级扩展，禁用原生 HTML（防 XSS）。
         /// </summary>
         private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
@@ -188,8 +193,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             var retryBtn=document.createElement('button');
             retryBtn.id='retry-btn-{messageIndex}';
             retryBtn.className='msg-action-btn retry-btn';
-            retryBtn.textContent='🔄 重试';
-            retryBtn.title='重新生成回答';
+            retryBtn.textContent='{EscapeJsString(L["chat.html.retryButton"])}';
+            retryBtn.title='{EscapeJsString(L["chat.html.retryButtonTitle"])}';
             retryBtn.onclick=function(){{window.__retryMessage({messageIndex});}};
             var msgBody=document.getElementById('msg-body-{messageIndex}');
             if(msgBody) msgBody.parentNode.insertBefore(retryBtn,msgBody.nextSibling);
@@ -226,7 +231,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     btn.id='handoff-btn-{messageIndex}';
     btn.className='msg-action-btn handoff-btn';
     btn.textContent='▶ {escapedLabel}';
-    btn.title='将计划移交给 Edit Agent 执行';
+    btn.title='{EscapeJsString(L["chat.html.handoffButtonTitle"])}';
     btn.style.cssText='background:#28a745;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;margin:10px 0;font-weight:600;';
     btn.onmouseover=function(){{this.style.background='#218838';}};
     btn.onmouseout=function(){{this.style.background='#28a745';}};
@@ -259,7 +264,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // 命中率百分比
             string rateText = $"{rate * 100:F1}%";
 
-            string roundInfo = roundCount > 1 ? $" · {roundCount} 轮" : "";
+            string roundInfo = roundCount > 1 ? $" · {roundCount} {L["chat.html.cacheRound"]}" : "";
 
             var sb = new StringBuilder();
             sb.Append("<div class='cache-stat-card'>");
@@ -269,8 +274,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             sb.Append($"<div class='cache-bar-fill {level}' style='width:{rate * 100:F0}%'></div>");
             sb.Append("</div>");
             sb.Append("<span class='cache-detail'>");
-            sb.Append($"<span>{hitTokens:N0}</span> 命中 / <span>{missTokens:N0}</span> 未命中");
-            sb.Append($" · Prompt <span>{promptTokens:N0}</span> · Completion <span>{completionTokens:N0}</span>");
+            sb.Append($"<span>{hitTokens:N0}</span> {L["chat.html.cacheHit"]} / <span>{missTokens:N0}</span> {L["chat.html.cacheMiss"]}");
+            sb.Append($" · {L["chat.html.promptTokens"]} <span>{promptTokens:N0}</span> · {L["chat.html.completionTokens"]} <span>{completionTokens:N0}</span>");
             sb.Append(roundInfo);
             sb.Append("</span>");
             sb.Append("</div>");
@@ -285,14 +290,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <param name="results">搜索结果列表</param>
         /// <param name="providerName">搜索提供商名称（如 "百度搜索"、"DuckDuckGo"）</param>
         /// <returns>搜索结果卡片的 HTML 字符串</returns>
-        public static string BuildSearchResultsHtml(IReadOnlyList<WebSearchResult> results, string providerName = "联网搜索")
+        public static string BuildSearchResultsHtml(IReadOnlyList<WebSearchResult> results, string? providerName = null)
         {
             if (results == null || results.Count == 0)
                 return string.Empty;
 
+            string label = providerName ?? L["chat.html.webSearchLabel"];
+
             var sb = new StringBuilder();
             sb.Append("<details class='search-results-card' open='true'>");
-            sb.Append($"<summary>🌐 {providerName} ({results.Count} 条结果)</summary>");
+            sb.Append($"<summary>🌐 {label} ({results.Count} {L["chat.html.webSearchResults"]})</summary>");
 
             foreach (var result in results)
             {

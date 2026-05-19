@@ -14,73 +14,80 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         private static string BuildDecorateCodeBlocksJsFunction()
         {
-            return @"
-window.decorateCodeBlocks=function(container){
+            string copyLabel = EscapeJsString(L["chat.html.codeCopyButton"]);
+            string copyTitle = EscapeJsString(L["chat.html.codeCopyButton"]);
+            string copyDone = EscapeJsString(L["chat.html.codeCopyDone"]);
+            string writeLabel = EscapeJsString(L["chat.html.codeInsertButton"]);
+            string writeTitle = EscapeJsString(L["chat.html.codeInsertButton"]);
+            string writeDone = EscapeJsString(L["chat.html.codeCopyDone"]);
+
+            return $@"
+window.decorateCodeBlocks=function(container){{
     if(!container)return;
     var pres=container.querySelectorAll('pre:not(.mermaid-block)');
-    pres.forEach(function(pre){
+    pres.forEach(function(pre){{
         if(pre.querySelector('.copy-btn'))return;
         var code=pre.querySelector('code');
         if(!code)return;
         var lang='';
-        if(code.className){
+        if(code.className){{
             var m=code.className.match(/language-(\w+)/);
             if(m)lang=m[1];
-        }
-        if(lang){
+        }}
+        if(lang){{
             var label=document.createElement('span');
             label.className='code-lang';
             label.textContent=lang;
             pre.insertBefore(label,pre.firstChild);
-        }
-        // highlight.js 语法高亮
-        if(window.hljs){
-            try{window.hljs.highlightElement(code);}catch(e){}
-        }
-        // 复制按钮
+        }}
+        // highlight.js syntax highlighting
+        if(window.hljs){{
+            try{{window.hljs.highlightElement(code);}}catch(e){{}}
+        }}
+        // Copy button
         var copyBtn=document.createElement('button');
         copyBtn.className='copy-btn';
-        copyBtn.textContent='📋 复制';
-        copyBtn.title='复制代码到剪贴板';
-        copyBtn.onclick=function(){
+        copyBtn.textContent='{copyLabel}';
+        copyBtn.title='{copyTitle}';
+        copyBtn.onclick=function(){{
             var target=pre.querySelector('code')||pre;
             var text=target.innerText,ok=false;
-            if(navigator.clipboard&&navigator.clipboard.writeText){
+            if(navigator.clipboard&&navigator.clipboard.writeText){{
                 navigator.clipboard.writeText(text);ok=true;
-            }else{
+            }}else{{
                 var ta=document.createElement('textarea');
                 ta.value=text;ta.style.cssText='position:fixed;opacity:0';
                 document.body.appendChild(ta);ta.select();
-                try{document.execCommand('copy');ok=true;}catch(e){}
+                try{{document.execCommand('copy');ok=true;}}catch(e){{}}
                 document.body.removeChild(ta);
-            }
-            if(ok){copyBtn.textContent='✓ 已复制';copyBtn.classList.add('copied');}
-            setTimeout(function(){copyBtn.textContent='📋 复制';copyBtn.classList.remove('copied');},1500);
-        };
+            }}
+            if(ok){{copyBtn.textContent='{copyDone}';copyBtn.classList.add('copied');}}
+            setTimeout(function(){{copyBtn.textContent='{copyLabel}';copyBtn.classList.remove('copied');}},1500);
+        }};
         pre.appendChild(copyBtn);
-        // 应用按钮 - 直接写入编辑器
+        // Insert/Write button
         var applyBtn=document.createElement('button');
         applyBtn.className='copy-btn';
-        applyBtn.textContent='⚡ 写入';
-        applyBtn.title='将代码写入当前活动文档';
+        applyBtn.textContent='{writeLabel}';
+        applyBtn.title='{writeTitle}';
         applyBtn.style.right='60px';
-        applyBtn.onclick=function(){
+        applyBtn.onclick=function(){{
             var target=pre.querySelector('code')||pre;
             var codeText=target.innerText;
-            try{
-                window.chrome.webview.postMessage(JSON.stringify({type:'applyCode',code:codeText}));
-            }catch(e1){
-                try{
-                    window.external.notify(JSON.stringify({type:'applyCode',code:codeText}));
-                }catch(e2){}
-            }
-            applyBtn.textContent='✓ 已写入';
+            try{{
+                window.chrome.webview.postMessage(JSON.stringify({{type:'applyCode',code:codeText}}));
+            }}catch(e1){{
+                try{{
+                    window.external.notify(JSON.stringify({{type:'applyCode',code:codeText}}));
+                }}catch(e2){{}}
+            }}
+            applyBtn.textContent='{writeDone}';
             applyBtn.classList.add('copied');
-            setTimeout(function(){applyBtn.textContent='⚡ 写入';applyBtn.classList.remove('copied');},1500);
-        };
+            setTimeout(function(){{applyBtn.textContent='{writeLabel}';applyBtn.classList.remove('copied');}},1500);
+        }};
         pre.appendChild(applyBtn);
-    });
-};
+    }});
+}};";
 ";
         }
 
