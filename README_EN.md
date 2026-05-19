@@ -32,7 +32,8 @@ It's more than a chat window; it's a complete **AI workflow system**:
 - **1M Token Context** — Handle large codebases with intelligent compression that preserves information
 - **Three Editing Methods** — Patch / Insert / Create with four-level matching for precise application
 - **RAG Retrieval-Augmented Generation** — Pluggable knowledge base integration
-- **Dual OCR Engines** — Read your error screenshots
+- **Dual OCR Engines** — Read your error screenshots (Windows / MCP)
+- **🌐 Internationalization (i18n)** — Auto-switch between Chinese and English, user-customizable translations
 
 ---
 
@@ -50,6 +51,7 @@ It's more than a chat window; it's a complete **AI workflow system**:
 | 🌐 **Web Search** | Baidu Qianfan (1500 free/month) + DuckDuckGo dual engine · Auto fallback on quota exhaustion |
 | 📄 **File Parsing** | 50+ formats · Code/Docs/PDF/Word/Excel all supported · Drag & drop parsing |
 | 🖼️ **Image OCR** | Windows built-in · MCP remote OCR dual engines |
+| 🌐 **Internationalization** | Auto-detect system language · Manual override in Options · User-customizable translations |
 | 📊 **Code Diff Preview** | Red/green diff markers in editor · Accept/Undo per hunk · Apply all at once |
 | 💡 **Ghost Text Completion** | Inline grey predictions · Context-aware · Configurable debounce delay |
 | 💬 **Chat Window** | WebView2 rendering · Markdown/code highlighting · Multi-session persistence · Live plan display |
@@ -376,7 +378,7 @@ Visit [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) �
 | `RagService` | RAG provider registration, activation, retrieval result injection |
 | `ConversationContextManager` | Conversation context construction, token budget management, message trimming |
 | `WebSearchService` | Dual-engine search, auto switching, intelligent keyword generation |
-| `OcrService` | Three-engine OCR unified interface |
+| `OcrService` | Two-engine OCR unified interface (Windows / MCP) |
 | `FileParserService` | 50+ format file text extraction |
 | `ChatHtmlService` | WebView2 HTML/CSS/JS generation, Markdown rendering |
 | `CodeDiffService` | Code difference calculation and editor markers |
