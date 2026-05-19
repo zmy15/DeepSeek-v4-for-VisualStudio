@@ -21,14 +21,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         protected readonly List<AgentLogEntry> _logs = new();
 
         /// <summary>
-        /// 所有 Agent 共享的 System Prompt 前缀。
+        /// 所有 Agent 共享的 System Prompt 前缀（不含语言指令，由 GetCommonSystemPromptPrefix 动态注入）。
         /// 放在 messages[0]，确保跨 Agent 切换时 DeepSeek Prefix Cache 仍能命中。
-        /// 各 Agent 的专属指令应追加在此前缀之后（作为同一 system 消息的第二段）。
         /// </summary>
-        protected const string CommonSystemPromptPrefix =
+        protected const string CommonSystemPromptPrefixCore =
             "你是 DeepSeek v4 for Visual Studio——一个集成在 VS Code 中的 AI 编程助手。\n" +
-            "你可以使用工具来读取文件、搜索代码库、获取网页内容、运行终端命令等。\n" +
-            "使用中文回答用户的问题。\n";
+            "你可以使用工具来读取文件、搜索代码库、获取网页内容、运行终端命令等。\n";
+
+        /// <summary>
+        /// 获取带语言指令的完整公共前缀（每次调用时根据当前语言动态拼接）。
+        /// </summary>
+        protected static string GetCommonSystemPromptPrefix()
+        {
+            return CommonSystemPromptPrefixCore + LocalizationService.Instance["system.agent.languageInstruction"] + "\n";
+        }
+
+        /// <summary>
+        /// 兼容旧代码：首次访问时返回当前语言的前缀。
+        /// </summary>
+        protected static string CommonSystemPromptPrefix => GetCommonSystemPromptPrefix();
 
         /// <summary>Agent 元数据定义</summary>
         public AgentDefinition Definition { get; protected set; }

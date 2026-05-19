@@ -193,6 +193,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             InitializeComponent();
 
+            // ── i18n：输入框占位文字跟随语言 ──
+            UpdateInputPlaceholder();
+            UpdateAllTooltips();
+            LocalizationService.Instance.LanguageChanged += (_, _) =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    UpdateInputPlaceholder();
+                    UpdateAllTooltips();
+                });
+            };
+
             // 初始化模型和推理强度下拉框
             ModelComboBox.ItemsSource = new[] { "deepseek-v4-pro", "deepseek-v4-flash" };
             ModelComboBox.SelectedIndex = 0;
@@ -1095,6 +1107,61 @@ private static string? GetSolutionPathFromIVsSolution()
             catch (Exception ex)
             {
                 Logger.Warn($"[Cleanup] 清理临时上下文目录失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 更新输入框占位文字（跟随 i18n 语言设置）。
+        /// </summary>
+        private void UpdateInputPlaceholder()
+        {
+            try
+            {
+                InputPlaceholder.Text = LocalizationService.Instance["input.placeholder"];
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[i18n] 更新输入框占位文字失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 更新所有按钮的 ToolTip 和文本（跟随 i18n 语言设置）。
+        /// </summary>
+        private void UpdateAllTooltips()
+        {
+            try
+            {
+                var L = LocalizationService.Instance;
+
+                // 顶部按钮
+                DeleteSessionButton.ToolTip = L["input.deleteConversationTip"];
+                AddContextButton.ToolTip = L["input.addContextTip"];
+                UploadButton.ToolTip = L["input.uploadFileTip"];
+                NewChatButton.ToolTip = L["input.newChat"];
+                NewChatButton.Content = L["input.newChat"];
+                ClearButton.Content = L["input.clearChat"];
+                McpConfigButton.ToolTip = L["input.mcpConfig"];
+
+                // 添加上下文菜单项
+                AddActiveDocMenuItem.Header = L["input.attachActiveDocument"];
+                AddActiveDocMenuItem.ToolTip = L["input.attachActiveDocTip"];
+                AddProjectFileMenuItem.Header = L["input.attachProjectFile"];
+                AddProjectFileMenuItem.ToolTip = L["input.attachProjectFileTip"];
+                AddAllFilesMenuItem.Header = L["input.attachAllProjectFiles"];
+                AddAllFilesMenuItem.ToolTip = L["input.attachAllFilesTip"];
+                AddSelectionMenuItem.Header = L["input.attachSelection"];
+                AddSelectionMenuItem.ToolTip = L["input.attachSelectionTip"];
+                AddDebugMenuItem.Header = L["input.attachDebug"];
+                AddDebugMenuItem.ToolTip = L["input.attachDebugTip"];
+
+                // 搜索引擎 tooltip
+                if (WebSearchEngineComboBox != null)
+                    WebSearchEngineComboBox.ToolTip = L["input.searchEngineTip"];
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[i18n] 更新 ToolTip 失败: {ex.Message}");
             }
         }
 
