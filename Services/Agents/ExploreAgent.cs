@@ -165,7 +165,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // ── 如果工具调用后有思考内容，附加到结果中 ──
                 if (!string.IsNullOrEmpty(thinkingContent))
                 {
-                    result.Content = $"<details><summary>💭 思考过程</summary>\n\n{thinkingContent}\n\n</details>\n\n{aiResponse}";
+                    result.Content = $"<details><summary>{LocalizationService.Instance["chat.html.thinkingTitle"]}</summary>\n\n{thinkingContent}\n\n</details>\n\n{aiResponse}";
                 }
                 else
                 {

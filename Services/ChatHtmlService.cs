@@ -652,7 +652,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             return
                 "<details class='reasoning-panel' id='reasoning-" + idx + "' open='true' style='display:" + displayStyle + "'>" +
-                "<summary>思考过程</summary>" +
+                "<summary>" + L["chat.html.thinkingTitle"] + "</summary>" +
                 "<div class='reasoning-content' id='reasoning-body-" + idx + "'>" + body + "</div>" +
                 "</details>";
         }
@@ -748,7 +748,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     string thinkBody = Markdown.ToHtml(thinkMatch.Groups["content"].Value, MarkdownPipeline);
                     string thinkBlock =
-                        $"<details class='reasoning-panel' open='true'><summary>思考过程</summary><div class='reasoning-content'>{thinkBody}</div></details>";
+                        $"<details class='reasoning-panel' open='true'><summary>{L["chat.html.thinkingTitle"]}</summary><div class='reasoning-content'>{thinkBody}</div></details>";
                     string answerHtml = Markdown.ToHtml(thinkMatch.Groups["answer"].Value, MarkdownPipeline);
                     htmlContent = $"{thinkBlock}\n{answerHtml}";
                 }

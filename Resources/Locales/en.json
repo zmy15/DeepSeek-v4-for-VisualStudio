@@ -533,6 +533,7 @@
   "session.deleted": "Session deleted",
   "session.saveFailed": "Failed to save session",
   "session.deleteFailed": "Failed to delete session file",
+  "session.generateTitlePrompt": "Based on the following conversation, generate a concise session title (max 10 words, no quotes, no ellipsis):\n\nUser: {0}\n\nAssistant: {1}\n\nTitle:",
 
   "══════════════════════════════": "═══ Agent Definitions ═══",
 
