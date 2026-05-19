@@ -156,6 +156,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 var plan = await CreatePlanAsync(userMessage, discoveryContext, context);
                 result.Plan = plan;
 
+                var L = LocalizationService.Instance;
+
                 if (plan != null && plan.Steps.Count > 0)
                 {
                     AddLog("INFO", $"计划创建完成: {plan.Steps.Count} 个步骤 → \"{plan.Title}\"");
@@ -180,7 +182,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
 
                     // ── 设置 Handoff：计划完成后自动建议切换到 Edit Agent 执行 ──
-                    var L = LocalizationService.Instance;
                     result.Handoff = new AgentHandoff
                     {
                         Label = L["plan.handoff.label"],
