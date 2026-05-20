@@ -638,7 +638,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string escaped = System.Net.WebUtility.HtmlEncode(cleanContent.Trim());
             string body = escaped.Replace("\n", "<br>");
 
-            // ── 聊天软件风格：气泡左 → YOU标签 → 头像右
+            // ── 气泡 + 头像水平对齐（无标签）
             sb.Append("<div class='msg-wrapper user'>");
             sb.Append("<div class='msg-bubble user'>");
             sb.Append(fileBlocksHtml);
@@ -646,7 +646,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             sb.Append($"<div class='msg-content' id='msg-body-{messageIndex}'>{body}</div>");
             sb.Append(editBtnHtml);
             sb.Append("</div>");
-            sb.Append("<div class='msg-role-label user'>You</div>");
             sb.Append("<div class='msg-avatar user'>👤</div>");
             sb.Append("</div>");
         }
