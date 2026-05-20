@@ -364,8 +364,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     catch { }
 
-                    // ── 强制刷新批处理缓冲，确保增量内容已推送 ──
-                    FlushBatchStream(_agentStreamingMsgIndex);
+                    // ── 同步最终内容并强制刷新，确保增量内容已推送 ──
+                    BatchStreamingUpdate(_agentStreamingMsgIndex, finalContent, string.Empty, isComplete: true);
 
                     // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染（含 Markdown HTML + 执行过程）──
                     string combinedFooter = thinkingDetailsHtml + cacheFooter;
@@ -424,8 +424,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     catch { }
 
-                    // ── 强制刷新批处理缓冲，确保增量内容已推送 ──
-                    FlushBatchStream(_agentStreamingMsgIndex);
+                    // ── 同步最终内容并强制刷新，确保增量内容已推送 ──
+                    BatchStreamingUpdate(_agentStreamingMsgIndex, agentResult.Content, string.Empty, isComplete: true);
 
                     // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染 ──
                     PostStreamEnd(_agentStreamingMsgIndex, agentResult.Content, string.Empty, cacheFooter);
@@ -473,8 +473,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     catch { }
 
-                    // ── 强制刷新批处理缓冲，确保增量内容已推送 ──
-                    FlushBatchStream(_agentStreamingMsgIndex);
+                    // ── 同步最终内容并强制刷新，确保增量内容已推送 ──
+                    BatchStreamingUpdate(_agentStreamingMsgIndex, errorContent, string.Empty, isComplete: true);
 
                     // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染 ──
                     PostStreamEnd(_agentStreamingMsgIndex, errorContent, string.Empty, cacheFooter);
@@ -1799,8 +1799,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                 }
 
-                // ── 强制刷新批处理缓冲，确保增量内容已推送 ──
-                FlushBatchStream(newAssistantIdx);
+                // ── 同步最终内容并强制刷新，确保增量内容已推送 ──
+                BatchStreamingUpdate(newAssistantIdx, contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: true);
 
                 PostStreamEnd(newAssistantIdx, contentBuffer.ToString(), reasoningBuffer.ToString(), cacheFooterHtml);
 
@@ -1829,7 +1829,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     assistantMsg.Content += "\n\n*[已停止]*";
                     assistantMsg.IsStreaming = false;
-                    FlushBatchStream(newAssistantIdx);
+                    BatchStreamingUpdate(newAssistantIdx, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
                     PostStreamEnd(newAssistantIdx, assistantMsg.Content, assistantMsg.ReasoningContent);
                 }
             }
@@ -1840,7 +1840,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     assistantMsg.Content = $"抱歉，发生了错误，请重试。\n\n```\n{ex.Message}\n```";
                     assistantMsg.IsStreaming = false;
-                    FlushBatchStream(newAssistantIdx);
+                    BatchStreamingUpdate(newAssistantIdx, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
                     PostStreamEnd(newAssistantIdx,
                         assistantMsg.Content, assistantMsg.ReasoningContent);
                 }

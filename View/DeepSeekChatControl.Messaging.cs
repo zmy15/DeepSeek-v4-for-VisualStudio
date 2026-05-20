@@ -410,7 +410,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         StatusLabel.Text = LocalizationService.Instance["status.baiduKeyMissing"];
                         assistantMsg.Content = LocalizationService.Instance["websearch.notConfigured"];
                         assistantMsg.IsStreaming = false;
-                        FlushBatchStream(assistantMsgIndex);
+                        BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, string.Empty, isComplete: true);
                         PostStreamEnd(assistantMsgIndex, assistantMsg.Content, string.Empty);
                         _isGenerating = false;
                         UpdateButtonsState();
@@ -497,7 +497,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         Logger.Error($"[Render] 百度 API Key 无效", ex);
                         assistantMsg.Content = LocalizationService.Instance["websearch.invalidApiKey"];
                         assistantMsg.IsStreaming = false;
-                        FlushBatchStream(assistantMsgIndex);
+                        BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
                         PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
                         lock (_lock) { _messages.Remove(assistantMsg); }
                         lock (_lock) { _isGenerating = false; }
@@ -884,8 +884,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         totalCacheHitTokens, totalCacheMissTokens,
                         totalPromptTokens, totalCompletionTokens, round);
 
-                    // ── 强制刷新批处理缓冲，确保最后一段增量内容已推送 ──
-                    FlushBatchStream(assistantMsgIndex);
+                    // ── 同步最终内容并强制刷新，确保增量内容已推送 ──
+                    BatchStreamingUpdate(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: true);
 
                     // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染（含 Markdown HTML）──
                     PostStreamEnd(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), cacheFooterHtml);
@@ -932,7 +932,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     Logger.Error($"[Render] API Key 无效", ex);
                     assistantMsg.Content = $"⚠️ {ex.Message}";
                     assistantMsg.IsStreaming = false;
-                    FlushBatchStream(assistantMsgIndex);
+                    BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
                     PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
                     lock (_lock) { _messages.Remove(assistantMsg); }
                 }
@@ -941,7 +941,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     Logger.Info("[Render] 用户停止生成");
                     assistantMsg.Content += "\n\n*[已停止]*";
                     assistantMsg.IsStreaming = false;
-                    FlushBatchStream(assistantMsgIndex);
+                    BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
                     PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
                 }
                 catch (HttpRequestException ex) when (ex.Message.Contains("401") || ex.Message.Contains("403"))
@@ -949,7 +949,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     Logger.Error($"[Render] API 认证失败", ex);
                     assistantMsg.Content = "⚠️ DeepSeek API Key 无效或已过期，请重新配置。";
                     assistantMsg.IsStreaming = false;
-                    FlushBatchStream(assistantMsgIndex);
+                    BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
                     PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
                     lock (_lock) { _messages.Remove(assistantMsg); }
                 }
@@ -958,7 +958,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     Logger.Error($"[Render] API 出错", ex);
                     assistantMsg.Content = string.Format(LocalizationService.Instance["status.apiError"], ex.Message);
                     assistantMsg.IsStreaming = false;
-                    FlushBatchStream(assistantMsgIndex);
+                    BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
                     PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
                 }
                 finally
