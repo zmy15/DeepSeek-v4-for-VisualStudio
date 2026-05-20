@@ -41,44 +41,7 @@
     <PackageReference Include="System.Numerics.Vectors" Version="4.6.1" />
     <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.0" />
     <PackageReference Include="System.ValueTuple" Version="4.5.0" />
-    <!-- OCR 引擎 -->
-    <PackageReference Include="Sdcb.PaddleOCR" Version="3.0.1" />
-	<PackageReference Include="Sdcb.PaddleInference" Version="3.0.1" />
-    <PackageReference Include="Sdcb.PaddleOCR.Models.Local" Version="3.0.1" />
-    <PackageReference Include="Sdcb.PaddleInference.runtime.win64.mkl" Version="3.1.0.54" />
-    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.10.0.20241108" />
   </ItemGroup>
-  <!-- ========================================================================
-    原生 DLL 部署修复（针对 VS Extension 场景）
-    ========================================================================
-    
-    问题背景：
-    1. VS 扩展运行时宿主是 devenv.exe，不在插件输出目录。
-    2. NuGet 原生 DLL（PaddleInference/OpenCvSharp）被部署到子目录
-       （dll\x64\），但 SetDllDirectory 只添加了根目录。
-    
-    修复策略：
-    - CopyNativeDlls：将所有原生 DLL 复制到输出根目录（本地调试验证用）
-    - OcrService.EnsureNativeDllSearchPath()：运行时预加载所有子目录中的 DLL
-    ======================================================================== -->
-
-  <!-- 将原生 DLL 从子目录复制到输出根目录（供本地调试和后续 VSIX 引用） -->
-  <Target Name="CopyNativeDlls" AfterTargets="AfterBuild">
-    <ItemGroup>
-      <!-- OpenCvSharp 原生 DLL -->
-      <NativeDlls Include="$(TargetDir)dll\x64\OpenCvSharpExtern.dll" />
-      <!-- PaddleInference 原生 DLL -->
-      <NativeDlls Include="$(TargetDir)dll\x64\paddle_inference_c.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\common.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\libiomp5md.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\mkldnn.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\mklml.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\onnxruntime.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\onnxruntime_providers_shared.dll" />
-      <NativeDlls Include="$(TargetDir)dll\x64\paddle2onnx.dll" />
-    </ItemGroup>
-    <Copy SourceFiles="@(NativeDlls)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
-  </Target>
 
   <!-- ========================================================================
      将 System.* .NET Standard 桥接程序集强制复制到输出目录
