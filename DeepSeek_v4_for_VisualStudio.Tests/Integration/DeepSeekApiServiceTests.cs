@@ -40,8 +40,8 @@ public class DeepSeekApiServiceTests
         }
 
         // Assert
-        tokens.Should().Contain("Hello");
-        tokens.Should().Contain(" World");
+        // 内容片段已被批处理聚合（ContentFlushThreshold=200），"Hello"+" World" 合并为一个 token
+        tokens.Should().Contain("Hello World");
     }
 
     [Fact]
