@@ -237,7 +237,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                         }
                         int capturedUserMsgIndex = _messages.Count - 1;
-                        AddMessagesHtml("user", userDisplayContent, null, parseResults);
+                        AddMessagesHtml("user", userDisplayContent, null, parseResults, capturedUserMsgIndex);
                         UpdateBrowser();
                         ClearAttachedFiles();
                         AutoTitleSession();
@@ -354,6 +354,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _contextManager.AddUserMessage(fullUserContent);
                 }
 
+                int userMsgIndex = _messages.Count - 1;  // 捕获用户消息索引（用于 AddMessagesHtml）
+
                 ClearAttachedFiles();
                 AutoTitleSession();
 
@@ -384,7 +386,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                 }
 
-                AddMessagesHtml("user", userDisplayContent, null, parseResults);
+                AddMessagesHtml("user", userDisplayContent, null, parseResults, userMsgIndex);
                 AddMessagesHtml("assistant", string.Empty);
                 UpdateBrowser();
 

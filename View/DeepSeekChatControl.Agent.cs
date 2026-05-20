@@ -1675,6 +1675,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         // ── 检查是否已有 retry fork 占位 assistant，避免创建多余气泡 ──
                         bool hasPlaceholder = TryReuseRetryPlaceholder(out assistantMsg, out newAssistantIdx);
 
+                        // ── 重置累计 Cache 统计（与主流程一致）──
+                        _apiService?.ResetAccumulatedStats();
+
                         await RunAgentWorkflowAsync(enrichedContent, fileContext, routing);
                         RecordAgentFileChanges(userMsgIndex);
 
@@ -1723,6 +1726,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 RebuildMessagesHtml();
                 _browserInitialized = false;
                 UpdateBrowser();
+
+                // ── 重置累计 Cache 统计（与主流程 SendMessageCoreAsync 一致）──
+                _apiService?.ResetAccumulatedStats();
 
                 var requestMessages = await BuildRequestMessagesAsync();
                 var apiService = _apiService!;
@@ -1787,15 +1793,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // ── 记录 Cache 命中率 ──
                 LogCacheHitRate();
 
-                // ── 构建 Cache 命中率统计卡片 HTML ──
+                // ── 构建 Cache 命中率统计卡片 HTML（使用累计值，与主流程一致）──
                 string cacheFooterHtml = string.Empty;
                 {
-                    var usage = _apiService?.LastUsage;
-                    if (usage != null)
+                    long totalHit = _apiService?.TotalCacheHitTokens ?? 0;
+                    long totalMiss = _apiService?.TotalCacheMissTokens ?? 0;
+                    long totalPrompt = _apiService?.TotalPromptTokens ?? 0;
+                    long totalComp = _apiService?.TotalCompletionTokens ?? 0;
+                    if (totalHit + totalMiss > 0)
                     {
                         cacheFooterHtml = ChatHtmlService.BuildCacheHitFooterHtml(
-                            usage.PromptCacheHitTokens, usage.PromptCacheMissTokens,
-                            usage.PromptTokens, usage.CompletionTokens, roundCount: 1);
+                            totalHit, totalMiss, totalPrompt, totalComp, roundCount: 1);
                     }
                 }
 

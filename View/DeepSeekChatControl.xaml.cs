@@ -235,6 +235,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _webSearchEngine = "Off";
             UpdateWebSearchToggleAppearance();
 
+            // ── 初始显示 WPF 状态栏（WebView2 就绪后由内部 #status-bar 接管）──
+            WpfStatusBar.Visibility = System.Windows.Visibility.Visible;
+            StatusLabel.Text = "正在初始化…";
+
             // 注册 WebView2 事件
             ChatWebView.CoreWebView2InitializationCompleted += ChatWebView_CoreWebView2InitializationCompleted;
 

@@ -101,6 +101,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 ChatWebView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
                 ChatWebView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
 
+                // ── WebView2 就绪，隐藏 WPF 回退状态栏 ──
+                WpfStatusBar.Visibility = System.Windows.Visibility.Collapsed;
+
                 // 构建初始 HTML 内容
                 RebuildMessagesHtml();
                 _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>

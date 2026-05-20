@@ -623,15 +623,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string escaped = System.Net.WebUtility.HtmlEncode((content ?? string.Empty).Trim());
             string body = escaped.Replace("\n", "<br>");
 
-            // Copilot Chat 风格：右对齐，简洁气泡
+            // ── 左对齐，简洁气泡
             sb.Append("<div class='msg-wrapper user'>");
-            sb.Append("<div class='msg-bubble user' style='text-align:right'>");
+            sb.Append("<div class='msg-avatar user'>👤</div>");
+            sb.Append("<div class='msg-bubble user'>");
             sb.Append($"<div class='msg-role-label user'>You</div>");
             sb.Append(fileBlocksHtml);
             sb.Append($"<div class='msg-content' id='msg-body-{messageIndex}'>{body}</div>");
             sb.Append(editBtnHtml);
             sb.Append("</div>");
-            sb.Append("<div class='msg-avatar user'>👤</div>");
             sb.Append("</div>");
         }
 
