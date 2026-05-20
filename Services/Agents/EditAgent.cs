@@ -417,6 +417,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 workspaceRoot = System.IO.Path.GetDirectoryName(workspaceRoot) ?? workspaceRoot;
 
             // ── AI 调用循环（支持格式重试）──
+            var retryOutputs = new List<string>();
             for (int retry = 0; retry <= maxFormatRetries; retry++)
             {
                 if (ct.IsCancellationRequested) return;
@@ -441,6 +442,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     maxTokens: 8192,
                     toolWhitelist: new List<string>(ExplorationTools));
 
+                retryOutputs.Add(result);
+
                 // ── 检测编辑格式并解析 ──
                 bool hasValidEdit = HasAnyValidEditFormat(result);
                 if (hasValidEdit) break;
@@ -451,7 +454,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     AddLog("WARN", LocalizationService.Instance["agent.log.retriesExhausted"]);
             }
 
-            step.AiResponse = result;
+            // ── 保留所有重试输出，方便用户查看完整 AI 交互过程 ──
+            if (retryOutputs.Count > 1)
+            {
+                var sb = new System.Text.StringBuilder();
+                for (int i = 0; i < retryOutputs.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.AppendLine();
+                        sb.AppendLine("---");
+                        sb.AppendLine($"> ⚠️ 第 {i + 1} 次尝试（前次格式错误，已自动重试）");
+                        sb.AppendLine();
+                    }
+                    sb.Append(retryOutputs[i]);
+                }
+                step.AiResponse = sb.ToString();
+            }
+            else
+            {
+                step.AiResponse = retryOutputs.FirstOrDefault() ?? "";
+            }
 
             // ── 检测编辑操作类型 ──
             var operationType = _editPatchService?.DetectOperationType(result)
@@ -525,7 +548,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         BriefDescription = $"{Path.GetFileName(r.FilePath)} ({r.OperationType})",
                     };
                 })
-                .Union(plan.ChangedFiles)
+                .Concat(plan.ChangedFiles)
+                .GroupBy(c => NormalizePath(c.FilePath), StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
                 .ToList();
 
             step.ResultSummary = changes.Count > 0
