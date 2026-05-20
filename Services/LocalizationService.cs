@@ -22,7 +22,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         public static LocalizationService Instance => _instance.Value;
 
-        private LocalizationService() { }
+        private LocalizationService()
+        {
+            // 自动加载默认语言，确保在测试环境或未显式调用 Initialize() 时也能正常工作
+            Reload();
+        }
 
         #endregion
 
@@ -303,31 +307,54 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 获取资源文件的绝对路径。
-        /// 优先查找扩展安装目录下的 Resources\Locales\ 文件夹。
+        /// 按优先级搜索多个位置：程序集目录 → 向上遍历查找 → 工作目录。
         /// </summary>
         private static string GetResourceFilePath(string languageCode)
         {
-            // 尝试扩展安装目录
+            string relativePath = Path.Combine("Resources", "Locales", $"{languageCode}.json");
+
+            // 1. 尝试程序集所在目录（VS 扩展运行时 / 本地调试）
             try
             {
                 var assemblyLocation = typeof(LocalizationService).Assembly.Location;
                 var assemblyDir = Path.GetDirectoryName(assemblyLocation);
                 if (assemblyDir != null)
                 {
-                    string localesDir = Path.Combine(assemblyDir, "Resources", "Locales");
-                    string filePath = Path.Combine(localesDir, $"{languageCode}.json");
-
+                    string filePath = Path.Combine(assemblyDir, relativePath);
                     if (File.Exists(filePath))
                         return filePath;
+
+                    // 2. 从程序集目录向上查找（最多 5 级），适配测试项目等不同输出目录结构
+                    string? searchDir = assemblyDir;
+                    for (int i = 0; i < 5 && searchDir != null; i++)
+                    {
+                        string candidate = Path.Combine(searchDir, relativePath);
+                        if (File.Exists(candidate))
+                            return candidate;
+                        searchDir = Path.GetDirectoryName(searchDir);
+                    }
                 }
             }
             catch
             {
-                // 回退到相对路径
+                // 回退到后续方法
             }
 
-            // 回退：相对于当前工作目录
-            return Path.Combine("Resources", "Locales", $"{languageCode}.json");
+            // 3. 尝试当前工作目录
+            string cwdPath = Path.Combine(Directory.GetCurrentDirectory(), relativePath);
+            if (File.Exists(cwdPath))
+                return cwdPath;
+
+            // 4. 最终回退：返回程序集目录下的相对路径（即使文件不存在，让调用方处理）
+            try
+            {
+                var assemblyDir = Path.GetDirectoryName(typeof(LocalizationService).Assembly.Location);
+                if (assemblyDir != null)
+                    return Path.Combine(assemblyDir, relativePath);
+            }
+            catch { }
+
+            return cwdPath;
         }
 
         #endregion
