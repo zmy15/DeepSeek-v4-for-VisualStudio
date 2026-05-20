@@ -21,7 +21,7 @@ ul,ol{padding-left:22px;margin:6px 0}li{margin:2px 0}blockquote{border-left:3px 
 table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #444;padding:6px 10px;text-align:left}th{background:#333;color:#e0e0e0;font-weight:600}hr{border:none;border-top:1px solid #444;margin:12px 0}
 .code-lang{position:absolute;top:6px;left:14px;color:#9cdcfe;font-size:10px;font-family:'Segoe UI',sans-serif;text-transform:uppercase}
 .copy-btn{position:absolute;top:4px;right:8px;background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:4px;padding:2px 10px;font-size:11px;cursor:pointer;font-family:'Segoe UI',sans-serif;z-index:1;transition:all .15s}.copy-btn:hover{background:#505050;color:#fff}
-.msg-wrapper{display:flex;gap:12px;margin-bottom:24px;padding:0 4px}.msg-wrapper.user{justify-content:flex-start}
+.msg-wrapper{display:flex;gap:12px;margin-bottom:24px;padding:0 4px}.msg-wrapper.user{justify-content:flex-end}
 .msg-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}.msg-avatar.ai{background:#4ec9b0;color:#1e1e1e}.msg-avatar.user{background:#569cd6;color:#fff}
 .msg-bubble{max-width:85%;min-width:0}.msg-bubble.ai{flex:1;min-width:0}
 .msg-role-label{font-size:11px;font-weight:600;margin-bottom:4px;color:#999;text-transform:uppercase;letter-spacing:1px}.msg-role-label.user{text-align:left;color:#569cd6}.msg-role-label.ai{color:#4ec9b0}

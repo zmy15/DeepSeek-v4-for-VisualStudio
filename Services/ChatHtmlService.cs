@@ -50,7 +50,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     AppendUserMessageHtml(sb, msg.Content ?? string.Empty, msg.AttachedFiles, i);
                     // ── 编辑产生的分支导航（在用户气泡下方）──
-                    if (msg.SiblingCount > 1 && msg.ForkReason == "edit")
+                    if (msg.SiblingCount > 1)
                         sb.Append(BuildBranchNavHtml(msg, i));
                 }
                 else if (msg.Role == "assistant")
@@ -623,15 +623,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string escaped = System.Net.WebUtility.HtmlEncode((content ?? string.Empty).Trim());
             string body = escaped.Replace("\n", "<br>");
 
-            // ── 左对齐，简洁气泡
+            // ── 头像靠右，文字左对齐
             sb.Append("<div class='msg-wrapper user'>");
-            sb.Append("<div class='msg-avatar user'>👤</div>");
             sb.Append("<div class='msg-bubble user'>");
             sb.Append($"<div class='msg-role-label user'>You</div>");
             sb.Append(fileBlocksHtml);
             sb.Append($"<div class='msg-content' id='msg-body-{messageIndex}'>{body}</div>");
             sb.Append(editBtnHtml);
             sb.Append("</div>");
+            sb.Append("<div class='msg-avatar user'>👤</div>");
             sb.Append("</div>");
         }
 
@@ -691,7 +691,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 构建分支导航 HTML（根据 ForkReason 决定放在用户/助手气泡下）。
         /// </summary>
-        private static string BuildBranchNavHtml(ChatMessage msg, int msgIndex)
+        public static string BuildBranchNavHtml(ChatMessage msg, int msgIndex)
         {
             if (msg == null || msg.SiblingCount <= 1) return "";
 

@@ -282,7 +282,9 @@
                            Grid.Column="0"
                            FontSize="11"
                            Foreground="#888888"
-                           VerticalAlignment="Center" />
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           TextTrimming="CharacterEllipsis" />
                 <Border x:Name="AgentModeBadge"
                         Grid.Column="1"
                         HorizontalAlignment="Right"
