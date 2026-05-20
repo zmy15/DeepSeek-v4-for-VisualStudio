@@ -623,14 +623,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string escaped = System.Net.WebUtility.HtmlEncode((content ?? string.Empty).Trim());
             string body = escaped.Replace("\n", "<br>");
 
-            // ── 头像靠右，文字左对齐
+            // ── 聊天软件风格：气泡左 → YOU标签 → 头像右
             sb.Append("<div class='msg-wrapper user'>");
             sb.Append("<div class='msg-bubble user'>");
-            sb.Append($"<div class='msg-role-label user'>You</div>");
             sb.Append(fileBlocksHtml);
             sb.Append($"<div class='msg-content' id='msg-body-{messageIndex}'>{body}</div>");
             sb.Append(editBtnHtml);
             sb.Append("</div>");
+            sb.Append("<div class='msg-role-label user'>You</div>");
             sb.Append("<div class='msg-avatar user'>👤</div>");
             sb.Append("</div>");
         }
@@ -921,7 +921,6 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
        "' media='none' onload=\"if(this.media!=='all')this.media='all'\" />" +
        "</head><body>" +
        "<div id='chat-container'>" + messagesHtml + "</div>" +
-       "<div id='status-bar'><span id='status-text'></span><span id='agent-badge' class='agent-badge' style='display:none'></span></div>" +
        "<script>" +
        // 动态创建 script 标签，异步加载 highlight.js
        "var hljsScript=document.createElement('script');" +

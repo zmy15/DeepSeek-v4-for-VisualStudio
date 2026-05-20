@@ -235,8 +235,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _webSearchEngine = "Off";
             UpdateWebSearchToggleAppearance();
 
-            // ── 初始显示 WPF 状态栏（WebView2 就绪后由内部 #status-bar 接管）──
-            WpfStatusBar.Visibility = System.Windows.Visibility.Visible;
+            // ── 状态信息直接显示在输入区顶部状态行 ──
             StatusLabel.Text = "正在初始化…";
 
             // 注册 WebView2 事件
@@ -1376,35 +1375,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 通过 JS 更新 WebView2 内嵌状态栏，同时更新 Agent 模式徽章。
-        /// 使用 fire-and-forget 模式避免阻塞 UI 线程。
+        /// 直接更新 WPF 状态行（StatusLabel），替代原先 WebView2 内嵌 #status-bar 的 JS 路径。
+        /// 通过 VS JoinableTaskFactory 切换到 UI 线程更新。
         /// </summary>
         private async Task UpdateStatusViaJsAsync(string statusText)
         {
             try
             {
-                if (ChatWebView?.CoreWebView2 == null || !_pageReady) return;
-
-                string agentBadgeText = "";
-                string agentBadgeClass = "";
-                if (_agentDispatcher != null && AgentModeBadge?.Visibility == System.Windows.Visibility.Visible)
-                {
-                    agentBadgeText = AgentModeText?.Text ?? "";
-                    agentBadgeClass = _agentDispatcher.ActiveAgentType switch
-                    {
-                        Models.AgentType.Plan => "plan",
-                        Models.AgentType.Edit => "edit",
-                        Models.AgentType.Explore => "explore",
-                        _ => "",
-                    };
-                }
-
-                string js = ChatHtmlService.BuildStatusUpdateJs(statusText, agentBadgeText, agentBadgeClass);
-                await ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
+                await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                StatusLabel.Text = statusText ?? "";
             }
             catch
             {
-                // WebView2 未就绪时静默跳过（回退到 WPF StatusLabel）
+                // 调度失败时静默跳过
             }
         }
 
