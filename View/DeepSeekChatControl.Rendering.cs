@@ -148,8 +148,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 通过 JS 增量更新流式消息的 DOM 内容（旧版 ExecuteScriptAsync 路径，保留兼容）。
+        /// [已废弃] 通过 JS 增量更新流式消息的 DOM 内容（旧版 ExecuteScriptAsync 路径）。
+        /// 当前所有流式更新已迁移至 PostWebMessageAsString 非阻塞通道，
+        /// 此方法保留仅用于回退调试，计划在下个版本移除。
         /// </summary>
+        [Obsolete("已迁移至 PostStreamingUpdate (PostWebMessageAsString 非阻塞通道)")]
         private async Task UpdateStreamingMessageAsync(int messageIndex, string content, string reasoningContent, bool isComplete)
         {
             if (ChatWebView.CoreWebView2 == null) return;
@@ -172,7 +175,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private void PostStreamingUpdate(int messageIndex, string content, string reasoningContent, bool isComplete, string? statusText = null)
         {
-            if (ChatWebView.CoreWebView2 == null) return;
+            if (ChatWebView.CoreWebView2 == null || !_pageReady) return;
 
             try
             {
@@ -190,7 +193,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private void PostStreamEnd(int messageIndex, string fullContent, string reasoningContent, string? extraFooterHtml = null)
         {
-            if (ChatWebView.CoreWebView2 == null) return;
+            if (ChatWebView.CoreWebView2 == null || !_pageReady) return;
 
             try
             {
@@ -208,7 +211,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private void PostStatusUpdate(string statusText)
         {
-            if (ChatWebView.CoreWebView2 == null) return;
+            if (ChatWebView.CoreWebView2 == null || !_pageReady) return;
 
             try
             {

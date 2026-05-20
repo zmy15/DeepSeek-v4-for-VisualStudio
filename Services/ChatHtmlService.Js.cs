@@ -218,10 +218,17 @@ window.__executeHandoff=function(targetAgent,label){
                         },250);
                     }
                 }else if(msg.type==='streamEnd'){
-                    // ★ 先渲染 Markdown（独立于 _flushStreamBuf，不受其异常影响）
+                    // ★ 先取消待处理的 rAF 和定时器，防止 _flushStreamBuf 覆盖已渲染的 Markdown
+                    if(_rafTimer){clearTimeout(_rafTimer);_rafTimer=null;}
+                    _rafPending=false;
+                    delete _streamBuf[msg.i];  // 清除可能残留的流式缓冲，避免 textNode 覆盖 innerHTML
+
+                    // ★ 渲染 Markdown（独立于 _flushStreamBuf，不受其异常影响）
                     if (msg.html) {
                         var container = document.getElementById('msg-body-' + msg.i);
                         if (container) {
+                            // 清理流式阶段残留的 _textNode 引用
+                            container._textNode = null;
                             container.innerHTML = msg.html;
                             var cursor = document.getElementById('cursor-' + msg.i);
                             if (cursor) cursor.style.display = 'none';
@@ -259,9 +266,6 @@ window.__executeHandoff=function(targetAgent,label){
                     // ★ 清除状态栏文本
                     var st = document.getElementById('status-text');
                     if (st) st.textContent = '';
-                    // ★ 最后再 flush（即使失败也不影响 Markdown 渲染）
-                    _streamBuf[msg.i] = msg;
-                    _flushStreamBuf(0);
                 }else if(msg.type==='streamStatus'){
                     // 仅更新状态栏（避免额外通信）
                     var st=document.getElementById('status-text');
