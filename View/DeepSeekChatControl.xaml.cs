@@ -1525,6 +1525,36 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private const long StreamBatchMinIntervalTicks = 80_0000; // 80ms (Stopwatch ticks)
 
         /// <summary>
+        /// 空闲超时定时器：每次 BatchStreamingUpdate 调用后重置 300ms，
+        /// 到时后强制刷新所有待处理缓冲，确保短暂停顿的内容能被及时渲染。
+        /// 只创建一次，重复 Stop/Start 避免反复 Dispose 的开销。
+        /// </summary>
+        private System.Timers.Timer? _flushIdleTimer;
+        private bool _flushIdleTimerCreated;
+
+        private void EnsureFlushIdleTimer()
+        {
+            if (_flushIdleTimerCreated) return;
+            _flushIdleTimerCreated = true;
+            _flushIdleTimer = new System.Timers.Timer(300) { AutoReset = false };
+            _flushIdleTimer.Elapsed += (_, _) =>
+            {
+                try
+                {
+                    Dictionary<int, StreamBatchState> pending;
+                    lock (_streamBatchLock)
+                    {
+                        if (_streamBatchStates.Count == 0) return;
+                        pending = new Dictionary<int, StreamBatchState>(_streamBatchStates);
+                    }
+                    foreach (var kvp in pending)
+                        BatchStreamingUpdate(kvp.Key);
+                }
+                catch { }
+            };
+        }
+
+        /// <summary>
         /// 批处理流式更新：累积内容变化，仅在间隔达标或显著变化时推送。
         /// </summary>
         private void BatchStreamingUpdate(int messageIndex, string? content = null,
@@ -1571,6 +1601,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     state.PendingStatus = null;
                     if (state.IsComplete)
                         _streamBatchStates.Remove(messageIndex);
+                }
+
+                // ── 有内容且未完成：重置空闲超时定时器（300ms 无新输入则强制刷新）──
+                if (!state.IsComplete && state.Content.Length > 0)
+                {
+                    EnsureFlushIdleTimer();
+                    _flushIdleTimer?.Stop();
+                    _flushIdleTimer?.Start();
                 }
             }
         }

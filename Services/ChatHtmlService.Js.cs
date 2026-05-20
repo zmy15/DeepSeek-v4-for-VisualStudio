@@ -78,7 +78,7 @@ document.addEventListener('wheel',function(e){
         }
 
         /// <summary>
-        /// 智能自动滚动 JS。
+        /// 智能自动滚动 JS.
         /// 用户滚动离开底部 → 暂停自动滚动；
         /// 用户滚回底部附近 → 恢复自动滚动。
         /// 检测阈值: 距底部 80px 以内视为"在底部"。
@@ -133,7 +133,9 @@ window.__appendMessageHtml=function(html){
     }
     container.appendChild(fragment);
     // 流式追加期间跳过语法高亮（节省性能），由 BuildFinalRenderJs 在完成时统一处理
-    window.__scrollToBottom('smooth');
+    if (typeof window.__scrollToBottom === 'function') {
+        window.__scrollToBottom('smooth');
+    }
 };";
         }
 
@@ -216,15 +218,13 @@ window.__executeHandoff=function(targetAgent,label){
                         },250);
                     }
                 }else if(msg.type==='streamEnd'){
-                    // 流式完成：强制刷新并替换为 Markdown 渲染
-                    _streamBuf[msg.i]=msg;
-                    _flushStreamBuf(0);
-                    if(msg.html){
-                        var container=document.getElementById('msg-body-'+msg.i);
-                        if(container){
-                            container.innerHTML=msg.html;
-                            var cursor=document.getElementById('cursor-'+msg.i);
-                            if(cursor)cursor.style.display='none';
+                    // ★ 先渲染 Markdown（独立于 _flushStreamBuf，不受其异常影响）
+                    if (msg.html) {
+                        var container = document.getElementById('msg-body-' + msg.i);
+                        if (container) {
+                            container.innerHTML = msg.html;
+                            var cursor = document.getElementById('cursor-' + msg.i);
+                            if (cursor) cursor.style.display = 'none';
                             // 注入尾部 HTML
                             if(msg.footerHtml){
                                 var footerDiv=document.createElement('div');
@@ -256,12 +256,20 @@ window.__executeHandoff=function(targetAgent,label){
                             if(msgDiv&&window.hljs)decorateCodeBlocks(msgDiv);
                         }
                     }
+                    // ★ 清除状态栏文本
+                    var st = document.getElementById('status-text');
+                    if (st) st.textContent = '';
+                    // ★ 最后再 flush（即使失败也不影响 Markdown 渲染）
+                    _streamBuf[msg.i] = msg;
+                    _flushStreamBuf(0);
                 }else if(msg.type==='streamStatus'){
                     // 仅更新状态栏（避免额外通信）
                     var st=document.getElementById('status-text');
                     if(st&&msg.text)st.textContent=msg.text;
                 }
-            }catch(e){}
+            }catch(e) {
+                console.error('[DeepSeek] Message handler error:', e);
+            }
         });
     }
 
@@ -316,7 +324,9 @@ window.__executeHandoff=function(targetAgent,label){
         _streamBuf={};
         _rafPending=false;
         if(_rafTimer){clearTimeout(_rafTimer);_rafTimer=null;}
-        window.__scrollToBottom('smooth');
+        if (typeof window.__scrollToBottom === 'function') {
+            window.__scrollToBottom('smooth');
+        }
     }
 })();";
         }
