@@ -620,13 +620,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 文件附件 𠅂
             string fileBlocksHtml = BuildFileAttachmentHtml(attachedFiles);
 
-            string escaped = System.Net.WebUtility.HtmlEncode((content ?? string.Empty).Trim());
+            // ── 提取 @agent 路由前缀，渲染为彩色徽章 ──
+            string cleanContent = content ?? string.Empty;
+            string agentBadgeHtml = "";
+            if (cleanContent.StartsWith("@"))
+            {
+                int firstSpace = cleanContent.IndexOf(' ');
+                if (firstSpace > 1)
+                {
+                    string agentPrefix = cleanContent.Substring(0, firstSpace);     // e.g. "@ask"
+                    string agentName = agentPrefix.Substring(1);                    // e.g. "ask"
+                    cleanContent = cleanContent.Substring(firstSpace + 1).TrimStart();
+                    agentBadgeHtml = $"<div class='agent-route-badge'>🎯 {System.Net.WebUtility.HtmlEncode(agentName)}</div>";
+                }
+            }
+
+            string escaped = System.Net.WebUtility.HtmlEncode(cleanContent.Trim());
             string body = escaped.Replace("\n", "<br>");
 
             // ── 聊天软件风格：气泡左 → YOU标签 → 头像右
             sb.Append("<div class='msg-wrapper user'>");
             sb.Append("<div class='msg-bubble user'>");
             sb.Append(fileBlocksHtml);
+            sb.Append(agentBadgeHtml);
             sb.Append($"<div class='msg-content' id='msg-body-{messageIndex}'>{body}</div>");
             sb.Append(editBtnHtml);
             sb.Append("</div>");

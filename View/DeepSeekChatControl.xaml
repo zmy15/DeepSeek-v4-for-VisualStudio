@@ -279,36 +279,45 @@
                 </Grid.RowDefinitions>
 
                 <!-- ═══ 内嵌状态行 ═══ -->
-                <Grid Grid.Row="0" Margin="0,0,0,4">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="StatusLabel"
-                               Grid.Column="0"
-                               FontSize="11"
-                               Foreground="#888888"
-                               VerticalAlignment="Center"
-                               TextTrimming="CharacterEllipsis" />
-                    <Border x:Name="AgentModeBadge"
-                            Grid.Column="1"
-                            HorizontalAlignment="Right"
-                            VerticalAlignment="Center"
-                            MinWidth="60" Height="18"
-                            CornerRadius="3"
-                            Background="#555555"
-                            BorderThickness="1"
-                            BorderBrush="#666666"
-                            Visibility="Collapsed">
-                        <TextBlock x:Name="AgentModeText"
-                                   Text="ASK"
-                                   FontSize="10"
-                                   FontWeight="Bold"
-                                   Foreground="White"
-                                   HorizontalAlignment="Center"
+                <Grid Grid.Row="0" Margin="0,0,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0" Margin="0,0,0,3">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="StatusLabel"
+                                   Grid.Column="0"
+                                   FontSize="11"
+                                   Foreground="#888888"
                                    VerticalAlignment="Center"
-                                   Padding="8,0" />
-                    </Border>
+                                   TextWrapping="Wrap"
+                                   TextTrimming="CharacterEllipsis" />
+                        <Border x:Name="AgentModeBadge"
+                                Grid.Column="1"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                MinWidth="60" Height="18"
+                                CornerRadius="3"
+                                Background="#555555"
+                                BorderThickness="1"
+                                BorderBrush="#666666"
+                                Visibility="Collapsed">
+                            <TextBlock x:Name="AgentModeText"
+                                       Text="ASK"
+                                       FontSize="10"
+                                       FontWeight="Bold"
+                                       Foreground="White"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Padding="8,0" />
+                        </Border>
+                    </Grid>
+                    <!-- 状态行与输入区之间的分隔线 -->
+                    <Border Grid.Row="1" Height="1" Background="#3F3F46" Margin="0,3,0,1" />
                 </Grid>
 
                 <!-- ➕ 输入框左上角：添加上下文按钮 + Popup -->
