@@ -8,14 +8,15 @@
              d:DesignHeight="450" d:DesignWidth="600">
     <UserControl.Resources>
         <!-- ═══ 深色主题样式 ═══ -->
-        <!-- ComboBox 深色样式（完整自定义模板，保持所有下拉元素深色） -->
+        <!-- ComboBox 深色样式（VS 2022 风格） -->
         <Style TargetType="ComboBox">
             <Setter Property="Background" Value="#3C3C3C"/>
             <Setter Property="Foreground" Value="#D4D4D4"/>
             <Setter Property="BorderBrush" Value="#555555"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="6,3"/>
+            <Setter Property="Padding" Value="8,3"/>
             <Setter Property="FontSize" Value="12"/>
+            <Setter Property="MinHeight" Value="22"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -177,29 +178,35 @@
 
         <!-- ═══ 会话选择栏 ═══ -->
         <Border Grid.Row="0"
-                Background="#252526"
-                BorderBrush="#3C3C3C" BorderThickness="0,0,0,1"
-                Padding="8,6">
+                Background="#2D2D2D"
+                BorderBrush="#3F3F46" BorderThickness="0,0,0,1"
+                Padding="6,4">
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <ComboBox Grid.Column="0"
-                          x:Name="SessionComboBox"
-                          MinWidth="160"
+                <ComboBox x:Name="SessionComboBox"
+                          MinWidth="180"
+                          Height="26"
                           SelectionChanged="SessionComboBox_SelectionChanged"
                           DisplayMemberPath="Title" />
-
-                <Button Grid.Column="1"
-                        x:Name="DeleteSessionButton"
+                <Button x:Name="DeleteSessionButton"
                         Content="✕"
                         ToolTip="删除当前对话"
                         Click="DeleteSessionButton_Click"
-                        Style="{StaticResource TransparentButton}"
-                        FontSize="12" Padding="8,2" Margin="4,0,0,0"
-                        Foreground="#888888" />
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="#888888"
+                        FontSize="11"
+                        Cursor="Hand"
+                        Padding="4,0"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Margin="0,0,22,0"
+                        Width="20"
+                        Height="20"
+                        Panel.ZIndex="1">
+                    <Button.Resources>
+                        <Style TargetType="Border"/>
+                    </Button.Resources>
+                </Button>
             </Grid>
         </Border>
 
@@ -211,9 +218,8 @@
         <!-- ═══ Diff 预览全局控制栏 ═══ -->
         <Border Grid.Row="2"
                 x:Name="DiffGlobalBar"
-                Background="#1B5E20"
-                BorderBrush="#2E7D32"
-                BorderThickness="0,1,0,1"
+                Background="#1A3A20"
+                BorderBrush="#3F3F46" BorderThickness="0,1,0,0"
                 Padding="10,4"
                 Visibility="Collapsed">
             <Grid>
@@ -226,12 +232,11 @@
                            x:Name="DiffGlobalLabel"
                            Foreground="#E0E0E0"
                            FontSize="12"
-                           FontWeight="SemiBold"
                            VerticalAlignment="Center"
                            Text="📊 检测到文件变更" />
                 <TextBlock Grid.Column="1"
                            x:Name="DiffGlobalDetail"
-                           Foreground="#A0D0A0"
+                           Foreground="#90B090"
                            FontSize="11"
                            VerticalAlignment="Center"
                            Margin="10,0,0,0" />
@@ -239,42 +244,71 @@
                     <Button x:Name="UndoAllButton"
                             Content="↩️ 撤销全部"
                             Click="UndoAllDiffButton_Click"
-                            Background="#8B2E2E"
-                            Foreground="White"
-                            BorderBrush="#B84040"
-                            BorderThickness="1"
-                            MinWidth="90" MinHeight="26"
-                            FontSize="11" FontWeight="SemiBold"
+                            Background="#5C2A2A"
+                            Foreground="#E0E0E0"
+                            BorderThickness="0"
+                            MinWidth="72" MinHeight="22"
+                            FontSize="11"
                             Cursor="Hand"
-                            Padding="10,3"
-                            Margin="0,0,8,0" />
+                            Padding="8,2"
+                            Margin="0,0,4,0" />
                     <Button x:Name="AcceptAllButton"
                             Content="✅ 接受全部"
                             Click="AcceptAllDiffButton_Click"
-                            Background="#2E7D32"
-                            Foreground="White"
-                            BorderBrush="#4CAF50"
-                            BorderThickness="1"
-                            MinWidth="90" MinHeight="26"
-                            FontSize="11" FontWeight="SemiBold"
+                            Background="#1A6A2A"
+                            Foreground="#E0E0E0"
+                            BorderThickness="0"
+                            MinWidth="72" MinHeight="22"
+                            FontSize="11"
                             Cursor="Hand"
-                            Padding="10,3" />
+                            Padding="8,2" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- ═══ 状态显示 ═══ -->
-        <TextBlock Grid.Row="3"
-                   x:Name="StatusLabel"
-                   FontSize="11"
-                   Foreground="#888888"
-                   Margin="12,4,12,0" />
+        <!-- ═══ 状态显示栏 ═══ -->
+        <Border Grid.Row="3"
+                Background="#2D2D2D"
+                BorderBrush="#3F3F46" BorderThickness="0,1,0,0"
+                Padding="10,3">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StatusLabel"
+                           Grid.Column="0"
+                           FontSize="11"
+                           Foreground="#888888"
+                           VerticalAlignment="Center" />
+                <Border x:Name="AgentModeBadge"
+                        Grid.Column="1"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        MinWidth="60" Height="20"
+                        CornerRadius="3"
+                        Background="#555555"
+                        BorderThickness="1"
+                        BorderBrush="#666666"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="AgentModeText"
+                               Text="ASK"
+                               FontSize="10"
+                               FontWeight="Bold"
+                               Foreground="White"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Padding="8,0" />
+                </Border>
+            </Grid>
+        </Border>
 
         <!-- ═══ 输入区 ═══ -->
         <Border Grid.Row="4"
                 Background="#2D2D2D"
-                Margin="8,4,8,12" Padding="4" CornerRadius="6">
-            <Grid>
+                BorderBrush="#3F3F46" BorderThickness="0,1,0,0"
+                Padding="0">
+            <Grid Margin="12,8,12,12">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
@@ -596,81 +630,79 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <Grid Grid.Row="2" Margin="4,8,4,4">
+                <Grid Grid.Row="2" Margin="0,6,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <!-- 左侧: 模型和思考设置 -->
+                    <!-- 左侧: 模型、思考和搜索设置 -->
                     <StackPanel Grid.Column="0" Orientation="Horizontal">
                         <Button x:Name="UploadButton" Content="📎"
                             Click="UploadButton_Click"
                             Style="{StaticResource TransparentButton}"
                             ToolTip="上传文件 (支持 .txt .doc .xls .py .c 等)"
-                            FontSize="18" Padding="8,0"
+                            FontSize="15" Padding="6,0" Margin="0,0,2,0"
                             Foreground="#CE9178" />
                         <ComboBox x:Name="ModelComboBox"
-                                  MinWidth="140" Margin="0,0,8,0"
+                                  MinWidth="130" Margin="4,0,4,0"
                                   SelectionChanged="ModelComboBox_SelectionChanged" />
                         <CheckBox x:Name="ThinkingCheckBox"
-                                  VerticalAlignment="Center" Margin="0,0,8,0"
+                                  VerticalAlignment="Center" Margin="2,0,4,0"
                                   Checked="ThinkingCheckBox_Changed"
                                   Unchecked="ThinkingCheckBox_Changed" />
+                        <CheckBox x:Name="RagCheckBox"
+                                  VerticalAlignment="Center" Margin="2,0,4,0"
+                                  Checked="RagCheckBox_Changed"
+                                  Unchecked="RagCheckBox_Changed" />
                         <ComboBox x:Name="EffortComboBox"
-                                  MinWidth="70" Margin="0,0,8,0"
+                                  MinWidth="65" Margin="2,0,4,0"
                                   SelectionChanged="EffortComboBox_SelectionChanged" />
-                        <!-- 原来隐藏的 ComboBox，改为默认可见，通过代码控制 -->
                         <ComboBox x:Name="WebSearchEngineComboBox"
-                            MinWidth="110" Margin="0,0,8,0"
+                            MinWidth="100" Margin="2,0,4,0"
                             SelectionChanged="WebSearchEngineComboBox_SelectionChanged"
-                            ToolTip="Select search engine"
+                            ToolTip="选择搜索引擎"
                             Visibility="Collapsed" />
-                        <!-- 保留 Collapsed，由代码控制显示/隐藏 -->
-
                     </StackPanel>
 
                     <!-- 右侧: 操作按钮 -->
-                    <StackPanel Grid.Column="2" Orientation="Horizontal">
-                        <!-- 联网搜索切换按钮 -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
                         <Button x:Name="WebSearchToggleButton"
                                 Click="WebSearchToggleButton_Click"
                                 Style="{StaticResource TransparentButton}"
                                 ToolTip="联网搜索: 已关闭"
-                                FontSize="14" Padding="6,0" Margin="0,0,4,0"
+                                FontSize="14" Padding="4,0" Margin="0,0,2,0"
                                 Foreground="#888888">
                             <Button.Content>
                                 <TextBlock Text="🌐" FontSize="14" />
                             </Button.Content>
                         </Button>
-                        <!-- MCP 配置按钮 -->
                         <Button x:Name="McpConfigButton"
                                 Click="McpConfigButton_Click"
                                 Style="{StaticResource TransparentButton}"
                                 ToolTip="配置 MCP 服务器"
-                                FontSize="14" Padding="6,0" Margin="0,0,4,0"
+                                FontSize="14" Padding="4,0" Margin="0,0,2,0"
                                 Foreground="#888888">
                             <Button.Content>
                                 <TextBlock Text="🔌" FontSize="14" />
                             </Button.Content>
                         </Button>
-                        <Button x:Name="NewChatButton" Content="+ 新对话" Click="NewChatButton_Click"
-                                Style="{StaticResource TransparentButton}"
-                                Margin="0,0,8,0" FontSize="12"
-                                Foreground="#4EC9B0" />
                         <Button x:Name="ClearButton" Content="清空" Click="ClearButton_Click"
                                 Style="{StaticResource TransparentButton}"
-                                Margin="0,0,4,0" />
+                                Margin="0,0,2,0" FontSize="12" />
+                        <Button x:Name="NewChatButton" Content="+ 新对话" Click="NewChatButton_Click"
+                                Style="{StaticResource TransparentButton}"
+                                Margin="0,0,4,0" FontSize="12"
+                                Foreground="#4EC9B0" />
                         <Button x:Name="StopButton" Content="⏹"
                                 Click="StopButton_Click"
                                 Style="{StaticResource TransparentButton}"
-                                FontSize="14" Padding="8,0"
+                                FontSize="14" Padding="4,0"
                                 Visibility="Collapsed" />
                         <Button x:Name="SendButton" Content="➤"
                                 Click="SendButton_Click"
                                 Style="{StaticResource TransparentButton}"
-                                Foreground="#6CAFD9" FontSize="14" Padding="8,0" />
+                                Foreground="#6CAFD9" FontSize="14" Padding="4,0" />
                     </StackPanel>
                 </Grid>
             </Grid>

@@ -538,6 +538,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // ── 重置累计 Cache 统计（本次用户消息的所有 API 调用将统一累加到 _apiService）──
                     _apiService?.ResetAccumulatedStats();
 
+                    // ── 初始化流式渲染节流器 ──
+                    _streamRenderStopwatch = System.Diagnostics.Stopwatch.StartNew();
+                    _statusUpdateStopwatch = System.Diagnostics.Stopwatch.StartNew();
+
                     int round = 0;
                     while (!loopDetected)
                     {
@@ -592,13 +596,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             {
                                 var thinking = chunk.Substring(10);
                                 reasoningBuffer.Append(thinking);
-                                StatusLabel.Text = LocalizationService.Instance["status.deepThinking"];
+                                UpdateStatusText(LocalizationService.Instance["status.deepThinking"]);
 
-                                if (reasoningBuffer.Length - lastReasoningLength >= 80)
+                                int curReasoningLen = reasoningBuffer.Length;
+                                if (curReasoningLen - lastReasoningLength >= 80)
                                 {
-                                    assistantMsg.ReasoningContent = reasoningBuffer.ToString();
-                                    lastReasoningLength = reasoningBuffer.Length;
-                                    await UpdateStreamingMessageAsync(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: false);
+                                    string reasoningText = reasoningBuffer.ToString();
+                                    assistantMsg.ReasoningContent = reasoningText;
+                                    lastReasoningLength = curReasoningLen;
+                                    await UpdateStreamingMessageAsync(assistantMsgIndex, contentBuffer.ToString(), reasoningText, isComplete: false);
                                 }
                             }
                             else if (chunk.StartsWith("[TOOL_CALL]"))
@@ -625,7 +631,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     }
                                 }
                                 catch (JsonException) { }
-                                StatusLabel.Text = string.Format(LocalizationService.Instance["status.callingTool"], string.Join(", ", toolCallAccumulator.Values.Where(a => !string.IsNullOrEmpty(a.FunctionName)).Select(a => a.FunctionName)));
+                                // 节流 + LINQ 优化：仅在前缀变化时更新
+                                UpdateStatusToolCall(string.Join(", ",
+                                    toolCallAccumulator.Values
+                                        .Where(a => !string.IsNullOrEmpty(a.FunctionName))
+                                        .Select(a => a.FunctionName)));
                             }
                             else if (chunk.StartsWith("[CACHE]"))
                             {
@@ -643,11 +653,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                                 contentBuffer.Append(chunk);
                                 streamRenderTick += chunk.Length;
-                                StatusLabel.Text = LocalizationService.Instance["status.replying"];
+                                UpdateStatusText(LocalizationService.Instance["status.replying"]);
 
-                                if (streamRenderTick >= StreamRenderInterval)
+                                // 双重节流：字符数足够 + 距上次渲染至少 80ms
+                                bool timeElapsed = _streamRenderStopwatch == null
+                                    || _streamRenderStopwatch.ElapsedMilliseconds >= StreamRenderMinIntervalMs;
+                                if (streamRenderTick >= StreamRenderInterval && timeElapsed)
                                 {
                                     streamRenderTick = 0;
+                                    _streamRenderStopwatch?.Restart();
                                     assistantMsg.Content = contentBuffer.ToString();
                                     await UpdateStreamingMessageAsync(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: false);
                                 }
@@ -660,7 +674,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         if (toolCallAccumulator.Count > 0)
                         {
                             Logger.Info($"[MCP] 检测到 {toolCallAccumulator.Count} 个工具调用");
-                            StatusLabel.Text = LocalizationService.Instance["status.executingMcp"];
+                            UpdateStatusText(LocalizationService.Instance["status.executingMcp"]);
 
                             string toolCallSummary = LocalizationService.Instance["status.callingToolsHtml"] + "\n";
                             foreach (var acc in toolCallAccumulator.Values)

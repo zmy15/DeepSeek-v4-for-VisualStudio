@@ -14,80 +14,50 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         private static string BuildDecorateCodeBlocksJsFunction()
         {
-            string copyLabel = EscapeJsString(L["chat.html.codeCopyButton"]);
-            string copyTitle = EscapeJsString(L["chat.html.codeCopyButton"]);
-            string copyDone = EscapeJsString(L["chat.html.codeCopyDone"]);
-            string writeLabel = EscapeJsString(L["chat.html.codeInsertButton"]);
-            string writeTitle = EscapeJsString(L["chat.html.codeInsertButton"]);
-            string writeDone = EscapeJsString(L["chat.html.codeCopyDone"]);
-
-            return $@"
-window.decorateCodeBlocks=function(container){{
+            return @"
+window.decorateCodeBlocks=function(container){
     if(!container)return;
     var pres=container.querySelectorAll('pre:not(.mermaid-block)');
-    pres.forEach(function(pre){{
+    pres.forEach(function(pre){
         if(pre.querySelector('.copy-btn'))return;
         var code=pre.querySelector('code');
         if(!code)return;
         var lang='';
-        if(code.className){{
+        if(code.className){
             var m=code.className.match(/language-(\w+)/);
             if(m)lang=m[1];
-        }}
-        if(lang){{
+        }
+        if(lang){
             var label=document.createElement('span');
             label.className='code-lang';
             label.textContent=lang;
             pre.insertBefore(label,pre.firstChild);
-        }}
-        // highlight.js syntax highlighting
-        if(window.hljs){{
-            try{{window.hljs.highlightElement(code);}}catch(e){{}}
-        }}
+        }
+        if(window.hljs){
+            try{window.hljs.highlightElement(code);}catch(e){}
+        }
         // Copy button
         var copyBtn=document.createElement('button');
         copyBtn.className='copy-btn';
-        copyBtn.textContent='{copyLabel}';
-        copyBtn.title='{copyTitle}';
-        copyBtn.onclick=function(){{
+        copyBtn.textContent='📋 Copy';
+        copyBtn.onclick=function(){
             var target=pre.querySelector('code')||pre;
             var text=target.innerText,ok=false;
-            if(navigator.clipboard&&navigator.clipboard.writeText){{
+            if(navigator.clipboard&&navigator.clipboard.writeText){
                 navigator.clipboard.writeText(text);ok=true;
-            }}else{{
+            }else{
                 var ta=document.createElement('textarea');
                 ta.value=text;ta.style.cssText='position:fixed;opacity:0';
                 document.body.appendChild(ta);ta.select();
-                try{{document.execCommand('copy');ok=true;}}catch(e){{}}
+                try{document.execCommand('copy');ok=true;}catch(e){}
                 document.body.removeChild(ta);
-            }}
-            if(ok){{copyBtn.textContent='{copyDone}';copyBtn.classList.add('copied');}}
-            setTimeout(function(){{copyBtn.textContent='{copyLabel}';copyBtn.classList.remove('copied');}},1500);
-        }};
+            }
+            if(ok){copyBtn.textContent='✓ Copied';copyBtn.style.background='#1a3a1a';copyBtn.style.color='#6cd96c';}
+            setTimeout(function(){copyBtn.textContent='📋 Copy';copyBtn.style.background='';copyBtn.style.color='';},2000);
+        };
         pre.appendChild(copyBtn);
-        // Insert/Write button
-        var applyBtn=document.createElement('button');
-        applyBtn.className='copy-btn';
-        applyBtn.textContent='{writeLabel}';
-        applyBtn.title='{writeTitle}';
-        applyBtn.style.right='60px';
-        applyBtn.onclick=function(){{
-            var target=pre.querySelector('code')||pre;
-            var codeText=target.innerText;
-            try{{
-                window.chrome.webview.postMessage(JSON.stringify({{type:'applyCode',code:codeText}}));
-            }}catch(e1){{
-                try{{
-                    window.external.notify(JSON.stringify({{type:'applyCode',code:codeText}}));
-                }}catch(e2){{}}
-            }}
-            applyBtn.textContent='{writeDone}';
-            applyBtn.classList.add('copied');
-            setTimeout(function(){{applyBtn.textContent='{writeLabel}';applyBtn.classList.remove('copied');}},1500);
-        }};
-        pre.appendChild(applyBtn);
-    }});
-}};";
+    });
+};";
         }
 
         private static string BuildDecorateAllCodeBlocksInvocation()
@@ -108,17 +78,40 @@ document.addEventListener('wheel',function(e){
         }
 
         /// <summary>
-        /// 流式自动滚动 JS（MutationObserver）。
+        /// 智能自动滚动 JS。
+        /// 用户滚动离开底部 → 暂停自动滚动；
+        /// 用户滚回底部附近 → 恢复自动滚动。
+        /// 检测阈值: 距底部 80px 以内视为"在底部"。
         /// </summary>
         private static string BuildAutoScrollJs()
         {
             return @"
 (function(){
+var _autoScroll=true;
+window._autoScroll=true;   // 暴露为全局，供其他 JS 模块读取
+var SCROLL_THRESHOLD=80;
 var timer=null;
+
+// 定义全局智能滚动函数（所有 scrollToBottom 通过此函数）
+window.__scrollToBottom=function(behavior){
+    if(window._autoScroll===false)return;
+    window.scrollTo({top:document.body.scrollHeight,behavior:behavior||'smooth'});
+};
+
+// 检测用户手动滚动
+window.addEventListener('scroll',function(){
+    var atBottom=(window.innerHeight+window.scrollY+SCROLL_THRESHOLD)>=document.body.scrollHeight;
+    if(!atBottom&&_autoScroll){ _autoScroll=false; window._autoScroll=false; }
+    else if(atBottom&&!_autoScroll){ _autoScroll=true; window._autoScroll=true; }
+},{passive:true});
+
+// 内容变更时若在底部则自动滚动（范围缩小到 #chat-container，防抖 120ms）
+var chatContainer=document.getElementById('chat-container')||document.body;
 new MutationObserver(function(){
+    if(!_autoScroll)return;
     if(timer)clearTimeout(timer);
-    timer=setTimeout(function(){window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});},80);
-}).observe(document.body,{childList:true,subtree:true,characterData:true});
+    timer=setTimeout(function(){ window.__scrollToBottom('smooth'); },120);
+}).observe(chatContainer,{childList:true,subtree:true});
 })();";
         }
 
@@ -131,13 +124,16 @@ new MutationObserver(function(){
 window.__appendMessageHtml=function(html){
     var container=document.getElementById('chat-container');
     if(!container)return;
+    // 使用 DocumentFragment 批量追加，减少回流次数
     var temp=document.createElement('div');
     temp.innerHTML=html;
+    var fragment=document.createDocumentFragment();
     while(temp.firstChild){
-        container.appendChild(temp.firstChild);
+        fragment.appendChild(temp.firstChild);
     }
-    window.decorateCodeBlocks(container);
-    window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});
+    container.appendChild(fragment);
+    // 流式追加期间跳过语法高亮（节省性能），由 BuildFinalRenderJs 在完成时统一处理
+    window.__scrollToBottom('smooth');
 };";
         }
 

@@ -102,10 +102,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     var cursor=document.getElementById('cursor-{messageIndex}');
 
     if(container){{
-        // 流式文本：HTML 编码 + 换行转 &lt;br&gt;
+        // ── 优化：使用 textNode 追加，避免 innerHTML 重解析 ──
         var text={escapedContent};
-        var html=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
-        container.innerHTML=html;
+        var textNode=container._textNode;
+        if(!textNode){{
+            textNode=document.createTextNode('');
+            container._textNode=textNode;
+            container.textContent='';
+            container.appendChild(textNode);
+        }}
+        textNode.textContent=text;
     }}
 
     if(reasoningPanel && reasoningBody){{

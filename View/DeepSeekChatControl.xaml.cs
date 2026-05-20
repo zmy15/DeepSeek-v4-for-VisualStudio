@@ -40,9 +40,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private static string ApiKeyMissingMessage => AiPrompts.ApiKeyMissingMessage;
 
         /// <summary>
-        /// 流式更新间隔（字符数），每累积这么多字符触发一次 DOM 更新。
+        /// 流式更新间隔（字符数），配合时间节流实现双重控制，减少 JS 跨进程调用。
         /// </summary>
-        private const int StreamRenderInterval = 15;
+        private const int StreamRenderInterval = 80;
+        private const int StreamRenderMinIntervalMs = 80;
+        private const int StatusUpdateMinIntervalMs = 150; // 状态栏 WPF TextBlock 最小刷新间隔
+        private System.Diagnostics.Stopwatch? _streamRenderStopwatch;
+        private System.Diagnostics.Stopwatch? _statusUpdateStopwatch;
+        private string _lastToolCallNames = ""; // 工具调用名称缓存，避免重复更新
 
         #endregion
 
@@ -86,6 +91,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         // ── 增量渲染状态（对标 Turbo ucChat） ──
         private bool _browserInitialized;
+        /// <summary>页面 DOM + JS 完全就绪后才为 true</summary>
+        private bool _pageReady;
         private bool _webViewInitialized;
         private int _lastRenderedMessagesLength;
         private readonly StringBuilder _messagesHtml = new();
@@ -216,10 +223,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             ThinkingCheckBox.IsChecked = true;
 
+            // 代码索引(RAG)复选框：默认从选项页读取
+            RagCheckBox.IsChecked = _options?.EnableCodeIndex ?? true;
+            RagCheckBox.ToolTip = LocalizationService.Instance["chat.ragTooltip"];
+
             // 联网搜索: 默认关闭
             var L = LocalizationService.Instance;
-            WebSearchEngineComboBox.ItemsSource = new[] { "🔍 " + L["websearch.searchEngine.baidu"], "🦆 " + L["websearch.searchEngine.duckduckgo"] };
-            WebSearchEngineComboBox.SelectedIndex = 0; // 默认百度
+            WebSearchEngineComboBox.ItemsSource = new[] {
+                "🔍 " + L["websearch.searchEngine.baidu"],
+                "🦆 " + L["websearch.searchEngine.duckduckgo"],
+                "🔍 Google",
+                "🔍 Bing"
+            };
+            WebSearchEngineComboBox.SelectedIndex = 1; // 默认 DuckDuckGo
 
             _webSearchEngine = "Off";
             UpdateWebSearchToggleAppearance();
@@ -315,6 +331,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _agentDispatcher.PermissionRequested += OnAgentPermissionRequested;
             Logger.Info("Agent 调度器初始化成功（多 Agent 模式：Ask / Plan / Explore / Edit）");
 
+            // 初始化 Agent 模式徽章（默认隐藏 Ask 模式）
+            UpdateAgentModeBadge();
+
             Logger.Info("API 服务初始化成功");
         }
 
@@ -384,7 +403,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── 初始化 RAG 服务 ──
             if (_options.EnableRag)
             {
-                _ragService = new RagService { IsEnabled = true };
+                _ragService = new RagService { IsEnabled = RagCheckBox.IsChecked == true };
                 Logger.Info("[ContextServices] RAG 服务已初始化（等待提供者注册）");
             }
             else
@@ -561,23 +580,43 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (_webSearchService == null) return;
 
-            // 根据用户选择的引擎决定使用哪个搜索提供商
-            if (_webSearchEngine == "Baidu" && _options != null && !string.IsNullOrWhiteSpace(_options.BaiduApiKey))
+            switch (_webSearchEngine)
             {
-                _webSearchService.ConfigureBaiduSearch(_options.BaiduApiKey);
-                Logger.Info("联网搜索热重载: 百度千帆 (用户选择百度，API Key 已配置)");
-            }
-            else if (_webSearchEngine == "Baidu")
-            {
-                // 用户选择百度但未配置 Key，仍然尝试配置（会在搜索时提示用户）
-                _webSearchService.ConfigureBaiduSearch(null!);
-                Logger.Info("联网搜索热重载: DuckDuckGo (用户选择百度但 API Key 未配置)");
-            }
-            else
-            {
-                // DuckDuckGo 或 Off，统一使用 DuckDuckGo
-                _webSearchService.ConfigureBaiduSearch(null!);
-                Logger.Info($"联网搜索热重载: DuckDuckGo (用户选择 {_webSearchEngine})");
+                case "Baidu":
+                    if (_options != null && !string.IsNullOrWhiteSpace(_options.BaiduApiKey))
+                    {
+                        _webSearchService.ConfigureBaiduSearch(_options.BaiduApiKey);
+                        Logger.Info("联网搜索热重载: 百度千帆 (API Key 已配置)");
+                    }
+                    else
+                    {
+                        _webSearchService.ConfigureBaiduSearch(null!);
+                        Logger.Info("联网搜索热重载: DuckDuckGo (百度 API Key 未配置)");
+                    }
+                    break;
+
+                case "Google":
+                    var googleKey = _options?.GoogleApiKey;
+                    var googleCx = _options?.GoogleCx;
+                    _webSearchService.ConfigureGoogleSearch(
+                        string.IsNullOrWhiteSpace(googleKey) ? null : googleKey,
+                        string.IsNullOrWhiteSpace(googleCx) ? null : googleCx);
+                    Logger.Info("联网搜索热重载: Google" +
+                        (string.IsNullOrWhiteSpace(googleKey) ? " (HTML 抓取模式)" : " (API 模式)"));
+                    break;
+
+                case "Bing":
+                    var bingKey = _options?.BingApiKey;
+                    _webSearchService.ConfigureBingSearch(
+                        string.IsNullOrWhiteSpace(bingKey) ? null : bingKey);
+                    Logger.Info("联网搜索热重载: Bing" +
+                        (string.IsNullOrWhiteSpace(bingKey) ? " (HTML 抓取模式)" : " (API 模式)"));
+                    break;
+
+                default:
+                    _webSearchService.ConfigureBaiduSearch(null!);
+                    Logger.Info($"联网搜索热重载: DuckDuckGo (用户选择 {_webSearchEngine})");
+                    break;
             }
         }
 
@@ -635,43 +674,43 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-/// 解析当前工作区路径。支持以下场景：
-/// 1. 传统 .sln 解决方案 → 使用 .sln 文件路径作为标识
-/// 2. 文件夹项目（CMake / Open Folder）→ 使用工作区根目录路径作为标识
-/// 3. 未打开任何项目 → null，使用 _unsaved.json 兜底存储
-/// 
-/// 解析顺序：
-///   a) IVsSolution.GetSolutionInfo —— 适用于 .sln 项目，返回 .sln 文件路径
-///   b) IVsWorkspaceService          —— 适用于所有 Open Folder 项目，返回工作区根目录
-///   c) DTE                          —— 终极回退，兼容极少数边界情况
-/// </summary>
-private async Task ResolveSolutionPathAsync()
-{
-    try
-    {
-        await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-        // 第一步：.sln 项目 (仅返回 .sln 文件路径，文件夹项目此处返回 null)
-        _solutionPath = GetSolutionPathFromIVsSolution();
-
-        // 第二步：终极 DTE 回退（GetSolutionPathFromIVsSolution 已同时覆盖 .sln 和 Open Folder）
-        if (string.IsNullOrEmpty(_solutionPath))
+        /// 解析当前工作区路径。支持以下场景：
+        /// 1. 传统 .sln 解决方案 → 使用 .sln 文件路径作为标识
+        /// 2. 文件夹项目（CMake / Open Folder）→ 使用工作区根目录路径作为标识
+        /// 3. 未打开任何项目 → null，使用 _unsaved.json 兜底存储
+        /// 
+        /// 解析顺序：
+        ///   a) IVsSolution.GetSolutionInfo —— 适用于 .sln 项目，返回 .sln 文件路径
+        ///   b) IVsWorkspaceService          —— 适用于所有 Open Folder 项目，返回工作区根目录
+        ///   c) DTE                          —— 终极回退，兼容极少数边界情况
+        /// </summary>
+        private async Task ResolveSolutionPathAsync()
         {
-            var dte = (EnvDTE.DTE)Microsoft.VisualStudio.Shell.Package.GetGlobalService(typeof(EnvDTE.DTE));
-            _solutionPath = GetSolutionPathFromDTE(dte);
-        }
+            try
+            {
+                await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
-        if (!string.IsNullOrEmpty(_solutionPath))
-            Logger.Info($"检测到项目路径: {_solutionPath}");
-        else
-            Logger.Info("未检测到已打开的项目，使用默认存储 (_unsaved.json)");
-    }
-    catch (Exception ex)
-    {
-        Logger.Error("解析项目路径失败", ex);
-        _solutionPath = null;
-    }
-}
+                // 第一步：.sln 项目 (仅返回 .sln 文件路径，文件夹项目此处返回 null)
+                _solutionPath = GetSolutionPathFromIVsSolution();
+
+                // 第二步：终极 DTE 回退（GetSolutionPathFromIVsSolution 已同时覆盖 .sln 和 Open Folder）
+                if (string.IsNullOrEmpty(_solutionPath))
+                {
+                    var dte = (EnvDTE.DTE)Microsoft.VisualStudio.Shell.Package.GetGlobalService(typeof(EnvDTE.DTE));
+                    _solutionPath = GetSolutionPathFromDTE(dte);
+                }
+
+                if (!string.IsNullOrEmpty(_solutionPath))
+                    Logger.Info($"检测到项目路径: {_solutionPath}");
+                else
+                    Logger.Info("未检测到已打开的项目，使用默认存储 (_unsaved.json)");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("解析项目路径失败", ex);
+                _solutionPath = null;
+            }
+        }
 
         /// <summary>
         /// 通过 IVsSolution.GetSolutionInfo 获取项目路径（首选方案）。
@@ -684,52 +723,52 @@ private async Task ResolveSolutionPathAsync()
         /// 参考: https://learn.microsoft.com/zh-cn/dotnet/api/microsoft.visualstudio.shell.interop.ivssolution.getsolutioninfo
         /// </summary>
         /// <summary>
-/// 通过 IVsSolution.GetSolutionInfo 获取项目路径。
-/// - .sln 项目：返回 .sln 文件路径
-/// - Open Folder 项目（CMake 等无 .sln）：返回工作区根目录（solutionDir）
-/// 在 VS 2019+ 中，GetSolutionInfo 对 Open Folder 会在 solutionDir 中返回工作区根目录。
-/// </summary>
-private static string? GetSolutionPathFromIVsSolution()
-{
-    try
-    {
-        var vsSolution = Microsoft.VisualStudio.Shell.Package.GetGlobalService(typeof(SVsSolution)) as IVsSolution;
-        if (vsSolution == null)
-            return null;
-
-        int hr = vsSolution.GetSolutionInfo(out string solutionDir, out string solutionFile, out string _);
-        Logger.Info($"[Workspace] IVsSolution.GetSolutionInfo → HR=0x{hr:X8}, dir=[{solutionDir ?? "(null)"}], file=[{solutionFile ?? "(null)"}]");
-
-        if (hr != VSConstants.S_OK)
+        /// 通过 IVsSolution.GetSolutionInfo 获取项目路径。
+        /// - .sln 项目：返回 .sln 文件路径
+        /// - Open Folder 项目（CMake 等无 .sln）：返回工作区根目录（solutionDir）
+        /// 在 VS 2019+ 中，GetSolutionInfo 对 Open Folder 会在 solutionDir 中返回工作区根目录。
+        /// </summary>
+        private static string? GetSolutionPathFromIVsSolution()
         {
-            Logger.Warn($"[Workspace] IVsSolution.GetSolutionInfo 返回非 S_OK: 0x{hr:X8}");
-            return null;
-        }
+            try
+            {
+                var vsSolution = Microsoft.VisualStudio.Shell.Package.GetGlobalService(typeof(SVsSolution)) as IVsSolution;
+                if (vsSolution == null)
+                    return null;
 
-        // .sln 项目优先返回 .sln 文件路径
-        if (!string.IsNullOrWhiteSpace(solutionFile))
-        {
-            Logger.Info($"[Workspace] ✅ IVsSolution → .sln 项目: {solutionFile}");
-            return solutionFile;
-        }
+                int hr = vsSolution.GetSolutionInfo(out string solutionDir, out string solutionFile, out string _);
+                Logger.Info($"[Workspace] IVsSolution.GetSolutionInfo → HR=0x{hr:X8}, dir=[{solutionDir ?? "(null)"}], file=[{solutionFile ?? "(null)"}]");
 
-        // Open Folder 项目：solutionFile 为空，回退到 solutionDir
-        if (!string.IsNullOrWhiteSpace(solutionDir))
-        {
-            string dir = solutionDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            Logger.Info($"[Workspace] ✅ IVsSolution → Open Folder 项目: {dir}");
-            return dir;
-        }
+                if (hr != VSConstants.S_OK)
+                {
+                    Logger.Warn($"[Workspace] IVsSolution.GetSolutionInfo 返回非 S_OK: 0x{hr:X8}");
+                    return null;
+                }
 
-        Logger.Info("[Workspace] IVsSolution 未发现项目路径");
-        return null;
-    }
-    catch (Exception ex)
-    {
-        Logger.Warn($"[Workspace] IVsSolution.GetSolutionInfo 失败: {ex.Message}");
-        return null;
-    }
-}
+                // .sln 项目优先返回 .sln 文件路径
+                if (!string.IsNullOrWhiteSpace(solutionFile))
+                {
+                    Logger.Info($"[Workspace] ✅ IVsSolution → .sln 项目: {solutionFile}");
+                    return solutionFile;
+                }
+
+                // Open Folder 项目：solutionFile 为空，回退到 solutionDir
+                if (!string.IsNullOrWhiteSpace(solutionDir))
+                {
+                    string dir = solutionDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    Logger.Info($"[Workspace] ✅ IVsSolution → Open Folder 项目: {dir}");
+                    return dir;
+                }
+
+                Logger.Info("[Workspace] IVsSolution 未发现项目路径");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Workspace] IVsSolution.GetSolutionInfo 失败: {ex.Message}");
+                return null;
+            }
+        }
 
         /// <summary>
         /// 通过 DTE 接口获取项目路径（回退方案，当 IVsSolution 不可用时）。
@@ -857,6 +896,9 @@ private static string? GetSolutionPathFromIVsSolution()
                     // 解析新路径并重载
                     await ResolveSolutionPathAsync();
 
+                    // ── 触发代码索引（首次打开项目时全量索引，后续增量更新）──
+                    _ = TriggerCodeIndexingAsync();
+
                     // ── 重置浏览器状态，切换解决方案时强制全量刷新 ──
                     _browserInitialized = false;
 
@@ -901,6 +943,68 @@ private static string? GetSolutionPathFromIVsSolution()
                     Logger.Error("[会话] 关闭解决方案时出错", ex);
                 }
             });
+        }
+
+        /// <summary>
+        /// 触发代码索引：在后台线程执行，不阻塞 UI。
+        /// 首次索引为全量扫描，后续通过文件时间戳对比增量更新。
+        /// </summary>
+        private async Task TriggerCodeIndexingAsync()
+        {
+            if (string.IsNullOrEmpty(_solutionPath)) return;
+
+            try
+            {
+                var options = Settings.DeepSeekOptionsPage.Instance;
+                if (options == null || !options.EnableCodeIndex) return;
+
+                var provider = CompositionRoot.GetServiceOrDefault<LocalVectorStoreProvider>();
+                if (provider == null) return;
+
+                // 初始化并提供者（注册到 RagService）
+                var config = System.Text.Json.JsonSerializer.Serialize(new Models.FileIndexConfig
+                {
+                    AutoIndexEnabled = options.EnableCodeIndex,
+                    MaxFileSizeBytes = options.MaxIndexFileSizeKb * 1024,
+                    TopK = options.RagTopK,
+                    SimilarityThreshold = options.RagSimilarityThreshold,
+                });
+                await provider.InitializeAsync(config);
+
+                var ragService = CompositionRoot.GetServiceOrDefault<IRagService>() as RagService;
+                if (ragService != null)
+                {
+                    ragService.RegisterProvider(provider);
+                    await ragService.ActivateProviderAsync(provider.ProviderName, config);
+                    Logger.Info("[CodeIndex] LocalVectorStoreProvider 已注册并激活");
+                }
+
+                // 判断是全量还是增量
+                var (totalChunks, _) = CompositionRoot.GetService<LocalVectorStore>().GetStats();
+                bool isFirstIndex = totalChunks == 0;
+
+                StatusLabel.Text = isFirstIndex
+                    ? LocalizationService.Instance["index.firstIndex"] ?? "正在构建代码索引..."
+                    : "正在更新代码索引...";
+
+                await Task.Run(async () =>
+                {
+                    if (isFirstIndex)
+                        await provider.RebuildIndexAsync(_solutionPath!);
+                    else
+                        await provider.SetProjectRootAsync(_solutionPath!);
+                });
+
+                var stats = await provider.GetStatsAsync();
+                StatusLabel.Text = string.Format(
+                    LocalizationService.Instance["index.complete"] ?? "索引完成: {0} 文件, {1} 片段",
+                    stats.TotalDocuments, stats.TotalTokens);
+                Logger.Info($"[CodeIndex] 索引完成: {stats.TotalDocuments} 分块, 提供者={provider.ProviderName}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[CodeIndex] 索引失败: {ex.Message}");
+            }
         }
 
         private async Task LoadAndShowAsync()
@@ -1182,6 +1286,10 @@ private static string? GetSolutionPathFromIVsSolution()
                 if (ThinkingCheckBox != null)
                     ThinkingCheckBox.Content = L["chat.thinkingCheckbox"];
 
+                // 代码索引(RAG)复选框
+                if (RagCheckBox != null)
+                    RagCheckBox.Content = L["chat.ragCheckbox"];
+
                 // @agent / /skill 弹出框标题
                 if (AgentPopupTitle != null)
                     AgentPopupTitle.Text = L["popup.agentTitle"];
@@ -1203,8 +1311,95 @@ private static string? GetSolutionPathFromIVsSolution()
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[i18n] 更新 UI 标签失败: {ex.Message}");
+                Logger.Warn($"[i188] 更新 UI 标签失败: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 更新 Agent 模式徽章显示。
+        /// </summary>
+        public void UpdateAgentModeBadge()
+        {
+            try
+            {
+                if (AgentModeBadge == null || AgentModeText == null) return;
+
+                var agentType = _agentDispatcher?.ActiveAgentType ?? Models.AgentType.Ask;
+
+                // Ask 模式为默认，隐藏徽章
+                if (agentType == Models.AgentType.Ask)
+                {
+                    AgentModeBadge.Visibility = System.Windows.Visibility.Collapsed;
+                    return;
+                }
+
+                AgentModeBadge.Visibility = System.Windows.Visibility.Visible;
+
+                switch (agentType)
+                {
+                    case Models.AgentType.Plan:
+                        AgentModeBadge.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0x88, 0x00)); // 橙
+                        AgentModeBadge.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xEE, 0xAA, 0x22));
+                        AgentModeText.Text = "PLAN";
+                        break;
+                    case Models.AgentType.Edit:
+                        AgentModeBadge.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2E, 0x7D, 0x32)); // 绿
+                        AgentModeBadge.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x4C, 0xAF, 0x50));
+                        AgentModeText.Text = "EDIT";
+                        break;
+                    case Models.AgentType.Explore:
+                        AgentModeBadge.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1A, 0x6D, 0xA0)); // 蓝
+                        AgentModeBadge.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3A, 0x8D, 0xC0));
+                        AgentModeText.Text = "EXPLORE";
+                        break;
+                    default:
+                        AgentModeBadge.Visibility = System.Windows.Visibility.Collapsed;
+                        break;
+                }
+
+                AgentModeBadge.ToolTip = agentType switch
+                {
+                    Models.AgentType.Plan => "规划模式 — AI 分析代码库并制定实现计划",
+                    Models.AgentType.Edit => "编辑模式 — AI 正在修改项目代码",
+                    Models.AgentType.Explore => "探索模式 — AI 正在检索项目代码",
+                    _ => null,
+                };
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[AgentMode] 更新徽章失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 带节流的状态栏更新。仅在距上次更新 ≥ StatusUpdateMinIntervalMs 时才修改 Text，
+        /// 避免 WPF TextBlock.Text 赋值每秒数十次导致 UI 线程被占满、VS 无响应。
+        /// </summary>
+        private void UpdateStatusText(string text)
+        {
+            if (_statusUpdateStopwatch != null
+                && _statusUpdateStopwatch.ElapsedMilliseconds < StatusUpdateMinIntervalMs)
+                return;
+
+            _statusUpdateStopwatch?.Restart();
+            StatusLabel.Text = text;
+        }
+
+        /// <summary>
+        /// 带缓存的工具调用状态更新。仅在工具名发生变化时更新。
+        /// </summary>
+        private void UpdateStatusToolCall(string toolNames)
+        {
+            if (toolNames == _lastToolCallNames) return; // 工具名未变，跳过
+            _lastToolCallNames = toolNames;
+
+            if (_statusUpdateStopwatch != null
+                && _statusUpdateStopwatch.ElapsedMilliseconds < StatusUpdateMinIntervalMs)
+                return;
+
+            _statusUpdateStopwatch?.Restart();
+            StatusLabel.Text = string.Format(
+                LocalizationService.Instance["status.callingTool"], toolNames);
         }
 
         #endregion
