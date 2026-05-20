@@ -1260,7 +1260,21 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         private void DeleteSessionButton_Click(object sender, RoutedEventArgs e)
         {
-            DeleteCurrentSession();
+            // ── 删除前确认 ──
+            string confirmMsg = LocalizationService.Instance["chat.confirmDeleteConversation"];
+            if (string.IsNullOrEmpty(confirmMsg))
+                confirmMsg = "确定要删除当前对话吗？此操作不可撤销。";
+
+            var result = System.Windows.MessageBox.Show(
+                confirmMsg,
+                LocalizationService.Instance["chat.deleteConversation"] ?? "删除对话",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Warning);
+
+            if (result == System.Windows.MessageBoxResult.Yes)
+            {
+                DeleteCurrentSession();
+            }
         }
 
         private void NewChatButton_Click(object sender, RoutedEventArgs e)
