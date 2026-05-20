@@ -173,7 +173,6 @@
     </VSCTCompile>
   </ItemGroup>
   <ItemGroup>
-<<<<<<< HEAD
     <Content Include="Resources\DeepSeekIcon.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <IncludeInVSIX>true</IncludeInVSIX>
@@ -194,40 +193,18 @@
       <IncludeInVSIX>true</IncludeInVSIX>
       <VSIXSubPath>BuiltInSkills</VSIXSubPath>
     </Content>
-=======
-	<Content Include="Resources\DeepSeekIcon.png">
-	  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  <IncludeInVSIX>true</IncludeInVSIX>
-	</Content>
-	<Content Include="Resources\icon.png">
-	  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  <IncludeInVSIX>true</IncludeInVSIX>
-	</Content>
-	<!-- 国际化语言资源文件 -->
-	<Content Include="Resources\Locales\*.json">
-	  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  <IncludeInVSIX>true</IncludeInVSIX>
-	  <VSIXSubPath>Resources\Locales</VSIXSubPath>
-	</Content>
-	<!-- Skill 定义文件（内置技能） -->
-	<Content Include="BuiltInSkills\**\*.*">
-	  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  <IncludeInVSIX>true</IncludeInVSIX>
-	  <VSIXSubPath>BuiltInSkills</VSIXSubPath>
-	</Content>
   </ItemGroup>
   <ItemGroup>
-	<Compile Update="Properties\Settings.Designer.cs">
-	  <DesignTimeSharedInput>True</DesignTimeSharedInput>
-	  <AutoGen>True</AutoGen>
-	  <DependentUpon>Settings.settings</DependentUpon>
-	</Compile>
+    <Compile Update="Properties\Settings.Designer.cs">
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Settings.settings</DependentUpon>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
-	<None Update="Properties\Settings.settings">
-	  <Generator>SettingsSingleFileGenerator</Generator>
-	  <LastGenOutput>Settings.Designer.cs</LastGenOutput>
-	</None>
->>>>>>> 55d3c7e (feat: 优化流式渲染和状态更新，添加删除对话确认提示)
+    <None Update="Properties\Settings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
+    </None>
   </ItemGroup>
 </Project>

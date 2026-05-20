@@ -77,7 +77,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private RagService? _ragService;
         private ContextCompressorService? _compressorService;
         private bool _isGenerating;
-        private string _webSearchEngine = "Off"; // "Off" | "Baidu" | "DuckDuckGo" | "Google" | "Bing"
+        private string _webSearchEngine = "Off"; // "Off" | "Baidu" | "DuckDuckGo"
         private readonly List<string> _pendingWarnings = new(); // 待注入的警告消息
 
         // ── 文件上传 ──
@@ -228,11 +228,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             var L = LocalizationService.Instance;
             WebSearchEngineComboBox.ItemsSource = new[] {
                 "🔍 " + L["websearch.searchEngine.baidu"],
-                "🦆 " + L["websearch.searchEngine.duckduckgo"],
-                "🔍 Google",
-                "🔍 Bing"
+                "🦆 " + L["websearch.searchEngine.duckduckgo"]
             };
-            WebSearchEngineComboBox.SelectedIndex = 1; // 默认 DuckDuckGo
+            WebSearchEngineComboBox.SelectedIndex = 0; // 默认百度
 
             _webSearchEngine = "Off";
             UpdateWebSearchToggleAppearance();
@@ -423,8 +421,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
             string resolvedEngine = optionsProvider switch
             {
                 "Baidu" => "Baidu",
-                "Google" => "Google",
-                "Bing" => "Bing",
                 _ => "DuckDuckGo"
             };
 
@@ -433,8 +429,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 "Baidu" => 0,
                 "DuckDuckGo" => 1,
-                "Google" => 2,
-                "Bing" => 3,
                 _ => 1
             };
             WebSearchEngineComboBox.SelectedIndex = idx;
@@ -499,22 +493,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 // ── Web 搜索热重载 ──
                 string optionsProvider = _options?.SearchProvider ?? "DuckDuckGo";
-                // 解析选项页中设置的搜索引擎
                 string resolvedEngine = optionsProvider switch
                 {
                     "Baidu" => "Baidu",
-                    "Google" => "Google",
-                    "Bing" => "Bing",
                     _ => "DuckDuckGo"
                 };
 
-                // 始终同步 ComboBox 选中项到选项页设置
                 int idx = resolvedEngine switch
                 {
                     "Baidu" => 0,
                     "DuckDuckGo" => 1,
-                    "Google" => 2,
-                    "Bing" => 3,
                     _ => 1
                 };
                 WebSearchEngineComboBox.SelectedIndex = idx;
@@ -659,24 +647,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         _webSearchService.ConfigureBaiduSearch(null!);
                         Logger.Info("联网搜索热重载: DuckDuckGo (百度 API Key 未配置)");
                     }
-                    break;
-
-                case "Google":
-                    var googleKey = _options?.GoogleApiKey;
-                    var googleCx = _options?.GoogleCx;
-                    _webSearchService.ConfigureGoogleSearch(
-                        string.IsNullOrWhiteSpace(googleKey) ? null : googleKey,
-                        string.IsNullOrWhiteSpace(googleCx) ? null : googleCx);
-                    Logger.Info("联网搜索热重载: Google" +
-                        (string.IsNullOrWhiteSpace(googleKey) ? " (HTML 抓取模式)" : " (API 模式)"));
-                    break;
-
-                case "Bing":
-                    var bingKey = _options?.BingApiKey;
-                    _webSearchService.ConfigureBingSearch(
-                        string.IsNullOrWhiteSpace(bingKey) ? null : bingKey);
-                    Logger.Info("联网搜索热重载: Bing" +
-                        (string.IsNullOrWhiteSpace(bingKey) ? " (HTML 抓取模式)" : " (API 模式)"));
                     break;
 
                 default:
