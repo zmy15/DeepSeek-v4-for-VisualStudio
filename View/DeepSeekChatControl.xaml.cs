@@ -224,10 +224,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             ThinkingCheckBox.IsChecked = true;
 
-            // 代码索引(RAG)复选框：默认从选项页读取
-            RagCheckBox.IsChecked = _options?.EnableCodeIndex ?? true;
-            RagCheckBox.ToolTip = LocalizationService.Instance["chat.ragTooltip"];
-
             // 联网搜索: 默认关闭
             var L = LocalizationService.Instance;
             WebSearchEngineComboBox.ItemsSource = new[] {
@@ -404,7 +400,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── 初始化 RAG 服务 ──
             if (_options.EnableRag)
             {
-                _ragService = new RagService { IsEnabled = RagCheckBox.IsChecked == true };
+                _ragService = new RagService { IsEnabled = true };
                 Logger.Info("[ContextServices] RAG 服务已初始化（等待提供者注册）");
             }
             else
@@ -966,9 +962,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // 解析新路径并重载
                     await ResolveSolutionPathAsync();
 
-                    // ── 触发代码索引（首次打开项目时全量索引，后续增量更新）──
-                    _ = TriggerCodeIndexingAsync();
-
                     // ── 重置浏览器状态，切换解决方案时强制全量刷新 ──
                     _browserInitialized = false;
 
@@ -1017,66 +1010,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 触发代码索引：在后台线程执行，不阻塞 UI。
-        /// 首次索引为全量扫描，后续通过文件时间戳对比增量更新。
-        /// </summary>
-        private async Task TriggerCodeIndexingAsync()
-        {
-            if (string.IsNullOrEmpty(_solutionPath)) return;
-
-            try
-            {
-                var options = Settings.DeepSeekOptionsPage.Instance;
-                if (options == null || !options.EnableCodeIndex) return;
-
-                var provider = CompositionRoot.GetServiceOrDefault<LocalVectorStoreProvider>();
-                if (provider == null) return;
-
-                // 初始化并提供者（注册到 RagService）
-                var config = System.Text.Json.JsonSerializer.Serialize(new Models.FileIndexConfig
-                {
-                    AutoIndexEnabled = options.EnableCodeIndex,
-                    MaxFileSizeBytes = options.MaxIndexFileSizeKb * 1024,
-                    TopK = options.RagTopK,
-                    SimilarityThreshold = options.RagSimilarityThreshold,
-                });
-                await provider.InitializeAsync(config);
-
-                var ragService = CompositionRoot.GetServiceOrDefault<IRagService>() as RagService;
-                if (ragService != null)
-                {
-                    ragService.RegisterProvider(provider);
-                    await ragService.ActivateProviderAsync(provider.ProviderName, config);
-                    Logger.Info("[CodeIndex] LocalVectorStoreProvider 已注册并激活");
-                }
-
-                // 判断是全量还是增量
-                var (totalChunks, _) = CompositionRoot.GetService<LocalVectorStore>().GetStats();
-                bool isFirstIndex = totalChunks == 0;
-
-                StatusLabel.Text = isFirstIndex
-                    ? LocalizationService.Instance["index.firstIndex"] ?? "正在构建代码索引..."
-                    : "正在更新代码索引...";
-
-                await Task.Run(async () =>
-                {
-                    if (isFirstIndex)
-                        await provider.RebuildIndexAsync(_solutionPath!);
-                    else
-                        await provider.SetProjectRootAsync(_solutionPath!);
-                });
-
-                var stats = await provider.GetStatsAsync();
-                StatusLabel.Text = string.Format(
-                    LocalizationService.Instance["index.complete"] ?? "索引完成: {0} 文件, {1} 片段",
-                    stats.TotalDocuments, stats.TotalTokens);
-                Logger.Info($"[CodeIndex] 索引完成: {stats.TotalDocuments} 分块, 提供者={provider.ProviderName}");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn($"[CodeIndex] 索引失败: {ex.Message}");
-            }
-        }
-
         private async Task LoadAndShowAsync()
         {
             _messagesHtml.Clear();
@@ -1355,10 +1288,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 深度思考复选框
                 if (ThinkingCheckBox != null)
                     ThinkingCheckBox.Content = L["chat.thinkingCheckbox"];
-
-                // 代码索引(RAG)复选框
-                if (RagCheckBox != null)
-                    RagCheckBox.Content = L["chat.ragCheckbox"];
 
                 // @agent / /skill 弹出框标题
                 if (AgentPopupTitle != null)
