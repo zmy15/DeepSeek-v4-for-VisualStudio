@@ -328,7 +328,7 @@
                         FontSize="18" Padding="6,2"
                         Foreground="#6CAFD9"
                         HorizontalAlignment="Left" VerticalAlignment="Top"
-                        Margin="4,4,0,0"
+                        Margin="4,10,0,0"
                         Panel.ZIndex="10" />
 
                 <Popup x:Name="AddContextPopup"
