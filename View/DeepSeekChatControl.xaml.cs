@@ -42,9 +42,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 流式更新间隔（字符数），配合时间节流实现双重控制，减少 JS 跨进程调用。
         /// 使用 PostWebMessageAsString 非阻塞通道后，可适当增大间隔以减少消息频率。
+        /// 2026-05-21 调优：字符阈值 200→100，时间阈值 120→80ms，提升流式输出响应速度。
         /// </summary>
-        private const int StreamRenderInterval = 200;
-        private const int StreamRenderMinIntervalMs = 120;
+        private const int StreamRenderInterval = 100;
+        private const int StreamRenderMinIntervalMs = 80;
         private const int StatusUpdateMinIntervalMs = 200; // 状态栏最小刷新间隔
         private System.Diagnostics.Stopwatch? _streamRenderStopwatch;
         private System.Diagnostics.Stopwatch? _statusUpdateStopwatch;
@@ -1408,7 +1409,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private readonly Dictionary<int, StreamBatchState> _streamBatchStates = new();
         private readonly object _streamBatchLock = new();
 
-        private const long StreamBatchMinIntervalTicks = 80_0000; // 80ms (Stopwatch ticks)
+        private const long StreamBatchMinIntervalTicks = 60_0000; // 60ms (Stopwatch ticks, 配合 StreamRenderMinIntervalMs=80ms)
 
         /// <summary>
         /// 空闲超时定时器：每次 BatchStreamingUpdate 调用后重置 300ms，

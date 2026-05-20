@@ -139,7 +139,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             // ── 缓冲聚合：减少 yield return 迭代次数 ──
             var contentBatch = new StringBuilder(512);
-            const int ContentFlushThreshold = 200;
+            const int ContentFlushThreshold = 100;
 
             string? line;
             while ((line = await reader.ReadLineAsync()) != null)  // 替代 EndOfStream

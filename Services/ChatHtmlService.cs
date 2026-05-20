@@ -31,6 +31,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             .DisableHtml()
             .Build();
 
+        /// <summary>
+        /// XSS 纵深防护正则（Markdig DisableHtml() 之外的额外防线）。
+        /// </summary>
+        private static readonly Regex ScriptTagRegex = new(
+            @"<script[\s>/>]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex ScriptCloseRegex = new(
+            @"</script>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex EventHandlerRegex = new(
+            @"\bon\w+\s*=", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
 
         #endregion
 
@@ -900,10 +910,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (htmlContent.EndsWith("<br />"))
                     htmlContent = htmlContent.Substring(0, htmlContent.Length - 6);
 
-                // ── XSS 防护 ──
-                htmlContent = htmlContent
-                    .Replace("<script", "&lt;script")
-                    .Replace("</script>", "&lt;/script&gt;");
+                // ── XSS 防护：不区分大小写过滤 <script>、</script> 标签及内联事件处理器 ──
+                // Markdig 已设置 DisableHtml()，此处为纵深防御
+                htmlContent = ScriptTagRegex.Replace(htmlContent, "&lt;script ");
+                htmlContent = ScriptCloseRegex.Replace(htmlContent, "&lt;/script&gt;");
+                htmlContent = EventHandlerRegex.Replace(htmlContent, "data-xss-removed=");
 
                 return htmlContent;
             }
@@ -1420,7 +1431,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
 
     // 高亮关闭按钮
     var closeBtn=document.getElementById('agent-task-close-{pid}');
-    if(closeBtn){{closeBtn.style.background='#3C1A1A';closeBtn.style.color='#E07878';closeBtn.style.borderColor='#6A3A3A';closeBtn.title='关闭任务面板';}}
+    if(closeBtn){{closeBtn.classList.add('finished');closeBtn.title='关闭任务面板';}}
 
     // 更新进度条
     var pf=document.getElementById('agent-progress-fill-{pid}');
