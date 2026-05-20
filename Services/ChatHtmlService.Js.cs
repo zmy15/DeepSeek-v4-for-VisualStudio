@@ -186,7 +186,139 @@ window.__terminalSkip=function(requestId){
 };
 window.__executeHandoff=function(targetAgent,label){
     window.__sendToHost({type:'executeHandoff',targetAgent:targetAgent,label:label});
-};";
+};
+
+// ═══════════════════════════════════════════════
+//  流式更新批处理引擎（性能优化核心）
+//  C# 通过 PostWebMessageAsString 推送 JSON，
+//  JS 通过 requestAnimationFrame 批量应用 DOM 更新，
+//  避免每次 ExecuteScriptAsync 阻塞 UI 线程。
+// ═══════════════════════════════════════════════
+(function(){
+    var _streamBuf={};          // 消息索引 → 累积内容
+    var _rafPending=false;      // 是否已有待处理的 rAF
+    var _rafTimer=null;         // 兜底定时器（防止 rAF 不触发）
+
+    // 监听来自 C# 的流式更新消息
+    if(window.chrome&&window.chrome.webview){
+        window.chrome.webview.addEventListener('message',function(e){
+            try{
+                var msg=typeof e.data==='string'?JSON.parse(e.data):e.data;
+                if(msg.type==='stream'){
+                    _streamBuf[msg.i]=msg;
+                    if(!_rafPending){
+                        _rafPending=true;
+                        requestAnimationFrame(_flushStreamBuf);
+                        // 兜底：250ms 后强制执行（防止 rAF 在某些场景不触发）
+                        if(_rafTimer)clearTimeout(_rafTimer);
+                        _rafTimer=setTimeout(function(){
+                            if(_rafPending)_flushStreamBuf(0);
+                        },250);
+                    }
+                }else if(msg.type==='streamEnd'){
+                    // 流式完成：强制刷新并替换为 Markdown 渲染
+                    _streamBuf[msg.i]=msg;
+                    _flushStreamBuf(0);
+                    if(msg.html){
+                        var container=document.getElementById('msg-body-'+msg.i);
+                        if(container){
+                            container.innerHTML=msg.html;
+                            var cursor=document.getElementById('cursor-'+msg.i);
+                            if(cursor)cursor.style.display='none';
+                            // 注入尾部 HTML
+                            if(msg.footerHtml){
+                                var footerDiv=document.createElement('div');
+                                footerDiv.innerHTML=msg.footerHtml;
+                                container.appendChild(footerDiv);
+                            }
+                            // 推理面板
+                            if(msg.reasoningHtml){
+                                var rp=document.getElementById('reasoning-'+msg.i);
+                                var rb=document.getElementById('reasoning-body-'+msg.i);
+                                if(rp&&rb){
+                                    rp.style.display='block';
+                                    rb.innerHTML=msg.reasoningHtml;
+                                }
+                            }
+                            // 注入重试按钮
+                            var msgDiv=document.getElementById('msg-'+msg.i);
+                            if(msgDiv&&!document.getElementById('retry-btn-'+msg.i)){
+                                var retryBtn=document.createElement('button');
+                                retryBtn.id='retry-btn-'+msg.i;
+                                retryBtn.className='msg-action-btn retry-btn';
+                                retryBtn.textContent=msg.retryLabel||'Retry';
+                                retryBtn.title=msg.retryTitle||'Retry this message';
+                                retryBtn.onclick=function(){window.__retryMessage(msg.i);};
+                                var msgBody=document.getElementById('msg-body-'+msg.i);
+                                if(msgBody)msgBody.parentNode.insertBefore(retryBtn,msgBody.nextSibling);
+                            }
+                            // 高亮代码块
+                            if(msgDiv&&window.hljs)decorateCodeBlocks(msgDiv);
+                        }
+                    }
+                }else if(msg.type==='streamStatus'){
+                    // 仅更新状态栏（避免额外通信）
+                    var st=document.getElementById('status-text');
+                    if(st&&msg.text)st.textContent=msg.text;
+                }
+            }catch(e){}
+        });
+    }
+
+    function _flushStreamBuf(ts){
+        var keys=Object.keys(_streamBuf);
+        if(keys.length===0){_rafPending=false;return;}
+
+        // 批量处理所有待更新的消息
+        for(var i=0;i<keys.length;i++){
+            var msg=_streamBuf[keys[i]];
+            if(!msg)continue;
+
+            var container=document.getElementById('msg-body-'+msg.i);
+            var reasoningPanel=document.getElementById('reasoning-'+msg.i);
+            var reasoningBody=document.getElementById('reasoning-body-'+msg.i);
+            var cursor=document.getElementById('cursor-'+msg.i);
+
+            // 更新正文内容
+            if(container&&msg.c!==undefined){
+                var textNode=container._textNode;
+                if(!textNode){
+                    textNode=document.createTextNode('');
+                    container._textNode=textNode;
+                    container.textContent='';
+                    container.appendChild(textNode);
+                }
+                textNode.textContent=msg.c;
+            }
+
+            // 更新推理面板
+            if(reasoningPanel&&reasoningBody&&msg.r!==undefined){
+                if(msg.r.length>0){
+                    reasoningPanel.style.display='block';
+                    reasoningBody.textContent=msg.r;
+                }else{
+                    reasoningPanel.style.display='none';
+                }
+            }
+
+            // 更新光标
+            if(cursor&&msg.f!==undefined){
+                cursor.style.display=msg.f?'none':'inline-block';
+            }
+
+            // 更新状态栏
+            if(msg.s){
+                var st=document.getElementById('status-text');
+                if(st)st.textContent=msg.s;
+            }
+        }
+
+        _streamBuf={};
+        _rafPending=false;
+        if(_rafTimer){clearTimeout(_rafTimer);_rafTimer=null;}
+        window.__scrollToBottom('smooth');
+    }
+})();";
         }
 
         /// <summary>

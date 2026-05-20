@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
@@ -91,8 +92,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <param name="isComplete">是否流式已完成（完成后移除光标）。</param>
         public static string BuildStreamingUpdateJs(int messageIndex, string streamingContent, string reasoningContent, bool isComplete)
         {
+            return BuildStreamingUpdateJs(messageIndex, streamingContent, reasoningContent, isComplete, null);
+        }
+
+        /// <summary>
+        /// 构建流式更新 JS（含内嵌状态栏批量更新，减少 ExecuteScriptAsync 调用次数）。
+        /// </summary>
+        public static string BuildStreamingUpdateJs(int messageIndex, string streamingContent, string reasoningContent, bool isComplete,
+            string? statusText)
+        {
             string escapedContent = EscapeJsString(streamingContent ?? string.Empty);
             string escapedReasoning = EscapeJsString(reasoningContent ?? string.Empty);
+            string escapedStatus = EscapeJsString(statusText ?? "");
 
             return $@"
 (function(){{
@@ -102,7 +113,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     var cursor=document.getElementById('cursor-{messageIndex}');
 
     if(container){{
-        // ── 优化：使用 textNode 追加，避免 innerHTML 重解析 ──
         var text={escapedContent};
         var textNode=container._textNode;
         if(!textNode){{
@@ -128,10 +138,118 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         cursor.style.display={(isComplete ? "'none'" : "'inline-block'")};
     }}
 
-    // 自动滚动到底部
-    window.scrollTo({{top:document.body.scrollHeight,behavior:'smooth'}});
+    // ── 合并状态栏更新（避免额外的 ExecuteScriptAsync）──
+    var st=document.getElementById('status-text');
+    if(st&&{escapedStatus}.length>0)st.textContent={escapedStatus};
+
+    window.__scrollToBottom('smooth');
 }})();";
         }
+
+        #region 高性能流式消息（PostWebMessageAsString 非阻塞通道）
+
+        /// <summary>
+        /// 构建流式增量更新的 JSON 消息（用于 PostWebMessageAsString）。
+        /// 短键名减少序列化开销：i=msgIndex, c=content, r=reasoning, f=isFinished, s=status
+        /// </summary>
+        public static string BuildStreamUpdateJson(int messageIndex, string streamingContent,
+            string reasoningContent, bool isComplete, string? statusText = null)
+        {
+            // 使用手动拼接 JSON 避免 System.Text.Json 的分配开销（高频调用场景）
+            var sb = new StringBuilder(256);
+            sb.Append("{\"type\":\"stream\",\"i\":");
+            sb.Append(messageIndex);
+            sb.Append(",\"c\":");
+            AppendJsonString(sb, streamingContent ?? string.Empty);
+            if (!string.IsNullOrEmpty(reasoningContent))
+            {
+                sb.Append(",\"r\":");
+                AppendJsonString(sb, reasoningContent);
+            }
+            if (isComplete)
+                sb.Append(",\"f\":true");
+            if (!string.IsNullOrEmpty(statusText))
+            {
+                sb.Append(",\"s\":");
+                AppendJsonString(sb, statusText);
+            }
+            sb.Append('}');
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 构建流式最终完成的 JSON 消息（含 Markdown 渲染 HTML）。
+        /// 注意：Markdown 渲染在 C# 侧完成（Markdig），JS 侧直接 innerHTML。
+        /// </summary>
+        public static string BuildStreamEndJson(int messageIndex, string fullContent,
+            string reasoningContent, string? extraFooterHtml = null)
+        {
+            string bodyHtml = RenderMarkdownToHtml(fullContent ?? string.Empty);
+            string reasoningHtml = string.IsNullOrWhiteSpace(reasoningContent)
+                ? string.Empty
+                : RenderReasoningContentHtml(reasoningContent);
+
+            var sb = new StringBuilder(512);
+            sb.Append("{\"type\":\"streamEnd\",\"i\":");
+            sb.Append(messageIndex);
+            sb.Append(",\"html\":");
+            AppendJsonString(sb, bodyHtml);
+            if (!string.IsNullOrEmpty(reasoningHtml))
+            {
+                sb.Append(",\"reasoningHtml\":");
+                AppendJsonString(sb, reasoningHtml);
+            }
+            if (!string.IsNullOrEmpty(extraFooterHtml))
+            {
+                sb.Append(",\"footerHtml\":");
+                AppendJsonString(sb, extraFooterHtml);
+            }
+            // 本地化按钮文本
+            sb.Append(",\"retryLabel\":");
+            AppendJsonString(sb, L["chat.html.retryButton"]);
+            sb.Append(",\"retryTitle\":");
+            AppendJsonString(sb, L["chat.html.retryButtonTitle"]);
+            sb.Append('}');
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 构建仅状态栏更新的 JSON 消息。
+        /// </summary>
+        public static string BuildStatusUpdateJson(string statusText)
+        {
+            return $"{{\"type\":\"streamStatus\",\"text\":{JsonSerializer.Serialize(statusText)}}}";
+        }
+
+        /// <summary>
+        /// 向 StringBuilder 追加 JSON 字符串值（手动转义，避免分配）。
+        /// </summary>
+        private static void AppendJsonString(StringBuilder sb, string value)
+        {
+            sb.Append('"');
+            foreach (char c in value)
+            {
+                switch (c)
+                {
+                    case '"': sb.Append("\\\""); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    case '\b': sb.Append("\\b"); break;
+                    case '\f': sb.Append("\\f"); break;
+                    default:
+                        if (c < 0x20)
+                            sb.Append($"\\u{(int)c:X4}");
+                        else
+                            sb.Append(c);
+                        break;
+                }
+            }
+            sb.Append('"');
+        }
+
+        #endregion
 
         /// <summary>
         /// 构建流式完成后替换为完整 Markdown 渲染的 JS 脚本。
@@ -210,7 +328,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     // 重新为代码块添加按钮和语言标签
     if(msgDiv) decorateCodeBlocks(msgDiv);
 
-    window.scrollTo({{top:document.body.scrollHeight,behavior:'smooth'}});
+    window.__scrollToBottom('smooth');
 }})();";
         }
 
@@ -245,6 +363,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
     var msgBody=document.getElementById('msg-body-{messageIndex}');
     if(msgBody) msgBody.parentNode.insertBefore(btn,msgBody.nextSibling);
+}})();";
+        }
+
+        /// <summary>
+        /// 构建内嵌状态栏更新 JS（替代 WPF TextBlock，消除布局卡顿）。
+        /// </summary>
+        /// <param name="statusText">状态文本，空字符串则清空</param>
+        /// <param name="agentBadgeText">Agent 模式徽章文本，空字符串则隐藏</param>
+        /// <param name="agentBadgeClass">Agent 模式 CSS 类名（plan/edit/explore）</param>
+        public static string BuildStatusUpdateJs(string statusText, string agentBadgeText = "", string agentBadgeClass = "")
+        {
+            string escapedStatus = EscapeJsString(statusText ?? "");
+            string escapedBadgeText = EscapeJsString(agentBadgeText ?? "");
+            string escapedBadgeClass = EscapeJsString(agentBadgeClass ?? "");
+
+            return $@"
+(function(){{
+    var s=document.getElementById('status-text');
+    if(s)s.textContent={escapedStatus};
+    var b=document.getElementById('agent-badge');
+    if(b){{
+        if({escapedBadgeText}.length>0){{
+            b.textContent={escapedBadgeText};
+            b.className='agent-badge {escapedBadgeClass}';
+            b.style.display='inline-block';
+        }}else{{
+            b.style.display='none';
+        }}
+    }}
 }})();";
         }
 
@@ -346,7 +493,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     temp.id='search-card-{messageIndex}';
     temp.innerHTML={escapedCard};
     msgDiv.parentNode.insertBefore(temp,msgDiv);
-    window.scrollTo({{top:document.body.scrollHeight,behavior:'smooth'}});
+    window.__scrollToBottom('smooth');
 }})();";
         }
 
@@ -428,7 +575,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }}
     }});
 
-    window.scrollTo({{top:document.body.scrollHeight,behavior:'smooth'}});
+    window.__scrollToBottom('smooth');
 }})();";
         }
 
@@ -467,104 +614,78 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             // ── 编辑按钮（仅在有索引时渲染） ──
             string editBtnHtml = messageIndex >= 0
-                ? $"<button id='edit-btn-{messageIndex}' class='msg-action-btn edit-btn' onclick='window.__editMessage({messageIndex})' title='{LocalizationService.Instance["chat.html.editButtonTitle"]}'>✏️ {LocalizationService.Instance["chat.html.editButton"]}</button>"
+                ? $"<button id='edit-btn-{messageIndex}' class='msg-action-btn edit-btn' onclick='window.__editMessage({messageIndex})' title='{L["chat.html.editButtonTitle"]}'>✏️</button>"
                 : "";
 
-            // ── 文件附件：可折叠的 &lt;details&gt; 块 ──
-            string fileBlocksHtml = string.Empty;
-            if (attachedFiles != null && attachedFiles.Count > 0)
-            {
-                var blocks = new StringBuilder();
-                blocks.Append("<div style='margin-bottom:8px;text-align:left'>");
-
-                foreach (var file in attachedFiles)
-                {
-                    string escapedFileName = System.Net.WebUtility.HtmlEncode(file.FileName);
-
-                    if (file.Success && !string.IsNullOrEmpty(file.Content))
-                    {
-                        // 判断是否为图像文件（OCR 结果）
-                        bool isImage = IsImageExtension(file.FileExtension);
-                        // 判断是否为 PDF 文件
-                        bool isPdf = string.Equals(file.FileExtension, ".pdf", StringComparison.OrdinalIgnoreCase);
-
-                        string lang = isImage ? string.Empty : GetLanguageFromExtension(file.FileExtension);
-                        string escapedContent = System.Net.WebUtility.HtmlEncode(
-                            (file.Truncated && file.TruncationNote != null
-                                ? file.TruncationNote + "\n\n" + file.Content
-                                : file.Content) ?? string.Empty);
-
-                        // ── 图像文件：OCR 结果用紫色边框卡片展示 ──
-                        if (isImage)
-                        {
-                            blocks.Append("<details class='file-attachment' style='margin-bottom:4px;border:1px solid #6B3FA0;border-radius:4px;background:#1A1A2E;overflow:hidden'>");
-                            blocks.Append("<summary style='cursor:pointer;padding:4px 10px;color:#B98EFF;font-size:12px;font-weight:600;background:#252535;user-select:none;list-style:none'>");
-                            blocks.Append("&#128247; ");
-                            blocks.Append(escapedFileName);
-                            blocks.Append(" <span style='color:#8A8AB4;font-size:10px'>(OCR 识别)</span>");
-                        }
-                        else if (isPdf)
-                        {
-                            blocks.Append("<details class='file-attachment' style='margin-bottom:4px;border:1px solid #8B4513;border-radius:4px;background:#1E150A;overflow:hidden'>");
-                            blocks.Append("<summary style='cursor:pointer;padding:4px 10px;color:#D4A76A;font-size:12px;font-weight:600;background:#2B1D0E;user-select:none;list-style:none'>");
-                            blocks.Append("&#128214; ");
-                            blocks.Append(escapedFileName);
-                        }
-                        else
-                        {
-                            blocks.Append("<details class='file-attachment' style='margin-bottom:4px;border:1px solid #3A5A3A;border-radius:4px;background:#1A2E1A;overflow:hidden'>");
-                            blocks.Append("<summary style='cursor:pointer;padding:4px 10px;color:#7EC87E;font-size:12px;font-weight:600;background:#253525;user-select:none;list-style:none'>");
-                            blocks.Append("&#128206; ");
-                            blocks.Append(escapedFileName);
-                        }
-
-                        if (file.Truncated)
-                            blocks.Append(" <span style='color:#C8A84E;font-size:10px'>(已截断)</span>");
-                        blocks.Append("</summary>");
-                        blocks.Append("<div style='padding:6px 10px;max-height:400px;overflow-y:auto'>");
-                        blocks.Append("<pre style='margin:0;background:#1A1E1A;font-size:11px;line-height:1.4;max-height:380px'><code");
-                        if (!string.IsNullOrEmpty(lang))
-                            blocks.Append(" class='language-" + lang + "'");
-                        blocks.Append(">");
-                        blocks.Append(escapedContent);
-                        blocks.Append("</code></pre>");
-                        blocks.Append("</div>");
-                        blocks.Append("</details>");
-                    }
-                    else
-                    {
-                        // 文件解析失败 → 显示错误标签
-                        string errorMsg = System.Net.WebUtility.HtmlEncode(file.Error ?? "解析失败");
-                        blocks.Append("<div style='display:inline-block;background:#5C1A1A;color:#E07878;");
-                        blocks.Append("padding:3px 10px;border-radius:3px;font-size:11px;margin-bottom:3px'>");
-                        blocks.Append("&#128206; ");
-                        blocks.Append(escapedFileName);
-                        blocks.Append(" &mdash; ");
-                        blocks.Append(errorMsg);
-                        blocks.Append("</div>");
-                    }
-                }
-
-                blocks.Append("</div>");
-                fileBlocksHtml = blocks.ToString();
-            }
+            // ── 文件附件 𠅂
+            string fileBlocksHtml = BuildFileAttachmentHtml(attachedFiles);
 
             string escaped = System.Net.WebUtility.HtmlEncode((content ?? string.Empty).Trim());
             string body = escaped.Replace("\n", "<br>");
 
-            // ── 分支导航栏（编辑产生的分叉，在用户气泡下方；通过 BuildInitialPage 中基于 ChatMessage 属性渲染）──
+            // Copilot Chat 风格：右对齐，简洁气泡
+            sb.Append("<div class='msg-wrapper user'>");
+            sb.Append("<div class='msg-bubble user' style='text-align:right'>");
+            sb.Append($"<div class='msg-role-label user'>You</div>");
+            sb.Append(fileBlocksHtml);
+            sb.Append($"<div class='msg-content' id='msg-body-{messageIndex}'>{body}</div>");
+            sb.Append(editBtnHtml);
+            sb.Append("</div>");
+            sb.Append("<div class='msg-avatar user'>👤</div>");
+            sb.Append("</div>");
+        }
 
-            sb.Append(
-                "<div style='display:flex;justify-content:flex-end;margin-bottom:14px'>" +
-                "<div style='max-width:85%;text-align:left'>" +
-                fileBlocksHtml +
-                "<div class='msg-user' style='display:inline-block;text-align:left'>" +
-                "<div class='msg-body'>" + body + "</div>" +
-                editBtnHtml +
-                "</div>" +
-                "</div>" +
-                "<div style='margin-left:10px'>" + UserAvatarHtml + "</div>" +
-                "</div>");
+        /// <summary>
+        /// 构建文件附件 HTML（提取为独立方法，供用户消息和增量追加复用）。
+        /// </summary>
+        private static string BuildFileAttachmentHtml(List<FileParseResult>? attachedFiles)
+        {
+            if (attachedFiles == null || attachedFiles.Count == 0)
+                return string.Empty;
+
+            var blocks = new StringBuilder();
+            blocks.Append("<div style='margin-bottom:6px;text-align:left'>");
+            foreach (var file in attachedFiles)
+            {
+                string escapedFileName = System.Net.WebUtility.HtmlEncode(file.FileName);
+                if (!file.Success || string.IsNullOrEmpty(file.Content))
+                {
+                    string errorMsg = System.Net.WebUtility.HtmlEncode(file.Error ?? "解析失败");
+                    blocks.Append("<div style='display:inline-block;background:#5c1a1a;color:#e07878;padding:2px 8px;border-radius:3px;font-size:10px;margin:2px'>📎 ");
+                    blocks.Append(escapedFileName).Append(" — ").Append(errorMsg);
+                    blocks.Append("</div>");
+                    continue;
+                }
+
+                bool isImage = IsImageExtension(file.FileExtension);
+                bool isPdf = string.Equals(file.FileExtension, ".pdf", StringComparison.OrdinalIgnoreCase);
+                string lang = isImage ? string.Empty : GetLanguageFromExtension(file.FileExtension);
+                string borderColor = isImage ? "#6b3fa0" : isPdf ? "#8b4513" : "#3a5a3a";
+                string bgColor = isImage ? "#1a1a2e" : isPdf ? "#1e150a" : "#1a2e1a";
+                string summaryColor = isImage ? "#b98eff" : isPdf ? "#d4a76a" : "#7ec87e";
+                string icon = isImage ? "🖼️" : isPdf ? "📄" : "📎";
+                string tag = isImage ? "OCR" : isPdf ? "PDF" : (file.Truncated ? "已截断" : "");
+
+                string escapedContent = System.Net.WebUtility.HtmlEncode(
+                    (file.Truncated && file.TruncationNote != null
+                        ? file.TruncationNote + "\n\n" + file.Content
+                        : file.Content) ?? string.Empty);
+
+                blocks.Append($"<details class='file-attachment' style='margin-bottom:3px;border:1px solid {borderColor};border-radius:4px;background:{bgColor};overflow:hidden'>");
+                blocks.Append($"<summary style='cursor:pointer;padding:3px 8px;color:{summaryColor};font-size:11px;font-weight:600;list-style:none'>{icon} {escapedFileName}");
+                if (!string.IsNullOrEmpty(tag))
+                    blocks.Append($" <span style='color:#c8a84e;font-size:9px'>({tag})</span>");
+                blocks.Append("</summary>");
+                blocks.Append("<div style='padding:4px 8px;max-height:300px;overflow-y:auto'><pre style='margin:0;background:transparent;border:none;font-size:10px;line-height:1.3;max-height:280px'>");
+                if (!string.IsNullOrEmpty(lang))
+                    blocks.Append($"<code class='language-{lang}'>");
+                blocks.Append(escapedContent);
+                if (!string.IsNullOrEmpty(lang))
+                    blocks.Append("</code>");
+                blocks.Append("</pre></div></details>");
+            }
+            blocks.Append("</div>");
+            return blocks.ToString();
         }
 
         /// <summary>
@@ -594,20 +715,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             if (!string.IsNullOrEmpty(msg.Content))
             {
-                // 已有内容：若为预渲染 HTML（如Agent计划），直接使用；否则走 Markdown 渲染
                 if (msg.IsHtml)
-                {
                     bodyHtml = msg.Content;
-                }
                 else
-                {
                     bodyHtml = RenderMarkdownToHtml(msg.Content);
-                }
             }
             else if (isStreaming)
             {
-                // 流式中但尚内容：显示等待提示
-                bodyHtml = "<span style='color:#888;font-style:italic'>思考中…</span>";
+                bodyHtml = "<span style='color:#888;font-style:italic'>Thinking…</span>";
             }
             else
             {
@@ -621,30 +736,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 : "";
 
             string streamingDots = isStreaming
-                ? " <span style='color:#6CAFD9;font-size:10px'>●●●</span>" : "";
+                ? " <span style='color:#4fc1ff;font-size:10px'>● ● ●</span>" : "";
 
-            // ── 重试按钮（非流式、非预渲染 HTML 消息、非生成中才显示） ──
             string retryBtnHtml = !isStreaming && !msg.IsHtml
-                ? $"<button id='retry-btn-{idx}' class='msg-action-btn retry-btn' onclick='window.__retryMessage({idx})' title='{LocalizationService.Instance["chat.html.retryButtonTitle"]}'>{LocalizationService.Instance["chat.html.retryButton"]}</button>"
+                ? $"<button id='retry-btn-{idx}' class='msg-action-btn retry-btn' onclick='window.__retryMessage({idx})' title='{L["chat.html.retryButtonTitle"]}'>↻</button>"
                 : "";
 
-            // ── 分支导航栏（重试产生的分叉，在AI气泡下方）──
             string branchNavHtml = BuildBranchNavHtml(msg, idx);
 
-            sb.Append(
-                "<div id='msg-" + idx + "'>" +
-                "<table cellpadding='0' cellspacing='0' border='0' width='100%' style='margin-bottom:14px'>" +
-                "<tr>" +
-                "<td width='36' valign='top'>" + AiAvatarHtml + "</td>" +
-                "<td valign='top'><div class='msg-ai'>" +
-                "<div class='msg-header msg-header-ai'>DeepSeek" + streamingDots + "</div>" +
-                reasoningHtml +
-                "<div class='msg-body' id='msg-body-" + idx + "'>" + bodyHtml + "</div>" +
-                streamingCursor +
-                retryBtnHtml +
-                branchNavHtml +
-                "</div></td></tr></table>" +
-                "</div>");
+            // Copilot Chat 风格：左对齐，AI 标签
+            sb.Append($"<div id='msg-{idx}' class='msg-wrapper ai'>");
+            sb.Append("<div class='msg-avatar ai'>D</div>");
+            sb.Append("<div class='msg-bubble ai'>");
+            sb.Append($"<div class='msg-role-label ai'>DeepSeek{streamingDots}</div>");
+            sb.Append(reasoningHtml);
+            sb.Append($"<div class='msg-content' id='msg-body-{idx}'>{bodyHtml}</div>");
+            sb.Append(streamingCursor);
+            sb.Append(retryBtnHtml);
+            sb.Append(branchNavHtml);
+            sb.Append("</div>");
+            sb.Append("</div>");
         }
 
         /// <summary>
@@ -802,20 +913,33 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             string autoScrollJs = hasStreamingMessage ? BuildAutoScrollJs() : "";
 
-            return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
-                   "<link rel='stylesheet' href='" + HighlightJsCdnStyleDark + "' />" +
-                   "<style>" + PageCss + "</style>" +
-                   "<script src='" + HighlightJsCdnScript + "'></script>" +
-                   "</head><body><div id='chat-container'>" +
-                   messagesHtml + "</div><script>" +
-                   BuildDecorateCodeBlocksJsFunction() +
-                   BuildDecorateAllCodeBlocksInvocation() +
-                   BuildShiftScrollJs() +
-                   autoScrollJs +
-                   BuildAppendMessageJsFunction() +
-                   BuildRetryEditJsFunctions() +
-                   "setTimeout(function(){window.scrollTo(0,document.body.scrollHeight);},50);" +
-                   "</script></body></html>";
+return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
+       "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
+       "<style>" + PageCss + "</style>" +
+       // CSS 也改为非阻塞加载
+       "<link rel='stylesheet' href='" + HighlightJsCdnStyleDark + 
+       "' media='none' onload=\"if(this.media!=='all')this.media='all'\" />" +
+       "</head><body>" +
+       "<div id='chat-container'>" + messagesHtml + "</div>" +
+       "<div id='status-bar'><span id='status-text'></span><span id='agent-badge' class='agent-badge' style='display:none'></span></div>" +
+       "<script>" +
+       // 动态创建 script 标签，异步加载 highlight.js
+       "var hljsScript=document.createElement('script');" +
+       "hljsScript.src='" + HighlightJsCdnScript + "';" +
+       "hljsScript.onload=function(){" +
+       "  window.decorateCodeBlocks(document.getElementById('chat-container'));" +
+       "};" +
+       "document.head.appendChild(hljsScript);" +
+       BuildDecorateCodeBlocksJsFunction() +
+       BuildShiftScrollJs() +
+       autoScrollJs +
+       BuildAppendMessageJsFunction() +
+       BuildRetryEditJsFunctions() +
+       // ── 页面就绪信号 ──
+       "window.__pageReady=true;" +
+       "if(window.chrome?.webview)window.chrome.webview.postMessage('__pageReady__');" +
+       "setTimeout(function(){window.__scrollToBottom('auto');},100);" +
+       "</script></body></html>";
         }
 
         /// <summary>
@@ -835,7 +959,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             // ── 头部：标题 + 进度条 ──
             sb.Append("<div class='agent-plan-header'>");
-            sb.Append($"<div class='agent-plan-title'>🤖 Coding Agent — {EscapeHtml(plan.Title)}</div>");
+            sb.Append($"<div class='agent-plan-title'>Coding Agent — {EscapeHtml(plan.Title)}</div>");
             sb.Append("<div class='agent-plan-progress'>");
             sb.Append($"<span class='step-counter' id='agent-header-counter-{pid}'>{completed}/{total} 步</span>");
             sb.Append("<span class='agent-plan-progress-bar'>");
@@ -983,7 +1107,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
     var container=document.getElementById('chat-container');
     if(container)container.appendChild(div);
-    window.scrollTo({{top:document.body.scrollHeight,behavior:'smooth'}});
+    window.__scrollToBottom('smooth');
 }})();";
         }
 
@@ -1044,7 +1168,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
     var container=document.getElementById('chat-container');
     if(container)container.appendChild(div);
-    window.scrollTo({{top:document.body.scrollHeight,behavior:'smooth'}});
+    window.__scrollToBottom('smooth');
 }})();";
         }
 
@@ -1094,7 +1218,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
     var container=document.getElementById('chat-container');
     if(container)container.appendChild(div);
-    window.scrollTo({{top:document.body.scrollHeight,behavior:'smooth'}});
+    window.__scrollToBottom('smooth');
 }})();";
         }
 
@@ -1165,7 +1289,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
     var container=document.getElementById('chat-container');
     if(container)container.appendChild(panel);
-    window.scrollTo({{top:document.body.scrollHeight,behavior:'smooth'}});
+    window.__scrollToBottom('smooth');
 }})();";
         }
 
@@ -1289,7 +1413,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     if(pf)pf.style.width='100%';
 
     // 滚动到底部
-    window.scrollTo({{top:document.body.scrollHeight,behavior:'smooth'}});
+    window.__scrollToBottom('smooth');
 }})();";
         }
     }

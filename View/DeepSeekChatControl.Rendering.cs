@@ -145,7 +145,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 通过 JS 增量更新流式消息的 DOM 内容。
+        /// 通过 JS 增量更新流式消息的 DOM 内容（旧版 ExecuteScriptAsync 路径，保留兼容）。
         /// </summary>
         private async Task UpdateStreamingMessageAsync(int messageIndex, string content, string reasoningContent, bool isComplete)
         {
@@ -161,6 +161,64 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Error($"[Render] UpdateStreamingMessage 异常: {ex.Message}", ex);
             }
         }
+
+        /// <summary>
+        /// 通过 PostWebMessageAsString 非阻塞推送流式更新（高性能路径）。
+        /// PostWebMessageAsString 不等待 JS 执行完成，不阻塞 UI 线程。
+        /// JS 侧通过 requestAnimationFrame 批量处理 DOM 更新。
+        /// </summary>
+        private void PostStreamingUpdate(int messageIndex, string content, string reasoningContent, bool isComplete, string? statusText = null)
+        {
+            if (ChatWebView.CoreWebView2 == null) return;
+
+            try
+            {
+                string json = ChatHtmlService.BuildStreamUpdateJson(messageIndex, content, reasoningContent, isComplete, statusText);
+                ChatWebView.CoreWebView2.PostWebMessageAsString(json);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[Render] PostStreamingUpdate 异常: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// 通过 PostWebMessageAsString 非阻塞推送流式完成（含 Markdown 渲染 HTML）。
+        /// </summary>
+        private void PostStreamEnd(int messageIndex, string fullContent, string reasoningContent, string? extraFooterHtml = null)
+        {
+            if (ChatWebView.CoreWebView2 == null) return;
+
+            try
+            {
+                string json = ChatHtmlService.BuildStreamEndJson(messageIndex, fullContent, reasoningContent, extraFooterHtml);
+                ChatWebView.CoreWebView2.PostWebMessageAsString(json);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[Render] PostStreamEnd 异常: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// 通过 PostWebMessageAsString 非阻塞更新状态栏文本。
+        /// </summary>
+        private void PostStatusUpdate(string statusText)
+        {
+            if (ChatWebView.CoreWebView2 == null) return;
+
+            try
+            {
+                string json = ChatHtmlService.BuildStatusUpdateJson(statusText);
+                ChatWebView.CoreWebView2.PostWebMessageAsString(json);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[Render] PostStatusUpdate 异常: {ex.Message}", ex);
+            }
+        }
+
+        // ── 批处理流式更新已在 DeepSeekChatControl.xaml.cs 中实现（BatchStreamingUpdate 方法）──
 
         #endregion
     }

@@ -410,7 +410,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         StatusLabel.Text = LocalizationService.Instance["status.baiduKeyMissing"];
                         assistantMsg.Content = LocalizationService.Instance["websearch.notConfigured"];
                         assistantMsg.IsStreaming = false;
-                        _ = UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, string.Empty, isComplete: true);
+                        FlushBatchStream(assistantMsgIndex);
+                        PostStreamEnd(assistantMsgIndex, assistantMsg.Content, string.Empty);
                         _isGenerating = false;
                         UpdateButtonsState();
                         return;
@@ -466,7 +467,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             StatusLabel.Text = string.Format(LocalizationService.Instance["status.searchResults"], searchResults.Count);
                             assistantMsg.Content = string.Format(LocalizationService.Instance["websearch.searchResultsHtml"],
                                 searchResults.Count, providerLabel);
-                            _ = UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, string.Empty, isComplete: false);
+                            PostStreamingUpdate(assistantMsgIndex, assistantMsg.Content, string.Empty, false);
 
                             await EnrichSearchContextAsync(searchResults, _currentStreamingCts.Token);
                             searchContext = WebSearchService.FormatSearchResultsForContext(searchResults);
@@ -478,7 +479,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             {
                                 engineSwitchNote = LocalizationService.Instance["websearch.quotaExhausted"];
                                 assistantMsg.Content = LocalizationService.Instance["websearch.quotaExhaustedShort"];
-                                _ = UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, string.Empty, isComplete: false);
+                                PostStreamingUpdate(assistantMsgIndex, assistantMsg.Content, string.Empty, false);
                                 searchResults = await _webSearchService.SearchAsync(optimizedQuery, _currentStreamingCts.Token);
                                 capturedSearchResults = searchResults;
                                 if (searchResults.Count > 0)
@@ -496,7 +497,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         Logger.Error($"[Render] 百度 API Key 无效", ex);
                         assistantMsg.Content = LocalizationService.Instance["websearch.invalidApiKey"];
                         assistantMsg.IsStreaming = false;
-                        await UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
+                        FlushBatchStream(assistantMsgIndex);
+                        PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
                         lock (_lock) { _messages.Remove(assistantMsg); }
                         lock (_lock) { _isGenerating = false; }
                         UpdateButtonsState();
@@ -528,9 +530,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     int lastReasoningLength = 0;
 
                     // ── 循环检测状态 ──
-                    var callSignatureHistory = new List<string>();  // 历史调用签名: "toolName|args前200字符"
-                    int consecutiveErrorRounds = 0;                  // 连续错误轮次计数
-                    const int maxRepeatedSameCall = 3;              // 同一调用重复上限
+                    var callSignatureHistory = new Queue<string>();          // O(1) 入队/出队
+                    var callSignatureCount = new Dictionary<string, int>();  // O(1) 计数
+                    int consecutiveErrorRounds = 0;                         // 连续错误轮次计数
+                    const int maxHistorySize = 30;
+                    const int maxRepeatedSameCall = 3;
                     const int maxConsecutiveErrors = 5;             // 连续错误上限
                     const int safetyLimit = 200;                     // 绝对安全上限
                     bool loopDetected = false;
@@ -596,15 +600,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             {
                                 var thinking = chunk.Substring(10);
                                 reasoningBuffer.Append(thinking);
-                                UpdateStatusText(LocalizationService.Instance["status.deepThinking"]);
 
                                 int curReasoningLen = reasoningBuffer.Length;
-                                if (curReasoningLen - lastReasoningLength >= 80)
+                                // 增大节流阈值：从 80 → 200 字符，减少渲染频率
+                                if (curReasoningLen - lastReasoningLength >= 200)
                                 {
                                     string reasoningText = reasoningBuffer.ToString();
                                     assistantMsg.ReasoningContent = reasoningText;
                                     lastReasoningLength = curReasoningLen;
-                                    await UpdateStreamingMessageAsync(assistantMsgIndex, contentBuffer.ToString(), reasoningText, isComplete: false);
+                                    // ── 使用批处理 + 非阻塞 PostWebMessageAsString ──
+                                    string status = _statusUpdateStopwatch != null
+                                        && _statusUpdateStopwatch.ElapsedMilliseconds >= StatusUpdateMinIntervalMs
+                                        ? LocalizationService.Instance["status.deepThinking"] : null;
+                                    BatchStreamingUpdate(assistantMsgIndex, contentBuffer.ToString(), reasoningText, status: status);
+                                    if (status != null) _statusUpdateStopwatch?.Restart();
                                 }
                             }
                             else if (chunk.StartsWith("[TOOL_CALL]"))
@@ -653,9 +662,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                                 contentBuffer.Append(chunk);
                                 streamRenderTick += chunk.Length;
-                                UpdateStatusText(LocalizationService.Instance["status.replying"]);
 
-                                // 双重节流：字符数足够 + 距上次渲染至少 80ms
+                                // 双重节流：字符数足够 + 距上次渲染至少 120ms
                                 bool timeElapsed = _streamRenderStopwatch == null
                                     || _streamRenderStopwatch.ElapsedMilliseconds >= StreamRenderMinIntervalMs;
                                 if (streamRenderTick >= StreamRenderInterval && timeElapsed)
@@ -663,7 +671,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     streamRenderTick = 0;
                                     _streamRenderStopwatch?.Restart();
                                     assistantMsg.Content = contentBuffer.ToString();
-                                    await UpdateStreamingMessageAsync(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: false);
+                                    // ── 使用批处理 + 非阻塞 PostWebMessageAsString ──
+                                    string status = _statusUpdateStopwatch != null
+                                        && _statusUpdateStopwatch.ElapsedMilliseconds >= StatusUpdateMinIntervalMs
+                                        ? LocalizationService.Instance["status.replying"] : null;
+                                    BatchStreamingUpdate(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), status: status);
+                                    if (status != null) _statusUpdateStopwatch?.Restart();
                                 }
                             }
                         }
@@ -680,7 +693,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             foreach (var acc in toolCallAccumulator.Values)
                                 toolCallSummary += $"- `{acc.FunctionName}`\n";
                             assistantMsg.Content = contentBuffer.Length > 0 ? contentBuffer.ToString() + "\n\n" + toolCallSummary : toolCallSummary;
-                            await UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString(), isComplete: false);
+                            BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString(), isComplete: false);
 
                             var assistantToolCalls = toolCallAccumulator.Values
                                 .Where(a => !string.IsNullOrEmpty(a.FunctionName))
@@ -766,7 +779,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 ? contentBuffer.ToString() + "\n\n✅ 工具调用完成，AI 正在分析结果...\n"
                                 : "✅ 工具调用完成，AI 正在分析结果...\n";
                             assistantMsg.Content = resultSummary;
-                            await UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString(), isComplete: false);
+                            BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString());
 
                             // ── 循环检测 ──
                             // 收集本轮所有工具调用的签名和结果用于检测
@@ -778,15 +791,34 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     (acc.ArgumentsBuilder.Length > 200
                                         ? acc.ArgumentsBuilder.ToString().Substring(0, 200)
                                         : acc.ArgumentsBuilder.ToString());
-                                callSignatureHistory.Add(sig);
+
+                                callSignatureHistory.Enqueue(sig);
+
+                                // 更新计数
+                                callSignatureCount.TryGetValue(sig, out int prevCount);
+                                callSignatureCount[sig] = prevCount + 1;
+
+                                // 维护固定大小窗口
+                                while (callSignatureHistory.Count > maxHistorySize)
+                                {
+                                    string removed = callSignatureHistory.Dequeue();
+                                    if (callSignatureCount.TryGetValue(removed, out int cnt))
+                                    {
+                                        if (cnt <= 1)
+                                            callSignatureCount.Remove(removed);
+                                        else
+                                            callSignatureCount[removed] = cnt - 1;
+                                    }
+                                }
+
                                 roundResults.Add((sig, false)); // will set error flag below
                             }
 
-                            // 检测同一调用重复
+                            // 检测同一调用重复（O(1) 查表，替代 O(n) 遍历）
                             foreach (var (sig, _) in roundResults)
                             {
-                                int repeatCount = callSignatureHistory.Count(s => s == sig);
-                                if (repeatCount >= maxRepeatedSameCall)
+                                if (callSignatureCount.TryGetValue(sig, out int repeatCount)
+                                    && repeatCount >= maxRepeatedSameCall)
                                 {
                                     loopDetected = true;
                                     string toolName = sig.Split('|')[0];
@@ -797,8 +829,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
 
                             // 保留最近 30 条签名防止内存增长
-                            while (callSignatureHistory.Count > 30)
-                                callSignatureHistory.RemoveAt(0);
+                            while (callSignatureHistory.Count > maxHistorySize)
+                                callSignatureHistory.Dequeue();
 
                             // 检测连续错误：检查本轮工具结果是否全部以 ❌ 开头
                             if (!loopDetected)
@@ -852,9 +884,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         totalCacheHitTokens, totalCacheMissTokens,
                         totalPromptTokens, totalCompletionTokens, round);
 
-                    string finalJs = ChatHtmlService.BuildFinalRenderJs(
-                        assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), cacheFooterHtml);
-                    await ChatWebView.CoreWebView2.ExecuteScriptAsync(finalJs);
+                    // ── 强制刷新批处理缓冲，确保最后一段增量内容已推送 ──
+                    FlushBatchStream(assistantMsgIndex);
+
+                    // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染（含 Markdown HTML）──
+                    PostStreamEnd(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), cacheFooterHtml);
 
                     if (capturedSearchResults.Count > 0)
                     {
@@ -898,7 +932,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     Logger.Error($"[Render] API Key 无效", ex);
                     assistantMsg.Content = $"⚠️ {ex.Message}";
                     assistantMsg.IsStreaming = false;
-                    await UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
+                    FlushBatchStream(assistantMsgIndex);
+                    PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
                     lock (_lock) { _messages.Remove(assistantMsg); }
                 }
                 catch (OperationCanceledException)
@@ -906,15 +941,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     Logger.Info("[Render] 用户停止生成");
                     assistantMsg.Content += "\n\n*[已停止]*";
                     assistantMsg.IsStreaming = false;
-                    string finalJs = ChatHtmlService.BuildFinalRenderJs(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
-                    await ChatWebView.CoreWebView2.ExecuteScriptAsync(finalJs);
+                    FlushBatchStream(assistantMsgIndex);
+                    PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
                 }
                 catch (HttpRequestException ex) when (ex.Message.Contains("401") || ex.Message.Contains("403"))
                 {
                     Logger.Error($"[Render] API 认证失败", ex);
                     assistantMsg.Content = "⚠️ DeepSeek API Key 无效或已过期，请重新配置。";
                     assistantMsg.IsStreaming = false;
-                    await UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
+                    FlushBatchStream(assistantMsgIndex);
+                    PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
                     lock (_lock) { _messages.Remove(assistantMsg); }
                 }
                 catch (Exception ex)
@@ -922,7 +958,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     Logger.Error($"[Render] API 出错", ex);
                     assistantMsg.Content = string.Format(LocalizationService.Instance["status.apiError"], ex.Message);
                     assistantMsg.IsStreaming = false;
-                    await UpdateStreamingMessageAsync(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
+                    FlushBatchStream(assistantMsgIndex);
+                    PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
                 }
                 finally
                 {

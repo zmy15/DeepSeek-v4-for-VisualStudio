@@ -41,10 +41,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 流式更新间隔（字符数），配合时间节流实现双重控制，减少 JS 跨进程调用。
+        /// 使用 PostWebMessageAsString 非阻塞通道后，可适当增大间隔以减少消息频率。
         /// </summary>
-        private const int StreamRenderInterval = 80;
-        private const int StreamRenderMinIntervalMs = 80;
-        private const int StatusUpdateMinIntervalMs = 150; // 状态栏 WPF TextBlock 最小刷新间隔
+        private const int StreamRenderInterval = 200;
+        private const int StreamRenderMinIntervalMs = 120;
+        private const int StatusUpdateMinIntervalMs = 200; // 状态栏最小刷新间隔
         private System.Diagnostics.Stopwatch? _streamRenderStopwatch;
         private System.Diagnostics.Stopwatch? _statusUpdateStopwatch;
         private string _lastToolCallNames = ""; // 工具调用名称缓存，避免重复更新
@@ -76,7 +77,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private RagService? _ragService;
         private ContextCompressorService? _compressorService;
         private bool _isGenerating;
-        private string _webSearchEngine = "Off"; // "Off" | "Baidu" | "DuckDuckGo"
+        private string _webSearchEngine = "Off"; // "Off" | "Baidu" | "DuckDuckGo" | "Google" | "Bing"
         private readonly List<string> _pendingWarnings = new(); // 待注入的警告消息
 
         // ── 文件上传 ──
@@ -414,14 +415,39 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 初始化联网搜索服务。默认使用百度搜索，若未配置 API Key 则使用 DuckDuckGo。
+        /// 初始化联网搜索服务。从选项页读取默认搜索引擎。
         /// </summary>
         private void InitializeWebSearchService()
         {
             _webSearchService?.Dispose();
             _webSearchService = new WebSearchService();
+
+            // 从选项页读取默认搜索引擎，同步到 ComboBox
+            string optionsProvider = _options?.SearchProvider ?? "DuckDuckGo";
+            string resolvedEngine = optionsProvider switch
+            {
+                "Baidu" => "Baidu",
+                "Google" => "Google",
+                "Bing" => "Bing",
+                _ => "DuckDuckGo"
+            };
+
+            // 同步 ComboBox 选中项
+            int idx = resolvedEngine switch
+            {
+                "Baidu" => 0,
+                "DuckDuckGo" => 1,
+                "Google" => 2,
+                "Bing" => 3,
+                _ => 1
+            };
+            WebSearchEngineComboBox.SelectedIndex = idx;
+
+            // 注意：_webSearchEngine 仍为 "Off"，用户需要点击 🌐 按钮开启
+            // 但搜索引擎已预选为选项页中配置的值
+
             ApplyWebSearchConfig();
-            Logger.Info("联网搜索服务初始化成功");
+            Logger.Info($"联网搜索服务初始化成功 (默认引擎: {resolvedEngine})");
         }
 
         /// <summary>
@@ -459,29 +485,73 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 设置变更事件回调（用户点击 Options 对话框的"确定"/"应用"时触发）。
-        /// 热重载 OCR 配置，无需重启聊天窗口。
+        /// 热重载 OCR、Web 搜索、模型等配置，无需重启聊天窗口。
         /// </summary>
         private void OnOcrSettingsChanged()
         {
-            Logger.Info("[OCR] 检测到设置变更，热重载 OCR 配置...");
+            Logger.Info("[Settings] 检测到设置变更，热重载配置...");
             try
             {
                 // 刷新 _options 引用（DialogPage 属性已由 VS 自动更新）
                 if (_package != null)
                     _options = _package.Options;
 
-                // 重置所有引擎缓存（下次 OCR 调用时重新检测环境）
+                // ── OCR 热重载 ──
                 OcrService.ResetAllEngines();
-
-                // 重新应用设置
                 InitializeOcrService();
+                Logger.Info($"[Settings] OCR 热切换完成 → {OcrService.CurrentEngine}");
 
-                StatusLabel.Text = $"OCR 引擎已切换至: {_options?.OcrEngine ?? "Windows Built-in"}";
-                Logger.Info($"[OCR] 设置热切换完成 → {OcrService.CurrentEngine}");
+                // ── Web 搜索热重载 ──
+                string optionsProvider = _options?.SearchProvider ?? "DuckDuckGo";
+                // 解析选项页中设置的搜索引擎
+                string resolvedEngine = optionsProvider switch
+                {
+                    "Baidu" => "Baidu",
+                    "Google" => "Google",
+                    "Bing" => "Bing",
+                    _ => "DuckDuckGo"
+                };
+
+                // 始终同步 ComboBox 选中项到选项页设置
+                int idx = resolvedEngine switch
+                {
+                    "Baidu" => 0,
+                    "DuckDuckGo" => 1,
+                    "Google" => 2,
+                    "Bing" => 3,
+                    _ => 1
+                };
+                WebSearchEngineComboBox.SelectedIndex = idx;
+
+                // 如果联网搜索当前是开启状态，同步引擎并应用配置
+                if (_webSearchEngine != "Off")
+                {
+                    if (_webSearchEngine != resolvedEngine)
+                    {
+                        _webSearchEngine = resolvedEngine;
+                        Logger.Info($"[Settings] 搜索引擎热切换为: {_webSearchEngine}");
+                    }
+
+                    ApplyWebSearchConfig();
+                    UpdateWebSearchToggleAppearance();
+
+                    if (_webSearchEngine == "Baidu" && (_options == null || string.IsNullOrWhiteSpace(_options.BaiduApiKey)))
+                    {
+                        StatusLabel.Text = LocalizationService.Instance["status.search.baiduKeyRequired"];
+                    }
+                    else
+                    {
+                        StatusLabel.Text = $"设置已更新 (搜索引擎: {_webSearchEngine})";
+                    }
+                }
+                else
+                {
+                    StatusLabel.Text = $"设置已更新 (默认引擎: {resolvedEngine})";
+                }
             }
             catch (Exception ex)
             {
-                Logger.Error($"[OCR] 设置热切换失败: {ex.Message}", ex);
+                Logger.Error($"[Settings] 设置热切换失败: {ex.Message}", ex);
             }
         }
 
@@ -1372,8 +1442,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 带节流的状态栏更新。仅在距上次更新 ≥ StatusUpdateMinIntervalMs 时才修改 Text，
-        /// 避免 WPF TextBlock.Text 赋值每秒数十次导致 UI 线程被占满、VS 无响应。
+        /// 带节流的状态栏更新。通过 ExecuteScriptAsync 直接更新 WebView2 内嵌 #status-bar，
+        /// 绕过 WPF TextBlock 的 Measure→Arrange→Render 管线。
         /// </summary>
         private void UpdateStatusText(string text)
         {
@@ -1382,7 +1452,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return;
 
             _statusUpdateStopwatch?.Restart();
-            StatusLabel.Text = text;
+            _ = UpdateStatusViaJsAsync(text);
         }
 
         /// <summary>
@@ -1390,7 +1460,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private void UpdateStatusToolCall(string toolNames)
         {
-            if (toolNames == _lastToolCallNames) return; // 工具名未变，跳过
+            if (toolNames == _lastToolCallNames) return;
             _lastToolCallNames = toolNames;
 
             if (_statusUpdateStopwatch != null
@@ -1398,13 +1468,139 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return;
 
             _statusUpdateStopwatch?.Restart();
-            StatusLabel.Text = string.Format(
-                LocalizationService.Instance["status.callingTool"], toolNames);
+            _ = UpdateStatusViaJsAsync(
+                string.Format(LocalizationService.Instance["status.callingTool"], toolNames));
+        }
+
+        /// <summary>
+        /// 通过 JS 更新 WebView2 内嵌状态栏，同时更新 Agent 模式徽章。
+        /// 使用 fire-and-forget 模式避免阻塞 UI 线程。
+        /// </summary>
+        private async Task UpdateStatusViaJsAsync(string statusText)
+        {
+            try
+            {
+                if (ChatWebView?.CoreWebView2 == null || !_pageReady) return;
+
+                string agentBadgeText = "";
+                string agentBadgeClass = "";
+                if (_agentDispatcher != null && AgentModeBadge?.Visibility == System.Windows.Visibility.Visible)
+                {
+                    agentBadgeText = AgentModeText?.Text ?? "";
+                    agentBadgeClass = _agentDispatcher.ActiveAgentType switch
+                    {
+                        Models.AgentType.Plan => "plan",
+                        Models.AgentType.Edit => "edit",
+                        Models.AgentType.Explore => "explore",
+                        _ => "",
+                    };
+                }
+
+                string js = ChatHtmlService.BuildStatusUpdateJs(statusText, agentBadgeText, agentBadgeClass);
+                await ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
+            }
+            catch
+            {
+                // WebView2 未就绪时静默跳过（回退到 WPF StatusLabel）
+            }
         }
 
         #endregion
 
 
+        // ── 流式更新批处理状态 ──
+        private class StreamBatchState
+        {
+            public int MessageIndex;
+            public StringBuilder Content = new(256);
+            public StringBuilder Reasoning = new(64);
+            public string? PendingStatus;
+            public bool IsComplete;
+            public long LastFlushTicks;
+        }
+
+        private readonly Dictionary<int, StreamBatchState> _streamBatchStates = new();
+        private readonly object _streamBatchLock = new();
+
+        private const long StreamBatchMinIntervalTicks = 80_0000; // 80ms (Stopwatch ticks)
+
+        /// <summary>
+        /// 批处理流式更新：累积内容变化，仅在间隔达标或显著变化时推送。
+        /// </summary>
+        private void BatchStreamingUpdate(int messageIndex, string? content = null,
+            string? reasoning = null, string? status = null, bool isComplete = false)
+        {
+            lock (_streamBatchLock)
+            {
+                if (!_streamBatchStates.TryGetValue(messageIndex, out var state))
+                {
+                    state = new StreamBatchState { MessageIndex = messageIndex };
+                    _streamBatchStates[messageIndex] = state;
+                }
+
+                if (content != null)
+                {
+                    state.Content.Clear();
+                    state.Content.Append(content);
+                }
+                if (reasoning != null)
+                {
+                    state.Reasoning.Clear();
+                    state.Reasoning.Append(reasoning);
+                }
+                if (status != null)
+                    state.PendingStatus = status;
+                if (isComplete)
+                    state.IsComplete = true;
+
+                long now = Stopwatch.GetTimestamp();
+                long elapsed = now - state.LastFlushTicks;
+
+                // 仅当满足条件时实际推送：已完成 / 状态变化 / 间隔达标 + 内容显著变化
+                bool contentChanged = state.Content.Length > StreamRenderInterval;
+                bool timeElapsed = elapsed >= StreamBatchMinIntervalTicks;
+
+                if (state.IsComplete || contentChanged || (timeElapsed && state.Content.Length > 0))
+                {
+                    state.LastFlushTicks = now;
+                    PostStreamingUpdate(state.MessageIndex,
+                        state.Content.ToString(),
+                        state.Reasoning.ToString(),
+                        state.IsComplete,
+                        state.PendingStatus);
+                    state.PendingStatus = null;
+                    if (state.IsComplete)
+                        _streamBatchStates.Remove(messageIndex);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 强制刷新指定消息的批处理缓冲区。
+        /// 在流式完成、最终渲染等关键时刻调用，确保累积内容不会丢失。
+        /// </summary>
+        private void FlushBatchStream(int messageIndex)
+        {
+            StreamBatchState? state;
+            lock (_streamBatchLock)
+            {
+                if (!_streamBatchStates.TryGetValue(messageIndex, out state))
+                    return;
+                // 将 LastFlushTicks 置零，使下次检查一定超时
+                state.LastFlushTicks = 0;
+            }
+            // 用当前内容重新调用批处理方法，将强制推送（因为 LastFlushTicks=0 确保 elapsed 超时）
+            BatchStreamingUpdate(messageIndex);
+        }
+
+        /// <summary>
+        /// 清除指定消息的批处理状态（用于中断/取消时清理）。
+        /// </summary>
+        private void ClearBatchStream(int messageIndex)
+        {
+            lock (_streamBatchLock)
+                _streamBatchStates.Remove(messageIndex);
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Services.Agents;
 using DeepSeek_v4_for_VisualStudio.ToolWindows;
@@ -911,7 +911,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     allItems = allItems
                         .Where(item => item.Name.StartsWith(commandPart, StringComparison.OrdinalIgnoreCase)
-                                       || item.Description.Contains(filterText, StringComparison.OrdinalIgnoreCase))
+                                       || item.Description.IndexOf(filterText, StringComparison.OrdinalIgnoreCase) >= 0)
                         .ToList();
                 }
 
@@ -1097,7 +1097,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     agents = agents
                         .Where(a => a.Name.StartsWith(filterText, StringComparison.OrdinalIgnoreCase)
-                                    || a.Description.Contains(filterText, StringComparison.OrdinalIgnoreCase))
+                                    || a.Description.IndexOf(filterText, StringComparison.OrdinalIgnoreCase) >= 0)
                         .ToList();
                 }
 
@@ -1302,6 +1302,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
         }
 
+        private void RagCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            bool enabled = RagCheckBox.IsChecked == true;
+            if (_ragService != null)
+                _ragService.IsEnabled = enabled;
+            Logger.Info($"代码索引: {(enabled ? "启用" : "禁用")}");
+        }
+
         private void EffortComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_apiService != null && EffortComboBox.SelectedItem is string effort)
@@ -1326,8 +1334,27 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 切换状态
                 if (_webSearchEngine == "Off")
                 {
-                    _webSearchEngine = "Baidu";
-                    WebSearchEngineComboBox.SelectedIndex = 0; // 默认百度
+                    // 使用 ComboBox 当前选择的搜索引擎，而非硬编码 DuckDuckGo
+                    string? selected = WebSearchEngineComboBox.SelectedItem as string;
+                    string newEngine = selected switch
+                    {
+                        string s when s.Contains("百度") || s.Contains("Baidu") => "Baidu",
+                        string s when s.Contains("DuckDuckGo") => "DuckDuckGo",
+                        string s when s.Contains("Google") => "Google",
+                        string s when s.Contains("Bing") => "Bing",
+                        _ => "DuckDuckGo"
+                    };
+                    _webSearchEngine = newEngine;
+                    // 同步 ComboBox 选中项到当前引擎（确保 UI 一致）
+                    int idx = newEngine switch
+                    {
+                        "Baidu" => 0,
+                        "DuckDuckGo" => 1,
+                        "Google" => 2,
+                        "Bing" => 3,
+                        _ => 1
+                    };
+                    WebSearchEngineComboBox.SelectedIndex = idx;
                 }
                 else
                 {
@@ -1443,7 +1470,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
 
         /// <summary>
-        /// 联网搜索引擎选择变更事件（保留兼容，但 UI 已隐藏此控件）。
+        /// 联网搜索引擎选择变更事件。仅在搜索已开启时生效，搜索关闭时仅记录偏好。
         /// </summary>
         private void WebSearchEngineComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -1451,12 +1478,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 if (WebSearchEngineComboBox.SelectedIndex < 0) return;
 
+                // 搜索关闭时，ComboBox 仅作为偏好存储，不切换引擎
+                if (_webSearchEngine == "Off") return;
+
                 string? selected = WebSearchEngineComboBox.SelectedItem as string;
                 string newEngine = selected switch
                 {
                     string s when s.Contains("百度") || s.Contains("Baidu") => "Baidu",
                     string s when s.Contains("DuckDuckGo") => "DuckDuckGo",
-                    _ => "Off"
+                    string s when s.Contains("Google") => "Google",
+                    string s when s.Contains("Bing") => "Bing",
+                    _ => "DuckDuckGo"
                 };
 
                 if (_webSearchEngine == newEngine) return; // 避免循环触发
@@ -1509,6 +1541,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 string message = e.TryGetWebMessageAsString();
                 if (string.IsNullOrWhiteSpace(message)) return;
+
+                // ── 页面就绪信号：WebView2 DOM + JS 全部加载完成 ──
+                if (message == "__pageReady__")
+                {
+                    _pageReady = true;
+                    Logger.Info("[Render] WebView2 页面就绪信号收到");
+                    return;
+                }
 
                 var obj = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(message);
                 if (obj.TryGetProperty("type", out var typeProp))

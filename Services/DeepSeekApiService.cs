@@ -137,24 +137,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             using var stream = await response.Content.ReadAsStreamAsync();
             using var reader = new StreamReader(stream, Encoding.UTF8);
 
-            while (!reader.EndOfStream)
+            // ── 缓冲聚合：减少 yield return 迭代次数 ──
+            var contentBatch = new StringBuilder(512);
+            const int ContentFlushThreshold = 200;
+
+            string? line;
+            while ((line = await reader.ReadLineAsync()) != null)  // 替代 EndOfStream
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var line = await reader.ReadLineAsync();
 
                 if (string.IsNullOrEmpty(line) || !line.StartsWith("data: "))
                     continue;
 
                 var jsonData = line.Substring(6);
                 if (jsonData == "[DONE]")
+                {
+                    // 结束前刷出残余缓冲
+                    if (contentBatch.Length > 0)
+                    {
+                        yield return contentBatch.ToString();
+                        contentBatch.Clear();
+                    }
                     yield break;
+                }
 
-                // 解析结果存入局部变量
+                // 解析 chunk...
                 string? reasoning = null;
                 string? content = null;
                 string? toolCallJson = null;
                 string? cacheInfo = null;
-
                 try
                 {
                     var chunk = JsonSerializer.Deserialize<DeepSeekStreamChunk>(jsonData);
@@ -163,15 +174,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     {
                         reasoning = delta.ReasoningContent;
                         content = delta.Content;
-
-                        // ── 工具调用增量 ──
                         if (delta.ToolCalls != null && delta.ToolCalls.Count > 0)
-                        {
                             toolCallJson = JsonSerializer.Serialize(delta.ToolCalls);
-                        }
                     }
-
-                    // ── 捕获 Usage 信息（含 Cache 命中统计，通常出现在最后一个 chunk）──
                     if (chunk?.Usage != null)
                     {
                         LastUsage = chunk.Usage;
@@ -179,25 +184,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         cacheInfo = $"{chunk.Usage.PromptCacheHitTokens}|{chunk.Usage.PromptCacheMissTokens}|{chunk.Usage.PromptTokens}|{chunk.Usage.CompletionTokens}";
                     }
                 }
-                catch (JsonException)
+                catch (JsonException) { continue; }
+
+                // ── 元数据（thinking/tool_call）到来前先刷出已聚合的内容 ──
+                bool hasMeta = !string.IsNullOrEmpty(reasoning) || !string.IsNullOrEmpty(toolCallJson);
+                if (hasMeta && contentBatch.Length > 0)
                 {
-                    // 忽略无法解析的行（如 keep-alive 注释）
-                    continue;
+                    yield return contentBatch.ToString();
+                    contentBatch.Clear();
                 }
 
-                // yield return 移至 try 块外部，解决编译错误
-                if (!string.IsNullOrEmpty(reasoning))
-                    yield return $"[THINKING]{reasoning}";
+                if (!string.IsNullOrEmpty(reasoning)) yield return $"[THINKING]{reasoning}";
+                if (!string.IsNullOrEmpty(toolCallJson)) yield return $"[TOOL_CALL]{toolCallJson}";
+                if (!string.IsNullOrEmpty(cacheInfo)) yield return $"[CACHE]{cacheInfo}";
 
-                if (!string.IsNullOrEmpty(toolCallJson))
-                    yield return $"[TOOL_CALL]{toolCallJson}";
-
-                if (!string.IsNullOrEmpty(cacheInfo))
-                    yield return $"[CACHE]{cacheInfo}";
-
+                // ── 普通内容：聚合到缓冲区，达到阈值再 yield ──
                 if (!string.IsNullOrEmpty(content))
-                    yield return content!;
+                {
+                    contentBatch.Append(content);
+                    if (contentBatch.Length >= ContentFlushThreshold)
+                    {
+                        yield return contentBatch.ToString();
+                        contentBatch.Clear();
+                    }
+                }
             }
+
+            // 流结束，刷出残余
+            if (contentBatch.Length > 0)
+                yield return contentBatch.ToString();
         }
 
         /// <summary>
@@ -287,7 +302,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// 检查 HTTP 响应状态，对认证错误抛出 ApiKeyInvalidException。
+        /// 检查 HTTP 响应状态，对认证错误抛出 ApiKeyInvalidException.
         /// </summary>
         private static async Task ValidateResponseStatusAsync(HttpResponseMessage response)
         {

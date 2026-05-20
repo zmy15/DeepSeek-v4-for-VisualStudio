@@ -348,12 +348,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             msg.IsRendered = true;
                         }
                     }
-                    await UpdateStreamingMessageAsync(_agentStreamingMsgIndex, finalContent, string.Empty, isComplete: true);
-                    // ── 最终渲染用 Markdown → HTML（执行过程作为独立 HTML 注入，不经过 Markdown）──
+                    // ── 追加 Cache 命中率统计（使用累计值，非单轮）──
+                    string cacheFooter = string.Empty;
                     try
                     {
-                        // 追加 Cache 命中率统计（使用累计值，非单轮）
-                        string cacheFooter = string.Empty;
                         long totalHit = _apiService?.TotalCacheHitTokens ?? 0;
                         long totalMiss = _apiService?.TotalCacheMissTokens ?? 0;
                         long totalPrompt = _apiService?.TotalPromptTokens ?? 0;
@@ -363,12 +361,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             cacheFooter = ChatHtmlService.BuildCacheHitFooterHtml(
                                 totalHit, totalMiss, totalPrompt, totalComp, roundCount: 1);
                         }
-                        string combinedFooter = thinkingDetailsHtml + cacheFooter;
-                        string finalRenderJs = ChatHtmlService.BuildFinalRenderJs(
-                            _agentStreamingMsgIndex, finalContent, string.Empty, combinedFooter);
-                        await ChatWebView.CoreWebView2.ExecuteScriptAsync(finalRenderJs);
                     }
                     catch { }
+
+                    // ── 强制刷新批处理缓冲，确保增量内容已推送 ──
+                    FlushBatchStream(_agentStreamingMsgIndex);
+
+                    // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染（含 Markdown HTML + 执行过程）──
+                    string combinedFooter = thinkingDetailsHtml + cacheFooter;
+                    PostStreamEnd(_agentStreamingMsgIndex, finalContent, string.Empty, combinedFooter);
 
                     StatusLabel.Text = plan.IsCancelled
                         ? "⚠️ Agent 任务已取消"
@@ -407,10 +408,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             msg.IsRendered = true;
                         }
                     }
-                    await UpdateStreamingMessageAsync(_agentStreamingMsgIndex, agentResult.Content, string.Empty, isComplete: true);
+                    // ── 计算 Cache 命中率 ──
+                    string cacheFooter = string.Empty;
                     try
                     {
-                        string cacheFooter = string.Empty;
                         long totalHit = _apiService?.TotalCacheHitTokens ?? 0;
                         long totalMiss = _apiService?.TotalCacheMissTokens ?? 0;
                         long totalPrompt = _apiService?.TotalPromptTokens ?? 0;
@@ -420,11 +421,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             cacheFooter = ChatHtmlService.BuildCacheHitFooterHtml(
                                 totalHit, totalMiss, totalPrompt, totalComp, roundCount: 1);
                         }
-                        string frJs = ChatHtmlService.BuildFinalRenderJs(
-                            _agentStreamingMsgIndex, agentResult.Content, string.Empty, cacheFooter);
-                        await ChatWebView.CoreWebView2.ExecuteScriptAsync(frJs);
                     }
                     catch { }
+
+                    // ── 强制刷新批处理缓冲，确保增量内容已推送 ──
+                    FlushBatchStream(_agentStreamingMsgIndex);
+
+                    // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染 ──
+                    PostStreamEnd(_agentStreamingMsgIndex, agentResult.Content, string.Empty, cacheFooter);
                     StatusLabel.Text = LocalizationService.Instance["status.ready"];
 
                     // ── 如果有待处理的 Handoff，注入按钮 ──
@@ -453,10 +457,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             msg.IsRendered = true;
                         }
                     }
-                    await UpdateStreamingMessageAsync(_agentStreamingMsgIndex, errorContent, string.Empty, isComplete: true);
+                    // ── 计算 Cache 命中率 ──
+                    string cacheFooter = string.Empty;
                     try
                     {
-                        string cacheFooter = string.Empty;
                         long totalHit = _apiService?.TotalCacheHitTokens ?? 0;
                         long totalMiss = _apiService?.TotalCacheMissTokens ?? 0;
                         long totalPrompt = _apiService?.TotalPromptTokens ?? 0;
@@ -466,11 +470,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             cacheFooter = ChatHtmlService.BuildCacheHitFooterHtml(
                                 totalHit, totalMiss, totalPrompt, totalComp, roundCount: 1);
                         }
-                        string frJs = ChatHtmlService.BuildFinalRenderJs(
-                            _agentStreamingMsgIndex, errorContent, string.Empty, cacheFooter);
-                        await ChatWebView.CoreWebView2.ExecuteScriptAsync(frJs);
                     }
                     catch { }
+
+                    // ── 强制刷新批处理缓冲，确保增量内容已推送 ──
+                    FlushBatchStream(_agentStreamingMsgIndex);
+
+                    // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染 ──
+                    PostStreamEnd(_agentStreamingMsgIndex, errorContent, string.Empty, cacheFooter);
                     StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentError"], agentResult.ErrorMessage);
                 }
             }
@@ -708,7 +715,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     string content;
                     lock (_lock) { content = _agentThinkingContent.ToString(); }
-                    await UpdateStreamingMessageAsync(_agentStreamingMsgIndex, content, string.Empty, isComplete: false);
+                    // 使用批处理：仅在内容显著变化时推送，避免频繁 WebView2 通信
+                    BatchStreamingUpdate(_agentStreamingMsgIndex, content, string.Empty);
                 }
                 catch { }
             });
@@ -1732,12 +1740,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         reasoningBuffer.Append(thinking);
                         StatusLabel.Text = LocalizationService.Instance["status.deepThinking"];
 
-                        if (reasoningBuffer.Length - lastReasoningLength >= 80)
+                        if (reasoningBuffer.Length - lastReasoningLength >= 200)
                         {
                             assistantMsg.ReasoningContent = reasoningBuffer.ToString();
                             lastReasoningLength = reasoningBuffer.Length;
-                            await UpdateStreamingMessageAsync(newAssistantIdx,
-                                contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: false);
+                            BatchStreamingUpdate(newAssistantIdx,
+                                contentBuffer.ToString(), reasoningBuffer.ToString());
                         }
                     }
                     else if (chunk.StartsWith("[TOOL_CALL]"))
@@ -1764,8 +1772,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         {
                             streamRenderTick = 0;
                             assistantMsg.Content = contentBuffer.ToString();
-                            await UpdateStreamingMessageAsync(newAssistantIdx,
-                                contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: false);
+                            BatchStreamingUpdate(newAssistantIdx,
+                                contentBuffer.ToString(), reasoningBuffer.ToString());
                         }
                     }
                 }
@@ -1791,9 +1799,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                 }
 
-                string finalJs = ChatHtmlService.BuildFinalRenderJs(
-                    newAssistantIdx, contentBuffer.ToString(), reasoningBuffer.ToString(), cacheFooterHtml);
-                await ChatWebView.CoreWebView2.ExecuteScriptAsync(finalJs);
+                // ── 强制刷新批处理缓冲，确保增量内容已推送 ──
+                FlushBatchStream(newAssistantIdx);
+
+                PostStreamEnd(newAssistantIdx, contentBuffer.ToString(), reasoningBuffer.ToString(), cacheFooterHtml);
 
                 _contextManager.AddAssistantMessage(
                     contentBuffer.ToString(),
@@ -1820,9 +1829,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     assistantMsg.Content += "\n\n*[已停止]*";
                     assistantMsg.IsStreaming = false;
-                    string finalJs = ChatHtmlService.BuildFinalRenderJs(
-                        newAssistantIdx, assistantMsg.Content, assistantMsg.ReasoningContent);
-                    await ChatWebView.CoreWebView2.ExecuteScriptAsync(finalJs);
+                    FlushBatchStream(newAssistantIdx);
+                    PostStreamEnd(newAssistantIdx, assistantMsg.Content, assistantMsg.ReasoningContent);
                 }
             }
             catch (Exception ex)
@@ -1832,8 +1840,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     assistantMsg.Content = $"抱歉，发生了错误，请重试。\n\n```\n{ex.Message}\n```";
                     assistantMsg.IsStreaming = false;
-                    await UpdateStreamingMessageAsync(newAssistantIdx,
-                        assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
+                    FlushBatchStream(newAssistantIdx);
+                    PostStreamEnd(newAssistantIdx,
+                        assistantMsg.Content, assistantMsg.ReasoningContent);
                 }
             }
             finally

@@ -266,11 +266,13 @@
             </Grid>
         </Border>
 
-        <!-- ═══ 状态显示栏 ═══ -->
+        <!-- ═══ 状态显示栏（回退用，WebView2 就绪后隐藏）═══ -->
         <Border Grid.Row="3"
+                x:Name="WpfStatusBar"
                 Background="#2D2D2D"
                 BorderBrush="#3F3F46" BorderThickness="0,1,0,0"
-                Padding="10,3">
+                Padding="10,3"
+                Visibility="Collapsed">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
