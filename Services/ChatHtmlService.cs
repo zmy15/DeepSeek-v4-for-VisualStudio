@@ -852,9 +852,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 string htmlContent;
 
-                // ── 处理 认为是思考块 ──
+                // ── 处理 <think>...</think> 思考块 ──
                 Match thinkMatch = Regex.Match(markdown,
-                    @"^认为是思考块",
+                    @"^<think>(?<content>.*)</think>(?<answer>.*)$",
                     RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
                 if (!thinkMatch.Success)

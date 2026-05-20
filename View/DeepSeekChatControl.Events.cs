@@ -1339,9 +1339,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     string newEngine = selected switch
                     {
                         string s when s.Contains("百度") || s.Contains("Baidu") => "Baidu",
-                        string s when s.Contains("DuckDuckGo") => "DuckDuckGo",
-                        string s when s.Contains("Google") => "Google",
-                        string s when s.Contains("Bing") => "Bing",
                         _ => "DuckDuckGo"
                     };
                     _webSearchEngine = newEngine;
@@ -1350,8 +1347,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         "Baidu" => 0,
                         "DuckDuckGo" => 1,
-                        "Google" => 2,
-                        "Bing" => 3,
                         _ => 1
                     };
                     WebSearchEngineComboBox.SelectedIndex = idx;
@@ -1485,9 +1480,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string newEngine = selected switch
                 {
                     string s when s.Contains("百度") || s.Contains("Baidu") => "Baidu",
-                    string s when s.Contains("DuckDuckGo") => "DuckDuckGo",
-                    string s when s.Contains("Google") => "Google",
-                    string s when s.Contains("Bing") => "Bing",
                     _ => "DuckDuckGo"
                 };
 
