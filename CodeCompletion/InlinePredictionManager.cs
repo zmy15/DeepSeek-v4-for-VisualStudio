@@ -125,6 +125,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
 
                 showingAutoComplete = true;
                 cancellationTokenSource?.Cancel();
+                cancellationTokenSource?.Dispose();
                 cancellationTokenSource = new();
 
                 CleanCache();
@@ -469,6 +470,8 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
                 }
 
                 cancellationTokenSource?.Cancel();
+                cancellationTokenSource?.Dispose();
+                cancellationTokenSource = null!;
 
                 if (view.Properties.TryGetProperty(GhostTextTagger.TaggerKey, out GhostTextTagger tagger))
                 {

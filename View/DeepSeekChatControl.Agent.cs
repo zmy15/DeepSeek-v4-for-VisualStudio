@@ -157,7 +157,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     ConversationHistory = _contextManager.GetConversationHistory(),
                     ContextManager = _contextManager,
                     IsPlanningMode = routing?.NeedsPlanning == true || routing?.TargetAgent == AgentType.Plan,
-                    CancellationToken = _currentStreamingCts?.Token ?? CancellationToken.None,
+                    CancellationToken = GetStreamingToken(),
                     ReadFileAsync = async (path) =>
                     {
                         if (File.Exists(path))
@@ -1796,9 +1796,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── 树状结构：不再需要裁剪 _messages（分支切换时已由 SyncMessagesFromTree 处理）──
             // ── 树状结构：上下文已由 RebuildContextFromTree 重建，无需手动检查 userExistsInHistory ──
 
-            _currentStreamingCts?.Cancel();
-            _currentStreamingCts?.Dispose();
-            _currentStreamingCts = new CancellationTokenSource();
+            var retryCts = CreateNewStreamingCts();
 
             ChatMessage? assistantMsg = null;
             int newAssistantIdx = -1;
@@ -1918,7 +1916,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 int streamRenderTick = 0;
                 int lastReasoningLength = 0;
 
-                await foreach (var chunk in apiService.ChatStreamAsync(requestMessages, null, _currentStreamingCts.Token))
+                await foreach (var chunk in apiService.ChatStreamAsync(requestMessages, null, retryCts.Token))
                 {
                     if (chunk.StartsWith("[THINKING]"))
                     {
@@ -2039,8 +2037,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     assistantMsg.IsStreaming = false;
                 lock (_lock) { _isGenerating = false; }
                 StatusLabel.Text = string.Empty;
-                _currentStreamingCts?.Dispose();
-                _currentStreamingCts = null;
+                DisposeStreamingCts();
                 UpdateButtonsState();
             }
         }

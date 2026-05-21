@@ -36,8 +36,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 Logger.Error($"[Render] SendMessage 致命异常（async void 安全网）: {ex.Message}", ex);
                 lock (_lock) { _isGenerating = false; }
-                _currentStreamingCts?.Dispose();
-                _currentStreamingCts = null;
+                DisposeStreamingCts();
                 UpdateButtonsState();
                 try
                 {
@@ -250,10 +249,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         var capturedMsgIdx = capturedUserMsgIndex;
 
                         // ── 创建 Agent 路径的 CancellationTokenSource（停止按钮依赖此 CTS）──
-                        _currentStreamingCts?.Cancel();
-                        _currentStreamingCts?.Dispose();
-                        _currentStreamingCts = new CancellationTokenSource();
-                        var agentCts = _currentStreamingCts;
+                        var agentCts = CreateNewStreamingCts();
 
                         _ = Task.Run(async () =>
                         {
@@ -396,9 +392,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 bool isWebSearchEnabled = _webSearchEngine != "Off";
                 StatusLabel.Text = isWebSearchEnabled ? LocalizationService.Instance["status.webSearching"] : LocalizationService.Instance["status.thinking"];
 
-                _currentStreamingCts?.Cancel();
-                _currentStreamingCts?.Dispose();
-                _currentStreamingCts = new CancellationTokenSource();
+                var streamingCts = CreateNewStreamingCts();
 
                 // 联网搜索
                 string searchContext = string.Empty;
@@ -427,7 +421,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         try
                         {
                             StatusLabel.Text = LocalizationService.Instance["status.extractingInfo"];
-                            string? extractedKeyInfo = await ExtractKeyInfoForSearchAsync(fileContext, userText!, _currentStreamingCts.Token);
+                            string? extractedKeyInfo = await ExtractKeyInfoForSearchAsync(fileContext, userText!, streamingCts.Token);
                             if (!string.IsNullOrWhiteSpace(extractedKeyInfo))
                             {
                                 searchOptimizationInput = extractedKeyInfo + "\n用户问题：" + timeAwareQuery;
@@ -448,7 +442,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             {
                                 StatusLabel.Text = LocalizationService.Instance["status.optimizingSearch"];
                                 bool isBaidu = _webSearchEngine == "Baidu";
-                                var optimization = await OptimizeSearchQueryAsync(searchOptimizationInput, _currentStreamingCts.Token, isBaidu);
+                                var optimization = await OptimizeSearchQueryAsync(searchOptimizationInput, streamingCts.Token, isBaidu);
                                 if (optimization != null && !string.IsNullOrWhiteSpace(optimization.SearchQuery) && optimization.NeedSearch)
                                 {
                                     optimizedQuery = optimization.SearchQuery;
@@ -459,7 +453,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             catch (Exception ex) { Logger.Info($"搜索词优化失败: {ex.Message}"); }
                         }
 
-                        var searchResults = await _webSearchService.SearchAsync(optimizedQuery, _currentStreamingCts.Token, searchRecency);
+                        var searchResults = await _webSearchService.SearchAsync(optimizedQuery, streamingCts.Token, searchRecency);
                         capturedSearchResults = searchResults;
                         if (searchResults.Count > 0)
                         {
@@ -471,7 +465,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 searchResults.Count, providerLabel);
                             PostStreamingUpdate(assistantMsgIndex, assistantMsg.Content, string.Empty, false);
 
-                            await EnrichSearchContextAsync(searchResults, _currentStreamingCts.Token);
+                            await EnrichSearchContextAsync(searchResults, streamingCts.Token);
                             searchContext = WebSearchService.FormatSearchResultsForContext(searchResults);
                             Logger.Info($"联网搜索完成: {searchResults.Count} 条结果");
                         }
@@ -482,11 +476,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 engineSwitchNote = LocalizationService.Instance["websearch.quotaExhausted"];
                                 assistantMsg.Content = LocalizationService.Instance["websearch.quotaExhaustedShort"];
                                 PostStreamingUpdate(assistantMsgIndex, assistantMsg.Content, string.Empty, false);
-                                searchResults = await _webSearchService.SearchAsync(optimizedQuery, _currentStreamingCts.Token);
+                                searchResults = await _webSearchService.SearchAsync(optimizedQuery, streamingCts.Token);
                                 capturedSearchResults = searchResults;
                                 if (searchResults.Count > 0)
                                 {
-                                    await EnrichSearchContextAsync(searchResults, _currentStreamingCts.Token);
+                                    await EnrichSearchContextAsync(searchResults, streamingCts.Token);
                                     searchContext = WebSearchService.FormatSearchResultsForContext(searchResults);
                                 }
                             }
@@ -504,7 +498,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         lock (_lock) { _messages.Remove(assistantMsg); }
                         lock (_lock) { _isGenerating = false; }
                         UpdateButtonsState();
-                        _currentStreamingCts?.Cancel();
+                        CancelStreaming();
                         return;
                     }
                     catch (Exception ex)
@@ -596,7 +590,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         }
 
                         var apiService = _apiService!;
-                        await foreach (var chunk in apiService.ChatStreamAsync(requestMessages, toolDefs, _currentStreamingCts.Token))
+                        await foreach (var chunk in apiService.ChatStreamAsync(requestMessages, toolDefs, streamingCts.Token))
                         {
                             if (chunk.StartsWith("[THINKING]"))
                             {
@@ -691,10 +685,21 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             Logger.Info($"[MCP] 检测到 {toolCallAccumulator.Count} 个工具调用");
                             UpdateStatusText(LocalizationService.Instance["status.executingMcp"]);
 
-                            string toolCallSummary = LocalizationService.Instance["status.callingToolsHtml"] + "\n";
+                            // ── 构建详细的工具调用显示（含参数信息）──
+                            var toolCallLines = new List<string>();
                             foreach (var acc in toolCallAccumulator.Values)
-                                toolCallSummary += $"- `{acc.FunctionName}`\n";
-                            assistantMsg.Content = contentBuffer.Length > 0 ? contentBuffer.ToString() + "\n\n" + toolCallSummary : toolCallSummary;
+                            {
+                                if (string.IsNullOrEmpty(acc.FunctionName)) continue;
+                                string displayText = BuiltInToolService.GetToolCallDisplayText(
+                                    acc.FunctionName!, acc.ArgumentsBuilder.ToString());
+                                toolCallLines.Add($"- {displayText} ⏳");
+                            }
+
+                            string toolCallSummary = "🔧 **" + LocalizationService.Instance["status.callingToolsHtml"].Replace("🔧 ", "") + "**\n"
+                                + string.Join("\n", toolCallLines) + "\n";
+                            assistantMsg.Content = contentBuffer.Length > 0
+                                ? contentBuffer.ToString() + "\n\n" + toolCallSummary
+                                : toolCallSummary;
                             BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString(), isComplete: false);
 
                             var assistantToolCalls = toolCallAccumulator.Values
@@ -710,6 +715,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 _contextManager.AddAssistantMessage(contentBuffer.Length > 0 ? contentBuffer.ToString() : null,
                                     reasoningBuffer.Length > 0 ? reasoningBuffer.ToString() : null, assistantToolCalls);
 
+                            // ── 执行工具并收集结果摘要 ──
+                            var toolResultSummaries = new List<string>();
                             foreach (var acc in toolCallAccumulator.Values)
                             {
                                 if (string.IsNullOrEmpty(acc.FunctionName)) continue;
@@ -740,6 +747,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                                 if (!approved)
                                                 {
                                                     toolResult = $"⏭️ 用户跳过了终端命令: {cmd}";
+                                                    toolResultSummaries.Add($"⏭️ 用户跳过了终端命令");
                                                     _contextManager.AddToolResult(acc.Id, acc.FunctionName!, toolResult);
                                                     Logger.Info($"[MCP] 工具 {acc.FunctionName} 被用户跳过");
                                                     continue;
@@ -761,7 +769,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     else if (_mcpManager != null)
                                     {
                                         string sanitizedArgs = SanitizeOcrToolArguments(acc.FunctionName!, acc.ArgumentsBuilder.ToString());
-                                        toolResult = await _mcpManager.CallToolAsync(acc.FunctionName!, sanitizedArgs, _currentStreamingCts.Token);
+                                        toolResult = await _mcpManager.CallToolAsync(acc.FunctionName!, sanitizedArgs, streamingCts.Token);
                                     }
                                     else
                                     {
@@ -775,12 +783,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 }
                                 _contextManager.AddToolResult(acc.Id, acc.FunctionName!, toolResult);
                                 Logger.Info($"[MCP] 工具 {acc.FunctionName} 返回: {(toolResult.Length > 200 ? toolResult.Substring(0, 200) + "..." : toolResult)}");
+
+                                // ── 收集结果摘要 ──
+                                string resultSummary = BuiltInToolService.GetToolResultSummary(acc.FunctionName!, toolResult);
+                                toolResultSummaries.Add(resultSummary);
                             }
 
-                            string resultSummary = contentBuffer.Length > 0
-                                ? contentBuffer.ToString() + "\n\n✅ 工具调用完成，AI 正在分析结果...\n"
-                                : "✅ 工具调用完成，AI 正在分析结果...\n";
-                            assistantMsg.Content = resultSummary;
+                            // ── 构建完成后的工具调用结果展示 ──
+                            var completedLines = new List<string>();
+                            var accValues = toolCallAccumulator.Values
+                                .Where(a => !string.IsNullOrEmpty(a.FunctionName))
+                                .ToList();
+                            for (int i = 0; i < accValues.Count; i++)
+                            {
+                                var acc = accValues[i];
+                                string displayText = BuiltInToolService.GetToolCallDisplayText(
+                                    acc.FunctionName!, acc.ArgumentsBuilder.ToString());
+                                string summary = i < toolResultSummaries.Count ? toolResultSummaries[i] : "完成";
+                                completedLines.Add($"- {displayText} → {summary}");
+                            }
+
+                            string completedSummary = "🔧 **" + LocalizationService.Instance["status.toolCallCompleted"].Replace("🔧 ", "") + "**\n"
+                                + string.Join("\n", completedLines) + "\n\n";
+                            assistantMsg.Content = contentBuffer.Length > 0
+                                ? contentBuffer.ToString() + "\n\n" + completedSummary + "\n_" + LocalizationService.Instance["status.toolCallAnalyzing"] + "_\n"
+                                : completedSummary + "\n_" + LocalizationService.Instance["status.toolCallAnalyzing"] + "_\n";
                             BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString());
 
                             // ── 循环检测 ──
@@ -968,8 +995,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     assistantMsg.IsStreaming = false;
                     lock (_lock) { _isGenerating = false; }
                     StatusLabel.Text = string.Empty;
-                    _currentStreamingCts?.Dispose();
-                    _currentStreamingCts = null;
+                    DisposeStreamingCts();
                     UpdateButtonsState();
                 }
         }
@@ -1069,11 +1095,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             try
             {
-                lock (_lock)
-                {
-                    _currentStreamingCts?.Cancel();
-                    _isGenerating = false;
-                }
+                CancelStreaming();
+                lock (_lock) { _isGenerating = false; }
                 UpdateButtonsState();
                     StatusLabel.Text = LocalizationService.Instance["status.stopped"];
             }
@@ -1087,7 +1110,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 lock (_lock)
                 {
-                    if (_isGenerating) { _currentStreamingCts?.Cancel(); _isGenerating = false; }
+                    if (_isGenerating) { CancelStreaming(); _isGenerating = false; }
                 }
                 UpdateButtonsState();
                 ClearCurrentSessionMessages();

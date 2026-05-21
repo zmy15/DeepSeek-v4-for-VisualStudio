@@ -507,8 +507,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     Logger.Info($"[Agent:{Definition.Name}] 检测到 {toolCalls.Count} 个工具调用: {string.Join(", ", toolCalls.Select(t => t.Function.Name))}");
 
-                    // ── 通知工具调用（每轮仅一次，避免流式 delta chunk 重复触发）──
-                    string toolSummary = string.Join(", ", toolCalls.Select(t => t.Function.Name));
+                    // ── 通知工具调用（含详细信息，每轮仅一次）──
+                    var detailedSummaries = toolCalls.Select(tc =>
+                        BuiltInToolService.GetToolCallDisplayText(tc.Function.Name, tc.Function.Arguments));
+                    string toolSummary = string.Join("; ", detailedSummaries);
                     onToolCall?.Invoke(toolSummary);
 
                     // ── 添加 assistant 消息（含工具调用）──

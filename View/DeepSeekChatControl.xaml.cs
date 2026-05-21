@@ -65,6 +65,56 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private SkillDiscoveryResult? _skillDiscoveryResult;
         private AgentDispatcher? _agentDispatcher;
         private CancellationTokenSource? _currentStreamingCts;
+
+        /// <summary>
+        /// 线程安全地创建新的流式 CTS（先取消并释放旧的）。
+        /// 返回新 CTS 的快照引用，调用方应使用返回值而非直接访问 _currentStreamingCts。
+        /// </summary>
+        private CancellationTokenSource CreateNewStreamingCts()
+        {
+            lock (_lock)
+            {
+                _currentStreamingCts?.Cancel();
+                _currentStreamingCts?.Dispose();
+                _currentStreamingCts = new CancellationTokenSource();
+                return _currentStreamingCts;
+            }
+        }
+
+        /// <summary>
+        /// 线程安全地获取当前流式 CTS 的 Token。
+        /// 如果 CTS 不存在则返回 CancellationToken.None。
+        /// </summary>
+        private CancellationToken GetStreamingToken()
+        {
+            lock (_lock)
+            {
+                return _currentStreamingCts?.Token ?? CancellationToken.None;
+            }
+        }
+
+        /// <summary>
+        /// 线程安全地取消当前流式操作。
+        /// </summary>
+        private void CancelStreaming()
+        {
+            lock (_lock)
+            {
+                _currentStreamingCts?.Cancel();
+            }
+        }
+
+        /// <summary>
+        /// 线程安全地释放当前流式 CTS。
+        /// </summary>
+        private void DisposeStreamingCts()
+        {
+            lock (_lock)
+            {
+                _currentStreamingCts?.Dispose();
+                _currentStreamingCts = null;
+            }
+        }
         private string? _solutionPath;
 
         // ── 解决方案事件已订阅标记（通过 Microsoft.VisualStudio.Shell.Events.SolutionEvents）──
@@ -1158,8 +1208,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Warn($"[Dispose] [会话] 取消 SolutionEvents 失败: {ex.Message}");
             }
 
-            _currentStreamingCts?.Cancel();
-            _currentStreamingCts?.Dispose();
+            CancelStreaming();
+            DisposeStreamingCts();
             _apiService?.Dispose();
             _webSearchService?.Dispose();
             _mcpManager?.Dispose();

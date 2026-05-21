@@ -420,6 +420,8 @@
   "status.executingMcp": "正在执行 MCP 工具...",
   "status.callingTool": "调用工具: {0}...",
   "status.callingToolsHtml": "🔧 正在调用工具:",
+  "status.toolCallCompleted": "🔧 工具调用完成",
+  "status.toolCallAnalyzing": "AI 正在分析结果…",
   "status.stopped": "已停止",
   "status.editMessageHint": "✏️ 编辑消息（Esc 取消，Enter 确认）",
   "status.apiError": "抱歉，发生了错误，请重试。\n\n```\n{0}\n```",

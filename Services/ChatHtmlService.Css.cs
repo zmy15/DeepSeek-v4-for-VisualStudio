@@ -70,6 +70,14 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .branch-nav{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:#888}
 .branch-nav-btn{background:transparent;border:1px solid #555;color:#aaa;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:3px}
 .branch-nav-btn:hover:not(:disabled){background:#3c3c3c;color:#e0e0e0}.branch-nav-btn:disabled{opacity:.3;cursor:default}.branch-nav-label{color:#aaa;min-width:40px;text-align:center}
+/* ── 工具调用卡片样式 ── */
+.tool-call-section{border-left:2px solid #4fc1ff;padding-left:12px;margin:8px 0;font-size:12px;line-height:1.6}
+.tool-call-section p{margin:2px 0}
+.tool-call-section ul{padding-left:16px;margin:4px 0}
+.tool-call-section li{margin:3px 0;color:#b0c8e0}
+.tool-call-section code{background:#2a3a4a;color:#7eb8e0;font-size:11px}
+.tool-call-section strong{color:#d0d8e0}
+.tool-call-result{color:#8a8;font-size:11px;margin-left:4px}
 .agent-task-panel{margin:12px 0;border:1px solid #3a4a5a;border-radius:10px;background:#1a1e2a;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.3)}
 .agent-task-panel.collapsed .agent-task-panel-body{display:none}
 .agent-task-panel-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#222a3a;cursor:pointer;user-select:none;border-bottom:1px solid #2a3a4a}

@@ -422,6 +422,8 @@
   "status.executingMcp": "Executing MCP tools...",
   "status.callingTool": "Calling tool: {0}...",
   "status.callingToolsHtml": "🔧 Calling tools:",
+  "status.toolCallCompleted": "🔧 Tool calls completed",
+  "status.toolCallAnalyzing": "AI is analyzing results…",
   "status.stopped": "Stopped",
   "status.editMessageHint": "✏️ Editing message (Esc cancel, Enter confirm)",
   "status.apiError": "Sorry, an error occurred. Please try again.\n\n```\n{0}\n```",

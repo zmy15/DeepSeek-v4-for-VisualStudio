@@ -210,7 +210,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     if (_isGenerating)
                     {
-                        _currentStreamingCts?.Cancel();
+                        CancelStreaming();
                         _isGenerating = false;
                     }
                 }
@@ -357,7 +357,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // 停止当前生成
                     if (_isGenerating)
                     {
-                        _currentStreamingCts?.Cancel();
+                        CancelStreaming();
                         _isGenerating = false;
                     }
                 }
@@ -442,7 +442,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     if (_isGenerating)
                     {
-                        _currentStreamingCts?.Cancel();
+                        CancelStreaming();
                         _isGenerating = false;
                     }
                 }

@@ -165,9 +165,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         fullContent += content;
                     },
-                    onToolCall: (toolNames) =>
+                    onToolCall: (toolSummary) =>
                     {
-                        AddLog("INFO", $"🔧 调用工具: {toolNames}");
+                        AddLog("INFO", $"{toolSummary}");
                     });
 
                 // ── 如果工具调用后有思考内容，附加到结果中 ──

@@ -477,6 +477,309 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             };
         }
 
+        /// <summary>
+        /// 根据工具名称和参数 JSON 生成人类可读的工具调用描述。
+        /// 用于在聊天 UI 中向用户展示 AI 正在做什么。
+        /// </summary>
+        /// <param name="toolName">工具名称</param>
+        /// <param name="argumentsJson">工具参数 JSON 字符串</param>
+        /// <returns>人类可读的描述文本（含 emoji 图标）</returns>
+        public static string GetToolCallDisplayText(string toolName, string argumentsJson)
+        {
+            try
+            {
+                var args = string.IsNullOrWhiteSpace(argumentsJson)
+                    ? new Dictionary<string, System.Text.Json.JsonElement>()
+                    : System.Text.Json.JsonSerializer
+                        .Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(argumentsJson)
+                        ?? new Dictionary<string, System.Text.Json.JsonElement>();
+
+                switch (toolName)
+                {
+                    case "list_dir":
+                        string dirPath = GetStringArg(args, "path");
+                        return string.IsNullOrEmpty(dirPath)
+                            ? "📂 列出目录"
+                            : $"📂 列出目录 `{TruncatePath(dirPath)}`";
+
+                    case "read_file":
+                        string filePath = GetStringArg(args, "filePath");
+                        int sLine = GetIntArg(args, "startLine", 0);
+                        int eLine = GetIntArg(args, "endLine", 0);
+                        string fileName = string.IsNullOrEmpty(filePath) ? "?" : Path.GetFileName(filePath);
+                        if (sLine > 0 && eLine > 0 && eLine > sLine)
+                            return $"📄 读取文件 `{fileName}` (第{sLine}-{eLine}行)";
+                        else if (sLine > 0)
+                            return $"📄 读取文件 `{fileName}` (从第{sLine}行)";
+                        else
+                            return string.IsNullOrEmpty(filePath)
+                                ? "📄 读取文件"
+                                : $"📄 读取文件 `{fileName}`";
+
+                    case "file_search":
+                        string fsQuery = GetStringArg(args, "query");
+                        return string.IsNullOrEmpty(fsQuery)
+                            ? "🔍 搜索文件"
+                            : $"🔍 搜索文件 `{TruncateText(fsQuery, 60)}`";
+
+                    case "grep_search":
+                        string grepQuery = GetStringArg(args, "query");
+                        string incPattern = GetStringArg(args, "includePattern");
+                        string grepDesc = string.IsNullOrEmpty(grepQuery)
+                            ? "🔎 搜索文本"
+                            : $"🔎 搜索文本 `{TruncateText(grepQuery, 40)}`";
+                        if (!string.IsNullOrEmpty(incPattern))
+                            grepDesc += $" 在 `{TruncateText(incPattern, 40)}` 中";
+                        return grepDesc;
+
+                    case "get_errors":
+                        var filePaths = GetStringArrayArg(args, "filePaths");
+                        if (filePaths != null && filePaths.Length > 0)
+                            return $"⚠️ 检查 {filePaths.Length} 个文件的编译错误";
+                        return "⚠️ 检查工作区编译错误";
+
+                    case "fetch_webpage":
+                        string url = GetStringArg(args, "url");
+                        return string.IsNullOrEmpty(url)
+                            ? "🌐 抓取网页"
+                            : $"🌐 抓取网页 `{TruncateText(url, 60)}`";
+
+                    case "build_solution":
+                        string config = GetStringArg(args, "configuration");
+                        return string.IsNullOrEmpty(config)
+                            ? "🔨 构建解决方案"
+                            : $"🔨 构建解决方案 ({config})";
+
+                    case "replace_string_in_file":
+                        string editPath = GetStringArg(args, "filePath");
+                        string editFile = string.IsNullOrEmpty(editPath) ? "?" : Path.GetFileName(editPath);
+                        return $"✏️ 编辑文件 `{editFile}`";
+
+                    case "multi_replace_string_in_file":
+                        int count = 0;
+                        if (args.TryGetValue("replacements", out var repsElement)
+                            && repsElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                            count = repsElement.GetArrayLength();
+                        return count > 0
+                            ? $"✏️ 批量编辑 ({count} 处替换)"
+                            : "✏️ 批量编辑文件";
+
+                    case "create_file":
+                        string createPath = GetStringArg(args, "filePath");
+                        string createFile = string.IsNullOrEmpty(createPath) ? "?" : Path.GetFileName(createPath);
+                        return $"📝 创建文件 `{createFile}`";
+
+                    case "run_in_terminal":
+                        string cmd = GetStringArg(args, "command");
+                        string expl = GetStringArg(args, "explanation");
+                        if (!string.IsNullOrEmpty(expl))
+                            return $"💻 执行终端命令: {TruncateText(expl, 80)}";
+                        else if (!string.IsNullOrEmpty(cmd))
+                            return $"💻 执行终端命令: `{TruncateText(cmd, 60)}`";
+                        return "💻 执行终端命令";
+
+                    case "get_terminal_output":
+                        return "📋 获取终端输出";
+
+                    // MCP 外部工具：尝试解析常见参数
+                    default:
+                        return GetMcpToolCallDisplayText(toolName, args);
+                }
+            }
+            catch
+            {
+                return $"🔧 调用工具 `{toolName}`";
+            }
+        }
+
+        /// <summary>
+        /// 为 MCP 外部工具生成显示文本（解析常见参数模式）。
+        /// </summary>
+        private static string GetMcpToolCallDisplayText(string toolName, Dictionary<string, System.Text.Json.JsonElement> args)
+        {
+            // 通用模式：检查常见参数名
+            string filePath = GetStringArg(args, "filePath") ?? GetStringArg(args, "path") ?? GetStringArg(args, "directory");
+            string query = GetStringArg(args, "query") ?? GetStringArg(args, "pattern") ?? GetStringArg(args, "search");
+            string url = GetStringArg(args, "url");
+
+            if (!string.IsNullOrEmpty(filePath))
+            {
+                string fname = Path.GetFileName(filePath);
+                return $"🔧 调用 `{toolName}` → `{fname}`";
+            }
+            if (!string.IsNullOrEmpty(url))
+            {
+                return $"🔧 调用 `{toolName}` → `{TruncateText(url, 50)}`";
+            }
+            if (!string.IsNullOrEmpty(query))
+            {
+                return $"🔧 调用 `{toolName}` → `{TruncateText(query, 50)}`";
+            }
+
+            return $"🔧 调用工具 `{toolName}`";
+        }
+
+        /// <summary>
+        /// 截断路径显示，保留文件名，前面用 ... 表示省略。
+        /// </summary>
+        private static string TruncatePath(string path, int maxLen = 50)
+        {
+            if (string.IsNullOrEmpty(path) || path.Length <= maxLen)
+                return path;
+            string fileName = Path.GetFileName(path);
+            string dirName = Path.GetDirectoryName(path) ?? "";
+            if (fileName.Length >= maxLen - 3)
+                return "..." + fileName.Substring(fileName.Length - (maxLen - 3));
+            int dirMax = maxLen - fileName.Length - 4;
+            if (dirMax <= 0)
+                return "..." + fileName;
+            return dirName.Substring(0, Math.Min(dirMax, dirName.Length)) + "...\\" + fileName;
+        }
+
+        /// <summary>
+        /// 截断文本，超出长度添加 ...
+        /// </summary>
+        private static string TruncateText(string text, int maxLen)
+        {
+            if (string.IsNullOrEmpty(text) || text.Length <= maxLen)
+                return text;
+            return text.Substring(0, maxLen) + "…";
+        }
+
+        /// <summary>
+        /// 从参数字典中获取字符串数组参数。
+        /// </summary>
+        private static string[]? GetStringArrayArg(Dictionary<string, System.Text.Json.JsonElement> args, string key)
+        {
+            if (!args.TryGetValue(key, out var element))
+                return null;
+            if (element.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                var list = new List<string>();
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+                        list.Add(item.GetString() ?? "");
+                }
+                return list.ToArray();
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 构建工具执行结果的简短摘要（用于在聊天 UI 中展示）。
+        /// </summary>
+        /// <param name="toolName">工具名称</param>
+        /// <param name="toolResult">工具返回的完整结果文本</param>
+        /// <returns>简短摘要文本</returns>
+        public static string GetToolResultSummary(string toolName, string toolResult)
+        {
+            if (string.IsNullOrEmpty(toolResult))
+                return "（无返回结果）";
+
+            // 错误结果直接返回
+            if (toolResult.StartsWith("❌"))
+                return toolResult;
+
+            try
+            {
+                switch (toolName)
+                {
+                    case "list_dir":
+                        // ── 统计 📁 📄 emoji 行数（locale-independent）──
+                        var dirLines = toolResult.Split('\n');
+                        int dirCount = dirLines.Count(l => l.TrimStart().StartsWith("- 📁"));
+                        int fileCount = dirLines.Count(l => l.TrimStart().StartsWith("- 📄"));
+                        return $"列出完成: {dirCount} 个子目录, {fileCount} 个文件";
+
+                    case "read_file":
+                        var readLines = toolResult.Split('\n');
+                        string firstLine = readLines.Length > 0 ? readLines[0].Trim() : "";
+                        // 提取行数信息（中英文通用：匹配 "共 N 行" 或 "total N lines" 或 "(N 行)" 等模式）
+                        var lineCountMatch = System.Text.RegularExpressions.Regex.Match(
+                            firstLine, @"(?:共|total|总计)\s*(\d+)\s*(?:行|lines)",
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (lineCountMatch.Success)
+                            return $"✅ 读取完成 ({lineCountMatch.Groups[1].Value} 行)";
+                        return $"✅ 读取完成 ({readLines.Length} 行)";
+
+                    case "file_search":
+                        // 提取第一行中的文件数量
+                        var fsFirstLine = toolResult.Split('\n')[0];
+                        var fsMatch = System.Text.RegularExpressions.Regex.Match(
+                            fsFirstLine, @"(?:找到|Found|found)\s*(\d+|>\d+)\s*个?\s*(?:文件|files?)",
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (fsMatch.Success)
+                            return $"✅ {fsMatch.Value.Trim()}";
+                        var fsLines = toolResult.Split('\n');
+                        int fsCount = fsLines.Count(l => l.TrimStart().StartsWith("- `"));
+                        return $"✅ 找到 {fsCount} 个文件";
+
+                    case "grep_search":
+                        var gsFirstLine = toolResult.Split('\n')[0];
+                        var gsMatch = System.Text.RegularExpressions.Regex.Match(
+                            gsFirstLine, @"(?:找到|Found|found)\s*(\d+|>\d+)\s*(?:处|个)?\s*(?:匹配|matches?)",
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (gsMatch.Success)
+                            return $"✅ {gsMatch.Value.Trim()}";
+                        return "✅ 搜索完成";
+
+                    case "get_errors":
+                        if (toolResult.Contains("0 个错误") || toolResult.Contains("0 errors"))
+                            return "✅ 无编译错误";
+                        var errMatch = System.Text.RegularExpressions.Regex.Match(
+                            toolResult, @"(\d+)\s*(?:个)?\s*(?:错误|errors?)",
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (errMatch.Success)
+                            return $"⚠️ 发现 {errMatch.Groups[1].Value} 个错误";
+                        return "✅ 编译检查完成";
+
+                    case "fetch_webpage":
+                        return $"✅ 抓取完成 ({toolResult.Length} 字符)";
+
+                    case "build_solution":
+                        if (toolResult.Contains("构建成功") || toolResult.Contains("Build succeeded"))
+                            return "✅ 构建成功";
+                        if (toolResult.Contains("构建失败") || toolResult.Contains("Build failed"))
+                            return "⚠️ 构建失败";
+                        return "🔨 构建完成";
+
+                    case "replace_string_in_file":
+                    case "multi_replace_string_in_file":
+                        if (toolResult.StartsWith("✅") || toolResult.Contains("成功") || toolResult.Contains("success"))
+                            return "✅ 编辑完成";
+                        return "✏️ 编辑完成";
+
+                    case "create_file":
+                        if (toolResult.StartsWith("✅") || toolResult.Contains("成功") || toolResult.Contains("success"))
+                            return "✅ 文件已创建";
+                        return "📝 文件操作完成";
+
+                    case "run_in_terminal":
+                        if (toolResult.Contains("exit code: 0") || toolResult.Contains("ExitCode: 0"))
+                            return "✅ 终端命令执行成功";
+                        return "💻 终端命令已执行";
+
+                    case "get_terminal_output":
+                        return $"📋 终端输出 ({toolResult.Length} 字符)";
+
+                    default:
+                        // 通用：显示前 80 字符
+                        string shortResult = toolResult.Length > 80
+                            ? toolResult.Substring(0, 80) + "…"
+                            : toolResult;
+                        return shortResult;
+                }
+            }
+            catch
+            {
+                string shortResult = toolResult.Length > 80
+                    ? toolResult.Substring(0, 80) + "…"
+                    : toolResult;
+                return shortResult;
+            }
+        }
+
         #endregion
 
         #region Tool Implementations
@@ -592,25 +895,42 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             try
             {
+                const int maxLinesToRead = 100000; // 安全上限：防止大文件撑爆内存
                 int startLine = GetIntArg(args, "startLine", 1);
                 int endLine = GetIntArg(args, "endLine", int.MaxValue);
 
-                var lines = File.ReadAllLines(filePath);
-                int totalLines = lines.Length;
-
-                startLine = Math.Max(1, Math.Min(startLine, totalLines));
-                endLine = Math.Max(startLine, Math.Min(endLine, totalLines));
-
+                // ── 使用流式读取（File.ReadLines）避免大文件全部加载到内存 ──
+                int totalLines = 0;
                 var sb = new StringBuilder();
-                sb.AppendLine($"📄 文件: {filePath} (共 {totalLines} 行，显示 {startLine}-{endLine})");
-                sb.AppendLine();
+                bool truncated = false;
 
-                for (int i = startLine - 1; i < endLine; i++)
+                foreach (var line in File.ReadLines(filePath))
                 {
-                    sb.AppendLine($"{i + 1}: {lines[i]}");
+                    totalLines++;
+                    if (totalLines > maxLinesToRead)
+                    {
+                        truncated = true;
+                        break;
+                    }
+                    if (totalLines >= startLine && totalLines <= endLine)
+                    {
+                        sb.AppendLine($"{totalLines}: {line}");
+                    }
                 }
 
-                string result = sb.ToString().TrimEnd();
+                // 如果没有到达 endLine，调整 endLine 为实际读取的最大行
+                int actualEnd = Math.Min(endLine, totalLines);
+                if (truncated)
+                    actualEnd = Math.Min(actualEnd, maxLinesToRead);
+
+                var resultBuilder = new StringBuilder();
+                resultBuilder.AppendLine($"📄 文件: {filePath} (共 {totalLines} 行，显示 {startLine}-{actualEnd})");
+                if (truncated)
+                    resultBuilder.AppendLine($"> ⚠️ 文件过大（>{maxLinesToRead}行），仅读取了前 {maxLinesToRead} 行");
+                resultBuilder.AppendLine();
+                resultBuilder.Append(sb);
+
+                string result = resultBuilder.ToString().TrimEnd();
                 if (result.Length > 50000)
                     result = result.Substring(0, 50000) + "\n\n... (内容已截断)";
 
@@ -662,11 +982,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (string.IsNullOrEmpty(filePattern))
                     filePattern = "*";
 
+                const int maxFilesToEnumerate = 10000; // 安全上限：防止超大目录撑爆内存
                 var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-                var files = Directory.GetFiles(searchDir, filePattern, searchOption);
 
-                foreach (var f in files.Take(maxResults))
+                // ── 使用 EnumerateFiles 流式枚举（避免 Directory.GetFiles 全部加载到内存）──
+                int totalFound = 0;
+                foreach (var f in Directory.EnumerateFiles(searchDir, filePattern, searchOption))
                 {
+                    totalFound++;
+                    if (totalFound > maxFilesToEnumerate) break;
+                    if (results.Count >= maxResults) break;
+
                     string relativePath = f;
                     if (f.StartsWith(searchRoot, StringComparison.OrdinalIgnoreCase))
                         relativePath = f.Substring(searchRoot.Length).TrimStart('\\', '/');
@@ -674,10 +1000,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
 
                 var sb = new StringBuilder();
-                sb.AppendLine($"🔍 文件搜索: \"{query}\" (找到 {files.Length} 个文件" + (files.Length > maxResults ? $"，显示前 {maxResults}" : "") + ")");
+                string countInfo = totalFound > maxFilesToEnumerate
+                    ? $"找到 >{maxFilesToEnumerate} 个文件（已截断）"
+                    : $"找到 {totalFound} 个文件";
+                sb.AppendLine($"🔍 文件搜索: \"{query}\" ({countInfo}" + (results.Count < totalFound ? $"，显示前 {results.Count}" : "") + ")");
                 sb.AppendLine();
                 foreach (var r in results)
                     sb.AppendLine($"- `{r}`");
+
+                if (totalFound > maxFilesToEnumerate)
+                    sb.AppendLine($"> ⚠️ 匹配文件过多（>{maxFilesToEnumerate}），仅枚举了前 {maxFilesToEnumerate} 个。请使用更精确的搜索模式。");
 
                 return Task.FromResult(sb.ToString().TrimEnd());
             }
@@ -726,13 +1058,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (string.IsNullOrEmpty(cleanGlob))
                     cleanGlob = "*.*";
 
+                const int maxFilesToSearch = 5000; // 安全上限：防止超大项目文件遍历
                 try
                 {
-                    filesToSearch = Directory.GetFiles(searchDir, cleanGlob, searchOption);
+                    filesToSearch = Directory.EnumerateFiles(searchDir, cleanGlob, searchOption)
+                        .Take(maxFilesToSearch);
                 }
                 catch
                 {
-                    filesToSearch = Directory.GetFiles(searchRoot, "*.*", SearchOption.AllDirectories);
+                    filesToSearch = Directory.EnumerateFiles(searchRoot, "*.*", SearchOption.AllDirectories)
+                        .Take(maxFilesToSearch);
                 }
 
                 // 排除常见的非代码目录
@@ -745,7 +1080,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Regex? regex = null;
                 if (isRegexp)
                 {
-                    try { regex = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.Compiled); }
+                    try { regex = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100)); }
                     catch { return Task.FromResult($"❌ 无效的正则表达式: {query}"); }
                 }
 
@@ -1192,19 +1527,48 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 解析文件路径（支持相对于工作区根目录的路径）。
+        /// 包含路径穿越防护：确保解析后的路径在工作区范围内。
         /// </summary>
         private static string ResolvePath(string filePath, string? workspaceRoot)
         {
             if (string.IsNullOrEmpty(filePath))
                 return filePath;
 
+            string resolved;
             if (Path.IsPathRooted(filePath))
+            {
+                resolved = Path.GetFullPath(filePath);
+            }
+            else if (!string.IsNullOrEmpty(workspaceRoot))
+            {
+                string candidate = Path.Combine(workspaceRoot, filePath.Replace('/', '\\'));
+                resolved = Path.GetFullPath(candidate);
+            }
+            else
+            {
                 return filePath;
+            }
 
+            // ── 路径穿越防护：确保解析后的路径在工作区根目录内 ──
             if (!string.IsNullOrEmpty(workspaceRoot))
-                return Path.Combine(workspaceRoot, filePath);
+            {
+                string normalizedWorkspace = Path.GetFullPath(workspaceRoot)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string normalizedResolved = resolved
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-            return Path.Combine(Directory.GetCurrentDirectory(), filePath);
+                if (!normalizedResolved.StartsWith(
+                        normalizedWorkspace + Path.DirectorySeparatorChar,
+                        StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(normalizedResolved, normalizedWorkspace,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Warn($"[BuiltInTool] ⚠️ 路径穿越检测: {resolved} 不在工作区 {workspaceRoot} 内，拒绝访问");
+                    return filePath; // 返回原始路径，由调用方处理（文件不存在时会给出提示）
+                }
+            }
+
+            return resolved;
         }
 
         #endregion
