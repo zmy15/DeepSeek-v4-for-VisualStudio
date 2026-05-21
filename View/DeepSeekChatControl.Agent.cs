@@ -734,6 +734,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
+                // ── 从锁中收集需要重建的计划（async 操作不能在锁内执行）──
+                var plansToRebuild = new List<(AgentTaskPlan Plan, bool NeedsTwoPass)>();
+
                 lock (_lock)
                 {
                     foreach (var msg in _messages)
@@ -749,35 +752,46 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             if (_createdPlanIds.Contains(pid)) continue;
                             _createdPlanIds.Add(pid);
 
-                            string js;
-                            if (plan.IsCompleted || plan.Steps.All(s => s.Status == AgentStepStatus.Completed || s.Status == AgentStepStatus.Skipped))
-                            {
-                                js = ChatHtmlService.BuildAgentTaskPanelCompleteJs(plan);
-                            }
-                            else if (plan.IsCancelled)
-                            {
-                                js = ChatHtmlService.BuildAgentTaskPanelCompleteJs(plan);
-                            }
-                            else
-                            {
-                                js = ChatHtmlService.BuildAgentTaskPanelCreateJs(plan);
-                                // 如果已有步骤在运行中或完成，追加一次更新
-                                if (plan.CurrentStepIndex > 0)
-                                {
-                                    _ = ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
-                                    await Task.Delay(100);
-                                    js = ChatHtmlService.BuildAgentTaskPanelUpdateJs(plan);
-                                }
-                            }
+                            bool needsTwoPass = !plan.IsCompleted
+                                && !plan.IsCancelled
+                                && !plan.Steps.All(s => s.Status == AgentStepStatus.Completed || s.Status == AgentStepStatus.Skipped)
+                                && plan.CurrentStepIndex > 0;
 
-                            _ = ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
-                            Logger.Info($"[Panel] 重建持久化任务面板: {plan.Title} (PlanId={pid}, Steps={plan.Steps.Count})");
+                            plansToRebuild.Add((plan, needsTwoPass));
                         }
                         catch (Exception ex)
                         {
                             Logger.Warn($"[Panel] 反序列化 PlanJson 失败: {ex.Message}");
                         }
                     }
+                }
+
+                // ── 在锁外执行 JS 注入 ──
+                foreach (var (plan, needsTwoPass) in plansToRebuild)
+                {
+                    string pid = plan.PlanId;
+                    string js;
+                    if (plan.IsCompleted || plan.Steps.All(s => s.Status == AgentStepStatus.Completed || s.Status == AgentStepStatus.Skipped))
+                    {
+                        js = ChatHtmlService.BuildAgentTaskPanelCompleteJs(plan);
+                    }
+                    else if (plan.IsCancelled)
+                    {
+                        js = ChatHtmlService.BuildAgentTaskPanelCompleteJs(plan);
+                    }
+                    else
+                    {
+                        js = ChatHtmlService.BuildAgentTaskPanelCreateJs(plan);
+                        if (needsTwoPass)
+                        {
+                            _ = ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
+                            await Task.Delay(100);
+                            js = ChatHtmlService.BuildAgentTaskPanelUpdateJs(plan);
+                        }
+                    }
+
+                    _ = ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
+                    Logger.Info($"[Panel] 重建持久化任务面板: {plan.Title} (PlanId={pid}, Steps={plan.Steps.Count})");
                 }
             }
             catch (Exception ex)
