@@ -32,6 +32,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>重置累计统计</summary>
         void ResetAccumulatedStats();
 
+        /// <summary>从持久化数据恢复累计统计（重启后调用）</summary>
+        void RestoreAccumulatedStats(long hitTokens, long missTokens, long promptTokens, long completionTokens);
+
         /// <summary>更新使用的模型</summary>
         void UpdateModel(string model);
 

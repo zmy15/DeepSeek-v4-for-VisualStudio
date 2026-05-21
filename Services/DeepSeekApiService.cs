@@ -56,6 +56,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 从持久化数据恢复累计 Cache 统计（重启后调用）。
+        /// </summary>
+        public void RestoreAccumulatedStats(long hitTokens, long missTokens, long promptTokens, long completionTokens)
+        {
+            TotalCacheHitTokens = hitTokens;
+            TotalCacheMissTokens = missTokens;
+            TotalPromptTokens = promptTokens;
+            TotalCompletionTokens = completionTokens;
+        }
+
+        /// <summary>
         /// 累加一次 API 调用的 Usage 统计到累计值。
         /// </summary>
         private void AccumulateStats(DeepSeekUsage usage)

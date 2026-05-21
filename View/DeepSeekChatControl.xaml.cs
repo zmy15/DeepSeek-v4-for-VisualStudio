@@ -1087,17 +1087,25 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // 填充会话下拉框
             PopulateSessionComboBox();
 
+            // ── 从会话恢复累计 Cache 统计 ──
+            RestoreCacheStatsFromSession();
+
             // ── WebView2 只能初始化一次，切换解决方案时只刷新页面内容 ──
             if (_webViewInitialized)
             {
                 Logger.Info("[Render] WebView2 已初始化，直接刷新页面内容");
                 RebuildMessagesHtml();
                 UpdateBrowser();
+                // ── 重建持久化的任务面板 ──
+                _ = RebuildPanelsWhenPageReadyAsync();
             }
             else
             {
                 await InitializeWebViewAsync();
                 _webViewInitialized = true;
+
+                // ── 重建持久化的任务面板 ──
+                _ = RebuildPanelsWhenPageReadyAsync();
             }
         }
 

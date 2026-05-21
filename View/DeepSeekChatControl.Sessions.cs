@@ -78,6 +78,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── ApiHistory 始终保存（含 tool/system 消息，树结构不包含）──
             _activeSession.ApiHistory = _contextManager.GetFullContext();
             _activeSession.LastActiveAt = DateTime.Now;
+
+            // ── 持久化累计 Cache 统计（重启后恢复显示）──
+            if (_apiService != null)
+            {
+                _activeSession.CumulativeCacheHitTokens = _apiService.TotalCacheHitTokens;
+                _activeSession.CumulativeCacheMissTokens = _apiService.TotalCacheMissTokens;
+                _activeSession.CumulativePromptTokens = _apiService.TotalPromptTokens;
+                _activeSession.CumulativeCompletionTokens = _apiService.TotalCompletionTokens;
+            }
+
             _sessionsContainer.ActiveSessionId = _activeSession.Id;
             ChatPersistenceService.SaveSessions(_solutionPath, _sessionsContainer);
         }

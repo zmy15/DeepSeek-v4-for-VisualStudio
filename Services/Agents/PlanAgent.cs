@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -718,27 +719,37 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 将详细计划 Markdown 保存到磁盘。
-        /// 优先保存到解决方案根目录，若不可用则保存到 %TEMP%。
+        /// 存储到 %LocalAppData%\DeepSeekVS\plans\{solution_hash}\plan.md，
+        /// 同一解决方案的计划可重复覆盖使用。
         /// </summary>
         /// <returns>保存的文件绝对路径</returns>
         private static async Task<string> SavePlanMarkdownAsync(string markdown, AgentContext context)
         {
-            // 确定保存目录
-            string? dir = null;
+            // 基础目录：%LocalAppData%\DeepSeekVS\plans
+            string baseDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DeepSeekVS", "plans");
+
+            // 根据解决方案路径计算子目录哈希（与 ChatPersistenceService 保持一致）
+            string subDir;
             if (!string.IsNullOrEmpty(context.SolutionPath))
             {
-                // 如果 SolutionPath 是 .sln 文件，取其目录
-                if (File.Exists(context.SolutionPath))
-                    dir = Path.GetDirectoryName(context.SolutionPath);
-                else if (Directory.Exists(context.SolutionPath))
-                    dir = context.SolutionPath;
+                using (var sha256 = SHA256.Create())
+                {
+                    var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(context.SolutionPath));
+                    var hash = BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 16);
+                    subDir = Path.Combine(baseDir, $"proj_{hash}");
+                }
+            }
+            else
+            {
+                subDir = Path.Combine(baseDir, "_unsaved");
             }
 
-            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
-                dir = Path.GetTempPath();
+            Directory.CreateDirectory(subDir);
 
-            // 文件名：固定为 plan.md（每次覆盖，避免积累）
-            string filePath = Path.Combine(dir, "plan.md");
+            // 文件名：固定为 plan.md（每次覆盖，同一方案可重复使用）
+            string filePath = Path.Combine(subDir, "plan.md");
 
             // 写入文件头
             var L = LocalizationService.Instance;

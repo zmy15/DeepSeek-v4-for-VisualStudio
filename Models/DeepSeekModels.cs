@@ -336,6 +336,13 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [DataMember]
         public bool IsHtml { get; set; }
 
+        /// <summary>
+        /// Agent 任务计划的 JSON 序列化数据。
+        /// 用于重启后重建任务面板，null 表示无关联计划。
+        /// </summary>
+        [DataMember]
+        public string? PlanJson { get; set; }
+
         // INotifyPropertyChanged 实现
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -386,6 +393,24 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// </summary>
         [DataMember]
         public string? TreeDataJson { get; set; }
+
+        // ── 累计 Cache 统计（跨会话持久化，重启后恢复显示）──
+
+        /// <summary>累计 Cache 命中 Token 数</summary>
+        [DataMember]
+        public long CumulativeCacheHitTokens { get; set; }
+
+        /// <summary>累计 Cache 未命中 Token 数</summary>
+        [DataMember]
+        public long CumulativeCacheMissTokens { get; set; }
+
+        /// <summary>累计 Prompt Token 数</summary>
+        [DataMember]
+        public long CumulativePromptTokens { get; set; }
+
+        /// <summary>累计 Completion Token 数</summary>
+        [DataMember]
+        public long CumulativeCompletionTokens { get; set; }
     }
 
     /// <summary>

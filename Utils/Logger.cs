@@ -33,8 +33,8 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
         /// <summary>当前日志输出级别。通过 Options 页面或代码设置。</summary>
         public static LogLevel Level = LogLevel.Info;
 
-        /// <summary>是否同时写入 VS 输出窗口（调试时开启）。</summary>
-        public static bool WriteToOutputWindow = false;
+        /// <summary>是否同时写入 VS 输出窗口。默认开启，可在选项页面关闭。</summary>
+        public static bool WriteToOutputWindow = true;
 
         private static readonly string LogDirectory =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

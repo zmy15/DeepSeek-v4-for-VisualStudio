@@ -18,6 +18,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -346,6 +347,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             msg.Content = finalContent;
                             msg.IsStreaming = false;
                             msg.IsRendered = true;
+                            // ── 持久化任务计划 JSON，重启后可重建任务面板 ──
+                            try { msg.PlanJson = JsonSerializer.Serialize(plan, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
                         }
                     }
                     // ── 追加 Cache 命中率统计（使用累计值，非单轮）──
@@ -696,6 +699,118 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 从活跃会话恢复累计 Cache 统计到 ApiService。
+        /// 重启 VS 后保留之前的命中率数据。
+        /// </summary>
+        private void RestoreCacheStatsFromSession()
+        {
+            if (_apiService == null || _activeSession == null) return;
+
+            try
+            {
+                _apiService.RestoreAccumulatedStats(
+                    _activeSession.CumulativeCacheHitTokens,
+                    _activeSession.CumulativeCacheMissTokens,
+                    _activeSession.CumulativePromptTokens,
+                    _activeSession.CumulativeCompletionTokens);
+                Logger.Info($"[Cache] 从会话恢复累计统计: hit={_activeSession.CumulativeCacheHitTokens}, miss={_activeSession.CumulativeCacheMissTokens}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Cache] 恢复统计失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 重启后遍历消息中的持久化计划 JSON，重建任务面板。
+        /// 已完成的计划渲染为完成状态面板。
+        /// </summary>
+        private async Task RebuildPersistedTaskPanelsAsync()
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (ChatWebView.CoreWebView2 == null) return;
+
+            try
+            {
+                var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+                lock (_lock)
+                {
+                    foreach (var msg in _messages)
+                    {
+                        if (string.IsNullOrEmpty(msg.PlanJson)) continue;
+
+                        try
+                        {
+                            var plan = JsonSerializer.Deserialize<AgentTaskPlan>(msg.PlanJson, opts);
+                            if (plan == null || !plan.IsFromPlanAgent || plan.Steps.Count == 0) continue;
+
+                            string pid = plan.PlanId;
+                            if (_createdPlanIds.Contains(pid)) continue;
+                            _createdPlanIds.Add(pid);
+
+                            string js;
+                            if (plan.IsCompleted || plan.Steps.All(s => s.Status == AgentStepStatus.Completed || s.Status == AgentStepStatus.Skipped))
+                            {
+                                js = ChatHtmlService.BuildAgentTaskPanelCompleteJs(plan);
+                            }
+                            else if (plan.IsCancelled)
+                            {
+                                js = ChatHtmlService.BuildAgentTaskPanelCompleteJs(plan);
+                            }
+                            else
+                            {
+                                js = ChatHtmlService.BuildAgentTaskPanelCreateJs(plan);
+                                // 如果已有步骤在运行中或完成，追加一次更新
+                                if (plan.CurrentStepIndex > 0)
+                                {
+                                    _ = ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
+                                    await Task.Delay(100);
+                                    js = ChatHtmlService.BuildAgentTaskPanelUpdateJs(plan);
+                                }
+                            }
+
+                            _ = ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
+                            Logger.Info($"[Panel] 重建持久化任务面板: {plan.Title} (PlanId={pid}, Steps={plan.Steps.Count})");
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Warn($"[Panel] 反序列化 PlanJson 失败: {ex.Message}");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Panel] 重建持久化任务面板异常: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 等待 WebView 页面就绪后重建持久化任务面板（最多等待 10 秒）。
+        /// </summary>
+        private async Task RebuildPanelsWhenPageReadyAsync()
+        {
+            try
+            {
+                // 等待 _pageReady 标志（最多 10 秒）
+                for (int i = 0; i < 100; i++)
+                {
+                    if (_pageReady) break;
+                    await Task.Delay(100);
+                }
+                if (_pageReady)
+                {
+                    await RebuildPersistedTaskPanelsAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Panel] RebuildPanelsWhenPageReady 异常: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// 向实时思考气泡追加一行内容（Markdown 格式），并更新 DOM。
         /// </summary>
         private void AppendAgentThinking(string line)
@@ -938,9 +1053,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (_agentDispatcher == null || _pendingHandoff == null) return;
 
+            // ── 切换按钮状态为停止 ──
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            lock (_lock) { _isGenerating = true; }
+            UpdateButtonsState();
+
             try
             {
-                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentHandoff"], targetAgent);
 
                 // ── 隐藏 handoff 按钮（防止重复点击）──
@@ -953,6 +1072,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     catch { }
                 }
+
+                // ── 重置思考内容，为 Edit 阶段准备新的实时气泡 ──
+                lock (_lock) { _agentThinkingContent.Clear(); }
+                _lastReportedStepIndex = 0;
+                _lastReportedStepStatus = string.Empty;
 
                 await TaskScheduler.Default;
 
@@ -1006,7 +1130,42 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         catch { }
                     }
 
-                    string finalContent = agentResult.Content ?? string.Format(LocalizationService.Instance["agent.result.taskCompletedSuccess"], plan.Steps.Count(s => s.Status == AgentStepStatus.Completed), plan.Steps.Count);
+                    // ── 将 Edit 阶段的思考过程追加到最终输出 ──
+                    string thinkingText;
+                    lock (_lock) { thinkingText = _agentThinkingContent.ToString(); }
+                    string thinkingDetailsHtml = string.Empty;
+                    if (!string.IsNullOrWhiteSpace(thinkingText))
+                    {
+                        string escapedThinking = System.Net.WebUtility.HtmlEncode(thinkingText)
+                            .Replace("\n", "<br>");
+                        thinkingDetailsHtml =
+                            "<details class='reasoning-panel' style='margin-top:12px' open='true'>" +
+                            "<summary>🔨 " + LocalizationService.Instance["agent.panel.executionProcess"] + "</summary>" +
+                            "<div class='reasoning-content'>" + escapedThinking + "</div>" +
+                            "</details>";
+                    }
+
+                    string finalContent = (agentResult.Content ?? string.Format(LocalizationService.Instance["agent.result.taskCompletedSuccess"], plan.Steps.Count(s => s.Status == AgentStepStatus.Completed), plan.Steps.Count))
+                        + thinkingDetailsHtml;
+
+                    // ── 更新现有的流式思考气泡为最终内容 ──
+                    lock (_lock)
+                    {
+                        if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count)
+                        {
+                            var msg = _messages[_agentStreamingMsgIndex];
+                            msg.Content = finalContent;
+                            msg.IsStreaming = false;
+                            msg.IsRendered = true;
+                            // ── 持久化任务计划 JSON，重启后可重建任务面板 ──
+                            try { msg.PlanJson = JsonSerializer.Serialize(plan, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
+                        }
+                    }
+
+                    // ── 强制刷新 DOM 显示最终结果 ──
+                    BatchStreamingUpdate(_agentStreamingMsgIndex, finalContent, string.Empty, isComplete: true);
+                    PostStreamEnd(_agentStreamingMsgIndex, finalContent, string.Empty, string.Empty);
+
                     StatusLabel.Text = plan.ChangedFiles.Count > 0
                         ? string.Format(LocalizationService.Instance["agent.result.completed"], plan.ChangedFiles.Count)
                         : LocalizationService.Instance["agent.result.planCompleted"];
@@ -1024,6 +1183,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Error($"[AgentHandoff] 执行失败: {ex.Message}", ex);
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 StatusLabel.Text = string.Format(LocalizationService.Instance["agent.status.handoffError"], ex.Message);
+            }
+            finally
+            {
+                // ── 恢复按钮状态 ──
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                lock (_lock) { _isGenerating = false; }
+                UpdateButtonsState();
             }
         }
 

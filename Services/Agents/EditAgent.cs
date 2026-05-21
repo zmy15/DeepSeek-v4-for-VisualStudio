@@ -1558,6 +1558,14 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 sb.AppendLine();
             }
 
+            // ── 提示 AI 利用已有计划上下文，避免不必要的全项目搜索 ──
+            sb.AppendLine("## 重要提示");
+            sb.AppendLine("- 用户消息中已包含完整的 plan.md 计划文档，其中记录了项目结构、相关文件路径和修改方案");
+            sb.AppendLine("- 请优先使用 plan.md 中已列出的文件路径，直接用 read_file 读取目标文件内容");
+            sb.AppendLine("- 仅在需要确认额外依赖关系时才使用 file_search/grep_search 搜索");
+            sb.AppendLine("- 避免全项目搜索已明确指定的文件");
+            sb.AppendLine();
+
             if (!string.IsNullOrEmpty(context.SolutionPath))
             {
                 sb.AppendLine($"解决方案路径: {context.SolutionPath}");
