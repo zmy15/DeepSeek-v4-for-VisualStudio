@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio.Shell.Interop;
 
 namespace DeepSeek_v4_for_VisualStudio.Utils
 {
@@ -64,10 +63,9 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
         private static DateTime _lastCleanupDate = DateTime.MinValue;
         private static bool _logDirectoryEnsured;
 
-        // ── IVsOutputWindow 窗格（线程安全延迟初始化）──
-
+        // ── 输出窗口写入委托（避免直接引用 IVsOutputWindowPane 导致 Interop 程序集加载）──
         private static readonly object _paneLock = new object();
-        private static volatile IVsOutputWindowPane? _pane;
+        private static volatile Action<string>? _outputWindowWriter;
         private static volatile bool _paneResolved;
 
         /// <summary>
@@ -80,23 +78,42 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
             // 确保日志目录存在
             EnsureLogDirectory();
 
-            // 初始化输出窗口窗格
+            // 初始化输出窗口窗格（通过反射避免硬依赖 Microsoft.VisualStudio.Interop）
             lock (_paneLock)
             {
                 if (_paneResolved) return;
 
                 try
                 {
-                    var outWindow = serviceProvider.GetService(typeof(SVsOutputWindow)) as IVsOutputWindow;
+                    var outWindow = serviceProvider.GetService(
+                        typeof(Microsoft.VisualStudio.Shell.Interop.SVsOutputWindow));
                     if (outWindow == null)
                     {
                         _paneResolved = true;
                         return;
                     }
 
-                    var guid = PaneGuid; // 本地副本，ref 参数需要
-                    outWindow.CreatePane(ref guid, "DeepSeek Chat", 1, 1);
-                    outWindow.GetPane(ref guid, out _pane);
+                    // 通过反射调用 CreatePane 和 GetPane
+                    var outWindowType = outWindow.GetType();
+                    var guid = PaneGuid;
+                    var createPaneMethod = outWindowType.GetMethod("CreatePane");
+                    createPaneMethod?.Invoke(outWindow, new object[] { guid, "DeepSeek Chat", 1, 1 });
+
+                    var getPaneMethod = outWindowType.GetMethod("GetPane");
+                    var args = new object[] { guid, null! };
+                    getPaneMethod?.Invoke(outWindow, args);
+                    var pane = args[1]; // IVsOutputWindowPane
+
+                    if (pane != null)
+                    {
+                        // 创建委托：pane.OutputString(text)
+                        var outputStringMethod = pane.GetType().GetMethod("OutputString");
+                        _outputWindowWriter = text =>
+                        {
+                            try { outputStringMethod?.Invoke(pane, new object[] { text }); }
+                            catch { }
+                        };
+                    }
                 }
                 catch { /* VS 输出窗口不可用时静默失败 */ }
 
@@ -162,14 +179,15 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
             string log = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] [{member}] {message}";
             System.Diagnostics.Debug.WriteLine(log);
 
-            // ── VS 输出窗口（通过 IVsOutputWindowPane，无反射）──
-            if (_writeToOutputWindow && _pane != null)
+            // ── VS 输出窗口（通过预编译委托，避免直接引用 IVsOutputWindowPane）──
+            if (_writeToOutputWindow)
             {
-                try
+                var writer = _outputWindowWriter;
+                if (writer != null)
                 {
-                    _pane.OutputString(log + Environment.NewLine);
+                    try { writer(log + Environment.NewLine); }
+                    catch { /* 输出窗口写入失败不影响主流程 */ }
                 }
-                catch { /* 输出窗口写入失败不影响主流程 */ }
             }
 
             // ── 文件日志 ──

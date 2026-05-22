@@ -10,7 +10,7 @@ using System.Windows.Media;
 namespace DeepSeek_v4_for_VisualStudio.View
 {
     /// <summary>
-    /// Diff 预览装饰器（方案三：适配 VS SDK 原生差异查看器）。
+    /// Diff 预览装饰器。在编辑器视口顶部显示「确认变更」和「撤销」按钮，
     /// 在编辑器视口顶部显示「确认变更」和「撤销」按钮，
     /// 以及变更统计信息。仅当 <see cref="EditorDiffMarkerService"/> 中有活跃会话时显示。
     /// </summary>
@@ -31,8 +31,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             _view.LayoutChanged += OnLayoutChanged;
 
-            // 方案三：不再监听 PreviewStateChanged（差异着色由 DiffViewerWindow 原生处理）
-            // 装饰器仅检查 IsPreviewActive 来决定是否显示确认/撤销按钮
+            // 差异着色由 DiffViewerWindow 原生处理，装饰器仅检查 IsPreviewActive 来决定是否显示按钮
 
             RefreshAdornment();
         }
@@ -90,7 +89,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             var statsText = new TextBlock
             {
-                Text = "📊 差异预览中（方案三：VS SDK 原生查看器）",
+                Text = "📊 差异预览中",
                 Foreground = new SolidColorBrush(Color.FromRgb(0xA0, 0xA0, 0xA0)),
                 FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center,

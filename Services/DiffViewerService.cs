@@ -16,7 +16,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// VS SDK 原生 Diff 查看器服务。
     /// 使用 <see cref="IDifferenceBufferFactoryService"/> + <see cref="IWpfDifferenceViewerFactoryService"/>
     /// 创建 VS 内置的差异对比视图（支持内联/并排模式、自动红绿着色、滚动同步）。
-    /// 对标方案三：完全依赖 VS SDK <c>Microsoft.VisualStudio.Text.Differencing</c> 命名空间。
     /// </summary>
     public class DiffViewerService : IDisposable
     {
@@ -44,8 +43,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         #region Fields
 
-        private readonly Dictionary<string, DiffViewerSession> _sessions = new();
-        private readonly object _sessionsLock = new();
+        private bool _disposed;
 
         private IComponentModel? _componentModel;
         private IDifferenceBufferFactoryService? _bufferFactory;
@@ -241,123 +239,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             return viewer;
         }
 
-        /// <summary>
-        /// 为已有编辑器 buffer 创建差异查看器会话。
-        /// 将当前 buffer 内容视为"新"，传入的 originalContent 视为"旧"。
-        /// </summary>
-        /// <param name="sessionKey">唯一标识此会话的键（如文件路径）</param>
-        /// <param name="originalContent">修改前的原始代码</param>
-        /// <param name="currentBuffer">编辑器当前 buffer（包含新代码）</param>
-        /// <param name="viewMode">查看模式</param>
-        /// <returns>创建的 WPF 差异查看器</returns>
-        public IWpfDifferenceViewer CreateDiffViewerForBuffer(
-            string sessionKey,
-            string originalContent,
-            ITextBuffer currentBuffer,
-            DifferenceViewMode viewMode = DifferenceViewMode.Inline)
-        {
-            ThreadHelper.ThrowIfNotOnUIThread();
-            EnsureServices();
-
-            IContentType ct = currentBuffer.ContentType;
-
-            // 左侧 buffer：用临时文件后端（兼容第三方 margin）
-            ITextBuffer leftBuffer;
-            string? tempLeftFile = null;
-
-            if (_textDocumentFactory != null)
-            {
-                tempLeftFile = WriteTempFile(originalContent ?? string.Empty);
-                var leftDoc = _textDocumentFactory.CreateAndLoadTextDocument(tempLeftFile, ct);
-                leftBuffer = leftDoc.TextBuffer;
-            }
-            else
-            {
-                leftBuffer = _textBufferFactory!.CreateTextBuffer(originalContent ?? string.Empty, ct);
-            }
-
-            // 右侧 buffer：当前编辑器 buffer（已有 ITextDocument）
-            IWpfDifferenceViewer viewer = CreateDiffViewer(leftBuffer, currentBuffer, viewMode, tempLeftFile, null);
-
-            var session = new DiffViewerSession
-            {
-                SessionKey = sessionKey,
-                LeftBuffer = leftBuffer,
-                RightBuffer = currentBuffer,
-                Viewer = viewer,
-                OriginalContent = originalContent,
-            };
-
-            lock (_sessionsLock)
-            {
-                _sessions[sessionKey] = session;
-            }
-
-            return viewer;
-        }
-
-        /// <summary>
-        /// 关闭指定键的 diff 查看器会话。
-        /// </summary>
-        public void CloseSession(string sessionKey)
-        {
-            DiffViewerSession? session;
-            lock (_sessionsLock)
-            {
-                if (!_sessions.TryGetValue(sessionKey, out session))
-                    return;
-                _sessions.Remove(sessionKey);
-            }
-
-            try
-            {
-                if (!session.Viewer.IsClosed)
-                    session.Viewer.Close();
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn($"[DiffViewer] 关闭会话异常: {ex.Message}");
-            }
-
-            Logger.Info($"[DiffViewer] 已关闭会话: {sessionKey}");
-        }
-
-        /// <summary>
-        /// 获取指定键的活跃会话。
-        /// </summary>
-        public DiffViewerSession? GetSession(string sessionKey)
-        {
-            lock (_sessionsLock)
-            {
-                return _sessions.TryGetValue(sessionKey, out var session) ? session : null;
-            }
-        }
-
-        /// <summary>
-        /// 关闭所有会话。
-        /// </summary>
-        public void CloseAllSessions()
-        {
-            List<DiffViewerSession> sessions;
-            lock (_sessionsLock)
-            {
-                sessions = new List<DiffViewerSession>(_sessions.Values);
-                _sessions.Clear();
-            }
-
-            foreach (var session in sessions)
-            {
-                try
-                {
-                    if (!session.Viewer.IsClosed)
-                        session.Viewer.Close();
-                }
-                catch { /* ignore */ }
-            }
-
-            Logger.Info($"[DiffViewer] 已关闭所有会话 ({sessions.Count} 个)");
-        }
-
         #endregion
 
         #region Private Helpers
@@ -395,35 +276,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         public void Dispose()
         {
-            CloseAllSessions();
+            if (_disposed) return;
+            _disposed = true;
             _instance = null;
         }
 
         #endregion
     }
-
-    #region Supporting Types
-
-    /// <summary>
-    /// Diff 查看器会话。
-    /// </summary>
-    public class DiffViewerSession
-    {
-        /// <summary>唯一标识此会话的键。</summary>
-        public string SessionKey { get; set; } = string.Empty;
-
-        /// <summary>左侧文本缓冲区（旧内容）。</summary>
-        public ITextBuffer LeftBuffer { get; set; } = null!;
-
-        /// <summary>右侧文本缓冲区（新内容）。</summary>
-        public ITextBuffer RightBuffer { get; set; } = null!;
-
-        /// <summary>WPF 差异查看器实例。</summary>
-        public IWpfDifferenceViewer Viewer { get; set; } = null!;
-
-        /// <summary>原始内容（用于撤销）。</summary>
-        public string OriginalContent { get; set; } = string.Empty;
-    }
-
-    #endregion
 }
