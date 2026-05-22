@@ -13,6 +13,7 @@
 [![.NET](https://img.shields.io/badge/.NET%20Framework-4.7.2-blueviolet.svg)]()
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-V4-green.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey.svg)]()
+[![Version](https://img.shields.io/badge/version-1.1.3-blue.svg)]()
 
 [中文](README.md)
 
@@ -617,6 +618,16 @@ The following features have reserved interfaces or infrastructure in the archite
 
 ---
 
+## 👥 Contributors
+
+Thanks to all the developers who have contributed to this project!
+
+<a href="https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=zmy15/DeepSeek-v4-for-VisualStudio" />
+</a>
+
+---
+
 ## License
 
 This project is open source under the [MIT License](LICENSE).
@@ -625,8 +636,8 @@ This project is open source under the [MIT License](LICENSE).
 
 <div align="center">
 
-**⭐ If this project helps you, please give it a Star!**
+**📈 Star History**
 
-[![GitHub stars](https://img.shields.io/github/stars/zmy15/DeepSeek-v4-for-VisualStudio?style=social)](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio)
+[![Star History Chart](https://api.star-history.com/svg?repos=zmy15/DeepSeek-v4-for-VisualStudio&type=Date)](https://star-history.com/#zmy15/DeepSeek-v4-for-VisualStudio&Date)
 
 </div>

@@ -13,6 +13,7 @@
 [![.NET](https://img.shields.io/badge/.NET%20Framework-4.7.2-blueviolet.svg)]()
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-V4-green.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey.svg)]()
+[![Version](https://img.shields.io/badge/version-1.1.3-blue.svg)]()
 
 [English](README_EN.md)
 
@@ -616,6 +617,16 @@ DeepSeek_v4_for_VisualStudio.Tests/
 
 ---
 
+## 👥 贡献者
+
+感谢所有为本项目做出贡献的开发者！
+
+<a href="https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=zmy15/DeepSeek-v4-for-VisualStudio" />
+</a>
+
+---
+
 ## 许可证
 
 本项目基于 [MIT License](LICENSE) 开源。
@@ -624,6 +635,8 @@ DeepSeek_v4_for_VisualStudio.Tests/
 
 <div align="center">
 
-**⭐ 如果这个项目对你有帮助，请给一个 Star！**
+**📈 Star 趋势**
 
-[![GitHub stars](https://img.shields.io/github/stars/zmy15/DeepSeek-v4-for-VisualStudio?style=social)](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio)
+[![Star History Chart](https://api.star-history.com/svg?repos=zmy15/DeepSeek-v4-for-VisualStudio&type=Date)](https://star-history.com/#zmy15/DeepSeek-v4-for-VisualStudio&Date)
+
+</div>
