@@ -662,4 +662,26 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [JsonPropertyName("arguments")]
         public string? Arguments { get; set; }
     }
+
+    // ======== 断点续传模型 ========
+
+    /// <summary>
+    /// 流中断恢复状态。
+    /// 当 AI 流式响应因网络瞬断中断时，保存已接收的部分内容，
+    /// 在重试时将部分内容注入为对话上下文，指示 AI 从截断处继续。
+    /// </summary>
+    internal class StreamResumeState
+    {
+        /// <summary>已接收的部分正文内容</summary>
+        public string PartialContent { get; set; } = string.Empty;
+
+        /// <summary>已接收的部分思考内容（DeepSeek R1 推理）</summary>
+        public string PartialReasoning { get; set; } = string.Empty;
+
+        /// <summary>当前重试次数（0 = 首次尝试）</summary>
+        public int Attempt { get; set; }
+
+        /// <summary>是否正在恢复中</summary>
+        public bool IsResuming => Attempt > 0;
+    }
 }
