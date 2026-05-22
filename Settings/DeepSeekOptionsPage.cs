@@ -107,35 +107,35 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         public string OcrEngine { get; set; } = "Windows Built-in";
 
         // ═══════════════════════════════════════════════
-        //  代码补全（幽灵文本）设置
+        //  DeepSeek 自动补全（幽灵文本）设置
         // ═══════════════════════════════════════════════
 
-        [Category("Copilot")]
+        [Category("DeepSeek 自动补全")]
         [DisplayName("启用代码补全")]
         [Description("在编辑器中启用内联代码补全（幽灵文本）。" +
                      "启用后，DeepSeek 将在你输入时提供代码补全建议。" +
                      "按 Tab 接受，按 Escape 取消。")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-        public bool CopilotEnabled { get; set; } = false;
+        public bool AutoCompleteEnabled { get; set; } = false;
 
-        [Category("Copilot")]
+        [Category("DeepSeek 自动补全")]
         [DisplayName("补全延迟 (毫秒)")]
         [Description("停止输入后等待多少毫秒再请求补全建议。")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-        public int CopilotSuggestionInterval { get; set; } = 800;
+        public int AutoCompleteDelay { get; set; } = 800;
 
-        [Category("Copilot")]
+        [Category("DeepSeek 自动补全")]
         [DisplayName("接受后继续补全")]
         [Description("启用后，接受一条补全会立即触发新的预测。")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-        public bool CopilotNextEditSuggestions { get; set; } = true;
+        public bool AutoCompleteContinueAfterAccept { get; set; } = true;
 
-        [Category("Copilot")]
+        [Category("DeepSeek 自动补全")]
         [DisplayName("补全专用模型")]
         [Description("可选：为代码补全指定不同的模型。留空则使用默认模型。" +
                      "建议使用速度较快的模型（如 deepseek-v4-flash）。")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-        public string CopilotModel { get; set; } = string.Empty;
+        public string AutoCompleteModel { get; set; } = string.Empty;
 
         // ═══════════════════════════════════════════════
         //  上下文管理设置（DeepSeek V4 1M 上下文窗口）

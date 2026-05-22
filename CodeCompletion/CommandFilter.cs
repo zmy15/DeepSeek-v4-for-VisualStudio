@@ -1,3 +1,4 @@
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.OLE.Interop;
@@ -133,7 +134,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
             {
                 if (tagger.AcceptSuggestion())
                 {
-                    Logger.Info("[补全] Tab 接受建议");
+                    Logger.Info(LocalizationService.Instance["autocomplete.tabAccepted"]);
                     if (view.Properties.TryGetProperty(typeof(InlinePredictionManager), out InlinePredictionManager manager))
                     {
                         manager.NotifySuggestionAccepted();
@@ -156,7 +157,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
             {
                 if (tagger.GetSuggestionText() != null)
                 {
-                    Logger.Info("[补全] Escape 取消建议");
+                    Logger.Info(LocalizationService.Instance["autocomplete.escapeCanceled"]);
                     tagger.ClearSuggestion();
                     return true;
                 }

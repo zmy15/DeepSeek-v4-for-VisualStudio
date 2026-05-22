@@ -32,7 +32,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         /// <summary>
         /// 代码补全请求的系统提示词。
         /// </summary>
-        private const string COPILOT_SYSTEM_PROMPT =
+        private const string AUTOCOMPLETE_SYSTEM_PROMPT =
             "You are a code completion assistant. Complete the code at the AUTOCOMPLETE_HERE marker. " +
             "ONLY output the completion code that replaces the marker. " +
             "Do NOT repeat the existing code. Do NOT include explanations. " +
@@ -46,9 +46,9 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         private readonly DeepSeekOptionsPage options;
         private readonly IWpfTextView view;
         private readonly ConcurrentDictionary<string, string> cache = new();
-        private readonly DispatcherTimer typingTimer;
+        private readonly DispatcherTimer? typingTimer;
 
-        private CancellationTokenSource cancellationTokenSource;
+        private CancellationTokenSource? cancellationTokenSource;
         private bool showingAutoComplete;
         private bool suppressNextSuggestion;
 
@@ -66,14 +66,14 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
             this.options = options;
             this.view = view;
 
-            if (!options.CopilotEnabled)
+            if (!options.AutoCompleteEnabled)
             {
-                Logger.Info("[补全] Copilot 未启用，跳过初始化");
+                Logger.Info(LocalizationService.Instance["autocomplete.notEnabled"]);
                 return;
             }
 
-            Logger.Info($"[补全] 初始化完成: 防抖间隔={options.CopilotSuggestionInterval}ms");
-            typingTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(options.CopilotSuggestionInterval) };
+            Logger.Info(string.Format(LocalizationService.Instance["autocomplete.initialized"], options.AutoCompleteDelay));
+            typingTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(options.AutoCompleteDelay) };
             typingTimer.Tick += TypingTimer_Tick;
 
             this.view.TextBuffer.Changed += TextBuffer_Changed;
@@ -104,7 +104,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         /// </summary>
         public void NotifySuggestionAccepted()
         {
-            if (!options.CopilotNextEditSuggestions)
+            if (!options.AutoCompleteContinueAfterAccept)
             {
                 suppressNextSuggestion = true;
             }
@@ -150,7 +150,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
 
                 if (cache.TryGetValue(cacheKey, out string cachedPrediction))
                 {
-                    Logger.Info("[补全] 缓存命中，直接显示");
+                    Logger.Info(LocalizationService.Instance["autocomplete.cacheHit"]);
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationTokenSource.Token);
 
                     DisplayPrediction(cachedPrediction);
@@ -158,16 +158,16 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
                 }
 
                 // ── Call DeepSeek API for completion ──
-                Logger.Info($"[补全] 请求 API 预测，上下文长度={code.Length}");
-                string prediction = await GetPredictionFromApiAsync(code, cancellationTokenSource.Token);
+                Logger.Info(string.Format(LocalizationService.Instance["autocomplete.requestingApi"], code.Length));
+                string? prediction = await GetPredictionFromApiAsync(code, cancellationTokenSource.Token);
 
                 if (cancellationTokenSource.Token.IsCancellationRequested || string.IsNullOrWhiteSpace(prediction))
                 {
-                    Logger.Info("[补全] API 返回空或已取消");
+                    Logger.Info(LocalizationService.Instance["autocomplete.apiEmpty"]);
                     return;
                 }
 
-                prediction = FormatPrediction(code, prediction);
+                prediction = FormatPrediction(code, prediction!);
 
                 if (string.IsNullOrWhiteSpace(prediction))
                 {
@@ -176,18 +176,18 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
 
                 cache[cacheKey] = prediction;
 
-                Logger.Info($"[补全] 预测完成: 长度={prediction.Length}, 缓存条目={cache.Count}");
+                Logger.Info(string.Format(LocalizationService.Instance["autocomplete.predictionDone"], prediction.Length, cache.Count));
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationTokenSource.Token);
 
                 DisplayPrediction(prediction);
             }
             catch (OperationCanceledException)
             {
-                Logger.Info("[补全] 任务已取消");
+                Logger.Info(LocalizationService.Instance["autocomplete.taskCancelled"]);
             }
             catch (Exception ex)
             {
-                Logger.Error($"[补全] ShowAutocompleteAsync 异常: {ex.Message}", ex);
+                Logger.Error(string.Format(LocalizationService.Instance["autocomplete.showAutocompleteError"], ex.Message), ex);
             }
             finally
             {
@@ -202,7 +202,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         /// <summary>
         /// 调用 DeepSeek API 获取代码补全预测（关闭思考模式以加速响应）。
         /// </summary>
-        private async Task<string> GetPredictionFromApiAsync(string code, CancellationToken cancellationToken)
+        private async Task<string?> GetPredictionFromApiAsync(string code, CancellationToken cancellationToken)
         {
             try
             {
@@ -213,12 +213,9 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
 
                 using var apiService = new DeepSeekApiService(options.ApiKey, options.SelectedModel);
 
-                // Disable thinking for completions (faster response)
-                apiService.ConfigureThinking(false);
-
                 var messages = new List<ChatApiMessage>
                 {
-                    new() { Role = "system", Content = COPILOT_SYSTEM_PROMPT },
+                    new() { Role = "system", Content = AUTOCOMPLETE_SYSTEM_PROMPT },
                     new() { Role = "user", Content = code }
                 };
 
@@ -232,7 +229,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
             }
             catch (Exception ex)
             {
-                Logger.Error($"[补全] API 预测错误: {ex.Message}", ex);
+                Logger.Error(string.Format(LocalizationService.Instance["autocomplete.apiError"], ex.Message), ex);
                 return null;
             }
         }
@@ -442,16 +439,25 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         /// <summary>
         /// 打字防抖到期时触发：请求新的代码预测。
         /// </summary>
+#pragma warning disable VSTHRD100 // async void 是 WPF 事件处理器的必要模式，异常已在内部捕获
         private async void TypingTimer_Tick(object sender, EventArgs e)
         {
-            typingTimer?.Stop();
-
-            if (!showingAutoComplete)
+            try
             {
-                Logger.Info("[补全] 防抖到期，请求预测");
-                await ShowAutocompleteAsync();
+                typingTimer?.Stop();
+
+                if (!showingAutoComplete)
+                {
+                    Logger.Info(LocalizationService.Instance["autocomplete.debounceTriggered"]);
+                    await ShowAutocompleteAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(string.Format(LocalizationService.Instance["autocomplete.timerTickError"], ex.Message), ex);
             }
         }
+#pragma warning restore VSTHRD100
 
         /// <summary>
         /// 视图关闭时清理所有资源和事件订阅。
@@ -480,7 +486,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
             }
             catch (Exception ex)
             {
-                Logger.Error($"[补全] OnViewClosed 异常: {ex.Message}", ex);
+                Logger.Error(string.Format(LocalizationService.Instance["autocomplete.viewClosedError"], ex.Message), ex);
             }
         }
 
