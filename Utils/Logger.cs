@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
 
 namespace DeepSeek_v4_for_VisualStudio.Utils
 {
@@ -78,39 +79,30 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
             // 确保日志目录存在
             EnsureLogDirectory();
 
-            // 初始化输出窗口窗格（通过反射避免硬依赖 Microsoft.VisualStudio.Interop）
+            // 初始化输出窗口窗格
             lock (_paneLock)
             {
                 if (_paneResolved) return;
 
                 try
                 {
-                    var outWindow = serviceProvider.GetService(
-                        typeof(Microsoft.VisualStudio.Shell.Interop.SVsOutputWindow));
+                    var outWindow = serviceProvider.GetService(typeof(SVsOutputWindow)) as IVsOutputWindow;
                     if (outWindow == null)
                     {
                         _paneResolved = true;
                         return;
                     }
 
-                    // 通过反射调用 CreatePane 和 GetPane
-                    var outWindowType = outWindow.GetType();
                     var guid = PaneGuid;
-                    var createPaneMethod = outWindowType.GetMethod("CreatePane");
-                    createPaneMethod?.Invoke(outWindow, new object[] { guid, "DeepSeek Chat", 1, 1 });
-
-                    var getPaneMethod = outWindowType.GetMethod("GetPane");
-                    var args = new object[] { guid, null! };
-                    getPaneMethod?.Invoke(outWindow, args);
-                    var pane = args[1]; // IVsOutputWindowPane
+                    outWindow.CreatePane(ref guid, "DeepSeek Chat", 1, 1);
+                    outWindow.GetPane(ref guid, out var pane);
 
                     if (pane != null)
                     {
-                        // 创建委托：pane.OutputString(text)
-                        var outputStringMethod = pane.GetType().GetMethod("OutputString");
+                        // 通过委托捕获 pane，避免类级别字段引用 IVsOutputWindowPane
                         _outputWindowWriter = text =>
                         {
-                            try { outputStringMethod?.Invoke(pane, new object[] { text }); }
+                            try { pane.OutputString(text); }
                             catch { }
                         };
                     }
