@@ -1,6 +1,7 @@
 ﻿using DeepSeek_v4_for_VisualStudio.Commands;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Settings;
+using DeepSeek_v4_for_VisualStudio.Utils;
 using DeepSeek_v4_for_VisualStudio.View;
 using Microsoft.VisualStudio.Shell;
 using System;
@@ -111,6 +112,9 @@ namespace DeepSeek_v4_for_VisualStudio
 
             // 设置全局 Options 实例，供静态工具类读取设置
             DeepSeekOptionsPage.Instance = Options;
+
+            // 初始化日志系统（输出窗口窗格、日志目录）
+            Logger.Initialize(this);
 
             // 初始化国际化服务（根据用户设置或系统语言自动选择语言）
             InitializeLocalization();

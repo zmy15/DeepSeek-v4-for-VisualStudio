@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
 
 namespace DeepSeek_v4_for_VisualStudio.Utils
 {
@@ -30,19 +32,77 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
         /// <summary>日志保留天数，超过此天数的日志文件将被自动清理</summary>
         private const int LogRetentionDays = 14;
 
-        /// <summary>当前日志输出级别。通过 Options 页面或代码设置。</summary>
-        public static LogLevel Level = LogLevel.Info;
+        /// <summary>
+        /// 输出窗口窗格 GUID，用于 IVsOutputWindow.CreatePane/GetPane。
+        /// </summary>
+        private static readonly Guid PaneGuid = new Guid("{E5F8A1B2-C3D4-4E6F-8A9B-0C1D2E3F4A5B}");
 
+        // ── 线程安全的配置字段 ──
+
+        private static volatile LogLevel _level = LogLevel.Info;
+        /// <summary>当前日志输出级别。通过 Options 页面或代码设置。</summary>
+        public static LogLevel Level
+        {
+            get => _level;
+            set => _level = value;
+        }
+
+        private static volatile bool _writeToOutputWindow = true;
         /// <summary>是否同时写入 VS 输出窗口。默认开启，可在选项页面关闭。</summary>
-        public static bool WriteToOutputWindow = true;
+        public static bool WriteToOutputWindow
+        {
+            get => _writeToOutputWindow;
+            set => _writeToOutputWindow = value;
+        }
 
         private static readonly string LogDirectory =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                          "DeepSeekVS");
 
         private static readonly object _cleanupLock = new object();
+        // _lastCleanupDate 的读写由 _cleanupLock 保护（DateTime 不能声明为 volatile）
         private static DateTime _lastCleanupDate = DateTime.MinValue;
         private static bool _logDirectoryEnsured;
+
+        // ── IVsOutputWindow 窗格（线程安全延迟初始化）──
+
+        private static readonly object _paneLock = new object();
+        private static volatile IVsOutputWindowPane? _pane;
+        private static volatile bool _paneResolved;
+
+        /// <summary>
+        /// 初始化日志系统（输出窗口窗格、日志目录）。
+        /// 必须在 VS 主线程调用，建议在 Package.InitializeAsync 中调用。
+        /// </summary>
+        /// <param name="serviceProvider">VS 服务提供程序（通常是 AsyncPackage 实例）。</param>
+        public static void Initialize(IServiceProvider serviceProvider)
+        {
+            // 确保日志目录存在
+            EnsureLogDirectory();
+
+            // 初始化输出窗口窗格
+            lock (_paneLock)
+            {
+                if (_paneResolved) return;
+
+                try
+                {
+                    var outWindow = serviceProvider.GetService(typeof(SVsOutputWindow)) as IVsOutputWindow;
+                    if (outWindow == null)
+                    {
+                        _paneResolved = true;
+                        return;
+                    }
+
+                    var guid = PaneGuid; // 本地副本，ref 参数需要
+                    outWindow.CreatePane(ref guid, "DeepSeek Chat", 1, 1);
+                    outWindow.GetPane(ref guid, out _pane);
+                }
+                catch { /* VS 输出窗口不可用时静默失败 */ }
+
+                _paneResolved = true;
+            }
+        }
 
         /// <summary>
         /// 确保日志目录存在。使用延迟初始化替代静态构造函数，
@@ -75,8 +135,14 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
         public static void Warn(string message, [CallerMemberName] string? member = null)
             => Log("WARN", message, member, LogLevel.Warn);
 
+        /// <summary>输出错误日志，包含完整异常信息（消息 + 堆栈跟踪）。</summary>
         public static void Error(string message, Exception? ex = null, [CallerMemberName] string? member = null)
-            => Log("ERROR", $"{message} {ex?.Message}", member, LogLevel.Error);
+        {
+            string fullMessage = ex != null
+                ? $"{message} | Exception: {ex}"
+                : message;
+            Log("ERROR", fullMessage, member, LogLevel.Error);
+        }
 
         /// <summary>输出调试日志（仅 LogLevel ≤ Debug 时输出）。</summary>
         public static void Debug(string message, [CallerMemberName] string? member = null)
@@ -88,129 +154,47 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
 
         private static void Log(string level, string message, string? member, LogLevel minLevel)
         {
-            // ── 级别过滤 ──
-            if (Level == LogLevel.Off) return;
-            if (Level > minLevel) return;
+            // ── 级别过滤（volatile 读取保证跨线程可见性）──
+            var currentLevel = _level;
+            if (currentLevel == LogLevel.Off) return;
+            if (currentLevel > minLevel) return;
 
             string log = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] [{member}] {message}";
             System.Diagnostics.Debug.WriteLine(log);
 
-            // ── VS 输出窗口（调试时实时可见）──
-            if (WriteToOutputWindow)
+            // ── VS 输出窗口（通过 IVsOutputWindowPane，无反射）──
+            if (_writeToOutputWindow && _pane != null)
             {
                 try
                 {
-                    // 使用反射调用避免 JIT 编译时解析 EnvDTE 程序集
-                    var pane = GetOutputWindowPane();
-                    if (pane != null)
-                    {
-                        var method = pane.GetType().GetMethod("OutputString");
-                        method?.Invoke(pane, new object[] { log + Environment.NewLine });
-                    }
+                    _pane.OutputString(log + Environment.NewLine);
                 }
-                catch { }
+                catch { /* 输出窗口写入失败不影响主流程 */ }
             }
 
+            // ── 文件日志 ──
             try
             {
                 EnsureLogDirectory();
                 File.AppendAllText(GetLogFilePath(), log + Environment.NewLine);
 
                 // 每天只执行一次过期清理
-                if (_lastCleanupDate < DateTime.Today)
+                var lastCleanup = _lastCleanupDate;
+                var today = DateTime.Today;
+                if (lastCleanup < today)
                 {
                     lock (_cleanupLock)
                     {
-                        if (_lastCleanupDate < DateTime.Today)
+                        if (_lastCleanupDate < today)
                         {
                             CleanOldLogs();
-                            _lastCleanupDate = DateTime.Today;
+                            _lastCleanupDate = today;
                         }
                     }
                 }
             }
             catch { /* 写入失败不影响主流程 */ }
         }
-
-        #region VS Output Window
-
-        private static object? _outputPane;
-        private static bool _outputPaneResolved;
-
-        /// <summary>获取 VS 输出窗口的自定义窗格（用于实时调试日志）。</summary>
-        private static object? GetOutputWindowPane()
-        {
-            if (_outputPaneResolved) return _outputPane;
-
-            try
-            {
-                // 使用反射访问 EnvDTE，避免 JIT 编译时强制解析 EnvDTE 程序集
-                var dteType = Type.GetType("EnvDTE.DTE, EnvDTE, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a");
-                if (dteType == null)
-                {
-                    // 尝试替代强名称版本
-                    dteType = Type.GetType("EnvDTE.DTE, EnvDTE");
-                }
-                if (dteType == null) { _outputPaneResolved = true; return null; }
-
-                var dte = Microsoft.VisualStudio.Shell.Package.GetGlobalService(dteType);
-                if (dte == null) { _outputPaneResolved = true; return null; }
-
-                // dte.Windows.Item(vsWindowKindOutput)
-                var windowsProp = dteType.GetProperty("Windows");
-                if (windowsProp == null) { _outputPaneResolved = true; return null; }
-                var windows = windowsProp.GetValue(dte, null);
-
-                var windowsType = windows.GetType();
-                var itemMethod = windowsType.GetMethod("Item");
-                if (itemMethod == null) { _outputPaneResolved = true; return null; }
-
-                // EnvDTE.Constants.vsWindowKindOutput = "{34E76E81-EE4A-11D0-AE2E-00A0C90FFFC3}"
-                var window = itemMethod.Invoke(windows, new object[] { "{34E76E81-EE4A-11D0-AE2E-00A0C90FFFC3}" });
-
-                var objectProp = window?.GetType().GetProperty("Object");
-                var outputWin = objectProp?.GetValue(window, null);
-                if (outputWin == null) { _outputPaneResolved = true; return null; }
-
-                // 获取 OutputWindowPanes 集合
-                var panesProp = outputWin.GetType().GetProperty("OutputWindowPanes");
-                var panes = panesProp?.GetValue(outputWin, null);
-                if (panes == null) { _outputPaneResolved = true; return null; }
-
-                // 查找 "DeepSeek" 窗格
-                var enumerator = (System.Collections.IEnumerable)panes;
-                object paneResult = null;
-                foreach (object p in enumerator)
-                {
-                    var nameProp = p.GetType().GetProperty("Name");
-                    var name = nameProp?.GetValue(p, null) as string;
-                    if (name == "DeepSeek")
-                    {
-                        paneResult = p;
-                        break;
-                    }
-                }
-
-                // 如果未找到则创建
-                if (paneResult == null)
-                {
-                    var addMethod = panes.GetType().GetMethod("Add");
-                    if (addMethod != null)
-                        paneResult = addMethod.Invoke(panes, new object[] { "DeepSeek" });
-                }
-
-                if (paneResult != null)
-                {
-                    paneResult.GetType().GetMethod("Activate")?.Invoke(paneResult, null);
-                    _outputPane = paneResult;
-                }
-            }
-            catch { /* DTE 不可用时静默失败 */ }
-            _outputPaneResolved = true;
-            return _outputPane;
-        }
-
-        #endregion
 
         /// <summary>清理超过保留期限的日志文件</summary>
         private static void CleanOldLogs()
