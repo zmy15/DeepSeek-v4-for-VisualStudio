@@ -1,3 +1,4 @@
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
@@ -80,7 +81,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
             suggestionPosition = position;
             trackingPoint = snapshot.CreateTrackingPoint(position, PointTrackingMode.Negative);
 
-            Logger.Info($"[补全] 显示幽灵文本: 位置={position}, 长度={text.Length}");
+            Logger.Info(string.Format(LocalizationService.Instance["autocomplete.ghostTextShown"], position, text.Length));
             RaiseTagsChanged();
         }
 
@@ -97,7 +98,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
             suggestionText = null;
             trackingPoint = null;
 
-            Logger.Info("[补全] 清除幽灵文本");
+            Logger.Info(LocalizationService.Instance["autocomplete.ghostTextCleared"]);
             RaiseTagsChanged();
         }
 
@@ -128,7 +129,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
 
             view.TextBuffer.Insert(position, text);
 
-            Logger.Info($"[补全] 建议已接受: 位置={position}, 长度={text.Length}");
+            Logger.Info(string.Format(LocalizationService.Instance["autocomplete.suggestionAccepted"], position, text.Length));
             FormatInsertedText(view.TextBuffer.CurrentSnapshot, position, text.Length);
 
             return true;

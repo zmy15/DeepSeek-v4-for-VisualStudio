@@ -1,3 +1,4 @@
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
@@ -44,7 +45,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
                 return;
             }
 
-            Logger.Info("[补全] 文本视图已创建，开始绑定");
+            Logger.Info(LocalizationService.Instance["autocomplete.viewCreated"]);
 
             // 使用 JoinableTaskFactory.Run 替代 .Result，避免 UI 线程死锁
             // VsTextViewCreated 本身已在 UI 线程，JTF.Run 允许安全的同步等待
@@ -53,11 +54,14 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
 
             if (package == null || package.Options == null)
             {
-                Logger.Warn("[补全] 无法获取 Package，绑定中止");
+                Logger.Warn(LocalizationService.Instance["autocomplete.packageNotFound"]);
                 return;
             }
 
-            Logger.Info($"[补全] Copilot 状态: {(package.Options.CopilotEnabled ? "已启用" : "已禁用")}");
+            string status = package.Options.AutoCompleteEnabled
+                ? LocalizationService.Instance["autocomplete.statusEnabled"]
+                : LocalizationService.Instance["autocomplete.statusDisabled"];
+            Logger.Info(string.Format(LocalizationService.Instance["autocomplete.status"], status));
 
             // Store the text view adapter for later use (e.g., formatting)
             view.Properties.GetOrCreateSingletonProperty(
