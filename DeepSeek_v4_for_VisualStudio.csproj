@@ -113,6 +113,16 @@
                       Condition="Exists('$(TargetDir)System.IO.Pipelines.dll')">
         <VSIXSubPath>.</VSIXSubPath>
       </VSIXSourceItem>
+      <!-- Microsoft.Bcl.AsyncInterfaces：net472 的 IAsyncEnumerable<T> 桥接（System.Text.Json + DeepSeekApiService 依赖） -->
+      <VSIXSourceItem Include="$(TargetDir)Microsoft.Bcl.AsyncInterfaces.dll"
+                      Condition="Exists('$(TargetDir)Microsoft.Bcl.AsyncInterfaces.dll')">
+        <VSIXSubPath>.</VSIXSubPath>
+      </VSIXSourceItem>
+      <!-- Microsoft.IO.Redist：System.IO.Pipelines 在 net472 上的桥接实现 -->
+      <VSIXSourceItem Include="$(TargetDir)Microsoft.IO.Redist.dll"
+                      Condition="Exists('$(TargetDir)Microsoft.IO.Redist.dll')">
+        <VSIXSubPath>.</VSIXSubPath>
+      </VSIXSourceItem>
     </ItemGroup>
   </Target>
   <ItemGroup>
