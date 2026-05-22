@@ -104,6 +104,15 @@
                       Condition="Exists('$(TargetDir)System.Diagnostics.DiagnosticSource.dll')">
         <VSIXSubPath>.</VSIXSubPath>
       </VSIXSourceItem>
+      <!-- System.Text.Json：JSON 序列化/反序列化（i18n、MCP、Chat 等全项目依赖） -->
+      <VSIXSourceItem Include="$(TargetDir)System.Text.Json.dll"
+                      Condition="Exists('$(TargetDir)System.Text.Json.dll')">
+        <VSIXSubPath>.</VSIXSubPath>
+      </VSIXSourceItem>
+      <VSIXSourceItem Include="$(TargetDir)System.IO.Pipelines.dll"
+                      Condition="Exists('$(TargetDir)System.IO.Pipelines.dll')">
+        <VSIXSubPath>.</VSIXSubPath>
+      </VSIXSourceItem>
     </ItemGroup>
   </Target>
   <ItemGroup>
