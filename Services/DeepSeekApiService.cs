@@ -297,8 +297,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Stream = false,
             };
 
-            // FIM 使用独立的 base URL (https://api.deepseek.com/beta)
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, FimEndpoint)
+            // FIM 使用绝对 URI 直接指向 beta 端点，避免运行时修改 BaseAddress
+            // （HttpClient.BaseAddress 在首次请求后不可修改，.NET 会抛 InvalidOperationException）
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, FimBaseUrl + FimEndpoint)
             {
                 Content = JsonContent.Create(request, options: new JsonSerializerOptions
                 {
@@ -306,31 +307,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 })
             };
 
-            // 临时修改 BaseAddress 指向 beta 端点
-            var originalBase = _httpClient.BaseAddress;
-            try
+            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            await ValidateResponseStatusAsync(response);
+            response.EnsureSuccessStatusCode();
+
+            var responseJson = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<DeepSeekFimResponse>(responseJson);
+
+            // 捕获 Usage 信息
+            if (result?.Usage != null)
             {
-                _httpClient.BaseAddress = new Uri(FimBaseUrl);
-                using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-                await ValidateResponseStatusAsync(response);
-                response.EnsureSuccessStatusCode();
-
-                var responseJson = await response.Content.ReadAsStringAsync();
-                var result = JsonSerializer.Deserialize<DeepSeekFimResponse>(responseJson);
-
-                // 捕获 Usage 信息
-                if (result?.Usage != null)
-                {
-                    LastUsage = result.Usage;
-                    AccumulateStats(result.Usage);
-                }
-
-                return result?.Choices?[0]?.Text ?? string.Empty;
+                LastUsage = result.Usage;
+                AccumulateStats(result.Usage);
             }
-            finally
-            {
-                _httpClient.BaseAddress = originalBase;
-            }
+
+            return result?.Choices?[0]?.Text ?? string.Empty;
         }
 
         /// <summary>
