@@ -55,6 +55,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             IEnumerable<ChatApiMessage> messages,
             CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// FIM（Fill-In-the-Middle）补全调用，用于代码自动补全场景。
+        /// 端点: POST https://api.deepseek.com/beta/completions
+        /// </summary>
+        /// <param name="prompt">光标前的代码（prefix）</param>
+        /// <param name="suffix">光标后的代码（suffix）</param>
+        /// <param name="maxTokens">最大生成 token 数</param>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <returns>模型生成的补全文本</returns>
+        Task<string> FimCompletionAsync(
+            string prompt,
+            string? suffix = null,
+            int? maxTokens = null,
+            CancellationToken cancellationToken = default);
+
         /// <summary>验证 API Key 是否有效</summary>
         Task<string?> ValidateApiKeyAsync();
     }

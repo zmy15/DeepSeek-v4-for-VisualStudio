@@ -185,6 +185,86 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public DeepSeekUsage? Usage { get; set; }
     }
 
+    // ======== FIM（Fill-In-the-Middle）补全模型 ========
+
+    /// <summary>
+    /// FIM 补全请求。使用 prefix/suffix 模式进行代码补全，
+    /// 替代 chat/completions 的 AUTOCOMPLETE_HERE 标记方案。
+    /// 端点: POST https://api.deepseek.com/beta/completions
+    /// </summary>
+    public class DeepSeekFimRequest
+    {
+        [JsonPropertyName("model")]
+        public string Model { get; set; } = "deepseek-v4-pro";
+
+        /// <summary>光标前的代码（prefix）</summary>
+        [JsonPropertyName("prompt")]
+        public string Prompt { get; set; } = string.Empty;
+
+        /// <summary>光标后的代码（suffix）</summary>
+        [JsonPropertyName("suffix")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Suffix { get; set; }
+
+        [JsonPropertyName("max_tokens")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? MaxTokens { get; set; }
+
+        [JsonPropertyName("temperature")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? Temperature { get; set; }
+
+        [JsonPropertyName("top_p")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? TopP { get; set; }
+
+        [JsonPropertyName("stop")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string[]? Stop { get; set; }
+
+        [JsonPropertyName("stream")]
+        public bool Stream { get; set; } = false;
+    }
+
+    /// <summary>
+    /// FIM 补全响应。
+    /// </summary>
+    public class DeepSeekFimResponse
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("object")]
+        public string Object { get; set; } = "text_completion";
+
+        [JsonPropertyName("created")]
+        public long Created { get; set; }
+
+        [JsonPropertyName("model")]
+        public string Model { get; set; } = string.Empty;
+
+        [JsonPropertyName("choices")]
+        public List<DeepSeekFimChoice> Choices { get; set; } = new();
+
+        [JsonPropertyName("usage")]
+        public DeepSeekUsage? Usage { get; set; }
+    }
+
+    /// <summary>
+    /// FIM 补全选择的文本。
+    /// </summary>
+    public class DeepSeekFimChoice
+    {
+        [JsonPropertyName("index")]
+        public int Index { get; set; }
+
+        [JsonPropertyName("text")]
+        public string Text { get; set; } = string.Empty;
+
+        [JsonPropertyName("finish_reason")]
+        public string? FinishReason { get; set; }
+    }
+
     // ======== 视图模型用的 UI 消息模型（添加时间戳等） ========
     [DataContract]
     public class ChatMessage : INotifyPropertyChanged

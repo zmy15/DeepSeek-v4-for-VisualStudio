@@ -11,7 +11,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
     /// 启用内联幽灵文本代码补全功能。
     /// </summary>
     [Export(typeof(IViewTaggerProvider))]
-    [ContentType("text")]
+    [ContentType("code")]
     [TagType(typeof(IntraTextAdornmentTag))]
     [TextViewRole(PredefinedTextViewRoles.Editable)]
     internal sealed class GhostTextTaggerProvider : IViewTaggerProvider

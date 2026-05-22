@@ -5,11 +5,11 @@ using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
+using Microsoft.VisualStudio.Text.Operations;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,18 +26,8 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
     {
         #region Constants
 
-        private const string AUTOCOMPLETE_MARKER = "\n **AUTOCOMPLETE_HERE** \n";
         private const int MAX_CACHE_SIZE = 10;
-
-        /// <summary>
-        /// 代码补全请求的系统提示词。
-        /// </summary>
-        private const string AUTOCOMPLETE_SYSTEM_PROMPT =
-            "You are a code completion assistant. Complete the code at the AUTOCOMPLETE_HERE marker. " +
-            "ONLY output the completion code that replaces the marker. " +
-            "Do NOT repeat the existing code. Do NOT include explanations. " +
-            "Match the indentation, style and naming conventions of the surrounding code. " +
-            "If you cannot determine a meaningful completion, output nothing.";
+        private const int FIM_MAX_TOKENS = 256;
 
         #endregion
 
@@ -45,6 +35,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
 
         private readonly DeepSeekOptionsPage options;
         private readonly IWpfTextView view;
+        private readonly ITextStructureNavigator structureNavigator;
         private readonly ConcurrentDictionary<string, string> cache = new();
         private readonly DispatcherTimer? typingTimer;
 
@@ -61,10 +52,12 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         /// </summary>
         /// <param name="options">扩展选项页。</param>
         /// <param name="view">要绑定的文本视图。</param>
-        public InlinePredictionManager(DeepSeekOptionsPage options, IWpfTextView view)
+        /// <param name="structureNavigator">文本结构导航器，用于获取方法/块级上下文边界。</param>
+        public InlinePredictionManager(DeepSeekOptionsPage options, IWpfTextView view, ITextStructureNavigator structureNavigator)
         {
             this.options = options;
             this.view = view;
+            this.structureNavigator = structureNavigator;
 
             if (!options.AutoCompleteEnabled)
             {
@@ -141,12 +134,10 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
                 string codeUp = GetCodeUpToCurrentPosition(caretPosition);
                 string codeDown = GetCodeBelowCurrentPosition(caretPosition);
 
-                string code = codeUp + AUTOCOMPLETE_MARKER + codeDown;
+                string codeUpNormalized = RemoveBlankLines(NormalizeLineBreaks(codeUp)).Trim();
+                string codeDownNormalized = RemoveBlankLines(NormalizeLineBreaks(codeDown)).Trim();
 
-                string codeNormalized = NormalizeLineBreaks(code);
-                codeNormalized = RemoveBlankLines(codeNormalized).Trim();
-
-                string cacheKey = $"{filePath}:{codeNormalized}";
+                string cacheKey = $"{filePath}:{codeUpNormalized}|{codeDownNormalized}";
 
                 if (cache.TryGetValue(cacheKey, out string cachedPrediction))
                 {
@@ -157,9 +148,10 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
                     return;
                 }
 
-                // ── Call DeepSeek API for completion ──
-                Logger.Info(string.Format(LocalizationService.Instance["autocomplete.requestingApi"], code.Length));
-                string? prediction = await GetPredictionFromApiAsync(code, cancellationTokenSource.Token);
+                // ── Call DeepSeek FIM API for completion ──
+                int totalContextLen = codeUpNormalized.Length + codeDownNormalized.Length;
+                Logger.Info(string.Format(LocalizationService.Instance["autocomplete.requestingApi"], totalContextLen));
+                string? prediction = await GetPredictionFromApiAsync(codeUpNormalized, codeDownNormalized, cancellationTokenSource.Token);
 
                 if (cancellationTokenSource.Token.IsCancellationRequested || string.IsNullOrWhiteSpace(prediction))
                 {
@@ -167,7 +159,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
                     return;
                 }
 
-                prediction = FormatPrediction(code, prediction!);
+                prediction = FormatPrediction(prediction!);
 
                 if (string.IsNullOrWhiteSpace(prediction))
                 {
@@ -200,9 +192,10 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         #region Private Methods - Prediction
 
         /// <summary>
-        /// 调用 DeepSeek API 获取代码补全预测（关闭思考模式以加速响应）。
+        /// 调用 DeepSeek FIM（Fill-In-the-Middle）API 获取代码补全预测。
+        /// 使用 beta/completions 端点，以 prompt/suffix 模式替代 chat/completions。
         /// </summary>
-        private async Task<string?> GetPredictionFromApiAsync(string code, CancellationToken cancellationToken)
+        private async Task<string?> GetPredictionFromApiAsync(string prompt, string suffix, CancellationToken cancellationToken)
         {
             try
             {
@@ -213,14 +206,12 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
 
                 using var apiService = new DeepSeekApiService(options.ApiKey, options.SelectedModel);
 
-                var messages = new List<ChatApiMessage>
-                {
-                    new() { Role = "system", Content = AUTOCOMPLETE_SYSTEM_PROMPT },
-                    new() { Role = "user", Content = code }
-                };
-
-                // Use non-streaming for faster completion results
-                string result = await apiService.CompleteAsync(messages, cancellationToken);
+                // FIM 补全：temperature=0 确保确定性输出，适合代码补全
+                string result = await apiService.FimCompletionAsync(
+                    prompt,
+                    string.IsNullOrEmpty(suffix) ? null : suffix,
+                    FIM_MAX_TOKENS,
+                    cancellationToken);
                 return result;
             }
             catch (OperationCanceledException)
@@ -247,127 +238,79 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         }
 
         /// <summary>
-        /// Retrieves the code from the current caret position up to the start
-        /// of the method or the beginning of the document.
+        /// 使用 <see cref="ITextStructureNavigator"/> 获取光标所在的结构块边界，
+        /// 提取从块起始到光标位置的代码作为 FIM prompt（前缀上下文）。
         /// </summary>
         private string GetCodeUpToCurrentPosition(int caretPosition)
         {
             ITextSnapshot snapshot = view.TextBuffer.CurrentSnapshot;
-            ITextSnapshotLine currentLine = snapshot.GetLineFromPosition(caretPosition);
-            StringBuilder codeUpToCurrentPosition = new();
+            SnapshotSpan enclosingSpan = GetEnclosingStructureSpan(snapshot, caretPosition);
+            int contextStart = enclosingSpan.Start.Position;
 
-            Regex methodStartRegex = new(
-                @"^\s*(public|private|protected|internal|static|\s)*\s*(void|int|string|bool|char|class|struct|[A-Za-z0-9_<>]+)\s+[A-Za-z0-9_]+\s*\(",
-                RegexOptions.Compiled);
-
-            while (currentLine.LineNumber >= 0)
+            if (contextStart >= caretPosition)
             {
-                string lineText = currentLine.GetText().Trim();
-
-                codeUpToCurrentPosition.Insert(0, lineText + Environment.NewLine);
-
-                if (methodStartRegex.IsMatch(lineText))
-                {
-                    break;
-                }
-
-                if (currentLine.LineNumber == 0)
-                {
-                    break;
-                }
-
-                currentLine = snapshot.GetLineFromLineNumber(currentLine.LineNumber - 1);
+                contextStart = Math.Max(0, caretPosition - 500); // fallback: ~500 chars above
             }
 
-            return codeUpToCurrentPosition.ToString();
+            return snapshot.GetText(contextStart, caretPosition - contextStart);
         }
 
         /// <summary>
-        /// Retrieves the code from the caret position down to the end of the
-        /// current method or document.
+        /// 使用 <see cref="ITextStructureNavigator"/> 获取光标所在的结构块边界，
+        /// 提取从光标位置到块末尾的代码作为 FIM suffix（后缀上下文）。
         /// </summary>
         private string GetCodeBelowCurrentPosition(int caretPosition)
         {
             ITextSnapshot snapshot = view.TextBuffer.CurrentSnapshot;
-            ITextSnapshotLine currentLine = snapshot.GetLineFromPosition(caretPosition);
-            StringBuilder codeBelow = new();
+            SnapshotSpan enclosingSpan = GetEnclosingStructureSpan(snapshot, caretPosition);
+            int contextEnd = enclosingSpan.End.Position;
 
-            int startLine = currentLine.LineNumber;
-            int openBraces = 0;
-            bool insideMethod = false;
-
-            for (int i = startLine; i < snapshot.LineCount; i++)
+            if (contextEnd <= caretPosition)
             {
-                string lineText = snapshot.GetLineFromLineNumber(i).GetText();
-                codeBelow.AppendLine(lineText);
-
-                foreach (char c in lineText)
-                {
-                    if (c == '{')
-                    {
-                        openBraces++;
-                        insideMethod = true;
-                    }
-                    else if (c == '}')
-                    {
-                        openBraces--;
-                    }
-                }
-
-                if (insideMethod && openBraces <= 0)
-                {
-                    break;
-                }
+                contextEnd = Math.Min(snapshot.Length, caretPosition + 500); // fallback: ~500 chars below
             }
 
-            return codeBelow.ToString();
+            return snapshot.GetText(caretPosition, contextEnd - caretPosition);
         }
 
         /// <summary>
-        /// Removes the original code from the prediction while maintaining
-        /// formatting and line breaks.
+        /// 使用 <see cref="ITextStructureNavigator"/> 迭代获取光标所在的结构块。
+        /// 从光标位置开始，逐层向外扩展到方法/类级别（最多 5 层），
+        /// 为 FIM 补全提供足够的方法级上下文。
         /// </summary>
-        private string FormatPrediction(string originalCode, string prediction)
+        private SnapshotSpan GetEnclosingStructureSpan(ITextSnapshot snapshot, int caretPosition)
         {
-            originalCode = NormalizeLineBreaks(originalCode);
-            originalCode = RemoveBlankLines(originalCode).Trim();
+            const int MaxNestingLevels = 5;
 
+            var currentSpan = new SnapshotSpan(snapshot, caretPosition, 0);
+
+            for (int level = 0; level < MaxNestingLevels; level++)
+            {
+                SnapshotSpan enclosing = structureNavigator.GetSpanOfEnclosing(currentSpan);
+                if (enclosing.IsEmpty || enclosing == currentSpan)
+                {
+                    break; // no more enclosing structure found
+                }
+
+                currentSpan = enclosing;
+            }
+
+            return currentSpan;
+        }
+
+        /// <summary>
+        /// 清理 FIM API 返回的预测文本。
+        /// FIM 端点直接返回补全内容，无需剥离前缀/后缀。
+        /// </summary>
+        private static string FormatPrediction(string prediction)
+        {
             prediction = prediction?.Trim() ?? string.Empty;
 
             // Remove code block markers if present
             prediction = Regex.Replace(prediction, @"^```[\w]*\s*", "");
             prediction = Regex.Replace(prediction, @"\s*```$", "");
 
-            List<string> originalLines = originalCode.Split(new[] { Environment.NewLine }, StringSplitOptions.None).ToList();
-            List<string> predictionLines = prediction.Split(new[] { Environment.NewLine }, StringSplitOptions.None).ToList();
-
-            // Find AUTOCOMPLETE_HERE marker and remove everything before it in prediction
-            int markerIdx = originalLines.FindIndex(l => l.Contains("AUTOCOMPLETE_HERE"));
-            if (markerIdx >= 0)
-            {
-                // Remove lines from prediction that match lines before the marker
-                for (int i = 0; i < markerIdx && i < predictionLines.Count; i++)
-                {
-                    if (predictionLines[i].Trim() == originalLines[i].Trim())
-                    {
-                        predictionLines[i] = string.Empty;
-                    }
-                }
-
-                // Also remove lines after the marker in original code from prediction
-                for (int i = markerIdx + 1; i < originalLines.Count && i < predictionLines.Count; i++)
-                {
-                    if (predictionLines.Count > i && predictionLines[i].Trim() == originalLines[i].Trim())
-                    {
-                        predictionLines[i] = string.Empty;
-                    }
-                }
-            }
-
-            prediction = string.Join(Environment.NewLine, predictionLines.Where(l => !string.IsNullOrWhiteSpace(l) || l == string.Empty));
-            prediction = RemoveBlankLines(prediction).Trim();
-
-            return prediction;
+            return RemoveBlankLines(prediction).Trim();
         }
 
         #endregion

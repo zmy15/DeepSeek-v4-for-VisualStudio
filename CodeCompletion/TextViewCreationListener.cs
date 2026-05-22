@@ -4,6 +4,7 @@ using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Text.Editor;
+using Microsoft.VisualStudio.Text.Operations;
 using Microsoft.VisualStudio.TextManager.Interop;
 using Microsoft.VisualStudio.Utilities;
 using System;
@@ -28,6 +29,12 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         /// </summary>
         [Import]
         internal IVsEditorAdaptersFactoryService AdapterService { get; set; }
+
+        /// <summary>
+        /// 文本结构导航器选择器，用于获取方法/块级别的结构导航器。
+        /// </summary>
+        [Import]
+        internal ITextStructureNavigatorSelectorService NavigatorSelectorService { get; set; }
 
         #endregion
 
@@ -68,7 +75,8 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
                 typeof(IVsTextView), () => textViewAdapter);
 
             // Create and store the inline prediction manager
-            InlinePredictionManager manager = new(package.Options, view);
+            ITextStructureNavigator structureNavigator = NavigatorSelectorService.GetTextStructureNavigator(view.TextBuffer);
+            InlinePredictionManager manager = new(package.Options, view, structureNavigator);
             view.Properties.GetOrCreateSingletonProperty(
                 typeof(InlinePredictionManager), () => manager);
 

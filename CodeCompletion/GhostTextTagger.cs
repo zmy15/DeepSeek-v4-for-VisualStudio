@@ -277,18 +277,32 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         }
 
         /// <summary>
-        /// 为整个可见区域触发 <see cref="TagsChanged"/> 事件。
+        /// 仅触发建议所在 span 的 <see cref="TagsChanged"/> 事件，
+        /// 避免全缓冲区重新查询标记。
         /// </summary>
         private void RaiseTagsChanged()
         {
-            ITextSnapshot snapshot = view.TextSnapshot;
+            if (trackingPoint == null)
+            {
+                ITextSnapshot snapshot = view.TextSnapshot;
+                TagsChanged?.Invoke(this, new SnapshotSpanEventArgs(new SnapshotSpan(snapshot, 0, snapshot.Length)));
+                return;
+            }
 
-            TagsChanged?.Invoke(this, new SnapshotSpanEventArgs(new SnapshotSpan(snapshot, 0, snapshot.Length)));
+            ITextSnapshot currentSnapshot = view.TextSnapshot;
+            int position = trackingPoint.GetPosition(currentSnapshot);
+            int length = suggestionText?.Length ?? 0;
+
+            // 只通知建议所在的小范围 span，编辑器仅重新查询该区域
+            int safeStart = Math.Max(0, position - 1);
+            int safeEnd = Math.Min(currentSnapshot.Length, position + length + 1);
+            var span = new SnapshotSpan(currentSnapshot, safeStart, safeEnd - safeStart);
+            TagsChanged?.Invoke(this, new SnapshotSpanEventArgs(span));
         }
 
         /// <summary>
-        /// Formats the text that was just inserted by selecting the range and
-        /// executing the VS "Format Selection" command.
+        /// 通过 VS 标准 <see cref="IOleCommandTarget"/> 执行 FORMATSELECTION 命令，
+        /// 格式化刚插入的代码补全文本。
         /// </summary>
         private void FormatInsertedText(ITextSnapshot snapshot, int startPosition, int length)
         {

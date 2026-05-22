@@ -17,6 +17,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private readonly HttpClient _httpClient;
         private const string BaseUrl = "https://api.deepseek.com";
         private const string ChatEndpoint = "/chat/completions";
+        private const string FimBaseUrl = "https://api.deepseek.com/beta";
+        private const string FimEndpoint = "/completions";
 
         private string _model;
         private bool _thinkingEnabled = true;
@@ -268,6 +270,67 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             return result?.Choices?[0]?.Message?.Content ?? string.Empty;
+        }
+
+        /// <summary>
+        /// FIM（Fill-In-the-Middle）补全调用，用于代码自动补全。
+        /// 端点: POST https://api.deepseek.com/beta/completions
+        /// </summary>
+        /// <param name="prompt">光标前的代码（prefix）</param>
+        /// <param name="suffix">光标后的代码（suffix），可选</param>
+        /// <param name="maxTokens">最大生成 token 数，默认 256</param>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <returns>模型生成的补全文本</returns>
+        public async Task<string> FimCompletionAsync(
+            string prompt,
+            string? suffix = null,
+            int? maxTokens = null,
+            CancellationToken cancellationToken = default)
+        {
+            var request = new DeepSeekFimRequest
+            {
+                Model = _model,
+                Prompt = prompt,
+                Suffix = suffix,
+                MaxTokens = maxTokens ?? 256,
+                Temperature = 0.0,   // 确定性输出，适合代码补全
+                Stream = false,
+            };
+
+            // FIM 使用独立的 base URL (https://api.deepseek.com/beta)
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, FimEndpoint)
+            {
+                Content = JsonContent.Create(request, options: new JsonSerializerOptions
+                {
+                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+                })
+            };
+
+            // 临时修改 BaseAddress 指向 beta 端点
+            var originalBase = _httpClient.BaseAddress;
+            try
+            {
+                _httpClient.BaseAddress = new Uri(FimBaseUrl);
+                using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                await ValidateResponseStatusAsync(response);
+                response.EnsureSuccessStatusCode();
+
+                var responseJson = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<DeepSeekFimResponse>(responseJson);
+
+                // 捕获 Usage 信息
+                if (result?.Usage != null)
+                {
+                    LastUsage = result.Usage;
+                    AccumulateStats(result.Usage);
+                }
+
+                return result?.Choices?[0]?.Text ?? string.Empty;
+            }
+            finally
+            {
+                _httpClient.BaseAddress = originalBase;
+            }
         }
 
         /// <summary>
