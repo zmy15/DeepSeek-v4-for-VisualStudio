@@ -593,8 +593,30 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         }
 
                         var apiService = _apiService!;
-                        await foreach (var chunk in apiService.ChatStreamAsync(requestMessages, toolDefs, streamingCts.Token))
+
+                        // ── 流中断恢复：最多 3 次重试（指数退避 2s / 4s / 8s）──
+                        bool streamSuccess = false;
+                        int streamAttempt = 0;
+                        const int maxStreamAttempts = 4; // 1 initial + 3 retries
+                        string savedPartialContent = "";
+                        string savedPartialReasoning = "";
+
+                        while (!streamSuccess && streamAttempt < maxStreamAttempts)
                         {
+                            try
+                            {
+                                // 如果是重试，将已接收的部分内容注入为对话上下文
+                                if (streamAttempt > 0)
+                                {
+                                    requestMessages = BuildResumeMessages(requestMessages, savedPartialContent, savedPartialReasoning);
+                                    // 将部分内容预置到缓冲区，新内容追加其后
+                                    contentBuffer.Append(savedPartialContent);
+                                    reasoningBuffer.Append(savedPartialReasoning);
+                                    Logger.Info($"[Stream] 断点续传：第 {streamAttempt + 1}/{maxStreamAttempts} 次尝试，已注入 {savedPartialContent.Length} 字符部分内容");
+                                }
+
+                                await foreach (var chunk in apiService.ChatStreamAsync(requestMessages, toolDefs, streamingCts.Token))
+                                {
                             if (chunk.StartsWith("[THINKING]"))
                             {
                                 var thinking = chunk.Substring(10);
@@ -677,6 +699,43 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     BatchStreamingUpdate(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), status: status);
                                     if (status != null) _statusUpdateStopwatch?.Restart();
                                 }
+                            }
+                                }
+
+                                streamSuccess = true;
+                                if (streamAttempt > 0)
+                                {
+                                    Logger.Info($"[Stream] 断点续传成功 (尝试 {streamAttempt + 1}/{maxStreamAttempts})");
+                                }
+                            }
+                            catch (HttpRequestException ex) when (IsTransientNetworkError(ex) && streamAttempt < maxStreamAttempts - 1)
+                            {
+                                streamAttempt++;
+                                savedPartialContent = contentBuffer.ToString();
+                                savedPartialReasoning = reasoningBuffer.ToString();
+                                double backoffSec = Math.Pow(2, streamAttempt);
+                                Logger.Warn($"[Stream] 流中断 (尝试 {streamAttempt}/{maxStreamAttempts})，已收到 {savedPartialContent.Length} 字符部分内容，{backoffSec}s 后恢复…");
+                                contentBuffer.Clear();
+                                reasoningBuffer.Clear();
+                                toolCallAccumulator.Clear();
+                                streamRenderTick = 0;
+                                lastReasoningLength = 0;
+                                await Task.Delay(TimeSpan.FromSeconds(backoffSec), streamingCts.Token);
+                            }
+                            catch (TaskCanceledException) when (!streamingCts.Token.IsCancellationRequested && streamAttempt < maxStreamAttempts - 1)
+                            {
+                                // 超时（非用户取消）
+                                streamAttempt++;
+                                savedPartialContent = contentBuffer.ToString();
+                                savedPartialReasoning = reasoningBuffer.ToString();
+                                double backoffSec = Math.Pow(2, streamAttempt);
+                                Logger.Warn($"[Stream] 流超时 (尝试 {streamAttempt}/{maxStreamAttempts})，{backoffSec}s 后恢复…");
+                                contentBuffer.Clear();
+                                reasoningBuffer.Clear();
+                                toolCallAccumulator.Clear();
+                                streamRenderTick = 0;
+                                lastReasoningLength = 0;
+                                await Task.Delay(TimeSpan.FromSeconds(backoffSec), streamingCts.Token);
                             }
                         }
 
@@ -1144,6 +1203,52 @@ namespace DeepSeek_v4_for_VisualStudio.View
         #endregion
 
         #region Utility Helpers
+
+        // ── 断点续传辅助方法 ──
+
+        /// <summary>
+        /// 判断是否为暂态网络错误（可重试），排除认证错误。
+        /// </summary>
+        private static bool IsTransientNetworkError(HttpRequestException ex)
+        {
+            string msg = ex.Message;
+            // 401/403 认证错误不应重试
+            if (msg.Contains("401") || msg.Contains("403")) return false;
+            // HTTP 5xx、连接重置、DNS 解析失败等可重试
+            return true;
+        }
+
+        /// <summary>
+        /// 构建断点续传的消息列表：在原消息基础上追加部分 AI 回复 + 继续指令。
+        /// 不对 _contextManager 产生副作用——仅在重试时使用临时副本。
+        /// </summary>
+        private static List<ChatApiMessage> BuildResumeMessages(
+            List<ChatApiMessage> originalMessages,
+            string partialContent,
+            string partialReasoning)
+        {
+            var resumed = new List<ChatApiMessage>(originalMessages);
+
+            // 追加已接收的部分 AI 回复
+            resumed.Add(new ChatApiMessage
+            {
+                Role = "assistant",
+                Content = string.IsNullOrEmpty(partialContent) ? null : partialContent,
+                ReasoningContent = string.IsNullOrEmpty(partialReasoning) ? null : partialReasoning
+            });
+
+            // 追加系统级继续指令（以 user 角色注入，确保 AI 遵循）
+            string tailContent = partialContent.Length > 300
+                ? "…(截断)…" + partialContent.Substring(partialContent.Length - 300)
+                : partialContent;
+            resumed.Add(new ChatApiMessage
+            {
+                Role = "user",
+                Content = $"[系统指令] 你之前的回复因网络中断被截断。以下是已发送的末尾内容：\n```\n{tailContent}\n```\n请从截断处**精确**继续，不要重复任何已发送的内容，不要道歉或解释中断。直接继续未完成的句子或代码块。"
+            });
+
+            return resumed;
+        }
 
         /// <summary>
         /// 将用户输入中的时间词语替换为具体日期。

@@ -1,4 +1,5 @@
 ﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -132,21 +133,59 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 MaxTokens = maxTokens
             };
 
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, ChatEndpoint)
+            // ── 预序列化请求体，供重试时复用 ──
+            var requestJson = JsonSerializer.Serialize(request, new JsonSerializerOptions
             {
-                Content = JsonContent.Create(request, options: new JsonSerializerOptions
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            });
+            var requestBodyBytes = Encoding.UTF8.GetBytes(requestJson);
+
+            // ── HTTP 层重试（指数退避：1s, 2s, 4s；最多 3 次额外重试）──
+            HttpResponseMessage? response = null;
+            int sendAttempt = 0;
+            const int maxSendAttempts = 4;
+            while (sendAttempt < maxSendAttempts)
+            {
+                try
                 {
-                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-                })
-            };
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+                    var req = new HttpRequestMessage(HttpMethod.Post, ChatEndpoint)
+                    {
+                        Content = new ByteArrayContent(requestBodyBytes)
+                    };
+                    req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                    req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
 
-            using var response = await _httpClient.SendAsync(
-                httpRequest,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
-            response.EnsureSuccessStatusCode();
+                    response = await _httpClient.SendAsync(
+                        req,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        cancellationToken);
+                    response.EnsureSuccessStatusCode();
+                    break; // success
+                }
+                catch (HttpRequestException) when (sendAttempt < maxSendAttempts - 1)
+                {
+                    sendAttempt++;
+                    response?.Dispose();
+                    double backoff = Math.Pow(2, sendAttempt - 1);
+                    Logger.Warn($"[API] HTTP 请求失败 (尝试 {sendAttempt + 1}/{maxSendAttempts})，{backoff}s 后重试…");
+                    await Task.Delay(TimeSpan.FromSeconds(backoff), cancellationToken);
+                }
+                catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested && sendAttempt < maxSendAttempts - 1)
+                {
+                    // 超时（非用户取消）
+                    sendAttempt++;
+                    response?.Dispose();
+                    double backoff = Math.Pow(2, sendAttempt - 1);
+                    Logger.Warn($"[API] 请求超时 (尝试 {sendAttempt + 1}/{maxSendAttempts})，{backoff}s 后重试…");
+                    await Task.Delay(TimeSpan.FromSeconds(backoff), cancellationToken);
+                }
+            }
 
+            if (response == null)
+                throw new InvalidOperationException("HTTP request failed after all retries");
+
+            using (response)
+            {
             using var stream = await response.Content.ReadAsStreamAsync();
             using var reader = new StreamReader(stream, Encoding.UTF8);
 
@@ -226,6 +265,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // 流结束，刷出残余
             if (contentBatch.Length > 0)
                 yield return contentBatch.ToString();
+            } // using(response) — 重试块闭合
         }
 
         /// <summary>
