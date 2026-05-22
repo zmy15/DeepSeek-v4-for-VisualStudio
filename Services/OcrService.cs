@@ -161,6 +161,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Logger.Info($"[OCR-MCP] 找到 OCR 工具: {ocrTool.Name}，尝试调用...");
 
                 // 读取图像文件并转为 base64
+                // RAG-SOURCE: file-read 读取图像文件（OCR base64 转换）
                 byte[] imageBytes = File.ReadAllBytes(imagePath);
                 string base64Image = Convert.ToBase64String(imageBytes);
 

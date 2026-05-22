@@ -35,6 +35,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 获取最近几轮对话文本作为 Discover 的附加上下文，帮助 ExploreAgent 生成更精准的关键词。
         /// </summary>
+        [RagSource("conversation-history", "获取对话历史作为 Discover 附加上下文")]
         private string GetConversationContextForDiscovery()
         {
             try
@@ -51,8 +52,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     if (entry.Role == "user" || entry.Role == "assistant")
                     {
                         string text = entry.Content ?? string.Empty;
-                        if (text.Length > 500)
-                            text = text.Substring(0, 500);
+                        // RAG-MARK: no-truncate — 不再截断对话上下文，完整传递给 ExploreAgent
                         recentTurns.Insert(0, $"[{entry.Role}]: {text}");
                         turnCount++;
                     }
@@ -91,6 +91,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 获取用于重试/编辑的对话历史上下文摘要（比 Discovery 版本更详细）。
         /// </summary>
+        [RagSource("conversation-history", "获取对话历史作为重试/编辑上下文")]
         private string GetConversationContextForRetry()
         {
             try
@@ -108,8 +109,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         string text = entry.Content ?? string.Empty;
                         string prefix = entry.Role == "user" ? "用户" : "AI";
-                        if (text.Length > 800)
-                            text = text.Substring(0, 800) + "…";
+                        // RAG-MARK: no-truncate — 不再截断对话上下文，完整传递给重试流程
                         recentTurns.Insert(0, $"[{prefix}]: {text}");
                         turnCount++;
                     }
@@ -160,6 +160,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     CancellationToken = GetStreamingToken(),
                     ReadFileAsync = async (path) =>
                     {
+                        // RAG-SOURCE: file-read Agent 读取文件内容（Ask/Edit/Explore/Plan Agent 上下文）
                         if (File.Exists(path))
                             return await Task.Run(() => File.ReadAllText(path));
                         return null;
@@ -1102,6 +1103,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     IsPlanningMode = true,
                     ReadFileAsync = async (path) =>
                     {
+                        // RAG-SOURCE: file-read EditAgent 读取文件内容（Handoff 执行上下文）
                         if (File.Exists(path))
                             return await Task.Run(() => File.ReadAllText(path));
                         return null;

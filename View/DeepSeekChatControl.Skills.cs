@@ -482,23 +482,9 @@ user-invocable: true
                 if (string.IsNullOrEmpty(skillsSummary) || _apiService == null)
                     return null;
 
-                // ── 截断用户内容（路由判断不需要完整长文本，安全截断避免破坏代理对）──
-                string truncatedContent;
-                if (fullUserContent.Length > 1500)
-                {
-                    int cutPoint = 1500;
-                    if (cutPoint < fullUserContent.Length
-                        && char.IsHighSurrogate(fullUserContent[cutPoint - 1])
-                        && char.IsLowSurrogate(fullUserContent[cutPoint]))
-                    {
-                        cutPoint--;
-                    }
-                    truncatedContent = fullUserContent.Substring(0, cutPoint) + "...";
-                }
-                else
-                {
-                    truncatedContent = fullUserContent;
-                }
+                // RAG-MARK: no-truncate — 不再截断用户内容，完整传递给技能路由判断
+                // RAG-SOURCE: user-message 用户消息内容（用于技能路由）
+                string truncatedContent = fullUserContent;
 
                 string routingUserPrompt = string.Format(
                     AiPrompts.SkillRoutingUserPrompt,

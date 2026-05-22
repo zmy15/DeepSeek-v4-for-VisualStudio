@@ -23,17 +23,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// 使用 AI（非流式）从文件内容中提取核心主题、技术关键词、专有名词等，
         /// 返回简洁的摘要供搜索优化阶段使用。
         /// </summary>
+        [RagSource("file-read", "搜索优化：读取附件内容用于提取关键信息")]
         private async Task<string?> ExtractKeyInfoForSearchAsync(string fileContent, string userQuestion, CancellationToken ct)
         {
             if (_apiService == null || string.IsNullOrWhiteSpace(fileContent))
                 return null;
 
-            // 截断过长的文件内容，避免 token 消耗过多（取前 8000 字符）
-            string truncatedContent = fileContent.Length > 8000
-                ? fileContent.Substring(0, 8000) + "\n...[内容已截断]"
-                : fileContent;
-
-            var extractionPrompt = AiPrompts.BuildFileExtractionPrompt(userQuestion, truncatedContent);
+            // RAG-MARK: no-truncate — 不再截断文件内容，完整传递给 AI 提取关键信息
+            // RAG-SOURCE: file-read 用户上传的附件文件内容（用于搜索优化）
+            var extractionPrompt = AiPrompts.BuildFileExtractionPrompt(userQuestion, fileContent);
 
             try
             {
@@ -54,10 +52,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     return null;
                 }
 
-                // 截断过长结果
-                if (result.Length > 500)
-                    result = result.Substring(0, 500);
-
+                // RAG-MARK: no-truncate — 不再截断 AI 提取的关键信息结果
                 return result;
             }
             catch (OperationCanceledException)
@@ -83,6 +78,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return null;
 
             // ── 构建优化提示词 ──
+            // RAG-MARK: no-truncate — 不再截断对话上下文，完整传递给搜索优化
+            // RAG-SOURCE: conversation-history 对话历史上下文（用于搜索优化）
             string contextSummary = string.Empty;
             var history = _contextManager.GetConversationHistory();
             if (history.Count > 1)
@@ -92,7 +89,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     .Reverse()
                     .Take(3)
                     .Reverse()
-                    .Select(m => m.Content?.Length > 100 ? m.Content.Substring(0, 100) + "..." : m.Content);
+                    .Select(m => m.Content ?? string.Empty);
                 contextSummary = string.Join(" | ", recent);
             }
 
@@ -132,8 +129,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         };
                     }
                     keyword = keyword.Trim('"', '\'', '`');
-                    if (keyword.Length > 72)
-                        keyword = keyword.Substring(0, 72);
+                    // RAG-MARK: no-truncate — 不再截断搜索关键词
                     return new SearchQueryOptimization
                     {
                         SearchQuery = keyword,
@@ -216,6 +212,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// 异步抓取搜索结果中前几条 URL 的网页内容，用于增强搜索上下文。
         /// 这是"尽力而为"的后台操作，失败不影响主流程。
         /// </summary>
+        [RagSource("web-fetch", "搜索增强：抓取搜索结果网页内容")]
         private async Task EnrichSearchContextAsync(List<WebSearchResult> results, CancellationToken ct)
         {
             if (_webSearchService == null || results.Count == 0) return;
@@ -231,9 +228,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         string? pageContent = await _webSearchService.FetchWebPageContentAsync(results[i].Url, ct);
                         if (!string.IsNullOrWhiteSpace(pageContent))
                         {
-                            string enriched = results[i].Snippet +
-                                $"\n[网页内容摘要: {TruncateText(pageContent!, 300)}]";
-                            results[i].Snippet = TruncateText(enriched, 800);
+                            // RAG-MARK: no-truncate — 不再截断网页内容，完整存储搜索结果
+                            // RAG-SOURCE: web-fetch 网页抓取内容（搜索结果增强）
+                            results[i].Snippet = results[i].Snippet +
+                                $"\n[网页内容摘要: {pageContent}]";
                             Logger.Info($"网页内容抓取成功: {results[i].Url}");
                         }
                     }

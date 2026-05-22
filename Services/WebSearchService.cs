@@ -399,15 +399,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     if (!string.IsNullOrWhiteSpace(content))
                     {
                         fetchedCount++;
-                        // 截断过长内容
-                        string truncated = content.Length > maxContentLength
-                            ? content.Substring(0, maxContentLength) + "..."
-                            : content;
+                        // RAG-MARK: no-truncate — 不再截断网页内容
+                        // RAG-SOURCE: web-fetch 搜索结果链接网页内容
 
                         sb.AppendLine($"--- 链接 [{fetchedCount}]: {url} ---");
-                        sb.AppendLine(truncated);
+                        sb.AppendLine(content);
                         sb.AppendLine();
-                        Logger.Info($"链接内容抓取成功 ({url}): {truncated.Length} 字符");
+                        Logger.Info($"链接内容抓取成功 ({url}): {content.Length} 字符");
                     }
                 }
                 catch (Exception ex)
@@ -1014,9 +1012,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // 移除所有 HTML 标签
                 string text = StripHtmlTags(bodyContent);
 
-                // 截断到合理长度（最多2000字符）
-                if (text.Length > 2000)
-                    text = text.Substring(0, 2000) + "...";
+                // RAG-MARK: no-truncate — 不再截断提取的网页文本
+                // RAG-SOURCE: web-fetch 网页文本提取（HTML 解析结果）
 
                 return text.Trim();
             }

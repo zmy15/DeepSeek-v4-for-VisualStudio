@@ -57,6 +57,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     targetPath = filePath;
                     if (File.Exists(targetPath))
                     {
+                        // RAG-SOURCE: file-read 读取目标文件当前内容（CodeAction 直接写入）
                         oldContent = File.ReadAllText(targetPath);
                     }
                     else
@@ -106,6 +107,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string? oldContent = null;
                 if (File.Exists(filePath))
                 {
+                    // RAG-SOURCE: file-read 读取文件当前内容（CodeAction 写入前备份）
                     oldContent = File.ReadAllText(filePath);
                 }
 

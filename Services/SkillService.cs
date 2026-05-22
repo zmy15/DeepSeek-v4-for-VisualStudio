@@ -324,6 +324,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             try
             {
+                // RAG-SOURCE: file-read 读取技能文件（SKILL.md 解析）
                 var content = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
                 return ParseSkillContent(content, filePath, source);
             }
@@ -477,6 +478,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
 
                 if (File.Exists(fullPath))
+                    // RAG-SOURCE: file-read 读取技能资源文件
                     return File.ReadAllText(fullPath, System.Text.Encoding.UTF8);
 
                 return null;

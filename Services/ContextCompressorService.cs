@@ -167,18 +167,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 sb.AppendLine($"[{roleLabel}]");
                 if (!string.IsNullOrEmpty(entry.Content))
                 {
-                    // 截断过长的单条消息，保留前 2000 字符用于压缩
-                    string content = entry.Content!.Length > 2000
-                        ? entry.Content.Substring(0, 2000) + "..."
-                        : entry.Content;
-                    sb.AppendLine(content);
+                    // RAG-MARK: no-truncate — 不再截断对话消息，完整传递给压缩器
+                    // RAG-SOURCE: conversation-history 对话消息内容（上下文压缩输入）
+                    sb.AppendLine(entry.Content);
                 }
                 if (!string.IsNullOrEmpty(entry.ReasoningContent))
                 {
-                    string reasoning = entry.ReasoningContent!.Length > 500
-                        ? entry.ReasoningContent.Substring(0, 500) + "..."
-                        : entry.ReasoningContent;
-                    sb.AppendLine(string.Format(LocalizationService.Instance["compress.thinkingLabel"], reasoning));
+                    // RAG-MARK: no-truncate — 不再截断推理内容
+                    sb.AppendLine(string.Format(LocalizationService.Instance["compress.thinkingLabel"], entry.ReasoningContent));
                 }
                 sb.AppendLine();
             }
@@ -209,8 +205,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     string firstLine = newlineIdx > 0
                         ? content.Substring(0, newlineIdx).Trim()
                         : content.Trim();
-                    if (firstLine.Length > 150)
-                        firstLine = firstLine.Substring(0, 150) + "...";
+                    // RAG-MARK: no-truncate — 不再截断用户消息首行
                     sb.AppendLine($"  • {firstLine}");
                 }
                 sb.AppendLine();
@@ -248,7 +243,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 foreach (System.Text.RegularExpressions.Match m in errorPattern.Matches(entry.Content))
                 {
                     string err = m.Groups[1].Value.Trim();
-                    if (err.Length > 100) err = err.Substring(0, 100) + "...";
+                    // RAG-MARK: no-truncate — 不再截断错误信息
                     errors.Add(err);
                 }
             }

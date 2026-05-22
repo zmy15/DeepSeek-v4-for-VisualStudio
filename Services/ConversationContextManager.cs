@@ -145,6 +145,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             if (string.IsNullOrEmpty(content)) return;
 
+            // ── 安全净化：防止工具注入标记进入上下文 ──
+            content = StringExtensions.SanitizeUserInput(content);
+
             _entries.Add(new ContextEntry
             {
                 Role = "user",
@@ -166,6 +169,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public async Task AddUserMessageAsync(string content, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(content)) return;
+
+            // ── 安全净化：防止工具注入标记进入上下文 ──
+            content = StringExtensions.SanitizeUserInput(content);
 
             _entries.Add(new ContextEntry
             {

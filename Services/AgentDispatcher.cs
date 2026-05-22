@@ -545,12 +545,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 try
                 {
                     string planMd = await Task.Run(() => System.IO.File.ReadAllText(planFilePath));
+                    // RAG-SOURCE: file-read 读取 plan.md 计划文档（Agent Handoff 上下文）
                     if (planMd.Length > 0)
                     {
                         sb.AppendLine("## 📄 详细计划文档 (plan.md)");
-                        // 截断过长内容，保留前 8000 字符
-                        if (planMd.Length > 8000)
-                            planMd = planMd.Substring(0, 8000) + "\n\n... (计划文档过长，已截断)";
+                        // RAG-MARK: no-truncate — 不再截断计划文档，完整传递给目标 Agent
                         sb.AppendLine(planMd);
                     }
                 }

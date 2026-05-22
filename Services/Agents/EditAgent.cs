@@ -519,24 +519,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 .Where(r => r.Success)
                 .Select(r =>
                 {
-                    // 从 originalContents 计算真实行数变化
+                    // 从 originalContents 计算真实行数变化（使用 diff 算法）
                     int realAdded = 0;
                     int realRemoved = 0;
                     if (originalContents.TryGetValue(r.FilePath, out string? original))
                     {
+                        // RAG-SOURCE: file-read 读取最终文件内容（计算变更统计）
                         string final = File.Exists(r.FilePath)
                             ? File.ReadAllText(r.FilePath)
                             : (r.FinalContent ?? string.Empty);
-                        int origLines = CountLines(original);
-                        int finalLines = CountLines(final);
-                        if (finalLines > origLines)
-                            realAdded = finalLines - origLines;
-                        else if (origLines > finalLines)
-                            realRemoved = origLines - finalLines;
+                        CountDiffLines(original, final, out realAdded, out realRemoved);
                     }
                     else
                     {
-                        // 新文件：用原始编辑块数作为近似值
+                        // 新文件：所有行都是新增
                         realAdded = r.AppliedEdits.Count;
                     }
 
@@ -565,6 +561,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 foreach (var ch in changes)
                 {
                     if (!File.Exists(ch.FilePath)) continue;
+                    // RAG-SOURCE: file-read 读取变更文件内容（括号匹配检查）
                     string content = await Task.Run(() => File.ReadAllText(ch.FilePath), ct);
                     int openBraces = content.Count(c => c == '{');
                     int closeBraces = content.Count(c => c == '}');
@@ -679,6 +676,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             foreach (var kvp in originalContents)
             {
+                // RAG-SOURCE: file-read 读取最终文件内容（diff 预览对比）
                 string finalContent = File.Exists(kvp.Key)
                     ? await Task.Run(() => File.ReadAllText(kvp.Key), ct)
                     : string.Empty;
@@ -723,6 +721,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 // ── 保存原始内容（仅首次）──
                 if (!originalContents.ContainsKey(resolvedPath))
                 {
+                    // RAG-SOURCE: file-read 读取文件原始内容（Patch 应用前保存）
                     string original = File.Exists(resolvedPath)
                         ? await Task.Run(() => File.ReadAllText(resolvedPath), ct)
                         : string.Empty;
@@ -858,10 +857,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                             if (originalContents.TryGetValue(resolvedPath, out string? orig))
                             {
                                 string final = applyResult.FinalContent ?? orig;
-                                int origLines = CountLines(orig);
-                                int finalLines = CountLines(final);
-                                if (finalLines > origLines) added = finalLines - origLines;
-                                else if (origLines > finalLines) removed = origLines - finalLines;
+                                CountDiffLines(orig, final, out added, out removed);
                             }
                             else { added = applyResult.AppliedEdits.Count; }
 
@@ -932,6 +928,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 // ── 保存原始内容 ──
                 if (!originalContents.ContainsKey(resolvedPath))
                 {
+                    // RAG-SOURCE: file-read 读取文件原始内容（InsertEdit 应用前保存）
                     string original = File.Exists(resolvedPath)
                         ? await Task.Run(() => File.ReadAllText(resolvedPath), ct)
                         : string.Empty;
@@ -1051,10 +1048,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                             if (originalContents.TryGetValue(resolvedPath, out string? orig))
                             {
                                 string final = applyResult.FinalContent ?? orig;
-                                int origLines = CountLines(orig);
-                                int finalLines = CountLines(final);
-                                if (finalLines > origLines) added = finalLines - origLines;
-                                else if (origLines > finalLines) removed = origLines - finalLines;
+                                CountDiffLines(orig, final, out added, out removed);
                             }
                             else { added = applyResult.AppliedEdits.Count; }
 
@@ -1098,6 +1092,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                     // 保存原始内容
                     if (!originalContents.ContainsKey(resolvedPath))
                     {
+                        // RAG-SOURCE: file-read 读取文件原始内容（CreateFile 前保存）
                         string original = File.Exists(resolvedPath)
                             ? await Task.Run(() => File.ReadAllText(resolvedPath), ct)
                             : string.Empty;
@@ -1203,6 +1198,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 {
                     if (File.Exists(deletedPath))
                     {
+                        // RAG-SOURCE: file-read 读取待删除文件原始内容（备份）
                         string original = await Task.Run(() => File.ReadAllText(deletedPath), ct);
                         deletionOriginals[deletedPath] = original;
                     }
@@ -1552,9 +1548,9 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
             if (context.IsPlanningMode && !string.IsNullOrEmpty(context.AccumulatedContext))
             {
                 sb.AppendLine("## 前面步骤的执行结果（请基于这些结果继续，不要重复搜索已发现的文件）");
-                sb.AppendLine(context.AccumulatedContext.Length > 6000
-                    ? context.AccumulatedContext.Substring(0, 6000) + "\n... (上下文已截断)"
-                    : context.AccumulatedContext);
+                // RAG-MARK: no-truncate — 不再截断累积上下文，完整传递给 EditAgent
+                // RAG-SOURCE: accumulated-context 之前步骤的累积执行结果
+                sb.AppendLine(context.AccumulatedContext);
                 sb.AppendLine();
             }
 
@@ -1576,9 +1572,9 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
             if (!string.IsNullOrEmpty(context.FileContext))
             {
                 sb.AppendLine("## 用户上传的文件内容");
-                sb.AppendLine(context.FileContext.Length > 8000
-                    ? context.FileContext.Substring(0, 8000) + "\n... (文件内容已截断)"
-                    : context.FileContext);
+                // RAG-MARK: no-truncate — 不再截断用户上传的文件内容
+                // RAG-SOURCE: file-read 用户上传的附件文件内容（EditAgent 上下文）
+                sb.AppendLine(context.FileContext);
                 sb.AppendLine();
             }
 
@@ -1772,13 +1768,10 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                     // 使用纯 markdown ``` 代码块（去除缩进确保被识别为 fenced code block）。
                     if (!string.IsNullOrEmpty(step.AiResponse))
                     {
-                        // 大幅提高截断上限，绝大多数响应不会被截断
-                        const int maxLen = 50000;
-                        string truncated = step.AiResponse.Length > maxLen
-                            ? step.AiResponse.Substring(0, maxLen) + "\n…(内容已截断，共 " + step.AiResponse.Length + " 字符)"
-                            : step.AiResponse;
+                        // RAG-MARK: no-truncate — 不再截断步骤 AI 响应，完整显示
+                        // RAG-SOURCE: ai-response Agent 步骤执行响应内容
                         // 安全处理：如果内容含 ``` ，用 ' ' (全角单引号) 替代防止破坏外层代码块
-                        string safeContent = truncated.Replace("```", "'''");
+                        string safeContent = step.AiResponse.Replace("```", "'''");
                         sb.AppendLine();
                         sb.AppendLine("**📝 AI 响应详情:**");
                         sb.AppendLine();
@@ -1888,8 +1881,10 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
 
                 string result = await CallAiShortAsync(
                     shortSystemPrompt,
-                    summaryPrompt.ToString(), ct, maxTokens: 400);
+                    summaryPrompt.ToString(), ct, maxTokens: 1024);
 
+                // ── 安全剥离：防止 AI 意外输出工具调用标记或思考过程 ──
+                result = StripToolCallMarkers(result);
                 return result?.Trim() ?? string.Empty;
             }
             catch (Exception ex)
@@ -1897,6 +1892,32 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 Logger.Warn($"[EditAgent] 生成变更摘要失败: {ex.Message}");
                 return string.Empty;
             }
+        }
+
+        /// <summary>
+        /// 剥离 AI 输出中意外包含的工具调用标记和思考过程文本。
+        /// 当 toolChoice="none" 时 AI 仍可能输出工具调用意图文本。
+        /// </summary>
+        private static string StripToolCallMarkers(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return text;
+
+            // 移除 <|tool_calls|>...</|tool_calls|>  XML 片段
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"<\|[^>]*tool_calls?[^>]*\|>.*?</\|[^>]*tool_calls?[^>]*\|>",
+                string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // 移除单个工具调用标签
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"</?\|[^>]*tool_calls?[^>]*\|>",
+                string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // 移除思考前缀（"让我先查看..."等，AI 思考但没有真正调用工具）
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"^(让我先查看|让我检查|我需要先|我先用|让我读取|我需要读取).*?[。\n]",
+                string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline);
+
+            return text.Trim();
         }
 
         #endregion
@@ -1969,11 +1990,9 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                     try
                     {
                         string relativePath = GetRelativePath(solutionPath, file);
+                        // RAG-SOURCE: file-read 项目文件内容（EditAgent 项目上下文收集）
                         string content = await Task.Run(() => File.ReadAllText(file));
-                        int remainingChars = maxTotalChars - totalChars;
-                        if (content.Length > remainingChars)
-                            content = content.Substring(0, remainingChars)
-                                + "\n// ... (文件过长，已截断)";
+                        // RAG-MARK: no-truncate — 不再截断项目文件内容，完整提供给 AI
 
                         sb.AppendLine($"### {relativePath}");
                         sb.AppendLine("```");

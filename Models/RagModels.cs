@@ -6,6 +6,32 @@ using System.Threading.Tasks;
 namespace DeepSeek_v4_for_VisualStudio.Models
 {
     /// <summary>
+    /// RAG 数据源标记属性。
+    /// 用于标记方法或代码位置为 RAG（检索增强生成）可索引的数据源。
+    /// 后续可通过反射扫描所有标记位置，自动将代码读入向量数据库。
+    /// 
+    /// 使用约定：
+    /// - 方法级：[RagSource("file-read", "读取用户附加的文件内容")]
+    /// - 代码行级：// RAG-SOURCE: file-read 读取 workspace 文件内容
+    /// - 无截断标记：// RAG-MARK: no-truncate — 此位置已移除截断逻辑，完整传递内容
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
+    public class RagSourceAttribute : Attribute
+    {
+        /// <summary>数据源类别（如 file-read, code-read, web-fetch, terminal-output, search-result）</summary>
+        public string Category { get; }
+
+        /// <summary>数据源描述</summary>
+        public string Description { get; }
+
+        public RagSourceAttribute(string category, string description)
+        {
+            Category = category;
+            Description = description;
+        }
+    }
+
+    /// <summary>
     /// RAG（检索增强生成）提供者接口。
     /// 预留接口，允许接入外部知识库或向量数据库。
     /// 实现此接口即可将检索结果注入到对话上下文中。

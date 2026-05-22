@@ -91,8 +91,9 @@ public class SkillDefinitionTests
     }
 
     [Fact]
-    public void SkillDefinition_GetCompactInstructions_LongBody_TruncatesWithNote()
+    public void SkillDefinition_GetCompactInstructions_LongBody_NoLongerTruncates()
     {
+        // RAG-MARK: no-truncate — 技能正文不再截断，完整传递
         var skill = new SkillDefinition
         {
             Name = "test",
@@ -102,24 +103,26 @@ public class SkillDefinitionTests
 
         var compact = skill.GetCompactInstructions(100);
 
-        compact.Should().Contain("truncated");
-        compact.Length.Should().BeLessThan(skill.Body.Length + 100);
+        // 不再截断，完整内容应包含在结果中
+        compact.Should().Contain(new string('A', 3000));
+        compact.Should().NotContain("truncated");
     }
 
     [Fact]
-    public void SkillDefinition_GetCompactInstructions_WithEmojiAtCutPoint_HandlesCorrectly()
+    public void SkillDefinition_GetCompactInstructions_WithEmojiAtCutPoint_NoLongerTruncates()
     {
         var skill = new SkillDefinition
         {
             Name = "test",
             Description = "Test",
-            // 在截断点放置一个高代理项字符来测试代理对保护
             Body = new string('A', 98) + "😀" + new string('B', 200),
         };
 
         var compact = skill.GetCompactInstructions(100);
 
-        compact.Should().Contain("truncated");
+        // 不再截断，emoji 字符完整保留
+        compact.Should().Contain("😀");
+        compact.Should().NotContain("truncated");
     }
 
     #endregion

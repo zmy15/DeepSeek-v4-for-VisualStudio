@@ -58,6 +58,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
 
             var userText = InputTextBox.Text?.Trim();
+            // ── 安全净化：防止用户通过 <|tool_calls|> 等标记注入工具调用 ──
+            userText = StringExtensions.SanitizeUserInput(userText ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(userText)) userText = string.Empty;
             bool hasAttachments = _attachedFilePaths.Count > 0;
 
             // 编辑模式
@@ -1250,6 +1253,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     try
                     {
+                        // RAG-SOURCE: file-read 读取图片文件（OCR 预处理 base64 转换）
                         byte[] fileBytes = File.ReadAllBytes(imageValue);
                         string base64 = Convert.ToBase64String(fileBytes);
                         args[imageKey] = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(base64));
@@ -1301,6 +1305,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (resolvedPath != null)
                 {
+                    // RAG-SOURCE: file-read 读取图片文件（OCR base64 转换）
                     byte[] fileBytes = File.ReadAllBytes(resolvedPath);
                     string base64 = Convert.ToBase64String(fileBytes);
                     args[imageKey] = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(base64));

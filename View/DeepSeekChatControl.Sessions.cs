@@ -125,13 +125,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (_activeSession == null) return;
                 if (_activeSession.Title != LocalizationService.Instance["session.new"]) return;
 
-                // 截断过长的内容以控制 token 消耗
-                string userSnippet = firstUserMessage.Length > 500
-                    ? firstUserMessage.Substring(0, 500) + "…"
-                    : firstUserMessage;
-                string assistantSnippet = firstAssistantReply.Length > 500
-                    ? firstAssistantReply.Substring(0, 500) + "…"
-                    : firstAssistantReply;
+                // RAG-MARK: no-truncate — 不再截断对话内容，完整传递给 AI 生成标题
+                // RAG-SOURCE: conversation-history 对话首条消息（用于生成会话标题）
+                string userSnippet = firstUserMessage;
+                string assistantSnippet = firstAssistantReply;
 
                 var prompt = string.Format(LocalizationService.Instance["session.generateTitlePrompt"], userSnippet, assistantSnippet);
 
@@ -147,9 +144,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     // 清理标题：去除引号、换行、首尾空白
                     title = title.Trim().Trim('"', '\'', '「', '」', '《', '》', '"', '"');
-                    // 截断到 30 个字符
-                    if (title.Length > 30)
-                        title = title.Substring(0, 30);
+                    // RAG-MARK: no-truncate — 不再截断 AI 生成的标题
 
                     if (!string.IsNullOrWhiteSpace(title) && _activeSession.Title == LocalizationService.Instance["session.new"])
                     {
@@ -187,8 +182,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             int newlineIdx = title.IndexOf('\n');
             if (newlineIdx > 0)
                 title = title.Substring(0, newlineIdx).Trim();
-            if (title.Length > 30)
-                title = title.Substring(0, 30) + "…";
+            // RAG-MARK: no-truncate — 不再截断回退标题
 
             _activeSession.Title = title;
             PopulateSessionComboBox();

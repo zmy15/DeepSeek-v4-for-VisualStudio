@@ -465,6 +465,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private static string ExtractTextFromBinaryDoc(string filePath)
         {
             var sb = new StringBuilder();
+            // RAG-SOURCE: file-read 读取二进制文件（文档文本提取）
             byte[] bytes = File.ReadAllBytes(filePath);
 
             // 尝试以多种编码提取可读文本段落

@@ -98,22 +98,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public string GetCompactInstructions(int maxBodyChars = 2000)
         {
             string body;
-            if (Body.Length <= maxBodyChars)
-            {
-                body = Body;
-            }
-            else
-            {
-                int cutPoint = maxBodyChars;
-                // 检查截断点是否正好切在代理对中间（high surrogate 在截断点前，low surrogate 在截断点后）
-                if (cutPoint > 0 && cutPoint < Body.Length
-                    && char.IsHighSurrogate(Body[cutPoint - 1])
-                    && char.IsLowSurrogate(Body[cutPoint]))
-                {
-                    cutPoint--; // 回退一个 char，保留完整的代理对
-                }
-                body = Body.Substring(0, cutPoint) + "\n\n... (truncated, use full load for complete instructions)";
-            }
+            // RAG-MARK: no-truncate — 不再截断技能指令正文，完整加载
+            // RAG-SOURCE: skill-definition 技能定义正文
+            body = Body;
 
             return $"<skill name=\"{Name}\">\n<description>{Description}</description>\n\n{body}\n</skill>";
         }

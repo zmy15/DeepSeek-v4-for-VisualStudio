@@ -484,6 +484,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             // 优先使用预加载内容（避免同一文件多次读盘 + 保证原子性）
+            // RAG-SOURCE: file-read 读取目标文件当前内容（Patch 应用）
             string fileContent = existingContent
                 ?? await Task.Run(() => File.ReadAllText(result.FilePath), ct);
             var failedHunks = new List<PatchHunk>();
@@ -675,6 +676,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return result;
             }
 
+            // RAG-SOURCE: file-read 读取文件内容（Insert Edit Into File）
             string fileContent = await Task.Run(() => File.ReadAllText(result.FilePath), ct);
             var normalizedContent = NormalizeLineEndings(fileContent);
             var normalizedEdit = NormalizeLineEndings(edit.FullContent);
@@ -1254,9 +1256,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             sb.AppendLine(L["edit.healingHeaderCurrent"]);
             sb.AppendLine("```");
-            sb.AppendLine(request.CurrentFileContent.Length > 10000
-                ? request.CurrentFileContent.Substring(0, 10000) + "\n... (内容已截断)"
-                : request.CurrentFileContent);
+            // RAG-MARK: no-truncate — 不再截断文件内容，完整传递给 Healing prompt
+            // RAG-SOURCE: file-read 当前文件完整内容（Edit Healing 上下文）
+            sb.AppendLine(request.CurrentFileContent);
             sb.AppendLine("```");
             sb.AppendLine();
 
@@ -1280,9 +1282,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 sb.AppendLine(L["edit.healingHeaderOriginalInsert"]);
                 sb.AppendLine("```");
-                sb.AppendLine((request.FailedInsertEditContent ?? "").Length > 10000
-                    ? request.FailedInsertEditContent!.Substring(0, 10000) + "\n... (内容已截断)"
-                    : request.FailedInsertEditContent ?? "");
+                // RAG-MARK: no-truncate — 不再截断 insert 编辑内容
+                sb.AppendLine(request.FailedInsertEditContent ?? "");
                 sb.AppendLine("```");
                 sb.AppendLine();
                 sb.AppendLine(L["edit.healingInstructionInsert"]);

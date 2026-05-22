@@ -488,13 +488,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
             if (!string.IsNullOrEmpty(context.FileContext))
             {
-                string truncated = context.FileContext.Length > 2000
-                    ? context.FileContext.Substring(0, 2000) + "\n" + LocalizationService.Instance["agent.plan.truncatedSuffix"]
-                    : context.FileContext;
+                // RAG-MARK: no-truncate — 不再截断文件上下文，完整传递给计划生成
+                // RAG-SOURCE: file-read 用户上传的文件上下文（PlanAgent）
                 extraSystemMessages.Add(new ChatApiMessage
                 {
                     Role = "system",
-                    Content = LocalizationService.Instance["agent.plan.fileContextHeader"] + "\n\n" + truncated
+                    Content = LocalizationService.Instance["agent.plan.fileContextHeader"] + "\n\n" + context.FileContext
                 });
             }
 
@@ -640,13 +639,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var extraSystemMessages = new List<ChatApiMessage>();
             if (!string.IsNullOrEmpty(discoveryContext))
             {
-                string truncated = discoveryContext.Length > 4000
-                    ? discoveryContext.Substring(0, 4000) + "\n" + L["agent.plan.truncatedSuffix"]
-                    : discoveryContext;
+                // RAG-MARK: no-truncate — 不再截断代码库发现上下文
+                // RAG-SOURCE: codebase-discovery 代码库探索发现结果（PlanAgent 计划生成）
                 extraSystemMessages.Add(new ChatApiMessage
                 {
                     Role = "system",
-                    Content = L["plan.md.codebaseFindings"] + "\n\n" + truncated
+                    Content = L["plan.md.codebaseFindings"] + "\n\n" + discoveryContext
                 });
             }
             extraSystemMessages.Add(new ChatApiMessage

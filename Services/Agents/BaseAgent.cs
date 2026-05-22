@@ -100,7 +100,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var messages = BuildContextAwareMessages(systemPrompt, userPrompt);
 
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens))
+            // toolChoice: "none" — 简短回答无需工具调用，防止 AI 生成工具调用 XML 污染输出
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, toolChoice: "none"))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -919,6 +920,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 try
                 {
+                    // RAG-SOURCE: file-read 读取文件原始内容（计算变更行数）
                     string oldContent = System.IO.File.ReadAllText(filePath);
                     int oldLines = CountLines(oldContent);
                     linesAdded = Math.Max(0, newLines - oldLines);
@@ -1001,6 +1003,38 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             for (int i = 0; i < text.Length; i++)
                 if (text[i] == '\n') count++;
             return count;
+        }
+
+        /// <summary>
+        /// 使用 CodeDiffService 精确计算新增行数和删除行数。
+        /// 替代之前仅用净行数差值的错误算法。
+        /// </summary>
+        protected static void CountDiffLines(string oldText, string newText, out int added, out int removed)
+        {
+            added = 0;
+            removed = 0;
+            if (string.IsNullOrEmpty(oldText) && string.IsNullOrEmpty(newText))
+                return;
+
+            try
+            {
+                var diff = CodeDiffService.ComputeDiff(oldText ?? string.Empty, newText ?? string.Empty);
+                foreach (var line in diff)
+                {
+                    if (line.Type == DiffLineType.Added)
+                        added++;
+                    else if (line.Type == DiffLineType.Deleted)
+                        removed++;
+                }
+            }
+            catch
+            {
+                // 回退到简单行数比较
+                int oldLines = CountLines(oldText ?? string.Empty);
+                int newLines = CountLines(newText ?? string.Empty);
+                added = Math.Max(0, newLines - oldLines);
+                removed = Math.Max(0, oldLines - newLines);
+            }
         }
 
         /// <summary>

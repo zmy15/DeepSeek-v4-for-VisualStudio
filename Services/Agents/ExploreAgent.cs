@@ -240,12 +240,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             if (!string.IsNullOrEmpty(context.FileContext))
             {
-                // 截断过长的文件上下文（Explore 只需要概览）
-                string truncated = context.FileContext.Length > 3000
-                    ? context.FileContext.Substring(0, 3000) + "\n... (已截断)"
-                    : context.FileContext;
+                // RAG-MARK: no-truncate — 不再截断文件上下文，完整提供给 ExploreAgent
+                // RAG-SOURCE: file-read 用户附加的文件上下文（ExploreAgent 概览）
                 sb.AppendLine("## 附加文件上下文");
-                sb.AppendLine(truncated);
+                sb.AppendLine(context.FileContext);
                 sb.AppendLine();
             }
 

@@ -930,9 +930,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 resultBuilder.AppendLine();
                 resultBuilder.Append(sb);
 
+                // RAG-MARK: no-truncate — 不再截断 read_file 返回结果，完整返回文件内容
+                // RAG-SOURCE: file-read 读取文件内容（BuiltInTool read_file 工具）
                 string result = resultBuilder.ToString().TrimEnd();
-                if (result.Length > 50000)
-                    result = result.Substring(0, 50000) + "\n\n... (内容已截断)";
 
                 return Task.FromResult(result);
             }
@@ -1225,8 +1225,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         sb.AppendLine();
                     }
                     string content = allContents[i];
-                    if (content.Length > maxContentLength)
-                        content = content.Substring(0, maxContentLength) + $"\n\n... [内容已截断，原文共 {allContents[i].Length} 字符]";
+                    // RAG-MARK: no-truncate — 不再截断网页抓取内容
+                    // RAG-SOURCE: web-fetch 网页抓取内容（BuiltInTool fetch_webpage）
                     sb.AppendLine(content);
                 }
                 sb.AppendLine();
@@ -1335,6 +1335,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             try
             {
+                // RAG-SOURCE: file-read 读取文件内容（replace_string_in_file 编辑工具）
                 string content = await Task.Run(() => File.ReadAllText(filePath, System.Text.Encoding.UTF8));
                 string normalizedContent = content.Replace("\r\n", "\n").Replace("\r", "\n");
                 string normalizedOld = oldString.Replace("\r\n", "\n").Replace("\r", "\n");
@@ -1490,14 +1491,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                     var sb = new StringBuilder();
                     sb.AppendLine($"📟 终端输出 (退出码: {process.ExitCode}):");
+                    // RAG-MARK: no-truncate — 不再截断终端 stdout/stderr 输出
+                    // RAG-SOURCE: terminal-output 终端命令输出（BuiltInTool run_in_terminal）
                     if (!string.IsNullOrWhiteSpace(stdout))
                     {
-                        sb.AppendLine(stdout.Length > 50000 ? stdout.Substring(0, 50000) + "\n... (已截断)" : stdout);
+                        sb.AppendLine(stdout);
                     }
                     if (!string.IsNullOrWhiteSpace(stderr))
                     {
                         sb.AppendLine("--- STDERR ---");
-                        sb.AppendLine(stderr.Length > 10000 ? stderr.Substring(0, 10000) + "\n... (已截断)" : stderr);
+                        sb.AppendLine(stderr);
                     }
                     return sb.ToString().TrimEnd();
                 }

@@ -65,6 +65,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return new SessionsContainer { SolutionPath = solutionPath ?? "(unsaved)" };
                 }
 
+                // RAG-SOURCE: file-read 读取会话持久化文件（JSON 反序列化）
                 var json = File.ReadAllText(filePath, Encoding.UTF8);
 
                 var container = JsonSerializer.Deserialize<SessionsContainer>(json, JsonOptions);
