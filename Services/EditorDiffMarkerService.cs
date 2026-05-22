@@ -10,9 +10,8 @@ using System.Linq;
 namespace DeepSeek_v4_for_VisualStudio.Services
 {
     /// <summary>
-    /// 编辑器 Diff 预览管理服务（方案三：VS SDK 原生差异查看器）。
-    /// 使用 <see cref="DiffViewerService"/> 创建 VS 内置的差异对比视图，
-    /// 替代原有的自定义 LCS 算法 + 文本标记注入方案。
+    /// 编辑器 Diff 预览管理服务。
+    /// 使用 <see cref="DiffViewerService"/> 创建 VS 内置的差异对比视图。
     ///
     /// 工作流：
     /// 1. 调用方将新代码写入编辑器缓冲区
@@ -53,6 +52,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         // 待处理 diff 存储（按文件路径，用于未打开的文件）
         private readonly Dictionary<string, PendingFileDiff> _pendingDiffs = new();
         private readonly object _pendingLock = new();
+
+        /// <summary>待处理 diff 的默认过期时间（30 分钟）。</summary>
+        private static readonly TimeSpan PendingDiffTtl = TimeSpan.FromMinutes(30);
 
         /// <summary>
         /// 当待处理 diff 数量变更时触发（用于 UI 刷新全局按钮）。
@@ -179,6 +181,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 撤销变更：回退缓冲区到原始代码，关闭预览窗口。
+        /// 整个操作在 lock 内完成以避免竞态条件。
         /// </summary>
         public void UndoChanges(ITextBuffer buffer)
         {
@@ -190,26 +193,28 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (!_activeWindows.TryGetValue(buffer, out window))
                     return;
                 _activeWindows.Remove(buffer);
+
+                // ── 在 lock 内执行撤销和关闭，防止 BeginDiffPreview 竞态覆盖 ──
+                try
+                {
+                    window.PerformUndo();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"[EditorDiff] UndoChanges 回退失败: {ex.Message}", ex);
+                }
+
+                try
+                {
+                    window.Close();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"[EditorDiff] UndoChanges 关闭窗口失败: {ex.Message}", ex);
+                }
             }
 
-            try
-            {
-                // ── 先触发撤销回调（回退缓冲区内容）──
-                window.PerformUndo();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"[EditorDiff] UndoChanges 回退失败: {ex.Message}", ex);
-            }
-
-            try
-            {
-                window.Close();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"[EditorDiff] UndoChanges 关闭窗口失败: {ex.Message}", ex);
-            }
+            PendingDiffCountChanged?.Invoke();
         }
 
         #endregion
@@ -219,6 +224,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 为未在编辑器中打开的文件注册待处理 diff。
         /// 当用户稍后打开该文件时，会通过 <see cref="TryActivatePendingDiff"/> 自动激活预览。
+        /// 注册前清理过期条目，防止内存泄漏。
         /// </summary>
         public void RegisterPendingDiff(string filePath, string originalContent, string newContent)
         {
@@ -227,11 +233,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             lock (_pendingLock)
             {
+                // 清理过期条目
+                var now = DateTime.UtcNow;
+                var expiredKeys = _pendingDiffs
+                    .Where(kv => now - kv.Value.RegisteredAt > PendingDiffTtl)
+                    .Select(kv => kv.Key)
+                    .ToList();
+                foreach (var key in expiredKeys)
+                    _pendingDiffs.Remove(key);
+
                 _pendingDiffs[filePath] = new PendingFileDiff
                 {
                     FilePath = filePath,
                     OriginalContent = originalContent ?? string.Empty,
                     NewContent = newContent ?? string.Empty,
+                    RegisteredAt = now,
                 };
             }
 
@@ -451,6 +467,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>AI 生成的新代码。</summary>
         public string NewContent { get; set; } = string.Empty;
+
+        /// <summary>注册时间（UTC），用于 TTL 过期清理。</summary>
+        public DateTime RegisteredAt { get; set; } = DateTime.UtcNow;
     }
 
     #endregion

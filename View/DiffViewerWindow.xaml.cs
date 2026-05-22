@@ -20,7 +20,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         private readonly DiffViewerService _diffService;
         private IWpfDifferenceViewer? _viewer;
-        private readonly string _sessionKey;
         private readonly string _oldContent;
         private readonly string _newContent;
         private readonly Action? _onAccept;
@@ -49,7 +48,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
             InitializeComponent();
 
             _diffService = DiffViewerService.Instance;
-            _sessionKey = $"diff_{Guid.NewGuid():N}";
             _oldContent = oldContent ?? string.Empty;
             _newContent = newContent ?? string.Empty;
             _onAccept = onAccept;
@@ -118,7 +116,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     _viewer.DifferenceBuffer.SnapshotDifferenceChanged -= OnSnapshotDifferenceChanged;
                 }
-                _diffService.CloseSession(_sessionKey);
             }
             catch (Exception ex)
             {
