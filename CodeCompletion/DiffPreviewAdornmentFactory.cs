@@ -15,6 +15,15 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
     [TextViewRole(PredefinedTextViewRoles.Document)]
     internal sealed class DiffPreviewAdornmentFactory : IWpfTextViewCreationListener
     {
+        /// <summary>
+        /// MEF 导出：将 "DeepSeekDiffPreviewAdornment" 层名注册到 VS 编辑器。
+        /// 必须在获取 adornment layer 之前存在此导出，否则 GetAdornmentLayer 抛出 ArgumentOutOfRangeException。
+        /// </summary>
+        [Export(typeof(AdornmentLayerDefinition))]
+        [Name(View.DiffPreviewAdornment.AdornmentLayerName)]
+        [Order(After = PredefinedAdornmentLayers.Selection, Before = PredefinedAdornmentLayers.Text)]
+        internal static AdornmentLayerDefinition DeepSeekDiffPreviewAdornmentLayer = null!;
+
         #region Public Methods
 
         /// <summary>
