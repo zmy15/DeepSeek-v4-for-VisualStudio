@@ -45,7 +45,7 @@
   "edit.summary.stepDetails": "📋 Step Details",
   "edit.summary.cancelled": "⚠️ Task cancelled",
   "edit.summary.totalChanges": "Total changes: +{0} -{1} lines",
-  "edit.summary.genPrompt": "You are a code review assistant. Summarize the following code changes in 5-10 sentences.\nInclude: what was changed, why, approach, impact scope, files added/modified/deleted.\nDo not evaluate code quality — be objective.",
+  "edit.summary.genPrompt": "You are a code review assistant. Write a detailed summary of the following code changes (at least 10 sentences).\nInclude: what was changed, why, approach and technology choices, impact scope, files added/modified/deleted with their roles, key design decisions, module relationships.\nDo not evaluate code quality — be objective.",
   "edit.summary.taskHeader": "## Task: {0}",
   "edit.summary.stepCount": "{0} steps total, {1} succeeded",
   "edit.summary.changeStats": "## Change stats: +{0} -{1} lines, {2} file(s)",

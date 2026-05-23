@@ -657,7 +657,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     verifyMessages,
                     workspaceRoot,
                     ct,
-                    maxTokens: 4096,
+                    maxTokens: 8192,
                     toolWhitelist: verifyToolWhitelist,
                     onToolCall: (toolSummary) =>
                     {
@@ -668,6 +668,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     step.AiResponse = (step.AiResponse ?? "") + "\n\n## 验证\n\n" + verifyResult;
                     AddLog("INFO", LocalizationService.Instance["agent.log.verifyPhaseComplete"]);
+
+                    // ── 如果验证结果提到编译失败/错误，追加到 result.Content 供用户查看 ──
+                    if (verifyResult.Contains("失败") || verifyResult.Contains("错误") || verifyResult.Contains("error")
+                        || verifyResult.Contains("failed") || verifyResult.Contains("FAILED"))
+                    {
+                        AddLog("WARN", "⚠️ 最终编译存在问题，请查看上方详情");
+                    }
                 }
             }
             else if (changes.Count > 0 && context.IsPlanningMode)
@@ -898,13 +905,15 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
             } // foreach patch
 
             // ── 原子写盘：所有 Patch 匹配成功后，统一批量写入文件 ──
-            foreach (var kvp in fileState)
+            // 项目配置文件（.csproj/.slnx 等）优先写入，避免 VS 弹出"检测到冲突文件修改"对话框
+            var sortedFilePaths = SortPathsWithProjectFilesFirst(fileState.Keys);
+            foreach (var filePath in sortedFilePaths)
             {
-                if (kvp.Value.written) continue; // 已写入（新文件等）
+                if (!fileState.TryGetValue(filePath, out var state)) continue;
+                if (state.written) continue; // 已写入（新文件等）
                 if (ct.IsCancellationRequested) break;
 
-                string filePath = kvp.Key;
-                string finalContent = kvp.Value.content;
+                string finalContent = state.content;
 
                 bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
                     filePath, $"Patch 批量写入（原子模式）", finalContent);
@@ -939,7 +948,13 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
             var insertEdits = _editPatchService.ParseInsertEdits(aiResult);
             AddLog("INFO", $"[EditAgent] 解析到 {insertEdits.Count} 个 InsertEdit 操作");
 
-            foreach (var edit in insertEdits)
+            // ── 项目配置文件（.csproj/.slnx 等）优先处理，避免 VS 弹出"检测到冲突文件修改"对话框 ──
+            var sortedEdits = insertEdits
+                .OrderBy(e => IsProjectFile(EditPatchService.ResolvePath(e.FilePath, workspaceRoot)) ? 0 : 1)
+                .ThenBy(e => e.FilePath, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var edit in sortedEdits)
             {
                 if (ct.IsCancellationRequested) break;
 
@@ -1101,7 +1116,13 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
         {
             var changes = ParseCodeChangesFromResult(aiResult);
 
-            foreach (var change in changes)
+            // ── 项目配置文件（.csproj/.slnx 等）优先处理，避免 VS 弹出"检测到冲突文件修改"对话框 ──
+            var sortedChanges = changes
+                .OrderBy(c => IsProjectFile(ResolveFilePath(c.FilePath, context.SolutionPath)) ? 0 : 1)
+                .ThenBy(c => c.FilePath, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var change in sortedChanges)
             {
                 if (ct.IsCancellationRequested) break;
                 try
@@ -1689,6 +1710,18 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
         }
 
         /// <summary>
+        /// 将文件路径列表排序，确保项目配置文件（.csproj/.slnx等）优先写入。
+        /// 避免 VS 在外部修改源文件后才检测到项目文件变更而弹出"检测到冲突文件修改"对话框。
+        /// </summary>
+        private static List<string> SortPathsWithProjectFilesFirst(IEnumerable<string> paths)
+        {
+            return paths
+                .OrderBy(p => IsProjectFile(p) ? 0 : 1)
+                .ThenBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        /// <summary>
         /// 在写入项目文件前请求用户确认。
         /// 非项目文件直接返回 true（放行）。
         /// </summary>
@@ -1818,7 +1851,20 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                     if (!string.IsNullOrEmpty(step.ResultSummary))
                         sb.AppendLine($"  - 结果: {step.ResultSummary}");
 
-                    // ── AI 响应详情已移除（用户可在执行过程中查看实时日志）──
+                    // ── 包含验证结果：如果步骤的 AiResponse 中有验证章节，提取关键信息 ──
+                    if (!string.IsNullOrEmpty(step.AiResponse))
+                    {
+                        string aiResp = step.AiResponse!;
+                        int verifyIdx = aiResp.IndexOf("## 验证");
+                        if (verifyIdx >= 0)
+                        {
+                            string verifySection = aiResp.Substring(verifyIdx);
+                            // 截取前 500 字符作为摘要
+                            if (verifySection.Length > 500)
+                                verifySection = verifySection.Substring(0, 500) + "\n\n...(已截断，完整日志见执行过程)";
+                            sb.AppendLine($"  <details><summary>🔍 验证详情</summary>\n\n{verifySection}\n\n  </details>");
+                        }
+                    }
                 }
                 sb.AppendLine();
             }
@@ -1831,21 +1877,25 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                     .Select(g => new
                     {
                         DisplayPath = g.First().FilePath,
+                        FileName = Path.GetFileName(g.First().FilePath),
                         LinesAdded = g.Sum(c => c.LinesAdded),
                         LinesRemoved = g.Sum(c => c.LinesRemoved),
+                        Description = g.Select(c => c.BriefDescription).FirstOrDefault(d => !string.IsNullOrEmpty(d) && !d.Contains("(Patch)") && !d.Contains("(InsertEdit)") && !d.Contains("(CreateFile)")),
                     })
                     .ToList();
 
                 sb.AppendLine(LocalizationService.Instance["agent.panel.fileChangeStats"]);
                 sb.AppendLine();
-                sb.AppendLine("| 文件 | 变更 |");
-                sb.AppendLine("|------|------|");
+                sb.AppendLine("| 文件 | 变更 | 说明 |");
+                sb.AppendLine("|------|------|------|");
                 foreach (var change in mergedFiles)
                 {
                     string delta = $"{(change.LinesAdded > 0 ? $"+{change.LinesAdded}" : "")}"
                         + $"{(change.LinesRemoved > 0 ? $" -{change.LinesRemoved}" : "")}";
-                    string fileName = Path.GetFileName(change.DisplayPath);
-                    sb.AppendLine($"| `{fileName}` | {delta} |");
+                    string desc = change.Description ?? (change.LinesAdded > 0 && change.LinesRemoved == 0 ? "新增" : change.LinesRemoved > 0 && change.LinesAdded == 0 ? "删除" : "修改");
+                    // 截断过长的描述
+                    if (desc.Length > 40) desc = desc.Substring(0, 37) + "...";
+                    sb.AppendLine($"| `{change.FileName}` | {delta} | {desc} |");
                 }
                 sb.AppendLine();
                 sb.AppendLine(LocalizationService.Instance.Format("edit.summary.totalChanges",

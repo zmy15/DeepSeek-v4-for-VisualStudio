@@ -1370,8 +1370,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             "</details>";
                     }
 
-                    string finalContent = (agentResult.Content ?? string.Format(LocalizationService.Instance["agent.result.taskCompletedSuccess"], plan.Steps.Count(s => s.Status == AgentStepStatus.Completed), plan.Steps.Count))
-                        + (string.IsNullOrEmpty(thinkingDetailsHtml) ? "" : "\n\n" + thinkingDetailsHtml);
+                    // ── 最终内容仅包含 Markdown 总结，不混入 HTML（避免 double-escape）──
+                    string finalContent = agentResult.Content
+                        ?? string.Format(LocalizationService.Instance["agent.result.taskCompletedSuccess"],
+                            plan.Steps.Count(s => s.Status == AgentStepStatus.Completed), plan.Steps.Count);
 
                     // ── 更新现有的流式思考气泡为最终内容 ──
                     lock (_lock)
@@ -1387,9 +1389,28 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         }
                     }
 
+                    // ── 追加 Cache 命中率统计（使用累计值，非单轮）──
+                    string cacheFooter = string.Empty;
+                    try
+                    {
+                        long totalHit = _apiService?.TotalCacheHitTokens ?? 0;
+                        long totalMiss = _apiService?.TotalCacheMissTokens ?? 0;
+                        long totalPrompt = _apiService?.TotalPromptTokens ?? 0;
+                        long totalComp = _apiService?.TotalCompletionTokens ?? 0;
+                        if (totalHit + totalMiss > 0)
+                        {
+                            cacheFooter = ChatHtmlService.BuildCacheHitFooterHtml(
+                                totalHit, totalMiss, totalPrompt, totalComp, roundCount: 1);
+                        }
+                    }
+                    catch { }
+
                     // ── 强制刷新 DOM 显示最终结果 ──
                     BatchStreamingUpdate(_agentStreamingMsgIndex, finalContent, string.Empty, isComplete: true);
-                    PostStreamEnd(_agentStreamingMsgIndex, finalContent, string.Empty, string.Empty);
+
+                    // ── 发送最终渲染：extraFooter 中注入执行过程 HTML + 缓存统计（纯 HTML，不经过 Markdown 转义）──
+                    string combinedFooter = thinkingDetailsHtml + cacheFooter;
+                    PostStreamEnd(_agentStreamingMsgIndex, finalContent, string.Empty, combinedFooter);
 
                     StatusLabel.Text = plan.ChangedFiles.Count > 0
                         ? string.Format(LocalizationService.Instance["agent.result.completed"], plan.ChangedFiles.Count)
@@ -1411,8 +1432,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             finally
             {
-                // ── 恢复按钮状态 ──
+                // ── 恢复按钮状态：移除已失效的 handoff 按钮 ──
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                try
+                {
+                    if (ChatWebView.CoreWebView2 != null)
+                    {
+                        await ChatWebView.CoreWebView2.ExecuteScriptAsync(
+                            "var btns=document.querySelectorAll('.handoff-btn');btns.forEach(function(b){if(b.parentNode)b.parentNode.removeChild(b);});");
+                    }
+                }
+                catch { }
                 lock (_lock) { _isGenerating = false; }
                 UpdateButtonsState();
             }
