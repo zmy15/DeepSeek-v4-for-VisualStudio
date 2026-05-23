@@ -101,6 +101,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 ChatWebView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
                 ChatWebView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
 
+                // ── 禁用 WebView2 右键菜单，仅保留"复制"功能 ──
+                ChatWebView.CoreWebView2.ContextMenuRequested += (cmSender, cmArgs) =>
+                {
+                    cmArgs.Handled = true;  // 阻止默认右键菜单
+                    // Ctrl+C 浏览器原生快捷键不受影响，复制功能保留
+                };
+
                 // 构建初始 HTML 内容
                 RebuildMessagesHtml();
                 _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
