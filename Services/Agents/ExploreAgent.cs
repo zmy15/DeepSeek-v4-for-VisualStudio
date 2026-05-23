@@ -111,7 +111,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
-            AddLog("INFO", $"Explore Agent 开始执行: \"{userMessage.Truncate(100)}\"");
+            // 日志只显示用户消息的第一行（实际任务描述），
+            // 后续行是 PlanAgent 注入的结构上下文等元数据，无需在日志中展示
+            string logMessage = userMessage;
+            int firstNewline = userMessage.IndexOf('\n');
+            if (firstNewline > 0)
+                logMessage = userMessage.Substring(0, firstNewline).TrimEnd('\r');
+            AddLog("INFO", $"Explore Agent 开始执行: \"{logMessage.Truncate(100)}\"");
 
             var result = new AgentResult
             {
