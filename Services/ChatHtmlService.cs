@@ -1149,6 +1149,75 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
         }
 
         /// <summary>
+        /// 构建向用户提问的 UI（VisualStudio_askQuestions 工具）。
+        /// 在聊天底部注入问题卡片 + 选项/文本框 + 提交按钮。
+        /// </summary>
+        public static string BuildAskQuestionsJs(AgentQuestionRequest request)
+        {
+            string safeRequestId = EscapeHtmlAttribute(request.RequestId);
+
+            // ── 构建问题 HTML ──
+            var questionsHtml = new StringBuilder();
+            for (int qi = 0; qi < request.Questions.Count; qi++)
+            {
+                var q = request.Questions[qi];
+                string qId = $"aq-{qi}";
+                string escapedHeader = EscapeJsString(q.Header);
+                string escapedQuestion = EscapeJsString(q.Question ?? string.Empty);
+
+                questionsHtml.Append("<div style='margin-bottom:10px'>");
+                questionsHtml.Append($"<div style='color:#4fc1ff;font-size:12px;font-weight:600;margin-bottom:4px'>{escapedHeader}</div>");
+                questionsHtml.Append($"<div style='color:#D4D4D4;font-size:12px;margin-bottom:6px'>{escapedQuestion}</div>");
+
+                if (q.Options != null && q.Options.Count > 0)
+                {
+                    // 有选项：渲染选项按钮/复选框
+                    string inputType = q.MultiSelect ? "checkbox" : "radio";
+                    foreach (var opt in q.Options)
+                    {
+                        string escapedLabel = EscapeJsString(opt.Label);
+                        string escapedDesc = opt.Description != null ? EscapeJsString(opt.Description) : "";
+                        string descHtml = !string.IsNullOrEmpty(escapedDesc)
+                            ? $"<span style='color:#888;font-size:10px;margin-left:4px'>{escapedDesc}</span>"
+                            : "";
+                        questionsHtml.Append($"<label style='display:flex;align-items:center;gap:6px;margin:2px 0;cursor:pointer;font-size:11px;color:#ccc'>");
+                        questionsHtml.Append($"<input type='{inputType}' name='{qId}' value='{escapedLabel}' style='accent-color:#4fc1ff'>");
+                        questionsHtml.Append($"{escapedLabel}{descHtml}</label>");
+                    }
+                }
+
+                // 自由文本输入（始终提供，作为补充或替代选项）
+                if (q.AllowFreeformInput)
+                {
+                    questionsHtml.Append($"<textarea id='{qId}-free' placeholder='输入你的回答...' style='width:100%;min-height:40px;background:#1e1e1e;color:#d4d4d4;border:1px solid #3c3c3c;border-radius:4px;padding:6px 8px;font-size:11px;margin-top:4px;resize:vertical'></textarea>");
+                }
+
+                questionsHtml.Append("</div>");
+            }
+
+            return $@"
+(function(){{
+    var existing=document.getElementById('agent-questions');
+    if(existing)existing.remove();
+
+    var div=document.createElement('div');
+    div.id='agent-questions';
+    div.style.cssText='border:1px solid #4fc1ff;border-radius:8px;background:#1a2a3a;padding:12px;margin:8px 0;animation:fadeIn .3s';
+
+    div.innerHTML=
+        '<div style=""color:#4fc1ff;font-size:12px;font-weight:600;margin-bottom:8px"">💬 Agent 想确认以下问题</div>'+{EscapeJsString(questionsHtml.ToString())}+
+        '<div style=""display:flex;gap:8px;margin-top:8px"">'+
+        '<button id=""agent-questions-submit"" onclick=""window.__answerQuestions(\'{safeRequestId}\')"" style=""background:#0e639c;color:#fff;border:none;border-radius:4px;padding:6px 20px;cursor:pointer;font-size:12px;font-weight:600"">📤 提交回答</button>'+
+        '<button onclick=""window.__skipQuestions(\'{safeRequestId}\')"" style=""background:#3c3c3c;color:#aaa;border:1px solid #555;border-radius:4px;padding:6px 16px;cursor:pointer;font-size:12px"">跳过</button>'+
+        '</div>';
+
+    var container=document.getElementById('chat-container');
+    if(container)container.appendChild(div);
+    window.__scrollToBottom('smooth');
+}})();";
+        }
+
+        /// <summary>
         /// 构建文件删除确认 UI 的 JS 脚本（在聊天底部注入文件列表 + 确认/取消按钮）。
         /// </summary>
         /// <param name="request">权限请求，其 ActionType 应为 "file_delete"，FilePaths 包含待删除文件路径列表</param>

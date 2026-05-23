@@ -1675,6 +1675,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                         });
                     }
+                    // ── VisualStudio_askQuestions 回答 ──
+                    else if (type == "answerQuestions")
+                    {
+                        string requestId = obj.TryGetProperty("requestId", out var qReqIdProp)
+                            ? qReqIdProp.GetString() ?? string.Empty : string.Empty;
+                        string answers = obj.TryGetProperty("answers", out var ansProp)
+                            ? ansProp.GetString() ?? "{}" : "{}";
+                        _agentDispatcher?.RespondToQuestions(requestId, answers);
+
+                        // 移除问题 UI
+                        _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+                        {
+                            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                            if (ChatWebView.CoreWebView2 != null)
+                            {
+                                try
+                                {
+                                    await ChatWebView.CoreWebView2.ExecuteScriptAsync(
+                                        "var p=document.getElementById('agent-questions');if(p)p.remove();");
+                                    StatusLabel.Text = LocalizationService.Instance["status.ready"];
+                                }
+                                catch { }
+                            }
+                        });
+                    }
                     else if (type == "fileDeleteConfirm")
                     {
                         string requestId = obj.TryGetProperty("requestId", out var delReqIdProp)

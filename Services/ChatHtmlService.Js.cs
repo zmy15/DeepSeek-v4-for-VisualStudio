@@ -186,6 +186,41 @@ window.__terminalApprove=function(requestId){
 window.__terminalSkip=function(requestId){
     window.__sendToHost({type:'terminalSkip',requestId:requestId});
 };
+window.__answerQuestions=function(requestId){
+    var answers=[];
+    var questionDivs=document.querySelectorAll('#agent-questions > div');
+    // 遍历所有问题，收集答案
+    var qIndex=0;
+    var container=document.getElementById('agent-questions');
+    if(container){
+        var children=container.children;
+        for(var i=0;i<children.length;i++){
+            var child=children[i];
+            // 跳过标题和按钮行
+            if(child.tagName==='DIV' && child.querySelector('input')){
+                // 获取选项值
+                var inputs=child.querySelectorAll('input[type=radio]:checked,input[type=checkbox]:checked');
+                var selected=[];
+                for(var j=0;j<inputs.length;j++) selected.push(inputs[j].value);
+                // 获取自由文本
+                var freeText='';
+                var textarea=child.querySelector('textarea');
+                if(textarea) freeText=textarea.value.trim();
+                answers.push({selectedOptions:selected,freeText:freeText});
+            }
+        }
+    }
+    var answersJson=JSON.stringify(answers);
+    // 先移除 UI
+    var el=document.getElementById('agent-questions');
+    if(el) el.remove();
+    window.__sendToHost({type:'answerQuestions',requestId:requestId,answers:answersJson});
+};
+window.__skipQuestions=function(requestId){
+    var el=document.getElementById('agent-questions');
+    if(el) el.remove();
+    window.__sendToHost({type:'answerQuestions',requestId:requestId,answers:'{}'});
+};
 window.__executeHandoff=function(targetAgent,label){
     window.__sendToHost({type:'executeHandoff',targetAgent:targetAgent,label:label});
 };

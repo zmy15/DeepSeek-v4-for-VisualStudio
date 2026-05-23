@@ -1066,6 +1066,32 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// Agent 向用户提问回调（VisualStudio_askQuestions 工具）。
+        /// 在 WebView 中注入问题 UI，等待用户回答后回调 AgentDispatcher。
+        /// </summary>
+        private void OnAgentQuestionsRequested(AgentQuestionRequest request)
+        {
+            _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                if (ChatWebView.CoreWebView2 == null) return;
+
+                try
+                {
+                    string js = ChatHtmlService.BuildAskQuestionsJs(request);
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.questionsWaiting"],
+                        request.Questions.Count);
+                    await ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[Agent] 问题 UI 注入失败: {ex.Message}");
+                    _agentDispatcher?.RespondToQuestions(request.RequestId, "{}");
+                }
+            });
+        }
+
+        /// <summary>
         /// Agent 文件变更实时通知回调：仅更新实时思考气泡。
         /// </summary>
         private void OnAgentFileChangeNotified(AgentFileChangeEventArgs args)

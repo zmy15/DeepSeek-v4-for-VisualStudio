@@ -371,6 +371,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (_agentDispatcher != null)
             {
                 _agentDispatcher.PermissionRequested -= OnAgentPermissionRequested;
+                _agentDispatcher.QuestionsRequested -= OnAgentQuestionsRequested;
                 _agentDispatcher.Dispose();
             }
 
@@ -381,6 +382,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _agentDispatcher = new AgentDispatcher(_apiService, _builtInToolService, _mcpManager);
             _agentDispatcher.ContextManager = _contextManager;
             _agentDispatcher.PermissionRequested += OnAgentPermissionRequested;
+            _agentDispatcher.QuestionsRequested += OnAgentQuestionsRequested;
             Logger.Info("Agent 调度器初始化成功（多 Agent 模式：Ask / Plan / Explore / Edit）");
 
             // 初始化 Agent 模式徽章（默认隐藏 Ask 模式）
@@ -1228,6 +1230,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (_agentDispatcher != null)
             {
                 _agentDispatcher.PermissionRequested -= OnAgentPermissionRequested;
+                _agentDispatcher.QuestionsRequested -= OnAgentQuestionsRequested;
                 _agentDispatcher.Dispose();
                 _agentDispatcher = null;
             }

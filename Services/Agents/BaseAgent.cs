@@ -60,11 +60,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>权限请求事件</summary>
         public event Action<AgentPermissionRequest>? PermissionRequested;
 
+        /// <summary>向用户提问事件（VisualStudio_askQuestions 工具使用）</summary>
+        public event Action<AgentQuestionRequest>? QuestionsRequested;
+
         /// <summary>文件变更实时通知事件（编辑阶段逐文件推送）</summary>
         public event Action<AgentFileChangeEventArgs>? FileChangeNotified;
 
         /// <summary>当前待确认的权限请求</summary>
         public AgentPermissionRequest? PendingPermission { get; protected set; }
+
+        /// <summary>当前待回答的提问请求</summary>
+        public AgentQuestionRequest? PendingQuestion { get; protected set; }
 
         protected BaseAgent(DeepSeekApiService apiService, AgentType agentType)
         {
@@ -761,6 +767,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
             }
 
+            // ── VisualStudio_askQuestions：向用户提问并等待回答 ──
+            if (toolName == "VisualStudio_askQuestions")
+            {
+                string questionsJson = string.Empty;
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(argumentsJson);
+                    if (doc.RootElement.TryGetProperty("questions", out var qProp))
+                        questionsJson = qProp.GetRawText();
+                }
+                catch { }
+
+                if (!string.IsNullOrWhiteSpace(questionsJson))
+                {
+                    return await RequestAskQuestionsAsync(questionsJson);
+                }
+                return "❌ VisualStudio_askQuestions: 缺少 questions 参数";
+            }
+
             // ── 1. 内置工具 ──
             if (BuiltInTools != null && BuiltInToolService.IsBuiltInTool(toolName))
             {
@@ -1179,6 +1204,64 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             if (PendingPermission?.RequestId == requestId)
                 PendingPermission.ResponseTcs?.TrySetResult(approved);
+        }
+
+        /// <summary>
+        /// 向用户提问并等待回答（VisualStudio_askQuestions 工具实现）。
+        /// 使用 TaskCompletionSource 等待用户在 WebView 中提交答案。
+        /// </summary>
+        /// <param name="questionsJson">问题列表的 JSON 字符串</param>
+        /// <returns>用户答案的 JSON 字符串，或超时/取消时的空字符串</returns>
+        public async Task<string> RequestAskQuestionsAsync(string questionsJson)
+        {
+            try
+            {
+                var questions = System.Text.Json.JsonSerializer.Deserialize<List<AgentQuestion>>(
+                    questionsJson, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                
+                if (questions == null || questions.Count == 0)
+                    return "❌ VisualStudio_askQuestions: 问题列表为空";
+
+                var request = new AgentQuestionRequest
+                {
+                    Questions = questions,
+                    ResponseTcs = new TaskCompletionSource<string>(),
+                };
+
+                PendingQuestion = request;
+                QuestionsRequested?.Invoke(request);
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.waitingAnswers"],
+                    questions.Count, questions[0].Header.Truncate(60)));
+
+                // 等待用户回答（最长 5 分钟超时）
+                var timeoutTask = Task.Delay(TimeSpan.FromMinutes(5));
+                var completedTask = await Task.WhenAny(request.ResponseTcs.Task, timeoutTask);
+
+                PendingQuestion = null;
+                if (completedTask == timeoutTask)
+                {
+                    request.ResponseTcs.TrySetResult("{}");
+                    return "⏱️ 用户未在 5 分钟内回答，已超时。请根据已有信息继续规划。";
+                }
+
+                string answers = await request.ResponseTcs.Task;
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.answersReceived"],
+                    answers.Truncate(200)));
+                return answers;
+            }
+            catch (Exception ex)
+            {
+                return $"❌ VisualStudio_askQuestions 失败: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// 响应用户提问回答。
+        /// </summary>
+        public void RespondToQuestions(string requestId, string answersJson)
+        {
+            if (PendingQuestion?.RequestId == requestId)
+                PendingQuestion.ResponseTcs?.TrySetResult(answersJson);
         }
 
         /// <summary>

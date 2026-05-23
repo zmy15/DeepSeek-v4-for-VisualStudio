@@ -84,7 +84,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 DisableModelInvocation = false,
                 AllowedTools = new List<string>(ExploreAgent.DefaultReadTools)
                 {
-                    "vscode_askQuestions", // 向用户提问澄清
+                    "VisualStudio_askQuestions", // 向用户提问澄清
                     "runSubagent",          // 调用 Explore 子代理
                 },
                 SubAgents = new List<AgentType> { AgentType.Explore },
@@ -446,7 +446,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
-        /// 运行对齐阶段：使用工具调用循环让 AI 通过 vscode_askQuestions 向用户提问。
+        /// 运行对齐阶段：使用工具调用循环让 AI 通过 VisualStudio_askQuestions 向用户提问。
         /// </summary>
         private async Task RunAlignmentAsync(
             string userMessage, string discoveryContext, AgentContext context)
@@ -473,23 +473,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     });
                 }
 
-                // 对齐指令
+                // 对齐指令：先表明规划思路，再主动询问
                 messages.Add(new ChatApiMessage
                 {
                     Role = "user",
                     Content = $"用户任务: {userMessage}\n\n" +
-                              "请使用 vscode_askQuestions 工具向用户提问，澄清任何模糊的需求或技术决策。\n" +
-                              "每次只问 1-2 个最关键的问题。获得用户回复后，可以继续追问或结束对齐。\n" +
-                              "当你认为需求已经足够清晰时，回复 DONE 结束对齐阶段。"
+                              "请按以下流程与用户对齐需求：\n\n" +
+                              "1. **先简要说明你的理解**：用 2-3 句话概括你对任务的理解、你打算采用的技术方案方向，让用户知道你的规划思路。\n" +
+                              "2. **再主动提问澄清**：使用 VisualStudio_askQuestions 工具向用户提问，澄清任何模糊的需求或技术决策。\n" +
+                              "   - 每次只问 1-2 个最关键的问题\n" +
+                              "   - 问题应结合你已经了解的信息，让用户感到你在认真思考\n" +
+                              "   - 获得用户回复后，可以继续追问或结束对齐\n" +
+                              "3. 当你认为需求已经足够清晰时，回复 DONE 结束对齐阶段。"
                 });
 
-                // ── 使用工具调用循环（仅允许 vscode_askQuestions）──
+                // ── 使用工具调用循环（仅允许 VisualStudio_askQuestions）──
                 string alignmentResult = await CallAiWithToolLoopAsync(
                     messages,
                     context.SolutionPath,
                     ct,
                     maxTokens: 2048,
-                    toolWhitelist: new List<string> { "vscode_askQuestions" });
+                    toolWhitelist: new List<string> { "VisualStudio_askQuestions" });
 
                 AddLog("INFO", $"[Plan] 对齐阶段完成 ({alignmentResult.Truncate(200)})");
             }
@@ -520,7 +524,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 匹配 DSML, function_calls, tool_calls, invoke, parameter 等标签
             string[] blockTags = {
                 "DSML", "function_calls?", "tool_calls?", "invoke", "parameter",
-                "vscode_askQuestions", "runSubagent", "tool_result",
+                "VisualStudio_askQuestions", "runSubagent", "tool_result",
                 "file_search", "grep_search", "list_dir", "read_file",
                 "semantic_search", "fetch_webpage", "run_in_terminal",
                 "create_file", "replace_string_in_file", "edit_notebook_file",
@@ -548,7 +552,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 移除残留的独立开标签/闭标签 ──
             result = System.Text.RegularExpressions.Regex.Replace(
                 result,
-                @"</?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|vscode_askQuestions|runSubagent|tool_result)[^>]*>",
+                @"</?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|VisualStudio_askQuestions|runSubagent|tool_result)[^>]*>",
                 "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 

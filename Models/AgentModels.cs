@@ -162,6 +162,56 @@ namespace DeepSeek_v4_for_VisualStudio.Models
     }
 
     /// <summary>
+    /// Agent 向用户提问的请求（VisualStudio_askQuestions 工具使用）。
+    /// 包含结构化的问题列表，支持单选/多选选项和自由文本输入。
+    /// </summary>
+    public class AgentQuestionRequest
+    {
+        /// <summary>请求 ID，用于匹配用户响应</summary>
+        public string RequestId { get; set; } = Guid.NewGuid().ToString("N");
+
+        /// <summary>问题列表</summary>
+        public List<AgentQuestion> Questions { get; set; } = new();
+
+        /// <summary>等待用户响应的 TaskCompletionSource（返回 JSON 格式的答案）</summary>
+        [JsonIgnore]
+        public TaskCompletionSource<string>? ResponseTcs { get; set; }
+    }
+
+    /// <summary>
+    /// 单个问题定义。
+    /// </summary>
+    public class AgentQuestion
+    {
+        /// <summary>问题标题（简短标识）</summary>
+        public string Header { get; set; } = string.Empty;
+
+        /// <summary>问题文本</summary>
+        public string Question { get; set; } = string.Empty;
+
+        /// <summary>可选选项列表（为空则允许自由文本输入）</summary>
+        public List<QuestionOption>? Options { get; set; }
+
+        /// <summary>是否允许多选</summary>
+        public bool MultiSelect { get; set; }
+
+        /// <summary>是否允许自由文本输入（除选项外）</summary>
+        public bool AllowFreeformInput { get; set; } = true;
+    }
+
+    /// <summary>
+    /// 问题选项。
+    /// </summary>
+    public class QuestionOption
+    {
+        /// <summary>选项标签</summary>
+        public string Label { get; set; } = string.Empty;
+
+        /// <summary>选项描述（可选）</summary>
+        public string? Description { get; set; }
+    }
+
+    /// <summary>
     /// Agent 日志条目：记录中间步骤的简要日志。
     /// </summary>
     public class AgentLogEntry

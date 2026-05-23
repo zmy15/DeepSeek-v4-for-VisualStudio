@@ -457,6 +457,55 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                             required = new[] { "id" }
                         }
                     }
+                },
+                new ToolDefinition
+                {
+                    Type = "function",
+                    Function = new ToolFunction
+                    {
+                        Name = "VisualStudio_askQuestions",
+                        Description = "向用户展示结构化问题并等待回答。用于在规划阶段向用户澄清需求。问题会以 UI 形式呈现给用户，用户回答后返回 JSON 格式的答案。",
+                        Parameters = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                questions = new
+                                {
+                                    type = "array",
+                                    items = new
+                                    {
+                                        type = "object",
+                                        properties = new
+                                        {
+                                            header = new { type = "string", description = "问题简短标题（唯一标识）" },
+                                            question = new { type = "string", description = "问题的完整描述文本" },
+                                            options = new
+                                            {
+                                                type = "array",
+                                                items = new
+                                                {
+                                                    type = "object",
+                                                    properties = new
+                                                    {
+                                                        label = new { type = "string", description = "选项文本" },
+                                                        description = new { type = "string", description = "选项说明（可选）" }
+                                                    },
+                                                    required = new[] { "label" }
+                                                },
+                                                description = "可选选项列表，为空则允许自由文本输入"
+                                            },
+                                            multiSelect = new { type = "boolean", description = "是否允许多选，默认 false" },
+                                            allowFreeformInput = new { type = "boolean", description = "除选项外是否允许自由文本输入，默认 true" }
+                                        },
+                                        required = new[] { "header", "question" }
+                                    },
+                                    description = "要向用户提问的问题列表（每次 1-2 个问题）"
+                                }
+                            },
+                            required = new[] { "questions" }
+                        }
+                    }
                 }
             };
         }
@@ -547,7 +596,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     or "fetch_webpage" or "build_solution"
                     or "replace_string_in_file" or "multi_replace_string_in_file" or "create_file" or "delete_file"
                     or "apply_patch" or "create_directory"
-                    or "run_in_terminal" or "get_terminal_output" => true,
+                    or "run_in_terminal" or "get_terminal_output" or "VisualStudio_askQuestions" => true,
                 _ => false
             };
         }
@@ -668,6 +717,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                     case "get_terminal_output":
                         return "📋 获取终端输出";
+
+                    case "VisualStudio_askQuestions":
+                        return "💬 向用户提问";
 
                     // MCP 外部工具：尝试解析常见参数
                     default:

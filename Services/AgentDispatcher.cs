@@ -149,6 +149,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         // ── 事件（转发到 UI） ──
         public event Action<AgentTaskPlan>? PlanUpdated;
         public event Action<AgentPermissionRequest>? PermissionRequested;
+        public event Action<AgentQuestionRequest>? QuestionsRequested;
         public event Action<AgentLogEntry>? LogEntryAdded;
         public event Action<AgentFileChangeEventArgs>? FileChangeNotified;
 
@@ -230,6 +231,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 绑定事件（如果尚未绑定）
             agent.PermissionRequested -= OnAgentPermissionRequested;
             agent.PermissionRequested += OnAgentPermissionRequested;
+            agent.QuestionsRequested -= OnAgentQuestionsRequested;
+            agent.QuestionsRequested += OnAgentQuestionsRequested;
             agent.LogEntryAdded -= OnAgentLogEntryAdded;
             agent.LogEntryAdded += OnAgentLogEntryAdded;
             agent.FileChangeNotified -= OnAgentFileChangeNotified;
@@ -243,6 +246,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private void OnAgentPermissionRequested(AgentPermissionRequest request)
         {
             PermissionRequested?.Invoke(request);
+        }
+
+        private void OnAgentQuestionsRequested(AgentQuestionRequest request)
+        {
+            QuestionsRequested?.Invoke(request);
         }
 
         private void OnAgentLogEntryAdded(AgentLogEntry entry)
@@ -629,6 +637,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         public void RespondToPermission(string requestId, bool approved)
         {
             GetActiveAgent()?.RespondToPermission(requestId, approved);
+        }
+
+        /// <summary>
+        /// 响应提问回答（VisualStudio_askQuestions）。
+        /// </summary>
+        public void RespondToQuestions(string requestId, string answersJson)
+        {
+            GetActiveAgent()?.RespondToQuestions(requestId, answersJson);
         }
 
         /// <summary>
