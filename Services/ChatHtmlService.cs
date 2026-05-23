@@ -1040,9 +1040,18 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
                 sb.Append("<div class='agent-step-content'>");
                 sb.Append("<div class='agent-step-title-row'>");
                 sb.Append($"<span class='agent-step-title {statusClass}' id='agent-title-{pid}-{step.Index}'>{EscapeHtml(step.Title)}</span>");
+                if (!string.IsNullOrEmpty(step.Description))
+                    sb.Append($"<span class='agent-step-detail-toggle' id='agent-toggle-{pid}-{step.Index}' onclick=\"(function(e){{e.stopPropagation();var d=document.getElementById('agent-detail-{pid}-{step.Index}');var t=document.getElementById('agent-toggle-{pid}-{step.Index}');if(d&&t){{d.classList.toggle('expanded');t.classList.toggle('expanded');}}}})(event)\" title=\"查看详细步骤\">▶</span>");
                 if (!string.IsNullOrEmpty(tagHtml))
                     sb.Append(tagHtml);
                 sb.Append("</div>");
+
+                if (!string.IsNullOrEmpty(step.Description))
+                {
+                    sb.Append($"<div class='agent-step-detail' id='agent-detail-{pid}-{step.Index}'>");
+                    sb.Append(EscapeHtml(step.Description!));
+                    sb.Append("</div>");
+                }
 
                 string summaryDisplay = string.IsNullOrEmpty(step.ResultSummary) ? "none" : "block";
                 sb.Append($"<div class='agent-step-summary' id='agent-summary-{pid}-{step.Index}' style='display:{summaryDisplay}'>");
@@ -1348,6 +1357,24 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
         }
 
         /// <summary>
+        /// 根据计划状态计算任务面板标题文本。
+        /// 规则：全待执行→"0/x步待执行"，执行中→"y/x步执行中"，全部完成→"x/x步全部完成"
+        /// </summary>
+        private static string GetTaskPanelTitleStatus(AgentTaskPlan plan)
+        {
+            int total = plan.Steps.Count;
+            int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed || s.Status == AgentStepStatus.Skipped);
+            int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
+            bool anyStarted = plan.Steps.Any(s => s.Status != AgentStepStatus.Pending);
+
+            if (!anyStarted)
+                return $"0/{total}步待执行";
+            if (completed + failed >= total)
+                return $"{completed}/{total}步全部完成";
+            return $"{completed}/{total}步执行中";
+        }
+
+        /// <summary>
         /// 构建 Agent 任务流程底部面板的创建/更新 JS。
         /// 如果面板不存在则创建，存在则更新内容。
         /// 面板固定在聊天底部，包含步骤管线、文件变更、日志摘要。
@@ -1360,8 +1387,10 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             // 移除 agent-plan 自带的外层 div 包装，只保留内部内容（因为面板有自己的 wrapper）
             // 保留完整的 agent-plan div，在 CSS 中已去掉其 margin/border
             string escapedPlanHtml = EscapeJsString(planHtml);
-            int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+            int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed || s.Status == AgentStepStatus.Skipped);
             int total = plan.Steps.Count;
+            string titleStatus = GetTaskPanelTitleStatus(plan);
+            string escapedTitleStatus = EscapeJsString(titleStatus);
 
             return $@"
 (function(){{
@@ -1371,6 +1400,8 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
         // 更新面板内容
         var body=document.getElementById('agent-task-body-{pid}');
         if(body)body.innerHTML={escapedPlanHtml};
+        var titleEl=document.getElementById('agent-task-title-status-{pid}');
+        if(titleEl)titleEl.textContent={escapedTitleStatus};
         var prog=document.getElementById('agent-task-progress-{pid}');
         if(prog)prog.textContent='{completed}/{total} 步';
         return;
@@ -1387,7 +1418,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
     panel.innerHTML=
         '<div class=""agent-task-panel-header"" onclick=""var p=document.getElementById(\'agent-task-panel-{pid}\');if(p)p.classList.toggle(\'collapsed\')"">'+
         '<span class=""task-icon"">🤖</span>'+
-        '<span class=""task-title"">Coding Agent — '+{escapedTitle}+'</span>'+
+        '<span class=""task-title"" id=""agent-task-title-status-{pid}"">{escapedTitleStatus}</span>'+
         '<span class=""task-progress"" id=""agent-task-progress-{pid}"">{completed}/{total} 步</span>'+
         '<button class=""task-close"" id=""agent-task-close-{pid}"" onclick=""(function(e){{e.stopPropagation();var p=document.getElementById(\'agent-task-panel-{pid}\');if(p&&p.parentNode)p.parentNode.removeChild(p);}})(event);return false;"" title=""关闭面板"">✕</button>'+
         '</div>'+
@@ -1405,11 +1436,16 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
         public static string BuildAgentTaskPanelUpdateJs(AgentTaskPlan plan)
         {
             string pid = plan.PlanId;
-            int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+            int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed || s.Status == AgentStepStatus.Skipped);
             int total = plan.Steps.Count;
+            string titleStatus = GetTaskPanelTitleStatus(plan);
 
             var sb = new StringBuilder();
             sb.Append("(function(){");
+
+            // 更新面板标题状态（0/x步待执行 → y/x步执行中 → x/x步全部完成）
+            sb.Append($"var titleEl=document.getElementById('agent-task-title-status-{pid}');");
+            sb.Append($"if(titleEl)titleEl.textContent={EscapeJsString(titleStatus)};");
 
             // 更新进度文本
             sb.Append($"var prog=document.getElementById('agent-task-progress-{pid}');");
@@ -1496,11 +1532,17 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             string statusText = plan.IsCancelled ? "已取消" : (failed > 0 ? $"{completed}/{total} 步成功，{failed} 步失败" : $"{completed}/{total} 步全部成功");
             string escapedStatusIcon = EscapeJsString(statusIcon);
             string escapedStatusText = EscapeJsString(statusText);
+            string titleStatus = GetTaskPanelTitleStatus(plan);
+            string escapedTitleStatus = EscapeJsString(titleStatus);
 
             return $@"
 (function(){{
     var panel=document.getElementById('agent-task-panel-{pid}');
     if(!panel)return;
+
+    // 更新面板标题状态
+    var titleEl=document.getElementById('agent-task-title-status-{pid}');
+    if(titleEl){{titleEl.textContent={escapedTitleStatus};titleEl.style.color='{statusColor}';}}
 
     // 更新标题为完成状态
     var title=panel.querySelector('.task-title');
