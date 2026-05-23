@@ -350,6 +350,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             msg.IsRendered = true;
                             // ── 持久化任务计划 JSON，重启后可重建任务面板 ──
                             try { msg.PlanJson = JsonSerializer.Serialize(plan, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
+                            // ── 持久化 Handoff JSON，会话切换后可重建"开始执行"按钮 ──
+                            if (_pendingHandoff != null)
+                            {
+                                try { msg.HandoffJson = JsonSerializer.Serialize(_pendingHandoff, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
+                            }
                         }
                     }
                     // ── 追加 Cache 命中率统计（使用累计值，非单轮）──
@@ -410,6 +415,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             msg.Content = agentResult.Content;
                             msg.IsStreaming = false;
                             msg.IsRendered = true;
+                            // ── 持久化 Handoff JSON，会话切换后可重建"开始执行"按钮 ──
+                            if (_pendingHandoff != null)
+                            {
+                                try { msg.HandoffJson = JsonSerializer.Serialize(_pendingHandoff, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
+                            }
                         }
                     }
                     // ── 计算 Cache 命中率 ──
@@ -725,6 +735,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 重启后遍历消息中的持久化计划 JSON，重建任务面板。
         /// 已完成的计划渲染为完成状态面板。
+        /// 同时重建待处理的 Handoff 按钮（如 Plan→Edit 的"开始执行"按钮）。
         /// </summary>
         private async Task RebuildPersistedTaskPanelsAsync()
         {
@@ -737,37 +748,62 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 // ── 从锁中收集需要重建的计划（async 操作不能在锁内执行）──
                 var plansToRebuild = new List<(AgentTaskPlan Plan, bool NeedsTwoPass)>();
+                var handoffsToRebuild = new List<(int MessageIndex, AgentHandoff Handoff)>();
 
                 lock (_lock)
                 {
-                    foreach (var msg in _messages)
+                    for (int i = 0; i < _messages.Count; i++)
                     {
-                        if (string.IsNullOrEmpty(msg.PlanJson)) continue;
+                        var msg = _messages[i];
 
-                        try
+                        // ── 重建任务面板 ──
+                        if (!string.IsNullOrEmpty(msg.PlanJson))
                         {
-                            var plan = JsonSerializer.Deserialize<AgentTaskPlan>(msg.PlanJson, opts);
-                            if (plan == null || !plan.IsFromPlanAgent || plan.Steps.Count == 0) continue;
+                            try
+                            {
+                                var plan = JsonSerializer.Deserialize<AgentTaskPlan>(msg.PlanJson, opts);
+                                if (plan != null && plan.IsFromPlanAgent && plan.Steps.Count > 0)
+                                {
+                                    string pid = plan.PlanId;
+                                    if (!_createdPlanIds.Contains(pid))
+                                    {
+                                        _createdPlanIds.Add(pid);
 
-                            string pid = plan.PlanId;
-                            if (_createdPlanIds.Contains(pid)) continue;
-                            _createdPlanIds.Add(pid);
+                                        bool needsTwoPass = !plan.IsCompleted
+                                            && !plan.IsCancelled
+                                            && !plan.Steps.All(s => s.Status == AgentStepStatus.Completed || s.Status == AgentStepStatus.Skipped)
+                                            && plan.CurrentStepIndex > 0;
 
-                            bool needsTwoPass = !plan.IsCompleted
-                                && !plan.IsCancelled
-                                && !plan.Steps.All(s => s.Status == AgentStepStatus.Completed || s.Status == AgentStepStatus.Skipped)
-                                && plan.CurrentStepIndex > 0;
-
-                            plansToRebuild.Add((plan, needsTwoPass));
+                                        plansToRebuild.Add((plan, needsTwoPass));
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Warn($"[Panel] 反序列化 PlanJson 失败: {ex.Message}");
+                            }
                         }
-                        catch (Exception ex)
+
+                        // ── 重建 Handoff 按钮 ──
+                        if (!string.IsNullOrEmpty(msg.HandoffJson))
                         {
-                            Logger.Warn($"[Panel] 反序列化 PlanJson 失败: {ex.Message}");
+                            try
+                            {
+                                var handoff = JsonSerializer.Deserialize<AgentHandoff>(msg.HandoffJson, opts);
+                                if (handoff != null && handoff.ShowContinueOn)
+                                {
+                                    handoffsToRebuild.Add((i, handoff));
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Warn($"[Panel] 反序列化 HandoffJson 失败: {ex.Message}");
+                            }
                         }
                     }
                 }
 
-                // ── 在锁外执行 JS 注入 ──
+                // ── 在锁外执行 JS 注入：任务面板 ──
                 foreach (var (plan, needsTwoPass) in plansToRebuild)
                 {
                     string pid = plan.PlanId;
@@ -793,6 +829,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     _ = ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
                     Logger.Info($"[Panel] 重建持久化任务面板: {plan.Title} (PlanId={pid}, Steps={plan.Steps.Count})");
+                }
+
+                // ── 在锁外执行 JS 注入：Handoff 按钮 ──
+                foreach (var (msgIndex, handoff) in handoffsToRebuild)
+                {
+                    try
+                    {
+                        string targetAgentStr = handoff.TargetAgent.ToString();
+                        string handoffBtnJs = ChatHtmlService.BuildHandoffButtonJs(
+                            msgIndex, targetAgentStr, handoff.Label);
+                        _ = ChatWebView.CoreWebView2.ExecuteScriptAsync(handoffBtnJs);
+                        Logger.Info($"[Panel] 重建 Handoff 按钮: msgIdx={msgIndex}, target={targetAgentStr}, label={handoff.Label}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn($"[Panel] 重建 Handoff 按钮失败: {ex.Message}");
+                    }
                 }
             }
             catch (Exception ex)
@@ -1135,6 +1188,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
 
                 _pendingHandoff = null; // 消费后清空
+
+                // ── 清除消息中的 HandoffJson，避免会话切换后重复显示按钮 ──
+                lock (_lock)
+                {
+                    if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count)
+                    {
+                        _messages[_agentStreamingMsgIndex].HandoffJson = null;
+                    }
+                }
 
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 

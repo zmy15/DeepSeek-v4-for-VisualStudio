@@ -423,6 +423,13 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [DataMember]
         public string? PlanJson { get; set; }
 
+        /// <summary>
+        /// Agent Handoff 的 JSON 序列化数据。
+        /// 用于会话切换后重建"开始执行"按钮，null 表示无待处理 Handoff。
+        /// </summary>
+        [DataMember]
+        public string? HandoffJson { get; set; }
+
         // INotifyPropertyChanged 实现
         public event PropertyChangedEventHandler? PropertyChanged;
 

@@ -214,6 +214,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 保存当前会话
                 SaveCurrentSession();
 
+                // ── 会话切换时清理计划面板相关状态 ──
+                // DOM 将全量重建，所有计划面板需要重新创建
+                _createdPlanIds.Clear();
+
                 lock (_lock)
                 {
                     // 切换到新会话
@@ -301,7 +305,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 完整刷新浏览器
                 RebuildMessagesHtml();
                 _browserInitialized = false;
+                _pageReady = false;  // 重置页面就绪标志，等待新页面加载完成
                 UpdateBrowser();
+
+                // 页面刷新后重建持久化任务面板
+                _ = RebuildPanelsWhenPageReadyAsync();
 
                 Logger.Info($"切换到会话: {_activeSession.Title}");
             }
