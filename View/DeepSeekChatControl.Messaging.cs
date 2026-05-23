@@ -384,6 +384,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         assistantMsgIndex = _messages.Count - 1;
                     }
                 }
+                _currentStreamingMsgIndex = assistantMsgIndex;
 
                 AddMessagesHtml("user", userDisplayContent, null, parseResults, userMsgIndex);
                 AddMessagesHtml("assistant", string.Empty);
@@ -1157,10 +1158,38 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             try
             {
+                // ── 停止前捕获当前流式消息的索引和部分内容 ──
+                int streamingIdx;
+                string partialContent;
+                string partialReasoning;
+                lock (_lock)
+                {
+                    streamingIdx = _currentStreamingMsgIndex;
+                    if (streamingIdx >= 0 && streamingIdx < _messages.Count)
+                    {
+                        var msg = _messages[streamingIdx];
+                        partialContent = msg.Content ?? string.Empty;
+                        partialReasoning = msg.ReasoningContent ?? string.Empty;
+                        msg.IsStreaming = false;
+                    }
+                    else
+                    {
+                        partialContent = string.Empty;
+                        partialReasoning = string.Empty;
+                    }
+                    _currentStreamingMsgIndex = -1;
+                }
+
                 CancelStreaming();
                 lock (_lock) { _isGenerating = false; }
                 UpdateButtonsState();
-                    StatusLabel.Text = LocalizationService.Instance["status.stopped"];
+                StatusLabel.Text = LocalizationService.Instance["status.stopped"];
+
+                // ── 发送 streamEnd 以渲染 Markdown 并注入重试按钮 ──
+                if (streamingIdx >= 0 && !string.IsNullOrEmpty(partialContent))
+                {
+                    PostStreamEnd(streamingIdx, partialContent, partialReasoning);
+                }
             }
             catch (Exception ex) { Logger.Error($"StopGeneration 异常: {ex.Message}", ex); }
         }

@@ -222,6 +222,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     AddMessagesHtml("assistant", LocalizationService.Instance["agent.status.analyzing"]);
                 }
+                _currentStreamingMsgIndex = _agentStreamingMsgIndex;
                 UpdateBrowser();
                 await TaskScheduler.Default;
 

@@ -149,6 +149,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private int _lastRenderedMessagesLength;
         private readonly StringBuilder _messagesHtml = new();
 
+        /// <summary>当前正在流式输出的消息索引（-1 表示无）。用于停止时发送 streamEnd 以注入重试按钮。</summary>
+        private int _currentStreamingMsgIndex = -1;
+
         // ── 线程安全 ──
         private readonly object _lock = new();
 
