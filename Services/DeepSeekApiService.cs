@@ -193,8 +193,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             var contentBatch = new StringBuilder(512);
             const int ContentFlushThreshold = 100;
 
+            // ── 取消令牌注册：当 ct 触发时释放底层流，使 ReadLineAsync 立即抛出异常 ──
+            // .NET Framework 4.7.2 的 ReadLineAsync 不接受 CancellationToken，
+            // 通过释放流来实现同样的中断效果。异常传播到调用方后由其处理。
             string? line;
-            while ((line = await reader.ReadLineAsync()) != null)  // 替代 EndOfStream
+            using (cancellationToken.Register(() =>
+            {
+                try { stream.Dispose(); } catch { }
+            }))
+            {
+            while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -261,6 +269,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     }
                 }
             }
+            } // using(ctr) — 取消令牌注册已释放
 
             // 流结束，刷出残余
             if (contentBatch.Length > 0)

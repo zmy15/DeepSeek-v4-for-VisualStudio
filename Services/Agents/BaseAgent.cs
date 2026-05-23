@@ -3,6 +3,7 @@ using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -375,50 +376,67 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
 
                 // ── 流式调用 AI ──
-                await foreach (var chunk in _apiService.ChatStreamAsync(messages, toolDefs, ct))
+                try
                 {
-                    if (chunk.StartsWith("[THINKING]"))
+                    await foreach (var chunk in _apiService.ChatStreamAsync(messages, toolDefs, ct))
                     {
-                        var thinking = chunk.Substring(10);
-                        reasoningBuilder.Append(thinking);
-                        onThinking?.Invoke(thinking);
-                    }
-                    else if (chunk.StartsWith("[TOOL_CALL]"))
-                    {
-                        var tcJson = chunk.Substring(11);
-                        try
+                        if (chunk.StartsWith("[THINKING]"))
                         {
-                            var deltas = JsonSerializer.Deserialize<List<ToolCallDelta>>(tcJson);
-                            if (deltas != null)
+                            var thinking = chunk.Substring(10);
+                            reasoningBuilder.Append(thinking);
+                            onThinking?.Invoke(thinking);
+                        }
+                        else if (chunk.StartsWith("[TOOL_CALL]"))
+                        {
+                            var tcJson = chunk.Substring(11);
+                            try
                             {
-                                foreach (var delta in deltas)
+                                var deltas = JsonSerializer.Deserialize<List<ToolCallDelta>>(tcJson);
+                                if (deltas != null)
                                 {
-                                    if (!toolCallAccumulator.ContainsKey(delta.Index))
-                                        toolCallAccumulator[delta.Index] = new Models.ToolCallAccumulator();
-                                    var acc = toolCallAccumulator[delta.Index];
-                                    if (!string.IsNullOrEmpty(delta.Id)) acc.Id = delta.Id!;
-                                    if (!string.IsNullOrEmpty(delta.Type)) acc.Type = delta.Type;
-                                    if (delta.Function != null)
+                                    foreach (var delta in deltas)
                                     {
-                                        if (!string.IsNullOrEmpty(delta.Function.Name)) acc.FunctionName = delta.Function.Name;
-                                        if (!string.IsNullOrEmpty(delta.Function.Arguments)) acc.ArgumentsBuilder.Append(delta.Function.Arguments);
+                                        if (!toolCallAccumulator.ContainsKey(delta.Index))
+                                            toolCallAccumulator[delta.Index] = new Models.ToolCallAccumulator();
+                                        var acc = toolCallAccumulator[delta.Index];
+                                        if (!string.IsNullOrEmpty(delta.Id)) acc.Id = delta.Id!;
+                                        if (!string.IsNullOrEmpty(delta.Type)) acc.Type = delta.Type;
+                                        if (delta.Function != null)
+                                        {
+                                            if (!string.IsNullOrEmpty(delta.Function.Name)) acc.FunctionName = delta.Function.Name;
+                                            if (!string.IsNullOrEmpty(delta.Function.Arguments)) acc.ArgumentsBuilder.Append(delta.Function.Arguments);
+                                        }
                                     }
                                 }
                             }
+                            catch (JsonException) { }
+                            // ── onToolCall 移出流式循环，避免每个 delta chunk 都触发 ──
                         }
-                        catch (JsonException) { }
-                        // ── onToolCall 移出流式循环，避免每个 delta chunk 都触发 ──
+                        else if (chunk.StartsWith("[CACHE]"))
+                        {
+                            // ── Cache 统计信息 ── 过滤，不混入正文
+                            // 累计统计由 ChatHtmlService.BuildCacheHitFooterHtml 渲染为外侧卡片
+                        }
+                        else
+                        {
+                            contentBuilder.Append(chunk);
+                            onContent?.Invoke(chunk);
+                        }
                     }
-                    else if (chunk.StartsWith("[CACHE]"))
-                    {
-                        // ── Cache 统计信息 ── 过滤，不混入正文
-                        // 累计统计由 ChatHtmlService.BuildCacheHitFooterHtml 渲染为外侧卡片
-                    }
-                    else
-                    {
-                        contentBuilder.Append(chunk);
-                        onContent?.Invoke(chunk);
-                    }
+                }
+                catch (ObjectDisposedException) when (ct.IsCancellationRequested)
+                {
+                    // 取消令牌触发了流释放，正常中断
+                    Logger.Info($"[Agent:{Definition.Name}] 流式调用被取消令牌中断");
+                    if (contentBuilder.Length == 0)
+                        contentBuilder.Append("\n\n> ⏏️ 操作已被取消。");
+                }
+                catch (IOException) when (ct.IsCancellationRequested)
+                {
+                    // 取消令牌触发了流释放（备用异常类型）
+                    Logger.Info($"[Agent:{Definition.Name}] 流式调用被取消令牌中断 (IO)");
+                    if (contentBuilder.Length == 0)
+                        contentBuilder.Append("\n\n> ⏏️ 操作已被取消。");
                 }
 
                 // ── 记录本轮 Cache 命中率 ──
@@ -531,19 +549,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         ToolCalls = toolCalls
                     });
 
-                    // ── 执行每个工具并添加 tool 结果消息 ──
-                    foreach (var tc in toolCalls)
+                    // ── 并行执行工具调用（带超时保护）──
+                    const int toolTimeoutSeconds = 60;
+                    var toolTasks = toolCalls.Select(tc =>
+                        ExecuteToolWithTimeoutAsync(tc, workspaceRoot, ct, TimeSpan.FromSeconds(toolTimeoutSeconds)))
+                        .ToList();
+                    var toolResults = await Task.WhenAll(toolTasks).ConfigureAwait(false);
+
+                    for (int i = 0; i < toolCalls.Count; i++)
                     {
-                        string toolResult;
-                        try
-                        {
-                            toolResult = await ExecuteToolAsync(tc.Function.Name, tc.Function.Arguments, workspaceRoot, ct);
-                        }
-                        catch (Exception ex)
-                        {
-                            toolResult = $"❌ 工具执行异常: {ex.Message}";
-                            Logger.Error($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 执行异常: {ex.Message}", ex);
-                        }
+                        var tc = toolCalls[i];
+                        string toolResult = toolResults[i];
 
                         messages.Add(new ChatApiMessage
                         {
@@ -711,6 +727,51 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             catch
             {
                 return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// 带超时保护的工具执行包装。
+        /// 每个工具调用单独计时，超时则返回错误信息而非阻塞整个循环。
+        /// </summary>
+        /// <param name="tc">工具调用定义</param>
+        /// <param name="workspaceRoot">工作区根目录</param>
+        /// <param name="ct">取消令牌</param>
+        /// <param name="timeout">超时时间</param>
+        /// <returns>工具执行结果字符串</returns>
+        private async Task<string> ExecuteToolWithTimeoutAsync(
+            ToolCall tc, string? workspaceRoot, CancellationToken ct, TimeSpan timeout)
+        {
+            try
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(timeout);
+
+                var execTask = ExecuteToolAsync(tc.Function.Name, tc.Function.Arguments, workspaceRoot, timeoutCts.Token);
+                var completed = await Task.WhenAny(execTask, Task.Delay(timeout, ct)).ConfigureAwait(false);
+
+                if (completed == execTask)
+                {
+                    return await execTask.ConfigureAwait(false);
+                }
+                else
+                {
+                    // 超时 — 取消工具执行
+                    timeoutCts.Cancel();
+                    Logger.Warn($"[Agent:{Definition.Name}] ⏱️ 工具 {tc.Function.Name} 执行超时 ({timeout.TotalSeconds:F0}s)，已终止");
+                    return $"⏱️ 工具 {tc.Function.Name} 执行超时（{timeout.TotalSeconds:F0}s），已跳过。";
+                }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // 仅由 timeoutCts 触发（非外部 ct）
+                Logger.Warn($"[Agent:{Definition.Name}] ⏱️ 工具 {tc.Function.Name} 执行超时 ({timeout.TotalSeconds:F0}s)，已终止");
+                return $"⏱️ 工具 {tc.Function.Name} 执行超时（{timeout.TotalSeconds:F0}s），已跳过。";
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 执行异常: {ex.Message}", ex);
+                return $"❌ 工具执行异常: {ex.Message}";
             }
         }
 
