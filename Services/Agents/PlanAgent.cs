@@ -168,6 +168,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         context.PlanFilePath = planFilePath;
                         AddLog("INFO", string.Format(L["agent.log.planMdSaved"], planFilePath));
 
+                        // ── 回退步骤提取：如果 JSON 解析回退为单步计划，从 plan.md 中提取步骤 ──
+                        if (plan.Steps.Count <= 1 && !string.IsNullOrEmpty(planMarkdown))
+                        {
+                            var extractedSteps = ExtractStepsFromPlanMarkdown(planMarkdown);
+                            if (extractedSteps.Count > 1)
+                            {
+                                plan.Steps = extractedSteps;
+                                plan.Title = plan.Title ?? extractedSteps.FirstOrDefault()?.Title ?? plan.Title;
+                                AddLog("INFO", string.Format(L["agent.log.planStepsExtractedFromMd"],
+                                    extractedSteps.Count, planFilePath));
+                                // 更新 Handoff prompt 中的步骤数
+                                result.Content = FormatPlanAsMarkdown(plan);
+                            }
+                        }
+
                         // 在结果内容中附加 plan.md 路径信息
                         result.Content += string.Format(L["agent.log.planMdAppended"], planFilePath);
                     }
@@ -697,6 +712,91 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine(L["plan.format.readyToExecute"]);
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 从 plan.md Markdown 中提取步骤列表（备用方案：JSON 解析失败时使用）。
+        /// 支持的格式：
+        ///   ### 步骤 N: 标题
+        ///   ### Step N: 标题
+        ///   ## 步骤 N: 标题
+        ///   描述文本跟在标题后的段落中。
+        /// </summary>
+        private static List<AgentStep> ExtractStepsFromPlanMarkdown(string markdown)
+        {
+            var steps = new List<AgentStep>();
+            if (string.IsNullOrWhiteSpace(markdown)) return steps;
+
+            // 匹配模式: ### 步骤 N: 标题  或  ### Step N: 标题  或  ## 步骤 N: 标题
+            var stepPattern = new System.Text.RegularExpressions.Regex(
+                @"^(?:#{2,3})\s*(?:步骤|Step)\s*(\d+)[：:]\s*(.+)$",
+                System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            var matches = stepPattern.Matches(markdown);
+            if (matches.Count == 0)
+            {
+                // 尝试备用模式: **步骤 N**: 标题  或   N. 标题（编号列表）
+                var altPattern = new System.Text.RegularExpressions.Regex(
+                    @"(?:\*\*)?(?:步骤|Step)\s*(\d+)(?:\*\*)?[：:]\s*(.+)$",
+                    System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                matches = altPattern.Matches(markdown);
+            }
+
+            if (matches.Count == 0)
+            {
+                // 尝试编号列表模式: 1. **标题**  或  - **步骤 1**: 标题
+                var listPattern = new System.Text.RegularExpressions.Regex(
+                    @"^(?:\d+\.|\-)\s*\*?\*?(?:步骤|Step)?\s*(\d+)[：:.\s]*\*?\*?\s*(.+)$",
+                    System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                matches = listPattern.Matches(markdown);
+            }
+
+            for (int i = 0; i < matches.Count; i++)
+            {
+                var match = matches[i];
+                if (!int.TryParse(match.Groups[1].Value, out int stepIndex))
+                    stepIndex = i + 1;
+
+                string title = match.Groups[2].Value.Trim();
+                // 清理标题中的 markdown 格式
+                title = System.Text.RegularExpressions.Regex.Replace(title, @"\*+", "").Trim();
+
+                // 提取描述：标题行后到下一个步骤标题之间的第一个非空段落
+                int matchEnd = match.Index + match.Length;
+                int nextMatchStart = (i + 1 < matches.Count) ? matches[i + 1].Index : markdown.Length;
+                string section = markdown.Substring(matchEnd, nextMatchStart - matchEnd);
+
+                // 取第一个非空行作为描述（跳过空行和 markdown 格式符号）
+                var descLines = section.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(l => l.Trim())
+                    .Where(l => l.Length > 0 && !l.StartsWith("#") && !l.StartsWith("```") && !l.StartsWith("---"))
+                    .Take(3)
+                    .ToList();
+
+                string description = descLines.Count > 0
+                    ? string.Join(" ", descLines)
+                    : title;
+
+                // 判断是否需要审批（标题或描述中包含特定关键词）
+                bool requiresApproval = title.Contains("🔐") || title.Contains("权限")
+                    || description.Contains("需要确认") || description.Contains("需要审批")
+                    || description.Contains("权限") || description.Contains("terminal")
+                    || description.Contains("Terminal");
+
+                steps.Add(new AgentStep
+                {
+                    Index = stepIndex,
+                    Title = title,
+                    Description = description.Truncate(500),
+                    RequiresApproval = requiresApproval,
+                });
+            }
+
+            // 重新编号确保连续
+            for (int i = 0; i < steps.Count; i++)
+                steps[i].Index = i + 1;
+
+            return steps;
         }
 
         /// <summary>

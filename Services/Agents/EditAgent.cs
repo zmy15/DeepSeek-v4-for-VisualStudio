@@ -97,6 +97,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "delete_file",
             "replace_string_in_file",
             "multi_replace_string_in_file",
+            "apply_patch",
+            "create_directory",
             "read_file",
             "file_search",
             "grep_search",
@@ -256,8 +258,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 plan.IsCompleted = plan.Steps.All(s =>
                     s.Status is AgentStepStatus.Completed or AgentStepStatus.Skipped);
 
+                // ── 诊断日志：记录步骤完成情况 ──
+                int completedCount = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+                int skippedCount = plan.Steps.Count(s => s.Status == AgentStepStatus.Skipped);
+                int failedCount = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
+                int pendingCount = plan.Steps.Count(s => s.Status == AgentStepStatus.Pending);
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editPlanProgress"],
+                    plan.Steps.Count, completedCount, skippedCount, failedCount, pendingCount));
+
                 // ── Planning 模式：所有步骤完成后统一编译验证一次 ──
-                if (context.IsPlanningMode && plan.ChangedFiles.Count > 0
+                // 必须 plan.IsCompleted 才触发最终构建（防止 JSON 回退单步计划误触发）
+                if (context.IsPlanningMode && plan.IsCompleted
+                    && plan.ChangedFiles.Count > 0
                     && !plan.IsCancelled && !_agentCts!.IsCancellationRequested)
                 {
                     AddLog("INFO", LocalizationService.Instance["agent.log.editFinalBuild"]);
