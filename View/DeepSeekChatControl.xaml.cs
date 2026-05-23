@@ -1151,15 +1151,21 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             else
             {
-                await InitializeWebViewAsync();
-                _webViewInitialized = true;
+                bool initSuccess = await InitializeWebViewAsync();
+                _webViewInitialized = initSuccess;
 
-                // ── 重建持久化的任务面板 ──
-                _ = RebuildPanelsWhenPageReadyAsync();
+                if (initSuccess)
+                {
+                    // ── 重建持久化的任务面板 ──
+                    _ = RebuildPanelsWhenPageReadyAsync();
+                }
             }
         }
 
-        private async Task InitializeWebViewAsync()
+        /// <summary>
+        /// 初始化 WebView2 环境。返回 true 表示初始化成功。
+        /// </summary>
+        private async Task<bool> InitializeWebViewAsync()
         {
             try
             {
@@ -1171,11 +1177,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         "DeepSeekVS", "WebView2"));
                 await ChatWebView.EnsureCoreWebView2Async(env);
                 Logger.Info("[Render] CoreWebView2 环境初始化成功");
+                return true;
             }
             catch (Exception ex)
             {
                 Logger.Error("[Render] WebView2 初始化失败", ex);
                 StatusLabel.Text = $"WebView2 初始化失败: {ex.Message}";
+                return false;
             }
         }
 

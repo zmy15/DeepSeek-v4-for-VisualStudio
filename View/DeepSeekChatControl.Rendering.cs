@@ -106,17 +106,28 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
                 {
                     await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    // ── 清除可能由之前隐式初始化失败残留的错误消息 ──
+                    StatusLabel.Text = LocalizationService.Instance["status.ready"];
                     UpdateBrowser();
                 });
             }
             else
             {
-                Logger.Error($"[Render] CoreWebView2 初始化失败: {e.InitializationException?.Message}", e.InitializationException);
-                _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+                // ── 仅当尚未显式初始化成功时才显示错误 ──
+                // 避免隐式初始化失败的错误消息覆盖后续显式初始化的成功状态
+                if (!_webViewInitialized)
                 {
-                    await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = $"WebView2 初始化失败: {e.InitializationException?.Message}";
-                });
+                    Logger.Error($"[Render] CoreWebView2 初始化失败: {e.InitializationException?.Message}", e.InitializationException);
+                    _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+                    {
+                        await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                        StatusLabel.Text = $"WebView2 初始化失败: {e.InitializationException?.Message}";
+                    });
+                }
+                else
+                {
+                    Logger.Warn($"[Render] CoreWebView2 初始化完成事件报告失败，但 WebView2 已标记为已初始化，忽略: {e.InitializationException?.Message}");
+                }
             }
         }
 
