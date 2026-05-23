@@ -135,18 +135,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 AddLog("INFO", L["agent.log.planPhaseDiscover"]);
                 string discoveryContext = await RunDiscoveryAsync(userMessage, context);
 
-                // ── 阶段 2: 对齐 — 与用户澄清需求 ──
+                // ── 阶段 2: 对齐 — 与用户澄清需求（始终执行，确保用户参与）──
                 AddLog("INFO", L["agent.log.planPhaseAlign"]);
-                bool alignmentNeeded = await CheckAlignmentNeededAsync(userMessage, discoveryContext, context);
-                if (alignmentNeeded)
-                {
-                    AddLog("INFO", L["agent.log.planAlignNeeded"]);
-                    await RunAlignmentAsync(userMessage, discoveryContext, context);
-                }
-                else
-                {
-                    AddLog("INFO", L["agent.log.planAlignSkipped"]);
-                }
+                await RunAlignmentAsync(userMessage, discoveryContext, context);
 
                 // ── 阶段 3: 设计 — 产出实现计划 ──
                 AddLog("INFO", L["agent.log.planPhaseDesign"]);
@@ -473,18 +464,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     });
                 }
 
-                // 对齐指令：先表明规划思路，再主动询问
+                // 对齐指令：展示规划思路，邀请用户反馈
                 messages.Add(new ChatApiMessage
                 {
                     Role = "user",
                     Content = $"用户任务: {userMessage}\n\n" +
                               "请按以下流程与用户对齐需求：\n\n" +
-                              "1. **先简要说明你的理解**：用 2-3 句话概括你对任务的理解、你打算采用的技术方案方向，让用户知道你的规划思路。\n" +
-                              "2. **再主动提问澄清**：使用 VisualStudio_askQuestions 工具向用户提问，澄清任何模糊的需求或技术决策。\n" +
-                              "   - 每次只问 1-2 个最关键的问题\n" +
-                              "   - 问题应结合你已经了解的信息，让用户感到你在认真思考\n" +
-                              "   - 获得用户回复后，可以继续追问或结束对齐\n" +
-                              "3. 当你认为需求已经足够清晰时，回复 DONE 结束对齐阶段。"
+                              "1. **简要展示你的规划内容**：用几句话概括：\n" +
+                              "   - 你对任务的理解是什么\n" +
+                              "   - 你打算采用的技术方案/实现思路\n" +
+                              "   - 大概需要修改哪些文件或模块\n" +
+                              "   - 预计分几个步骤完成\n\n" +
+                              "2. **向用户提问**：使用 VisualStudio_askQuestions 工具问用户：\n" +
+                              "   - 核心问题是「你认为这个规划有什么问题吗？有什么需要调整的地方？」\n" +
+                              "   - 让用户有机会指出你遗漏或理解错误的地方\n" +
+                              "   - 如果用户提出反馈，吸收后可以继续确认或追问\n\n" +
+                              "3. 当用户认可规划方向后，回复 DONE 结束对齐阶段。"
                 });
 
                 // ── 使用工具调用循环（仅允许 VisualStudio_askQuestions）──
