@@ -702,16 +702,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine();
             sb.AppendLine(string.Format(L["plan.format.stepCount"], plan.Steps.Count));
             sb.AppendLine();
-
-            for (int i = 0; i < plan.Steps.Count; i++)
-            {
-                var step = plan.Steps[i];
-                string icon = step.RequiresApproval ? "🔐" : "📌";
-                sb.AppendLine(string.Format(L["plan.format.stepItem"], icon, step.Index, step.Title));
-                sb.AppendLine($"   {step.Description}");
-                sb.AppendLine();
-            }
-
+            sb.AppendLine(L["plan.format.seePanel"]);
+            sb.AppendLine();
             sb.AppendLine("---");
             sb.AppendLine(L["plan.format.readyToExecute"]);
 

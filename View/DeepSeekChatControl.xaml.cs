@@ -1161,10 +1161,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (initSuccess)
                 {
-                    // ── 显式构建 HTML 并加载到 WebView，确保使用已恢复的会话数据 ──
-                    // CoreWebView2InitializationCompleted 事件可能在 _messages 加载前触发，
-                    // 此处覆盖刷新以保障面板重建基于正确的消息数据。
+                    // ── 显式构建 HTML 并全量加载到 WebView ──
+                    // CoreWebView2InitializationCompleted 可能在 _messages 加载前触发并
+                    // 以空消息完成了首次页面加载。此处重置 _browserInitialized 强制走
+                    // NavigateToString 全量替换路径，避免增量追加导致内容重复。
                     RebuildMessagesHtml();
+                    _browserInitialized = false;
                     UpdateBrowser();
                     // ── 重建持久化的任务面板 ──
                     _ = RebuildPanelsWhenPageReadyAsync();

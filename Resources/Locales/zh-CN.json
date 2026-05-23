@@ -651,6 +651,7 @@
   "plan.discovery.areaHeader": "## 探索区域: {0}",
   "plan.format.title": "## 📋 实现计划: {0}",
   "plan.format.stepCount": "共 {0} 个步骤：",
+  "plan.format.seePanel": "📌 详细步骤请查看下方任务面板。",
   "plan.format.readyToExecute": "✅ 计划就绪，是否开始执行？",
   "plan.format.stepItem": "{0} **步骤 {1}**: {2}",
   "agent.log.explorePhase1": "🔍 阶段 1/2: 快速扫描项目顶层结构…",

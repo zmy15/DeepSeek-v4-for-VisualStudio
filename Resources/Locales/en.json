@@ -653,6 +653,7 @@
   "plan.discovery.areaHeader": "## Explore Area: {0}",
   "plan.format.title": "## 📋 Implementation Plan: {0}",
   "plan.format.stepCount": "{0} step(s) total:",
+  "plan.format.seePanel": "📌 See the task panel below for detailed steps.",
   "plan.format.readyToExecute": "✅ Plan is ready. Start execution?",
   "plan.format.stepItem": "{0} **Step {1}**: {2}",
   "agent.log.explorePhase1": "🔍 Phase 1/2: Quick project structure scan…",

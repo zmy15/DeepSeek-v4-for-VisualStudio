@@ -630,11 +630,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         string createJs = ChatHtmlService.BuildAgentTaskPanelCreateJs(plan);
                         await ChatWebView.CoreWebView2.ExecuteScriptAsync(createJs);
 
-                        // ── 输出规划信息到思考气泡 ──
-                        AppendAgentThinking($"📋 **规划完成**: {plan.Title}");
-                        AppendAgentThinking($"   共 {plan.Steps.Count} 个步骤");
-                        foreach (var s in plan.Steps)
-                            AppendAgentThinking($"   {s.Index}. {s.Title}");
+                        // ── 输出规划信息到思考气泡（摘要即可，步骤详情由任务面板展示）──
+                        AppendAgentThinking($"📋 **规划完成**: {plan.Title}，共 {plan.Steps.Count} 个步骤");
                     }
                     else
                     {
