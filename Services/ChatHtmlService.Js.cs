@@ -230,6 +230,7 @@ window.__executeHandoff=function(targetAgent,label){
                             // 清理流式阶段残留的 _textNode 引用
                             container._textNode = null;
                             container.innerHTML = msg.html;
+                            container.style.whiteSpace = '';  // 流式结束，恢复默认 whitespace 处理
                             var cursor = document.getElementById('cursor-' + msg.i);
                             if (cursor) cursor.style.display = 'none';
                             // 注入尾部 HTML
@@ -299,6 +300,7 @@ window.__executeHandoff=function(targetAgent,label){
                     container._textNode=textNode;
                     container.textContent='';
                     container.appendChild(textNode);
+                    container.style.whiteSpace='pre-line';  // 流式内容保留换行
                 }
                 textNode.textContent=msg.c;
             }
