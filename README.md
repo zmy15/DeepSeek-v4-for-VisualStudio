@@ -10,12 +10,12 @@
 
 *将 DeepSeek V4 大模型深度集成到 Visual Studio 2022+ 的全能 AI 编程助手*
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![VS](https://img.shields.io/badge/VS-2022%2017.14%2B-purple.svg)]()
-[![.NET](https://img.shields.io/badge/.NET%20Framework-4.7.2-blueviolet.svg)]()
-[![DeepSeek](https://img.shields.io/badge/DeepSeek-V4-green.svg)]()
-[![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey.svg)]()
-[![Version](https://img.shields.io/badge/version-1.1.4-blue.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![VS](https://img.shields.io/badge/VS-2022%2017.14%2B-purple)]()
+[![.NET](https://img.shields.io/badge/.NET%20Framework-4.7.2-blueviolet)]()
+[![DeepSeek](https://img.shields.io/badge/DeepSeek-V4-green)]()
+[![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)]()
+[![Version](https://img.shields.io/badge/version-1.1.4-blue)]()
 
 [English](README_EN.md)
 
