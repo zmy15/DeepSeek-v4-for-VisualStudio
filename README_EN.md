@@ -635,10 +635,12 @@ This project is open source under the [MIT License](LICENSE).
 
 ---
 
-<div align="center">
+## 📈 Star History
 
-**📈 Star History**
-
-[![Star History Chart](https://api.star-history.com/svg?repos=zmy15/DeepSeek-v4-for-VisualStudio&type=Date)](https://star-history.com/#zmy15/DeepSeek-v4-for-VisualStudio&Date)
-
-</div>
+<a href="https://www.star-history.com/?type=date&repos=zmy15%2FDeepSeek-v4-for-VisualStudio">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=zmy15/DeepSeek-v4-for-VisualStudio&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=zmy15/DeepSeek-v4-for-VisualStudio&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=zmy15/DeepSeek-v4-for-VisualStudio&type=date&legend=top-left" />
+ </picture>
+</a>
