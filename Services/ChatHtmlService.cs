@@ -366,7 +366,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     btn.className='msg-action-btn handoff-btn';
     btn.textContent='▶ {escapedLabel}';
     btn.title='{EscapeJsString(L["chat.html.handoffButtonTitle"])}';
-    btn.style.cssText='background:#28a745;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;margin:10px 0;font-weight:600;';
+    btn.style.cssText='background:#28a745;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;margin:10px 0;font-weight:600;opacity:1;';
     btn.onmouseover=function(){{this.style.background='#218838';}};
     btn.onmouseout=function(){{this.style.background='#28a745';}};
     btn.onclick=function(){{window.__executeHandoff('{escapedTarget}','{escapedLabel}');}};

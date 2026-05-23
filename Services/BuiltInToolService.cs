@@ -364,6 +364,50 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Type = "function",
                     Function = new ToolFunction
                     {
+                        Name = "apply_patch",
+                        Description = L["tool.apply_patch.desc"],
+                        Parameters = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                patch = new
+                                {
+                                    type = "string",
+                                    description = "补丁文本，使用 *** Begin Patch / *** End Patch 格式。每行前缀：空格=上下文、-=删除行、+=新增行。@@ 用于定位（类名/函数名等）。"
+                                }
+                            },
+                            required = new[] { "patch" }
+                        }
+                    }
+                },
+                new ToolDefinition
+                {
+                    Type = "function",
+                    Function = new ToolFunction
+                    {
+                        Name = "create_directory",
+                        Description = L["tool.create_directory.desc"],
+                        Parameters = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                dirPath = new
+                                {
+                                    type = "string",
+                                    description = "要创建的目录的绝对路径（Windows 格式，如 C:\\Users\\...\\newfolder）"
+                                }
+                            },
+                            required = new[] { "dirPath" }
+                        }
+                    }
+                },
+                new ToolDefinition
+                {
+                    Type = "function",
+                    Function = new ToolFunction
+                    {
                         Name = "run_in_terminal",
                         Description = L["tool.run_in_terminal.desc"],
                         Parameters = new
@@ -479,6 +523,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     "multi_replace_string_in_file" => await MultiReplaceStringInFileAsync(args, workspaceRoot),
                     "create_file" => await CreateFileAsync(args, workspaceRoot),
                     "delete_file" => await DeleteFileAsync(args, workspaceRoot),
+                    "apply_patch" => await ApplyPatchAsync(args, workspaceRoot),
+                    "create_directory" => await CreateDirectoryAsync(args),
                     "run_in_terminal" => await RunInTerminalAsync(args),
                     "get_terminal_output" => await GetTerminalOutputAsync(args),
                     _ => null  // 不是内置工具
@@ -500,6 +546,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 "list_dir" or "read_file" or "file_search" or "grep_search" or "get_errors"
                     or "fetch_webpage" or "build_solution"
                     or "replace_string_in_file" or "multi_replace_string_in_file" or "create_file" or "delete_file"
+                    or "apply_patch" or "create_directory"
                     or "run_in_terminal" or "get_terminal_output" => true,
                 _ => false
             };
@@ -601,6 +648,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         string deletePath = GetStringArg(args, "filePath");
                         string deleteFile = string.IsNullOrEmpty(deletePath) ? "?" : Path.GetFileName(deletePath);
                         return $"🗑️ 删除文件 `{deleteFile}`";
+
+                    case "apply_patch":
+                        return "🔧 应用补丁";
+
+                    case "create_directory":
+                        string mkdirPath = GetStringArg(args, "dirPath");
+                        string mkdirName = string.IsNullOrEmpty(mkdirPath) ? "?" : Path.GetFileName(mkdirPath);
+                        return $"📁 创建目录 `{mkdirName}`";
 
                     case "run_in_terminal":
                         string cmd = GetStringArg(args, "command");
@@ -859,10 +914,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             if (!Directory.Exists(path))
             {
-                // ── 提供有用的错误信息，引导 AI 使用工作区根目录 ──
+                // ── 提供有用的错误信息，引导 AI 使用工作区根目录或创建目录 ──
                 string suggestion = !string.IsNullOrEmpty(workspaceRoot) && Directory.Exists(workspaceRoot)
                     ? $"\n💡 提示: 当前工作区根目录是 \"{workspaceRoot}\"，请使用此路径或其中的子目录。"
                     : "\n💡 提示: 请使用 Windows 绝对路径格式（如 C:\\Users\\...\\project\\src）。";
+                suggestion += "\n💡 如需创建新目录，请使用 create_directory 工具。";
                 return Task.FromResult($"❌ 目录不存在: {path}{suggestion}");
             }
 
@@ -923,6 +979,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 string wsHint = !string.IsNullOrEmpty(workspaceRoot) && Directory.Exists(workspaceRoot)
                     ? $"\n💡 当前工作区根目录: `{workspaceRoot}`，请使用此目录下的绝对路径。"
                     : "";
+                wsHint += "\n💡 如果这是需要新建的文件，请使用 create_file 工具创建（会自动创建父目录）。如果父目录不存在，请先使用 create_directory 创建目录。";
                 return Task.FromResult($"❌ 文件不存在: {filePath}{wsHint}");
             }
 
@@ -1505,6 +1562,396 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return $"❌ delete_file 失败: {ex.Message}";
             }
         }
+
+        /// <summary>
+        /// 应用 apply_patch 格式的补丁到文件。
+        /// 解析 *** Begin Patch / *** End Patch 块，提取 Update File / Add File / Delete File 操作。
+        /// 使用简单的行级上下文匹配来定位和替换内容。
+        /// </summary>
+        private static async Task<string> ApplyPatchAsync(Dictionary<string, System.Text.Json.JsonElement> args, string? workspaceRoot)
+        {
+            string patchText = GetStringArg(args, "patch");
+
+            if (string.IsNullOrEmpty(patchText))
+                return "❌ apply_patch: 缺少 patch 参数。请提供 *** Begin Patch / *** End Patch 格式的补丁文本。";
+
+            workspaceRoot = NormalizeWorkspaceRoot(workspaceRoot);
+
+            try
+            {
+                var results = new List<string>();
+                var patches = ParsePatchBlocks(patchText);
+
+                if (patches.Count == 0)
+                {
+                    // 没有找到 Begin/End Patch 块，尝试作为简单替换处理
+                    return "⚠️ apply_patch: 未检测到 *** Begin Patch / *** End Patch 块。\n"
+                        + "请使用正确格式：\n"
+                        + "*** Begin Patch\n"
+                        + "*** Update File: /path/to/file\n"
+                        + "@@ some context\n"
+                        + " context line\n"
+                        + "- old line to remove\n"
+                        + "+ new line to add\n"
+                        + " context line\n"
+                        + "*** End Patch";
+                }
+
+                foreach (var patch in patches)
+                {
+                    string filePath = ResolvePath(patch.FilePath, workspaceRoot);
+
+                    switch (patch.Operation.ToLowerInvariant())
+                    {
+                        case "delete file":
+                        case "delete":
+                            if (File.Exists(filePath))
+                            {
+                                await Task.Run(() => File.Delete(filePath));
+                                results.Add($"✅ 已删除: {Path.GetFileName(filePath)}");
+                            }
+                            else
+                            {
+                                results.Add($"⚠️ 文件不存在，跳过删除: {Path.GetFileName(filePath)}");
+                            }
+                            break;
+
+                        case "add file":
+                        case "add":
+                            // 新增文件：所有 + 行组成内容
+                            string newContent = string.Join(Environment.NewLine,
+                                patch.Hunks.SelectMany(h => h.AddLines));
+                            string? newFileDir = Path.GetDirectoryName(filePath);
+                            if (!string.IsNullOrEmpty(newFileDir) && !Directory.Exists(newFileDir))
+                                Directory.CreateDirectory(newFileDir);
+                            await Task.Run(() => File.WriteAllText(filePath, newContent));
+                            results.Add($"✅ 已创建: {Path.GetFileName(filePath)} ({newContent.Split('\n').Length} 行)");
+                            break;
+
+                        case "update file":
+                        case "update":
+                        default:
+                            if (!File.Exists(filePath))
+                            {
+                                results.Add($"❌ 文件不存在: {filePath}\n💡 如需创建新文件，请使用 Add File 操作或 create_file 工具。");
+                                break;
+                            }
+
+                            string originalContent = await Task.Run(() => File.ReadAllText(filePath));
+                            string[] originalLines = originalContent.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+                            string[] newLines = (string[])originalLines.Clone();
+                            bool anyApplied = false;
+
+                            foreach (var hunk in patch.Hunks)
+                            {
+                                int matchStart = FindContextMatch(originalLines, hunk.ContextLines, hunk.RemoveLines);
+                                if (matchStart < 0)
+                                {
+                                    // 尝试宽松匹配（只匹配上下文行）
+                                    matchStart = FindLooseContextMatch(originalLines, hunk.ContextLines);
+                                }
+
+                                if (matchStart >= 0)
+                                {
+                                    // 构建替换后的行
+                                    var updatedLines = new List<string>();
+                                    // 保留匹配位置之前的行
+                                    for (int i = 0; i < matchStart; i++)
+                                        updatedLines.Add(newLines[i]);
+                                    // 插入新增行（跳过标记为删除的行）
+                                    foreach (var hunkLine in hunk.AllLines)
+                                    {
+                                        if (hunkLine.Type == PatchLineType.Context || hunkLine.Type == PatchLineType.Add)
+                                            updatedLines.Add(hunkLine.Text);
+                                        // Remove 行不添加
+                                    }
+                                    // 保留 hunk 之后的行（跳过被删除的行数）
+                                    int removedCount = hunk.RemoveLines.Count;
+                                    int afterHunkStart = matchStart + hunk.ContextLines.Count + removedCount;
+                                    if (afterHunkStart < 0) afterHunkStart = 0;
+                                    for (int i = afterHunkStart; i < newLines.Length; i++)
+                                        updatedLines.Add(newLines[i]);
+
+                                    newLines = updatedLines.ToArray();
+                                    anyApplied = true;
+                                }
+                                else
+                                {
+                                    results.Add($"⚠️ 无法匹配 hunk (上下文: {string.Join(", ", hunk.ContextLines.Take(2))}...) → 文件: {Path.GetFileName(filePath)}");
+                                }
+                            }
+
+                            if (anyApplied)
+                            {
+                                string finalContent = string.Join(Environment.NewLine, newLines);
+                                await Task.Run(() => File.WriteAllText(filePath, finalContent));
+                                results.Add($"✅ 已应用补丁: {Path.GetFileName(filePath)} ({patch.Hunks.Count} 个 hunk)");
+                            }
+                            else if (results.All(r => !r.StartsWith("✅") && !r.StartsWith("⚠️")))
+                            {
+                                results.Add($"❌ 补丁应用失败: {Path.GetFileName(filePath)} — 无法匹配任何 hunk 的上下文。\n💡 请使用 replace_string_in_file 工具进行精确替换，或使用 create_file 工具重写整个文件。");
+                            }
+                            break;
+                    }
+                }
+
+                return results.Count > 0
+                    ? string.Join("\n", results)
+                    : "⚠️ apply_patch: 未执行任何操作";
+            }
+            catch (Exception ex)
+            {
+                return $"❌ apply_patch 失败: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// 创建目录（递归创建所有父目录，类似 mkdir -p）。
+        /// </summary>
+        private static Task<string> CreateDirectoryAsync(Dictionary<string, System.Text.Json.JsonElement> args)
+        {
+            string dirPath = GetStringArg(args, "dirPath");
+
+            if (string.IsNullOrEmpty(dirPath))
+                return Task.FromResult("❌ create_directory: 缺少 dirPath 参数。请提供 Windows 绝对路径。");
+
+            try
+            {
+                if (Directory.Exists(dirPath))
+                    return Task.FromResult($"📁 目录已存在: {dirPath}");
+
+                Directory.CreateDirectory(dirPath);
+                return Task.FromResult($"✅ 已创建目录: {dirPath}");
+            }
+            catch (Exception ex)
+            {
+                return Task.FromResult($"❌ create_directory 失败: {ex.Message}");
+            }
+        }
+
+        #region Patch Parsing Helpers
+
+        /// <summary>
+        /// 补丁块操作类型
+        /// </summary>
+        private enum PatchOperationType { Update, Add, Delete }
+
+        /// <summary>
+        /// 补丁行类型
+        /// </summary>
+        private enum PatchLineType { Context, Add, Remove }
+
+        /// <summary>
+        /// 补丁行
+        /// </summary>
+        private struct PatchLine
+        {
+            public PatchLineType Type;
+            public string Text;
+        }
+
+        /// <summary>
+        /// 单个 hunk（一个 @@ 块）
+        /// </summary>
+        private class PatchHunk
+        {
+            public List<string> ContextLines { get; set; } = new();
+            public List<string> RemoveLines { get; set; } = new();
+            public List<string> AddLines { get; set; } = new();
+            public List<PatchLine> AllLines { get; set; } = new();
+        }
+
+        /// <summary>
+        /// 解析后的补丁块
+        /// </summary>
+        private class ParsedPatch
+        {
+            public string Operation { get; set; } = "update";
+            public string FilePath { get; set; } = string.Empty;
+            public List<PatchHunk> Hunks { get; set; } = new();
+        }
+
+        /// <summary>
+        /// 解析 *** Begin Patch / *** End Patch 块。
+        /// </summary>
+        private static List<ParsedPatch> ParsePatchBlocks(string patchText)
+        {
+            var patches = new List<ParsedPatch>();
+
+            // 按 *** Begin Patch 分割
+            var beginSplit = patchText.Split(new[] { "*** Begin Patch" }, StringSplitOptions.None);
+            foreach (var block in beginSplit.Skip(1)) // 跳过第一个空块
+            {
+                int endIdx = block.IndexOf("*** End Patch", StringComparison.OrdinalIgnoreCase);
+                if (endIdx < 0) continue;
+
+                string blockContent = block.Substring(0, endIdx).Trim();
+                var patch = new ParsedPatch();
+                PatchHunk? currentHunk = null;
+
+                var lines = blockContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var rawLine in lines)
+                {
+                    string line = rawLine.TrimEnd();
+
+                    // 检测操作类型
+                    if (line.StartsWith("*** Update File:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        patch.Operation = "update";
+                        patch.FilePath = line.Substring("*** Update File:".Length).Trim().TrimStart(':').Trim();
+                        continue;
+                    }
+                    if (line.StartsWith("*** Add File:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        patch.Operation = "add";
+                        patch.FilePath = line.Substring("*** Add File:".Length).Trim().TrimStart(':').Trim();
+                        continue;
+                    }
+                    if (line.StartsWith("*** Delete File:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        patch.Operation = "delete";
+                        patch.FilePath = line.Substring("*** Delete File:".Length).Trim().TrimStart(':').Trim();
+                        continue;
+                    }
+                    if (line.StartsWith("*** Move to:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        patch.Operation = "add"; // 移动视为在新位置创建
+                        patch.FilePath = line.Substring("*** Move to:".Length).Trim().TrimStart(':').Trim();
+                        continue;
+                    }
+
+                    // 检测 hunk 标记
+                    if (line.StartsWith("@@"))
+                    {
+                        currentHunk = new PatchHunk();
+                        patch.Hunks.Add(currentHunk);
+                        continue;
+                    }
+
+                    if (currentHunk == null)
+                    {
+                        // 如果没有 hunk 但有操作行，创建默认 hunk
+                        currentHunk = new PatchHunk();
+                        patch.Hunks.Add(currentHunk);
+                    }
+
+                    // 解析行前缀
+                    if (line.StartsWith("- "))
+                    {
+                        string text = line.Substring(2);
+                        currentHunk.RemoveLines.Add(text);
+                        currentHunk.ContextLines.Add(text); // 删除行也作为上下文
+                        currentHunk.AllLines.Add(new PatchLine { Type = PatchLineType.Remove, Text = text });
+                    }
+                    else if (line.StartsWith("+ "))
+                    {
+                        string text = line.Substring(2);
+                        currentHunk.AddLines.Add(text);
+                        currentHunk.AllLines.Add(new PatchLine { Type = PatchLineType.Add, Text = text });
+                    }
+                    else if (line.Length > 0 && line[0] == ' ')
+                    {
+                        string text = line.Substring(1);
+                        currentHunk.ContextLines.Add(text);
+                        currentHunk.AllLines.Add(new PatchLine { Type = PatchLineType.Context, Text = text });
+                    }
+                    else if (line.Length > 0 && line != "*** End Patch")
+                    {
+                        // 无前缀的行视为上下文
+                        currentHunk.ContextLines.Add(line);
+                        currentHunk.AllLines.Add(new PatchLine { Type = PatchLineType.Context, Text = line });
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(patch.FilePath))
+                    patches.Add(patch);
+            }
+
+            return patches;
+        }
+
+        /// <summary>
+        /// 在源文件中查找上下文匹配的起始行（精确匹配）。
+        /// 返回匹配的起始行索引（0-based），未找到返回 -1。
+        /// </summary>
+        private static int FindContextMatch(string[] sourceLines, List<string> contextLines, List<string> removeLines)
+        {
+            if (contextLines.Count == 0) return 0;
+
+            // 构建完整搜索模式：上下文行 + 待删除行
+            var searchPattern = new List<string>();
+            searchPattern.AddRange(contextLines);
+            searchPattern.AddRange(removeLines);
+
+            for (int i = 0; i <= sourceLines.Length - searchPattern.Count; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < searchPattern.Count; j++)
+                {
+                    if (!string.Equals(sourceLines[i + j].Trim(), searchPattern[j].Trim(), StringComparison.Ordinal))
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return i;
+            }
+
+            // 如果带上 removeLines 匹配失败，尝试只用 contextLines
+            if (removeLines.Count > 0 && contextLines.Count > 0)
+            {
+                for (int i = 0; i <= sourceLines.Length - contextLines.Count; i++)
+                {
+                    bool match = true;
+                    for (int j = 0; j < contextLines.Count; j++)
+                    {
+                        if (!string.Equals(sourceLines[i + j].Trim(), contextLines[j].Trim(), StringComparison.Ordinal))
+                        {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match) return i;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// 宽松上下文匹配：仅使用第1个和最后1个上下文行定位。
+        /// </summary>
+        private static int FindLooseContextMatch(string[] sourceLines, List<string> contextLines)
+        {
+            if (contextLines.Count < 2) return -1;
+
+            string firstCtx = contextLines.First().Trim();
+            string lastCtx = contextLines.Last().Trim();
+
+            for (int i = 0; i < sourceLines.Length; i++)
+            {
+                if (string.Equals(sourceLines[i].Trim(), firstCtx, StringComparison.Ordinal))
+                {
+                    // 找到第一个上下文行，然后向后搜索最后一个上下文行
+                    for (int j = i + 1; j < sourceLines.Length; j++)
+                    {
+                        if (string.Equals(sourceLines[j].Trim(), lastCtx, StringComparison.Ordinal))
+                            return i;
+                    }
+                }
+            }
+
+            // 再试试只用第一个上下文行
+            for (int i = 0; i < sourceLines.Length; i++)
+            {
+                if (string.Equals(sourceLines[i].Trim(), firstCtx, StringComparison.Ordinal))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        #endregion
 
         /// <summary>
         /// 执行 run_in_terminal 工具 — 在终端中运行命令。
