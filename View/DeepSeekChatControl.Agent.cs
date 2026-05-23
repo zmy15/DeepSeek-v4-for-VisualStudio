@@ -870,12 +870,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── 格式化为可读的思考内容 ──
 
-            // Emoji 前缀（locale-independent）
+            // Emoji 前缀（locale-independent）：状态指示、文件操作、工具调用
             if (msg.StartsWith("📄") || msg.StartsWith("📖") || msg.Contains("已读取") || msg.Contains("read file"))
                 return msg;
             if (msg.StartsWith("✅") || msg.StartsWith("❌") || msg.StartsWith("⚠️"))
                 return msg;
             if (msg.StartsWith("🔨") || msg.StartsWith("🔧"))
+                return msg;
+            // 工具调用 emoji：编辑、创建、终端、搜索、目录等
+            if (msg.StartsWith("✏️") || msg.StartsWith("📝") || msg.StartsWith("💻") || msg.StartsWith("📋")
+                || msg.StartsWith("📂") || msg.StartsWith("🔍") || msg.StartsWith("🔎") || msg.StartsWith("🌐")
+                || msg.StartsWith("🗑️"))
                 return msg;
 
             // Phase 进度指示（中英文通用：包含 "/3:" 的模式）

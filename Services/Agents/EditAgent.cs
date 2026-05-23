@@ -373,7 +373,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     buildResult = await ExecuteBuildStepAsync(step, context.SolutionPath, ct);
                 }
                 step.AiResponse = buildResult;
-                step.ResultSummary = buildResult.Truncate(100);
+                step.ResultSummary = buildResult;
             }
             else if (isCodeStep)
             {
@@ -383,7 +383,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 string result = await CallAiLongAsync(Definition.SystemPrompt, stepPrompt, ct, maxTokens: 4096);
                 step.AiResponse = result;
-                step.ResultSummary = result.Truncate(100);
+                step.ResultSummary = result;
             }
         }
 
@@ -440,7 +440,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     workspaceRoot,
                     ct,
                     maxTokens: 8192,
-                    toolWhitelist: new List<string>(ExplorationTools));
+                    toolWhitelist: new List<string>(ExplorationTools),
+                    onToolCall: (toolSummary) =>
+                    {
+                        AddLog("INFO", toolSummary);
+                    });
 
                 retryOutputs.Add(result);
 
@@ -642,7 +646,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     workspaceRoot,
                     ct,
                     maxTokens: 4096,
-                    toolWhitelist: verifyToolWhitelist);
+                    toolWhitelist: verifyToolWhitelist,
+                    onToolCall: (toolSummary) =>
+                    {
+                        AddLog("INFO", toolSummary);
+                    });
 
                 if (!string.IsNullOrWhiteSpace(verifyResult))
                 {
@@ -1862,7 +1870,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                         _ => "⬜",
                     };
                     string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
-                        ? step.ResultSummary.Truncate(200)
+                        ? step.ResultSummary
                         : "(无)";
                     summaryPrompt.AppendLine($"- {status} {step.Title}: {summary}");
                 }
@@ -1871,8 +1879,8 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 // 语言跟随：根据当前语言选择摘要输出语言
                 bool isEnglish = !string.Equals(LocalizationService.Instance.CurrentLanguage, "zh-CN", StringComparison.OrdinalIgnoreCase);
                 string langInstruction = isEnglish
-                    ? "Please output the change summary in English (5-10 sentences covering what was changed, why, and approach):"
-                    : "请用中文输出变更摘要（5-10句话，包含改了什么、为什么改、改法思路）：";
+                    ? "Please output a detailed change summary in English (be thorough, covering what was changed, why, the approach taken, and any notable details):"
+                    : "请用中文输出详细的变更摘要（尽量详细，包含改了什么、为什么改、改法思路、技术细节等）：";
                 summaryPrompt.AppendLine(langInstruction);
 
                 string shortSystemPrompt = isEnglish
@@ -1881,7 +1889,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
 
                 string result = await CallAiShortAsync(
                     shortSystemPrompt,
-                    summaryPrompt.ToString(), ct, maxTokens: 1024);
+                    summaryPrompt.ToString(), ct, maxTokens: 4096);
 
                 // ── 安全剥离：防止 AI 意外输出工具调用标记或思考过程 ──
                 result = StripToolCallMarkers(result);

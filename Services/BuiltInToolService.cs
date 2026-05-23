@@ -337,6 +337,33 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Type = "function",
                     Function = new ToolFunction
                     {
+                        Name = "delete_file",
+                        Description = L["tool.delete_file.desc"],
+                        Parameters = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                filePath = new
+                                {
+                                    type = "string",
+                                    description = "要删除的文件的绝对路径（Windows 格式）"
+                                },
+                                explanation = new
+                                {
+                                    type = "string",
+                                    description = "删除原因的简短说明"
+                                }
+                            },
+                            required = new[] { "filePath" }
+                        }
+                    }
+                },
+                new ToolDefinition
+                {
+                    Type = "function",
+                    Function = new ToolFunction
+                    {
                         Name = "run_in_terminal",
                         Description = L["tool.run_in_terminal.desc"],
                         Parameters = new
@@ -451,6 +478,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     "replace_string_in_file" => await ReplaceStringInFileAsync(args, workspaceRoot),
                     "multi_replace_string_in_file" => await MultiReplaceStringInFileAsync(args, workspaceRoot),
                     "create_file" => await CreateFileAsync(args, workspaceRoot),
+                    "delete_file" => await DeleteFileAsync(args, workspaceRoot),
                     "run_in_terminal" => await RunInTerminalAsync(args),
                     "get_terminal_output" => await GetTerminalOutputAsync(args),
                     _ => null  // 不是内置工具
@@ -471,7 +499,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 "list_dir" or "read_file" or "file_search" or "grep_search" or "get_errors"
                     or "fetch_webpage" or "build_solution"
-                    or "replace_string_in_file" or "multi_replace_string_in_file" or "create_file"
+                    or "replace_string_in_file" or "multi_replace_string_in_file" or "create_file" or "delete_file"
                     or "run_in_terminal" or "get_terminal_output" => true,
                 _ => false
             };
@@ -568,6 +596,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         string createPath = GetStringArg(args, "filePath");
                         string createFile = string.IsNullOrEmpty(createPath) ? "?" : Path.GetFileName(createPath);
                         return $"📝 创建文件 `{createFile}`";
+
+                    case "delete_file":
+                        string deletePath = GetStringArg(args, "filePath");
+                        string deleteFile = string.IsNullOrEmpty(deletePath) ? "?" : Path.GetFileName(deletePath);
+                        return $"🗑️ 删除文件 `{deleteFile}`";
 
                     case "run_in_terminal":
                         string cmd = GetStringArg(args, "command");
@@ -1441,6 +1474,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             catch (Exception ex)
             {
                 return $"❌ create_file 失败: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// 执行 delete_file 工具 — 删除指定文件。
+        /// 注意：审批检查在 BaseAgent.ExecuteToolAsync 中完成，此方法仅执行实际删除。
+        /// </summary>
+        private static async Task<string> DeleteFileAsync(Dictionary<string, System.Text.Json.JsonElement> args, string? workspaceRoot)
+        {
+            string filePath = GetStringArg(args, "filePath");
+
+            if (string.IsNullOrEmpty(filePath))
+                return "❌ delete_file: 缺少 filePath 参数";
+
+            filePath = ResolvePath(filePath, workspaceRoot);
+
+            try
+            {
+                if (!File.Exists(filePath))
+                    return $"⚠️ 文件不存在: {Path.GetFileName(filePath)}";
+
+                string fileName = Path.GetFileName(filePath);
+                await Task.Run(() => File.Delete(filePath));
+
+                return $"✅ 已删除文件: {fileName}";
+            }
+            catch (Exception ex)
+            {
+                return $"❌ delete_file 失败: {ex.Message}";
             }
         }
 

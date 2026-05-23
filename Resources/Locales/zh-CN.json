@@ -484,6 +484,7 @@
   "tool.replace_string_in_file.desc": "在文件中执行精确字符串替换。用 newString 替换文件中 oldString 的第一次出现。\n用于小范围精确修改（1-3处局部改动）。对于多处修改，优先使用 multi_replace_string_in_file。\n重要：oldString 必须与文件中的实际文本完全匹配（包括缩进和空白）。\n如果 oldString 不唯一（匹配多处），替换将失败。",
   "tool.multi_replace_string_in_file.desc": "在文件中执行多次字符串替换。接受一个替换操作数组，按顺序依次应用。\n比多次单独调用 replace_string_in_file 更高效。\n每个替换项包含 filePath（文件路径）、oldString（要替换的文本）、newString（新文本）。\n适用于需要多处修改同一文件或多个文件的场景。",
   "tool.create_file.desc": "创建新文件或完全覆盖现有文件的内容。\n用于新建文件或需要完整重写文件内容的场景。\n如果文件已存在，其内容将被完全替换。\n注意：对于已存在文件的局部修改，请使用 replace_string_in_file。",
+  "tool.delete_file.desc": "删除指定路径的文件。此操作不可撤销，执行前会要求用户确认。\n如果文件已加入 Visual Studio 项目，也将从项目中移除。",
   "tool.run_in_terminal.desc": "在持久终端会话中执行 shell 命令。\n支持 PowerShell 和 CMD 命令。用于运行构建、测试、包管理等命令。\n返回终端输出（最多 60KB）。\n对于长时间运行的命令（服务器、监视器等），使用异步模式。",
   "tool.get_terminal_output.desc": "获取异步终端命令的输出。用于检查后台运行命令的状态和结果。\n需要提供 run_in_terminal 返回的终端 ID。",
 

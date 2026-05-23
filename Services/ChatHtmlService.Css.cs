@@ -25,7 +25,7 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .msg-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}.msg-avatar.ai{background:#4ec9b0;color:#1e1e1e}.msg-avatar.user{background:#569cd6;color:#fff}
 .msg-bubble{max-width:85%;min-width:0}.msg-bubble.ai{flex:1;min-width:0}
 .msg-role-label{font-size:11px;font-weight:600;margin-bottom:4px;color:#999;text-transform:uppercase;letter-spacing:1px}.msg-role-label.user{align-self:flex-end;margin-bottom:6px;color:#569cd6;text-align:left}.msg-role-label.ai{color:#4ec9b0}
-.msg-content{font-size:13px;line-height:1.65}.msg-content p:first-child{margin-top:0}.msg-content p:last-child{margin-bottom:0}
+.msg-content{font-size:13px;line-height:1.65;white-space:pre-line}.msg-content p:first-child{margin-top:0}.msg-content p:last-child{margin-bottom:0}
 .msg-wrapper.user .msg-content{background:#264f78;border-radius:12px 12px 4px 12px;padding:10px 14px;color:#d4d4d4}
 .msg-wrapper.user .msg-content pre{background:#1e3a5a;border-color:#2d5a8a}
 .msg-wrapper.ai .msg-content{background:#2a2a2a;border:1px solid #555555;border-radius:4px 12px 12px 12px;padding:10px 14px;color:#d4d4d4}

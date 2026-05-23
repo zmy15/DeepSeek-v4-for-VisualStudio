@@ -509,10 +509,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     Logger.Info($"[Agent:{Definition.Name}] 检测到 {toolCalls.Count} 个工具调用: {string.Join(", ", toolCalls.Select(t => t.Function.Name))}");
 
                     // ── 通知工具调用（含详细信息，每轮仅一次）──
-                    var detailedSummaries = toolCalls.Select(tc =>
-                        BuiltInToolService.GetToolCallDisplayText(tc.Function.Name, tc.Function.Arguments));
-                    string toolSummary = string.Join("; ", detailedSummaries);
-                    onToolCall?.Invoke(toolSummary);
+                    // 每个工具调用单独一行，便于用户阅读执行过程
+                    foreach (var tc in toolCalls)
+                    {
+                        string summary = BuiltInToolService.GetToolCallDisplayText(tc.Function.Name, tc.Function.Arguments);
+                        onToolCall?.Invoke(summary);
+                    }
 
                     // ── 添加 assistant 消息（含工具调用）──
                     messages.Add(new ChatApiMessage
@@ -732,6 +734,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     bool approved = await RequestTerminalApprovalAsync(command, explanation);
                     if (!approved)
                         return $"⏭️ 用户跳过了终端命令: {command}";
+                }
+            }
+
+            // ── 文件删除需要用户审批 ──
+            if (toolName == "delete_file" && BuiltInTools != null)
+            {
+                string filePath = string.Empty;
+                string explanation = string.Empty;
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(argumentsJson);
+                    if (doc.RootElement.TryGetProperty("filePath", out var fpProp))
+                        filePath = fpProp.GetString() ?? string.Empty;
+                    if (doc.RootElement.TryGetProperty("explanation", out var explProp))
+                        explanation = explProp.GetString() ?? string.Empty;
+                }
+                catch { }
+
+                if (!string.IsNullOrWhiteSpace(filePath))
+                {
+                    var paths = new List<string> { filePath };
+                    bool approved = await RequestFileDeleteConfirmationAsync(paths, explanation);
+                    if (!approved)
+                        return $"⏭️ 用户取消了文件删除: {System.IO.Path.GetFileName(filePath)}";
                 }
             }
 
