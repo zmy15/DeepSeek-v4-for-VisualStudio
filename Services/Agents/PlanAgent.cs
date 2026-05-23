@@ -215,7 +215,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         #region Discovery Phase
 
         /// <summary>
-        /// 运行发现阶段：使用 AI 判断需要探索哪些区域，然后并行启动 Explore 子代理。
+        /// <summary>
+        /// 运行发现阶段：两阶段探索。
+        /// 阶段 1（串行）：快速扫描项目顶层结构（目录树 + 配置文件），结果共享给后续子代理。
+        /// 阶段 2（并行）：基于阶段 1 的结构信息，深入探索各 AI 识别的代码区域。
+        /// 
+        /// 设计原因：多个 Explore 子代理并行时，各自的 System Prompt 都强制从根目录
+        /// list_dir 开始，导致 3x 重复扫描。两阶段设计将公共基础扫描提取为串行阶段 1，
+        /// 阶段 2 注入结构上下文后跳过重复扫描，大幅减少工具调用次数。
         /// </summary>
         private async Task<string> RunDiscoveryAsync(string userMessage, AgentContext context)
         {
@@ -224,12 +231,45 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             try
             {
                 var L = LocalizationService.Instance;
-                // ── 先让 AI 判断需要探索哪些代码区域 ──
+
+                // ── 阶段 1（串行）：快速扫描项目顶层结构 ──
+                AddLog("INFO", L["agent.log.explorePhase1"]);
+                string structureContext = "";
+                try
+                {
+                    string phase1Prompt =
+                        $"{L["agent.plan.discoveryPhase1Prompt"]}\n\n" +
+                        (string.IsNullOrEmpty(context.SolutionPath) ? ""
+                            : $"Workspace root: {context.SolutionPath}\n\n") +
+                        $"{L["agent.plan.discoveryPhase1Tail"]}";
+
+                    var phase1Result = await RunSingleExploreAsync("structure", phase1Prompt, context);
+                    if (phase1Result.Success && !string.IsNullOrEmpty(phase1Result.Findings))
+                    {
+                        structureContext = phase1Result.Findings;
+                        sb.AppendLine(string.Format(L["plan.discovery.areaHeader"], L["agent.log.explorePhase1Label"]));
+                        sb.AppendLine(structureContext);
+                        sb.AppendLine();
+                        AddLog("INFO", string.Format(L["agent.log.explorePhase1Done"], structureContext.Length));
+                    }
+                    else
+                    {
+                        AddLog("WARN", L["agent.log.explorePhase1Failed"]);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AddLog("WARN", string.Format(L["agent.log.explorePhase1Error"], ex.Message));
+                }
+
+                // ── AI 判断需要探索哪些代码区域 ──
                 string routingPrompt =
                     $"{L["agent.plan.discoveryPrompt"]}\n\n" +
                     $"{L["plan.userTask"]}: {userMessage}\n\n" +
                     (string.IsNullOrEmpty(context.SolutionPath) ? ""
                         : $"Solution path: {context.SolutionPath}\n\n") +
+                    (string.IsNullOrEmpty(structureContext) ? ""
+                        : $"{L["agent.plan.discoveryStructureHint"]}\n{structureContext.Truncate(1500)}\n\n") +
                     $"{L["agent.plan.discoveryPromptTail"]}";
 
                 string routingResponse = await CallAiShortAsync(
@@ -249,12 +289,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 AddLog("INFO", string.Format(L["agent.log.exploreRouting"], areas.Count, string.Join(", ", areas)));
 
-                // ── 并行启动 Explore 子代理 ──
+                // ── 阶段 2（并行）：深入探索各区域，注入结构上下文避免重复扫描 ──
+                AddLog("INFO", L["agent.log.explorePhase2"]);
                 var exploreTasks = new List<Task<SubagentResult>>();
                 for (int i = 0; i < areas.Count; i++)
                 {
                     string area = areas[i];
-                    var task = RunSingleExploreAsync(i.ToString(), area, context);
+                    // ── 注入阶段 1 的结构上下文，明确告知跳过根目录重复扫描 ──
+                    string contextualPrompt = BuildPhase2Prompt(area, structureContext, context);
+                    var task = RunSingleExploreAsync(i.ToString(), contextualPrompt, context);
                     exploreTasks.Add(task);
                 }
 
@@ -278,6 +321,44 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 AddLog("WARN", string.Format(LocalizationService.Instance["agent.plan.discoverError"], ex.Message));
             }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 构建阶段 2 深入探索 prompt。
+        /// 注入阶段 1 的结构上下文，明确指示跳过根目录重复扫描，
+        /// 直接聚焦目标区域进行深入探索。
+        /// </summary>
+        private static string BuildPhase2Prompt(string area, string structureContext, AgentContext context)
+        {
+            var L = LocalizationService.Instance;
+            var sb = new StringBuilder();
+
+            sb.AppendLine(area);
+
+            if (!string.IsNullOrEmpty(structureContext))
+            {
+                // 截断结构上下文（保留前 3000 字符，足够理解项目结构）
+                string truncatedStructure = structureContext.Length > 3000
+                    ? structureContext.Substring(0, 3000) + "\n... (truncated)"
+                    : structureContext;
+
+                sb.AppendLine();
+                sb.AppendLine(L["agent.plan.discoveryPhase2InjectedHeader"]);
+                sb.AppendLine(truncatedStructure);
+                sb.AppendLine();
+                sb.AppendLine(L["agent.plan.discoveryPhase2SkipHint"]);
+            }
+
+            if (!string.IsNullOrEmpty(context.SolutionPath))
+            {
+                sb.AppendLine();
+                sb.AppendLine($"Workspace root: {context.SolutionPath}");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine(L["agent.plan.discoveryPhase2Tail"]);
 
             return sb.ToString();
         }
