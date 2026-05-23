@@ -1215,6 +1215,27 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _lastReportedStepIndex = 0;
                 _lastReportedStepStatus = string.Empty;
 
+                // ── 创建新的流式思考气泡（重启后 _agentStreamingMsgIndex 为 -1）──
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                var thinkingMsg = new ChatMessage
+                {
+                    Role = "assistant",
+                    Content = $"🔨 {LocalizationService.Instance["agent.status.analyzing"]}",
+                    ReasoningContent = string.Empty,
+                    Timestamp = DateTime.Now,
+                    IsStreaming = true,
+                    IsRendered = false,
+                    AgentType = AgentType.Edit,
+                };
+                lock (_lock)
+                {
+                    _messages.Add(thinkingMsg);
+                    _agentStreamingMsgIndex = _messages.Count - 1;
+                }
+                AddMessagesHtml("assistant", thinkingMsg.Content);
+                _currentStreamingMsgIndex = _agentStreamingMsgIndex;
+                UpdateBrowser();
+
                 await TaskScheduler.Default;
 
                 // ── 构建包含 _pendingHandoff 上下文的 AgentContext ──
