@@ -845,6 +845,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         Logger.Warn($"[Panel] 重建 Handoff 按钮失败: {ex.Message}");
                     }
                 }
+
+                // ── 恢复 _pendingHandoff，使重启后点击按钮不会因 null 而直接返回 ──
+                if (handoffsToRebuild.Count > 0)
+                {
+                    _pendingHandoff = handoffsToRebuild[handoffsToRebuild.Count - 1].Handoff;
+                    Logger.Info($"[Panel] 恢复 _pendingHandoff: target={_pendingHandoff.TargetAgent}, label={_pendingHandoff.Label}");
+                }
             }
             catch (Exception ex)
             {
