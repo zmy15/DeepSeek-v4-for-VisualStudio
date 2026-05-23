@@ -153,6 +153,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>待删除的文件路径列表（ActionType = "file_delete" 时使用）</summary>
         public List<string> FilePaths { get; set; } = new();
 
+        /// <summary>额外详情内容（如文件写入时展示变更内容预览）</summary>
+        public string Detail { get; set; } = string.Empty;
+
         /// <summary>等待用户响应的 TaskCompletionSource</summary>
         [JsonIgnore]
         public TaskCompletionSource<bool>? ResponseTcs { get; set; }

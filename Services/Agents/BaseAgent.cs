@@ -1119,13 +1119,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 请求用户许可执行某个操作。
         /// </summary>
-        public async Task<bool> RequestPermissionAsync(string title, string command, string actionType = "command")
+        /// <param name="detail">可选额外详情（如文件写入时展示变更内容预览）</param>
+        public async Task<bool> RequestPermissionAsync(string title, string command, string actionType = "command", string detail = "")
         {
             var request = new AgentPermissionRequest
             {
                 Title = title,
                 Command = command,
                 ActionType = actionType,
+                Detail = detail,
                 ResponseTcs = new TaskCompletionSource<bool>(),
             };
 

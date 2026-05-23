@@ -785,7 +785,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                             try
                             {
                                 bool fallbackAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                                    resolvedPath, "Healing 兜底写入（Patch→create_file）");
+                                    resolvedPath, "Healing 兜底写入（Patch→create_file）", applyResult.FinalContent ?? string.Empty);
                                 if (fallbackAllowed)
                                 {
                                     await TerminalWindowHelper.WriteCodeToFileAsync(
@@ -832,7 +832,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                     {
                         // 新文件必须立即写入磁盘才能加入项目
                         bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                            resolvedPath, $"Patch 新建文件");
+                            resolvedPath, $"Patch 新建文件", applyResult.FinalContent ?? string.Empty);
                         if (writeAllowed)
                         {
                             await TerminalWindowHelper.WriteCodeToFileAsync(
@@ -895,7 +895,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 string finalContent = kvp.Value.content;
 
                 bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                    filePath, $"Patch 批量写入（原子模式）");
+                    filePath, $"Patch 批量写入（原子模式）", finalContent);
                 if (writeAllowed)
                 {
                     await TerminalWindowHelper.WriteCodeToFileAsync(filePath, finalContent);
@@ -990,7 +990,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                             {
                                 // ── 项目文件拦截 ──
                                 bool fallbackAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                                    resolvedPath, "Healing 兜底写入（InsertEdit→create_file）");
+                                    resolvedPath, "Healing 兜底写入（InsertEdit→create_file）", fallbackContent ?? string.Empty);
                                 if (fallbackAllowed)
                                 {
                                     await TerminalWindowHelper.WriteCodeToFileAsync(
@@ -1029,7 +1029,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                     {
                         // ── 项目文件拦截：修改 .vcxproj/.sln 等前请求用户确认 ──
                         bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                            resolvedPath, string.Format(LocalizationService.Instance["agent.log.insertEditPoints"], applyResult.AppliedEdits.Count));
+                            resolvedPath, string.Format(LocalizationService.Instance["agent.log.insertEditPoints"], applyResult.AppliedEdits.Count), applyResult.FinalContent ?? string.Empty);
                         if (writeAllowed)
                         {
                             await TerminalWindowHelper.WriteCodeToFileAsync(
@@ -1127,7 +1127,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                     string createOpDesc = isNewFile
                         ? $"新建项目文件: {Path.GetFileName(resolvedPath)}"
                         : $"修改文件: {Path.GetFileName(resolvedPath)} (+{change.LinesAdded} -{change.LinesRemoved})";
-                    bool createWriteAllowed = await EnsureProjectFileWriteConfirmedAsync(resolvedPath, createOpDesc);
+                    bool createWriteAllowed = await EnsureProjectFileWriteConfirmedAsync(resolvedPath, createOpDesc, change.NewContent ?? string.Empty);
                     if (!createWriteAllowed)
                     {
                         AddLog("WARN", $"⏭ 已跳过项目文件写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
@@ -1627,6 +1627,13 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 sb.AppendLine("2. 每种格式都必须包含文件的完整绝对路径");
                 sb.AppendLine("3. 不要输出额外解释，只输出编辑操作");
                 sb.AppendLine("4. 多个文件用多个独立的编辑块");
+                sb.AppendLine();
+                sb.AppendLine("## ⚠️ 项目配置文件规则（必须遵守）");
+                sb.AppendLine("- ✅ **可以编辑 .vcxproj / .csproj**：NuGet 包引用、外部依赖路径、编译选项、项目间引用");
+                sb.AppendLine("- ❌ **禁止手动添加/移除源文件引用**（<ClInclude> / <ClCompile> / <Compile> 等 ItemGroup 项）");
+                sb.AppendLine("- 添加新源文件的方法：用 create_file (```file: 格式) 创建文件 → 系统自动通过 VS SDK 加入项目");
+                sb.AppendLine("- **CMakeLists.txt** 不在此限制范围，可直接编辑（系统会请求确认）");
+                sb.AppendLine("- 如果 read_file 返回「文件不存在」，先创建该文件，不要尝试修改项目配置来绕过");
             }
             else
             {
@@ -1675,8 +1682,9 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
         /// </summary>
         /// <param name="filePath">目标文件绝对路径</param>
         /// <param name="operationDescription">操作描述（如"修改 leetcode.vcxproj"）</param>
+        /// <param name="fileContent">可选，即将写入的文件内容（用于向用户展示变更预览，自动截断过长内容）</param>
         /// <returns>true=允许写入, false=用户拒绝</returns>
-        private async Task<bool> EnsureProjectFileWriteConfirmedAsync(string filePath, string operationDescription = "")
+        private async Task<bool> EnsureProjectFileWriteConfirmedAsync(string filePath, string operationDescription = "", string fileContent = "")
         {
             if (!IsProjectFile(filePath))
                 return true; // 非项目文件，直接放行
@@ -1688,10 +1696,37 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
 
             AddLog("WARN", $"⚠️ 检测到项目文件修改: {fileName}，请求用户确认...");
 
+            // 构造内容预览（截断过长内容，保留前后各 30 行）
+            string detail = "";
+            if (!string.IsNullOrWhiteSpace(fileContent))
+            {
+                const int maxPreviewLines = 60;
+                var lines = fileContent.Replace("\r\n", "\n").Split('\n');
+                if (lines.Length > maxPreviewLines)
+                {
+                    int headLines = 30;
+                    int tailLines = 30;
+                    var preview = new System.Text.StringBuilder();
+                    preview.AppendLine("```xml");
+                    for (int i = 0; i < headLines && i < lines.Length; i++)
+                        preview.AppendLine(lines[i]);
+                    preview.AppendLine($"... (省略 {lines.Length - headLines - tailLines} 行) ...");
+                    for (int i = Math.Max(headLines, lines.Length - tailLines); i < lines.Length; i++)
+                        preview.AppendLine(lines[i]);
+                    preview.Append("```");
+                    detail = preview.ToString();
+                }
+                else
+                {
+                    detail = "```xml\n" + string.Join("\n", lines) + "\n```";
+                }
+            }
+
             bool approved = await RequestPermissionAsync(
                 $"确认修改项目文件: {fileName}",
                 $"即将修改项目配置文件 `{fileName}`\n\n路径: {filePath}\n\n{desc}\n\n⚠️ 修改项目文件可能影响构建配置和项目结构。",
-                "file_write");
+                "file_write",
+                detail);
 
             if (!approved)
             {

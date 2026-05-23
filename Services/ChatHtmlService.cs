@@ -1109,7 +1109,19 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
         {
             string escapedTitle = EscapeJsString(request.Title);
             string escapedCommand = EscapeJsString(request.Command);
-            string escapedRequestId = EscapeJsString(request.RequestId);
+            string safeRequestId = EscapeHtmlAttribute(request.RequestId);
+
+            // 额外详情（如修改文件时的内容预览）
+            string detailJs = "";
+            if (!string.IsNullOrWhiteSpace(request.Detail))
+            {
+                string escapedDetail = EscapeJsString(request.Detail);
+                detailJs = $@"
+        '<details style=""margin-top:8px"">'+
+        '<summary style=""color:#C8A84E;font-size:11px;cursor:pointer"">📋 变更内容预览</summary>'+
+        '<pre style=""background:#1A1A0E;color:#C8C84E;padding:8px;border-radius:4px;font-size:10px;margin-top:4px;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all"">{escapedDetail}</pre>'+
+        '</details>'+";
+            }
 
             return $@"
 (function(){{
@@ -1124,10 +1136,10 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
     div.innerHTML=
         '<div style=""color:#C8A84E;font-size:12px;font-weight:600;margin-bottom:6px"">🔐 Agent 请求权限</div>'+
         '<div style=""color:#D4D4D4;font-size:12px;margin-bottom:4px"">{escapedTitle}</div>'+
-        '<pre style=""background:#1A1A0E;color:#C8C84E;padding:8px;border-radius:4px;font-size:11px;margin:4px 0;max-height:60px;overflow-y:auto"">{escapedCommand}</pre>'+
+        '<pre style=""background:#1A1A0E;color:#C8C84E;padding:8px;border-radius:4px;font-size:11px;margin:4px 0;max-height:60px;overflow-y:auto"">{escapedCommand}</pre>'+{detailJs}
         '<div style=""display:flex;gap:8px;margin-top:8px"">'+
-        '<button onclick=""window.__agentApprove(\'{escapedRequestId}\')"" style=""background:#1A3A1A;color:#4EC9B0;border:1px solid #3A6A3A;border-radius:4px;padding:4px 16px;cursor:pointer;font-size:12px"">✅ 允许</button>'+
-        '<button onclick=""window.__agentDeny(\'{escapedRequestId}\')"" style=""background:#3A1A1A;color:#E07878;border:1px solid #6A3A3A;border-radius:4px;padding:4px 16px;cursor:pointer;font-size:12px"">❌ 拒绝</button>'+
+        '<button onclick=""window.__agentApprove(\'{safeRequestId}\')"" style=""background:#1A3A1A;color:#4EC9B0;border:1px solid #3A6A3A;border-radius:4px;padding:4px 16px;cursor:pointer;font-size:12px"">✅ 允许</button>'+
+        '<button onclick=""window.__agentDeny(\'{safeRequestId}\')"" style=""background:#3A1A1A;color:#E07878;border:1px solid #6A3A3A;border-radius:4px;padding:4px 16px;cursor:pointer;font-size:12px"">❌ 拒绝</button>'+
         '</div>';
 
     var container=document.getElementById('chat-container');
