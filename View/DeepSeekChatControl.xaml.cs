@@ -146,6 +146,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>页面 DOM + JS 完全就绪后才为 true</summary>
         private bool _pageReady;
         private bool _webViewInitialized;
+        /// <summary>抑制 CoreWebView2InitializationCompleted 中的 UpdateBrowser（由 LoadAndShowAsync 显式接管）</summary>
+        private bool _suppressWebViewUpdate;
         private int _lastRenderedMessagesLength;
         private readonly StringBuilder _messagesHtml = new();
 
@@ -1156,18 +1158,22 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             else
             {
+                // ── 抑制 CoreWebView2InitializationCompleted 中的 UpdateBrowser ──
+                // 事件在 EnsureCoreWebView2Async 期间同步触发，但其 RunAsync 延迟执行
+                // 会覆盖此处的显式 UpdateBrowser，导致面板丢失。
+                _suppressWebViewUpdate = true;
                 bool initSuccess = await InitializeWebViewAsync();
                 _webViewInitialized = initSuccess;
 
                 if (initSuccess)
                 {
                     // ── 显式构建 HTML 并全量加载到 WebView ──
-                    // CoreWebView2InitializationCompleted 可能在 _messages 加载前触发并
-                    // 以空消息完成了首次页面加载。此处重置 _browserInitialized 强制走
-                    // NavigateToString 全量替换路径，避免增量追加导致内容重复。
+                    // 使用 session 数据重建消息 HTML，重置初始化标志强制 NavigateToString
+                    // 全量替换路径（而非增量追加），避免与事件处理器中的空白页面重复。
                     RebuildMessagesHtml();
                     _browserInitialized = false;
                     UpdateBrowser();
+                    _suppressWebViewUpdate = false;
                     // ── 重建持久化的任务面板 ──
                     _ = RebuildPanelsWhenPageReadyAsync();
                 }

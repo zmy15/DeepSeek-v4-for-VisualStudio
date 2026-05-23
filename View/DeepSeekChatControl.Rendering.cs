@@ -108,15 +108,24 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // Ctrl+C 浏览器原生快捷键不受影响，复制功能保留
                 };
 
-                // 构建初始 HTML 内容
+                // ── 构建初始 HTML 内容 ──
+                // 如果 LoadAndShowAsync 已接管首次渲染，跳过此处的 UpdateBrowser
+                // 以避免先后两次 NavigateToString 导致页面被空白覆盖
                 RebuildMessagesHtml();
-                _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+                if (!_suppressWebViewUpdate)
                 {
-                    await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    // ── 清除可能由之前隐式初始化失败残留的错误消息 ──
-                    StatusLabel.Text = LocalizationService.Instance["status.ready"];
-                    UpdateBrowser();
-                });
+                    _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+                    {
+                        await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                        // ── 清除可能由之前隐式初始化失败残留的错误消息 ──
+                        StatusLabel.Text = LocalizationService.Instance["status.ready"];
+                        UpdateBrowser();
+                    });
+                }
+                else
+                {
+                    Logger.Info("[Render] 跳过 CoreWebView2InitializationCompleted 中的 UpdateBrowser（由 LoadAndShowAsync 接管）");
+                }
             }
             else
             {
