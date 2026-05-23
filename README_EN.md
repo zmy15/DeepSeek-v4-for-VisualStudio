@@ -1,6 +1,8 @@
 ﻿<div align="center">
 
 > ⚠️ **This project is under active development. Some features may not yet be complete, and APIs may change.**
+>
+> ⚠️ **This project is still in beta. Please make sure to back up your project code (e.g., Git commit or manual backup) before using this extension to modify it, to avoid irreversible issues.**
 
 # DeepSeek v4 for Visual Studio
 
