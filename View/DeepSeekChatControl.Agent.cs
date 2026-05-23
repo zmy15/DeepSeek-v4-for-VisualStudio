@@ -17,6 +17,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -1155,7 +1156,39 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <param name="label">按钮标签（用于日志）</param>
         private async Task ExecuteAgentHandoffAsync(string targetAgent, string label)
         {
-            if (_agentDispatcher == null || _pendingHandoff == null) return;
+            if (_agentDispatcher == null) return;
+
+            // ── 重启恢复: _pendingHandoff 在 VS 重启/会话切换后为 null，
+            // 但 HandoffJson 已持久化到 ChatMessage 中，需从此恢复。 ──
+            if (_pendingHandoff == null)
+            {
+                lock (_lock)
+                {
+                    for (int i = _messages.Count - 1; i >= 0; i--)
+                    {
+                        var msg = _messages[i];
+                        if (!string.IsNullOrEmpty(msg.HandoffJson))
+                        {
+                            try
+                            {
+                                _pendingHandoff = JsonSerializer.Deserialize<AgentHandoff>(
+                                    msg.HandoffJson,
+                                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                                if (_pendingHandoff != null)
+                                {
+                                    Logger.Info("[AgentHandoff] 从 HandoffJson 恢复了待处理 Handoff");
+                                    break;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Warn($"[AgentHandoff] 反序列化 HandoffJson 失败: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+                if (_pendingHandoff == null) return;
+            }
 
             // ── 切换按钮状态为停止 ──
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
@@ -1198,6 +1231,63 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         return null;
                     },
                 };
+
+                // ── 恢复 Plan: 从持久化的 PlanJson 中重建 ActivePlan ──
+                // PlanAgent 执行完毕后 _agentDispatcher.ActivePlan 已在 RunAgentWorkflowAsync 的
+                // finally 块中被清空，但计划 JSON 已持久化到 ChatMessage.PlanJson 中。
+                // 必须在 Handoff 前恢复，否则 EditAgent 将回退到单步计划。
+                AgentTaskPlan? restoredPlan = null;
+                lock (_lock)
+                {
+                    // 查找最近一条包含 PlanJson 的消息（通常为 PlanAgent 的响应消息）
+                    for (int i = _messages.Count - 1; i >= 0; i--)
+                    {
+                        var msg = _messages[i];
+                        if (!string.IsNullOrEmpty(msg.PlanJson))
+                        {
+                            try
+                            {
+                                restoredPlan = JsonSerializer.Deserialize<AgentTaskPlan>(
+                                    msg.PlanJson,
+                                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                                if (restoredPlan != null && restoredPlan.Steps.Count > 0)
+                                    break;
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Warn($"[AgentHandoff] 反序列化 PlanJson 失败: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+
+                if (restoredPlan != null)
+                {
+                    _agentDispatcher.ActivePlan = restoredPlan;
+
+                    // 重建 PlanFilePath（用于 ExecuteHandoffAsync 加载 plan.md）
+                    // 与 PlanAgent.SavePlanMarkdownAsync 保持相同的路径计算逻辑
+                    string baseDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "DeepSeekVS", "plans");
+                    string subDir;
+                    if (!string.IsNullOrEmpty(_solutionPath))
+                    {
+                        using (var sha256 = SHA256.Create())
+                        {
+                            var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(_solutionPath));
+                            var hash = BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 16);
+                            subDir = Path.Combine(baseDir, $"proj_{hash}");
+                        }
+                    }
+                    else
+                    {
+                        subDir = Path.Combine(baseDir, "_unsaved");
+                    }
+                    context.PlanFilePath = Path.Combine(subDir, "plan.md");
+
+                    Logger.Info($"[AgentHandoff] 从 PlanJson 恢复了计划: {restoredPlan.Steps.Count} 个步骤");
+                }
 
                 var editAgent = _agentDispatcher.EditAgent;
                 editAgent.PlanUpdated += OnAgentPlanUpdated;
@@ -1260,7 +1350,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
 
                     string finalContent = (agentResult.Content ?? string.Format(LocalizationService.Instance["agent.result.taskCompletedSuccess"], plan.Steps.Count(s => s.Status == AgentStepStatus.Completed), plan.Steps.Count))
-                        + thinkingDetailsHtml;
+                        + (string.IsNullOrEmpty(thinkingDetailsHtml) ? "" : "\n\n" + thinkingDetailsHtml);
 
                     // ── 更新现有的流式思考气泡为最终内容 ──
                     lock (_lock)

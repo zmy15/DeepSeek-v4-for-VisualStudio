@@ -1818,22 +1818,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                     if (!string.IsNullOrEmpty(step.ResultSummary))
                         sb.AppendLine($"  - 结果: {step.ResultSummary}");
 
-                    // ── 包含步骤的 AI 响应内容（可滚动代码块，不截断）──
-                    // Markdig 配置了 DisableHtml，不能使用 <details>/<pre> HTML 标签。
-                    // 使用纯 markdown ``` 代码块（去除缩进确保被识别为 fenced code block）。
-                    if (!string.IsNullOrEmpty(step.AiResponse))
-                    {
-                        // RAG-MARK: no-truncate — 不再截断步骤 AI 响应，完整显示
-                        // RAG-SOURCE: ai-response Agent 步骤执行响应内容
-                        // 安全处理：如果内容含 ``` ，用 ' ' (全角单引号) 替代防止破坏外层代码块
-                        string safeContent = step.AiResponse.Replace("```", "'''");
-                        sb.AppendLine();
-                        sb.AppendLine("**📝 AI 响应详情:**");
-                        sb.AppendLine();
-                        sb.AppendLine("```");
-                        sb.AppendLine(safeContent);
-                        sb.AppendLine("```");
-                    }
+                    // ── AI 响应详情已移除（用户可在执行过程中查看实时日志）──
                 }
                 sb.AppendLine();
             }
