@@ -869,6 +869,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 string command = string.Empty;
                 string explanation = string.Empty;
+                string purpose = string.Empty;
                 try
                 {
                     using var doc = System.Text.Json.JsonDocument.Parse(argumentsJson);
@@ -876,12 +877,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         command = cmdProp.GetString() ?? string.Empty;
                     if (doc.RootElement.TryGetProperty("explanation", out var explProp))
                         explanation = explProp.GetString() ?? string.Empty;
+                    if (doc.RootElement.TryGetProperty("purpose", out var purProp))
+                        purpose = purProp.GetString() ?? string.Empty;
                 }
                 catch { }
 
                 if (!string.IsNullOrWhiteSpace(command))
                 {
-                    bool approved = await RequestTerminalApprovalAsync(command, explanation);
+                    bool approved = await RequestTerminalApprovalAsync(command, explanation, purpose);
                     if (!approved)
                         return $"⏭️ 用户跳过了终端命令: {command}";
                 }
@@ -892,6 +895,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 string filePath = string.Empty;
                 string explanation = string.Empty;
+                string purpose = string.Empty;
                 try
                 {
                     using var doc = System.Text.Json.JsonDocument.Parse(argumentsJson);
@@ -899,13 +903,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         filePath = fpProp.GetString() ?? string.Empty;
                     if (doc.RootElement.TryGetProperty("explanation", out var explProp))
                         explanation = explProp.GetString() ?? string.Empty;
+                    if (doc.RootElement.TryGetProperty("purpose", out var purProp))
+                        purpose = purProp.GetString() ?? string.Empty;
                 }
                 catch { }
 
                 if (!string.IsNullOrWhiteSpace(filePath))
                 {
                     var paths = new List<string> { filePath };
-                    bool approved = await RequestFileDeleteConfirmationAsync(paths, explanation);
+                    bool approved = await RequestFileDeleteConfirmationAsync(paths, explanation, purpose);
                     if (!approved)
                         return $"⏭️ 用户取消了文件删除: {System.IO.Path.GetFileName(filePath)}";
                 }
@@ -945,10 +951,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         "apply_patch" => "应用补丁到",
                         _ => "操作"
                     };
+                    // 根据工具类型自动推断操作目的
+                    string filePurpose = toolName switch
+                    {
+                        "create_file" => $"创建新的项目文件 `{fileName}` 以扩展项目功能",
+                        "replace_string_in_file" => $"修改 `{fileName}` 中的项目配置以适配代码变更",
+                        "multi_replace_string_in_file" => $"对 `{fileName}` 进行多处配置调整以适配代码变更",
+                        "apply_patch" => $"向 `{fileName}` 应用代码补丁以完成修改",
+                        _ => $"对项目文件 `{fileName}` 进行必要的配置变更"
+                    };
                     bool approved = await RequestPermissionAsync(
                         $"确认{operation}项目文件: {fileName}",
                         $"即将{operation}项目配置文件 `{fileName}`\n\n路径: {targetPath}\n\n⚠️ 修改项目文件可能影响构建配置和项目结构。",
-                        "file_write");
+                        "file_write",
+                        "",
+                        filePurpose);
                     if (!approved)
                     {
                         AddLog("WARN", $"❌ 用户拒绝了项目文件修改: {fileName}");
@@ -1440,8 +1457,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 请求用户许可执行某个操作。
         /// </summary>
+        /// <param name="title">简短标题（如"确认修改项目文件: foo.csproj"）</param>
+        /// <param name="command">具体操作描述（告诉用户将要做什么）</param>
+        /// <param name="actionType">操作类型</param>
         /// <param name="detail">可选额外详情（如文件写入时展示变更内容预览）</param>
-        public async Task<bool> RequestPermissionAsync(string title, string command, string actionType = "command", string detail = "")
+        /// <param name="purpose">操作目的（告诉用户为什么要执行此操作）</param>
+        public async Task<bool> RequestPermissionAsync(string title, string command, string actionType = "command", string detail = "", string purpose = "")
         {
             var request = new AgentPermissionRequest
             {
@@ -1449,6 +1470,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 Command = command,
                 ActionType = actionType,
                 Detail = detail,
+                Purpose = purpose,
                 ResponseTcs = new TaskCompletionSource<bool>(),
             };
 
@@ -1466,18 +1488,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 请求用户批准终端命令执行（显示命令详情和说明）。
         /// </summary>
         /// <param name="command">待执行的命令字符串</param>
-        /// <param name="explanation">命令用途说明</param>
+        /// <param name="explanation">命令用途说明（告诉用户这条命令在做什么，如"编译项目检查错误"）</param>
+        /// <param name="purpose">操作目的（告诉用户为什么要执行，如"验证代码修改后能否正常编译"）</param>
         /// <returns>true 表示用户允许执行，false 表示跳过</returns>
-        public async Task<bool> RequestTerminalApprovalAsync(string command, string explanation)
+        public async Task<bool> RequestTerminalApprovalAsync(string command, string explanation, string purpose = "")
         {
             if (string.IsNullOrWhiteSpace(command))
                 return false;
 
             var request = new AgentPermissionRequest
             {
-                Title = "运行 pwsh 命令?",
+                Title = "运行命令?",
                 Command = command,
                 ActionType = "terminal_command",
+                Purpose = purpose,
                 FilePaths = new List<string> { explanation ?? string.Empty },
                 ResponseTcs = new TaskCompletionSource<bool>(),
             };
@@ -1557,9 +1581,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 会中断当前执行流，在 WebView 中渲染确认按钮，等待用户响应。
         /// </summary>
         /// <param name="filePaths">待删除的文件绝对路径列表</param>
-        /// <param name="reason">删除原因说明</param>
+        /// <param name="reason">删除原因说明（告诉用户为什么删除这些文件）</param>
+        /// <param name="purpose">操作目的（告诉用户删除后能达到什么效果）</param>
         /// <returns>true 表示用户确认删除，false 表示取消</returns>
-        public async Task<bool> RequestFileDeleteConfirmationAsync(List<string> filePaths, string reason = "")
+        public async Task<bool> RequestFileDeleteConfirmationAsync(List<string> filePaths, string reason = "", string purpose = "")
         {
             if (filePaths == null || filePaths.Count == 0)
                 return false;
@@ -1575,6 +1600,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 Title = title,
                 Command = command,
                 ActionType = "file_delete",
+                Purpose = purpose,
                 FilePaths = new List<string>(filePaths),
                 ResponseTcs = new TaskCompletionSource<bool>(),
             };

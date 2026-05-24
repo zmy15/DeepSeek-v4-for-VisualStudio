@@ -1118,12 +1118,21 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
 
         /// <summary>
         /// 构建权限请求 UI 的 JS 脚本（在聊天底部注入确认/拒绝按钮）。
+        /// 显示：标题 → 目的（为什么）→ 操作描述（做什么）→ 内容预览 → 按钮
         /// </summary>
         public static string BuildPermissionRequestJs(AgentPermissionRequest request)
         {
             string escapedTitle = EscapeJsString(request.Title);
             string escapedCommand = EscapeJsString(request.Command);
             string safeRequestId = EscapeHtmlAttribute(request.RequestId);
+
+            // ── 目的说明（告诉用户为什么要执行此操作）──
+            string purposeJs = "";
+            if (!string.IsNullOrWhiteSpace(request.Purpose))
+            {
+                string escapedPurpose = EscapeJsString(request.Purpose);
+                purposeJs = $@"'<div style=""color:#CEA85C;font-size:11px;margin-bottom:4px;padding:6px 8px;background:#2A2218;border-left:3px solid #C8A84E;border-radius:4px"">'+'<span style=""font-weight:600"">🎯 目的：</span>{escapedPurpose}</div>'+";
+            }
 
             // 额外详情（如修改文件时的内容预览）
             string detailJs = "";
@@ -1148,7 +1157,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
     div.style.cssText='border:1px solid #C8A84E;border-radius:8px;background:#2E2A1A;padding:12px;margin:8px 0;animation:fadeIn .3s';
 
     div.innerHTML=
-        '<div style=""color:#C8A84E;font-size:12px;font-weight:600;margin-bottom:6px"">🔐 Agent 请求权限</div>'+
+        '<div style=""color:#C8A84E;font-size:12px;font-weight:600;margin-bottom:6px"">🔐 Agent 请求权限</div>'+{purposeJs}
         '<div style=""color:#D4D4D4;font-size:12px;margin-bottom:4px"">{escapedTitle}</div>'+
         '<pre style=""background:#1A1A0E;color:#C8C84E;padding:8px;border-radius:4px;font-size:11px;margin:4px 0;max-height:60px;overflow-y:auto"">{escapedCommand}</pre>'+{detailJs}
         '<div style=""display:flex;gap:8px;margin-top:8px"">'+
@@ -1259,12 +1268,20 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             }
 
             // 构建完整的卡片 innerHTML
+            // ── 目的说明 ──
+            string purposeHtml = "";
+            if (!string.IsNullOrWhiteSpace(request.Purpose))
+            {
+                purposeHtml = "<div class=\"file-delete-purpose\">🎯 目的：" + EscapeHtml(request.Purpose) + "</div>";
+            }
+
             string cardInnerHtml =
                 "<div class=\"file-delete-card-header\">" +
                 "<span class=\"icon\">🗑️</span>" +
                 "<span class=\"title\">确认删除文件</span>" +
                 "</div>" +
                 "<div class=\"file-delete-card-body\">" +
+                purposeHtml +
                 "<div class=\"warning-text\">⚠️ 即将删除以下项目文件，此操作将通过 Visual Studio 项目系统执行（如文件已加入项目，也将从项目中移除）：</div>" +
                 "<div class=\"file-list\">" +
                 fileItemsHtml.ToString() +
@@ -1295,10 +1312,10 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
         }
 
         /// <summary>
-        /// 构建终端命令审批 UI 的 JS 脚本（在聊天底部注入命令详情 + 允许/跳过按钮）。
+        /// 构建终端命令审批 UI 的 JS 脚本（在聊天底部注入命令详情 + 目的 + 允许/跳过按钮）。
         /// </summary>
         /// <param name="request">权限请求，其 ActionType 应为 "terminal_command"，
-        /// Title 为"运行 pwsh 命令?"，Command 为实际命令，FilePaths[0] 为命令说明。</param>
+        /// Title 为操作标题，Command 为实际命令，FilePaths[0] 为命令说明，Purpose 为操作目的。</param>
         public static string BuildTerminalApprovalJs(AgentPermissionRequest request)
         {
             string escapedRequestId = EscapeJsString(request.RequestId);
@@ -1308,13 +1325,21 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
                 ? request.FilePaths[0] : string.Empty;
             string escapedExplanation = EscapeJsString(explanation);
 
+            // ── 目的说明 ──
+            string purposeHtml = "";
+            if (!string.IsNullOrWhiteSpace(request.Purpose))
+            {
+                purposeHtml = "<div class=\"terminal-purpose\">🎯 目的：" + EscapeHtml(request.Purpose) + "</div>";
+            }
+
             string cardInnerHtml =
                 "<div class=\"terminal-approval-card-header\">" +
                 "<span class=\"icon\">🖥️</span>" +
                 "<span class=\"title\">" + EscapeHtml(request.Title) + "</span>" +
                 "</div>" +
                 "<div class=\"terminal-approval-card-body\">" +
-                "<div class=\"warning-text\">⚠️ AI 请求在终端中执行以下命令，请确认后继续：</div>" +
+                purposeHtml +
+                "<div class=\"warning-text\">⚠️ AI 请求在终端中执行以下命令：</div>" +
                 "<div class=\"cmd-block\">" + EscapeHtml(request.Command) + "</div>" +
                 (!string.IsNullOrEmpty(explanation)
                     ? "<div class=\"cmd-explanation\">📝 " + EscapeHtml(explanation) + "</div>"

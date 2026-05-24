@@ -97,6 +97,7 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .terminal-approval-card-header .title{color:#e0c870}
 .terminal-approval-card-body{padding:12px 14px}
 .terminal-approval-card-body .warning-text{color:#c88;font-size:12px;margin-bottom:8px}
+.terminal-approval-card-body .terminal-purpose{color:#CEA85C;font-size:11px;margin-bottom:10px;padding:6px 10px;background:#2A2218;border-left:3px solid #C8A84E;border-radius:4px;line-height:1.5}
 .terminal-approval-card-body .cmd-block{background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:10px 14px;font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:12px;color:#e0e0e0;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin-bottom:8px}
 .terminal-approval-card-body .cmd-explanation{color:#9a9a9a;font-size:11px;margin-top:6px}
 .terminal-approval-card-footer{display:flex;gap:8px;padding:10px 14px;border-top:1px solid #3a2e1a;justify-content:flex-end}
@@ -110,6 +111,7 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .file-delete-card-header .icon{font-size:18px}
 .file-delete-card-header .title{color:#e07878}
 .file-delete-card-body{padding:12px 14px}
+.file-delete-card-body .file-delete-purpose{color:#CEA85C;font-size:11px;margin-bottom:10px;padding:6px 10px;background:#2A2218;border-left:3px solid #C8A84E;border-radius:4px;line-height:1.5}
 .file-delete-card-body .warning-text{color:#c88;font-size:12px;margin-bottom:8px}
 .file-delete-card-body .file-list{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
 .file-delete-card-body .file-item{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#1a1a1a;border:1px solid #3a2a2a;border-radius:4px}

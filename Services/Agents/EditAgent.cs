@@ -1276,7 +1276,8 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
             }
 
             string deleteReason = plan.Title ?? "代码重构";
-            bool confirmed = await RequestFileDeleteConfirmationAsync(resolvedDeletions, deleteReason);
+            string deletePurpose = $"根据计划「{deleteReason}」中的要求，需要删除这些不再需要的文件";
+            bool confirmed = await RequestFileDeleteConfirmationAsync(resolvedDeletions, deleteReason, deletePurpose);
 
             if (confirmed)
             {
@@ -1753,8 +1754,9 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
         /// <param name="filePath">目标文件绝对路径</param>
         /// <param name="operationDescription">操作描述（如"修改 leetcode.vcxproj"）</param>
         /// <param name="fileContent">可选，即将写入的文件内容（用于向用户展示变更预览，自动截断过长内容）</param>
+        /// <param name="purpose">操作目的（告诉用户为什么要修改此项目文件，如"添加新源文件到项目中"）</param>
         /// <returns>true=允许写入, false=用户拒绝</returns>
-        private async Task<bool> EnsureProjectFileWriteConfirmedAsync(string filePath, string operationDescription = "", string fileContent = "")
+        private async Task<bool> EnsureProjectFileWriteConfirmedAsync(string filePath, string operationDescription = "", string fileContent = "", string purpose = "")
         {
             if (!IsProjectFile(filePath))
                 return true; // 非项目文件，直接放行
@@ -1763,6 +1765,18 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
             string desc = !string.IsNullOrEmpty(operationDescription)
                 ? operationDescription
                 : $"修改项目文件: {fileName}";
+
+            // 自动推断目的（如果调用方未提供）
+            string effectivePurpose = purpose;
+            if (string.IsNullOrEmpty(effectivePurpose))
+            {
+                if (operationDescription.Contains("新建") || operationDescription.Contains("create_file"))
+                    effectivePurpose = "创建新文件需要更新项目配置以将其纳入编译";
+                else if (operationDescription.Contains("删除") || operationDescription.Contains("移除"))
+                    effectivePurpose = "删除文件后需要从项目配置中移除对应引用";
+                else
+                    effectivePurpose = "代码修改涉及项目配置变更，需要更新项目文件以保持一致";
+            }
 
             AddLog("WARN", $"⚠️ 检测到项目文件修改: {fileName}，请求用户确认...");
 
@@ -1796,7 +1810,8 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 $"确认修改项目文件: {fileName}",
                 $"即将修改项目配置文件 `{fileName}`\n\n路径: {filePath}\n\n{desc}\n\n⚠️ 修改项目文件可能影响构建配置和项目结构。",
                 "file_write",
-                detail);
+                detail,
+                effectivePurpose);
 
             if (!approved)
             {

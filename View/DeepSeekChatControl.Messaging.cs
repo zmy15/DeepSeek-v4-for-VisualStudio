@@ -795,6 +795,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     {
                                         string cmd = string.Empty;
                                         string exp = string.Empty;
+                                        string purpose = string.Empty;
                                         try
                                         {
                                             using var doc = System.Text.Json.JsonDocument.Parse(acc.ArgumentsBuilder.ToString());
@@ -802,6 +803,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                                 cmd = cmdProp.GetString() ?? string.Empty;
                                             if (doc.RootElement.TryGetProperty("explanation", out var expProp))
                                                 exp = expProp.GetString() ?? string.Empty;
+                                            if (doc.RootElement.TryGetProperty("purpose", out var purProp))
+                                                purpose = purProp.GetString() ?? string.Empty;
                                         }
                                         catch { }
 
@@ -810,7 +813,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                             var activeAgent = _agentDispatcher?.GetActiveAgent();
                                             if (activeAgent != null)
                                             {
-                                                bool approved = await activeAgent.RequestTerminalApprovalAsync(cmd, exp);
+                                                bool approved = await activeAgent.RequestTerminalApprovalAsync(cmd, exp, purpose);
                                                 if (!approved)
                                                 {
                                                     toolResult = $"⏭️ 用户跳过了终端命令: {cmd}";

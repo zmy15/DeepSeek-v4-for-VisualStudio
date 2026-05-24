@@ -142,16 +142,19 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>请求 ID，用于匹配用户响应</summary>
         public string RequestId { get; set; } = Guid.NewGuid().ToString("N");
 
-        /// <summary>请求标题</summary>
+        /// <summary>请求标题（简短摘要）</summary>
         public string Title { get; set; } = string.Empty;
 
-        /// <summary>待执行的命令或操作描述</summary>
+        /// <summary>操作目的：为什么要执行此操作（向用户说明原因）</summary>
+        public string Purpose { get; set; } = string.Empty;
+
+        /// <summary>待执行的命令或操作描述（具体要做什么）</summary>
         public string Command { get; set; } = string.Empty;
 
         /// <summary>操作类型</summary>
-        public string ActionType { get; set; } = "command"; // "command" | "file_write" | "web_access" | "file_delete"
+        public string ActionType { get; set; } = "command"; // "command" | "file_write" | "web_access" | "file_delete" | "terminal_command"
 
-        /// <summary>待删除的文件路径列表（ActionType = "file_delete" 时使用）</summary>
+        /// <summary>待删除/修改的文件路径列表（ActionType = "file_delete" / "file_write" 时使用）</summary>
         public List<string> FilePaths { get; set; } = new();
 
         /// <summary>额外详情内容（如文件写入时展示变更内容预览）</summary>
