@@ -65,11 +65,13 @@ public class EditAgentTests
     }
 
     [Fact]
-    public void Definition_HasNoHandoffs()
+    public void Definition_HasBuildHandoff()
     {
         var agent = new EditAgent(_apiService);
 
-        agent.Definition.Handoffs.Should().BeEmpty();
+        agent.Definition.Handoffs.Should().HaveCount(1);
+        agent.Definition.Handoffs[0].TargetAgent.Should().Be(AgentType.Build);
+        agent.Definition.Handoffs[0].ShowContinueOn.Should().BeTrue();
     }
 
     [Fact]

@@ -5,13 +5,14 @@ public class AgentTypesTests
     #region AgentType Enum
 
     [Fact]
-    public void AgentType_Enum_HasFourValues()
+    public void AgentType_Enum_HasFiveValues()
     {
-        Enum.GetValues(typeof(AgentType)).Length.Should().Be(4);
+        Enum.GetValues(typeof(AgentType)).Length.Should().Be(5);
         Enum.IsDefined(typeof(AgentType), AgentType.Ask).Should().BeTrue();
         Enum.IsDefined(typeof(AgentType), AgentType.Explore).Should().BeTrue();
         Enum.IsDefined(typeof(AgentType), AgentType.Plan).Should().BeTrue();
         Enum.IsDefined(typeof(AgentType), AgentType.Edit).Should().BeTrue();
+        Enum.IsDefined(typeof(AgentType), AgentType.Build).Should().BeTrue();
     }
 
     #endregion
