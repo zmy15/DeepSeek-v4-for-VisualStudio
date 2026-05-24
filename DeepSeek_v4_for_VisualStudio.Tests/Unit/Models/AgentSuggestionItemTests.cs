@@ -99,6 +99,7 @@ public class AgentSuggestionItemTests
     [InlineData(AgentType.Edit, "edit")]
     [InlineData(AgentType.Plan, "plan")]
     [InlineData(AgentType.Explore, "explore")]
+    [InlineData(AgentType.Build, "build")]
     public void AgentSuggestionItem_CanRepresentEachAgentType(AgentType type, string expectedName)
     {
         var item = new AgentSuggestionItem
