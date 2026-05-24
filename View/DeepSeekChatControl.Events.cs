@@ -1090,6 +1090,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         ArgumentHint = L["popup.agentHint.edit"],
                         AgentType = AgentType.Edit,
                     },
+                    new AgentSuggestionItem
+                    {
+                        Name = "build",
+                        Icon = "🔧",
+                        Description = L["popup.agentDesc.build"],
+                        ArgumentHint = L["popup.agentHint.build"],
+                        AgentType = AgentType.Build,
+                    },
                 };
 
                 // 按过滤文本筛选
