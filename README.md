@@ -29,7 +29,7 @@
 
 它不只是聊天窗口，更是一套完整的 **AI 工作流系统**：
 
-- **多智能体协作引擎** — 四种专用 Agent 自动分派、移交任务
+- **多智能体协作引擎** — 五种专用 Agent 自动分派、移交任务
 - **Skills 技能引擎** — 用 Markdown 定义可复用的 AI 工作流
 - **MCP 协议** — 接入任意工具生态，Function Calling 自动调用
 - **1M Token 上下文** — 承载大型代码库，智能压缩不丢信息
@@ -45,7 +45,7 @@
 | 能力 | 说明 |
 |------|------|
 | 🧠 **DeepSeek V4** | 流式对话 · 深度思考 (Reasoning) · 双模型可选 (Pro / Flash) |
-| 🤖 **多智能体系统** | Ask / Explore / Plan / Edit 四种 Agent，Handoff 自动协作 |
+| 🤖 **多智能体系统** | Ask / Explore / Plan / Edit / Build 五种 Agent，Handoff 自动协作 |
 | 🔧 **MCP 协议** | 多服务器连接 · Function Calling · 工具白名单 · 持久化配置 |
 | 📐 **Skills 技能** | 斜杠命令 · 项目/用户/内置三级 · YAML 前置元数据 |
 | 📝 **三种编辑方法** | apply_patch / insert_edit_into_file / create_file，四级匹配 + Healing 修复 |
@@ -53,6 +53,8 @@
 | 🔍 **RAG 检索** | 可插拔提供者接口 · 智能缓存 · 自动注入对话上下文 · 🚧 内置向量库开发中 |
 | 🌐 **联网搜索** | 百度千帆 (月1500次免费) + DuckDuckGo 双引擎 · 额度耗尽自动切换 |
 | 📄 **文件解析** | 50+ 格式 · 代码/文档/PDF/Word/Excel 全支持 · 拖拽即解析 |
+| � **断点续传** | HTTP 重试 + 流层恢复双层保护 · 网络中断自动续接 · 部分内容无缝衔接 |
+| 🛡️ **终端审批** | 命令执行前审批卡片 · 显示命令详情 + 目的说明 · 用户确认后执行 |
 | 🖼️ **图像 OCR** | Windows 内置 · MCP 远程 OCR 双引擎 |
 | 🌐 **国际化** | 中英文界面自动切换 · 选项页手动选择 · 用户自定义翻译 |
 | 📊 **代码差异预览** | 编辑器内红绿 Diff 标记 · 确认/撤销/一键应用 |
@@ -64,14 +66,15 @@
 
 ## 多智能体协作系统
 
-本扩展内置四种专用 Agent，通过 **Handoff（移交）** 机制自动协作，无需手动切换：
+本扩展内置五种专用 Agent，通过 **Handoff（移交）** 机制自动协作，无需手动切换：
 
 | Agent | 角色 | 能力 | 可移交至 |
 |-------|------|------|----------|
 | **Ask** 🤔 | 问答助手 | 代码解释、只读分析、知识问答 | Explore |
 | **Explore** 🔍 | 探索者 | 代码库搜索、文件发现、结构分析、引用追踪 | Ask, Plan, Edit |
-| **Plan** 📋 | 规划者 | 任务分解、方案设计、生成 plan.md | Edit, Explore |
-| **Edit** ✏️ | 执行者 | 代码写入/删除、文件操作、编辑后诊断 | Explore, Ask |
+| **Plan** 📋 | 规划者 | 任务分解、方案设计、生成 plan.md | Edit, Explore, Build |
+| **Edit** ✏️ | 执行者 | 代码写入/删除、文件操作、编辑后诊断 | Explore, Ask, Build |
+| **Build** 🔧 | 构建修复 | 编译验证 · 错误诊断 · 自动修复循环（最多3轮）· 新错误不计入限制 | Edit |
 
 ### 典型协作流程
 
@@ -81,6 +84,8 @@
            Plan (制定方案 → 生成 plan.md)
               ↓ Handoff
            Edit (执行修改 → 通知 Explore 探查文件)
+              ↓ 编译错误
+           Build (诊断修复 → 最多3轮循环)
               ↓ 完成后
            Ask (总结汇报)
 ```
@@ -266,6 +271,31 @@ AI 修改代码后，在编辑器中以 **红色（删除）/ 绿色（新增）
 
 ---
 
+## 断点续传
+
+网络波动时自动恢复 AI 流式响应，无需从头开始：
+
+- **双层保护**：HTTP 层自动重试（指数退避）+ 流层上下文续传
+- **部分内容保留**：中断时保存已接收的回复和思考内容
+- **无缝衔接**：重连成功后部分内容自动前置，用户无感知
+- **智能判断**：认证错误（401/403）不重试，用户取消不重试
+- **Agent 兼容**：Agent 工作流同样受益于 HTTP 层自动重试
+
+> 💡 最坏情况下总重试次数 ≤ 16（4×4），实际远少于此。
+
+---
+
+## 终端命令审批
+
+当 AI 需要执行终端命令时，聊天窗口弹出审批卡片，确保安全性：
+
+- **审批卡片**：显示命令详情、目的说明、执行环境
+- **用户确认**：点击"允许"执行，点击"跳过"取消
+- **目的透明**：AI 需说明为什么要执行该命令（如"编译项目以检查错误"）
+- **全路径覆盖**：Agent 工作流和实时对话均受审批保护
+
+---
+
 ## 安装
 
 ### 推荐：下载 VSIX 安装包
@@ -355,7 +385,7 @@ i18n 覆盖以下内容：
 | Enable Deep Thinking | ✅ 开启 | 让模型展示推理过程 |
 | Reasoning Effort | `high` | 推理深度（high / max） |
 | Search Provider | `百度千帆` | 国内推荐，月1500次免费 |
-| OCR Engine | `Windows Built-in` | 零配置即可使用 |
+| OCR Engine | `MCP OCR` | 通过 MCP 服务器获得高精度中文 OCR |
 | Show Diff Markers | ✅ 开启 | 修改前预览差异 |
 | Copilot Enable | ✅ 开启 | 行内代码补全 |
 | Token Budget | `900000` | 1M 上下文上限 |
@@ -376,6 +406,7 @@ i18n 覆盖以下内容：
 | 调用技能 | 输入 `/` 选择斜杠命令 |
 | 管理 MCP 服务器 | 聊天窗口 → 点击 🔌 MCP 按钮 |
 | 切换 Agent | 聊天窗口顶部的 Agent 选择器 |
+| 修复编译错误 | 输入 `@build` 或直接粘贴编译错误信息 |
 | 多会话管理 | 左侧会话列表 → 新建/切换/删除 |
 
 ---
@@ -396,8 +427,8 @@ i18n 覆盖以下内容：
 │  └──────┬──────┬──────┬──────┬────────────────────────┘  │
 │         │      │      │      │                           │
 │    ┌────┴─┐ ┌─┴───┐ ┌┴───┐ ┌┴────┐                      │
-│    │ Ask  │ │Expl.│ │Plan│ │Edit │                      │
-│    └──────┘ └─────┘ └────┘ └─────┘                      │
+│    │ Ask  │ │Expl.│ │Plan│ │Edit │ │Build│              │
+│    └──────┘ └─────┘ └────┘ └─────┘ └─────┘              │
 │                                                          │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │                  服务层                             │  │
@@ -418,6 +449,7 @@ i18n 覆盖以下内容：
 | 服务 | 职责 |
 |------|------|
 | `AgentDispatcher` | 多 Agent 中央路由，Handoff 协调，工作流编排 |
+| `BuildAgent` | 编译错误诊断修复，构建→诊断→修复循环，自动移交 |
 | `DeepSeekApiService` | DeepSeek API 调用，流式响应，Thinking/Reasoning 控制 |
 | `SkillService` | Skill 发现、加载、YAML 解析、斜杠命令补全 |
 | `McpManagerService` | MCP 服务器生命周期管理，工具聚合与调用 |
@@ -456,8 +488,7 @@ DeepSeek_v4_for_VisualStudio/
 │   │   ├── AskAgent.cs      # 问答 Agent
 │   │   ├── ExploreAgent.cs  # 探索 Agent
 │   │   ├── PlanAgent.cs     # 规划 Agent
-│   │   └── EditAgent.cs     # 编辑 Agent
-│   ├── AgentDispatcher.cs   # Agent 调度器
+│   │   └── EditAgent.cs     # 编辑 Agent│   │   └── BuildAgent.cs    # 构建修复 Agent│   ├── AgentDispatcher.cs   # Agent 调度器
 │   ├── ChatHtmlService.cs   # 聊天 HTML 渲染
 │   ├── CodeDiffService.cs   # 代码差异服务
 │   ├── ContextCompressorService.cs  # 上下文压缩
@@ -490,7 +521,7 @@ DeepSeek_v4_for_VisualStudio/
 
 ### 测试
 
-本扩展包含 **86 个 xUnit 测试**，覆盖模型序列化、补丁解析、上下文管理、API 流式响应等核心路径。
+本扩展包含 **430+ 个 xUnit 测试**，覆盖模型序列化、补丁解析、上下文管理、API 流式响应、Agent 调度、MCP 工具调用等核心路径。
 
 ### 运行测试
 
@@ -543,7 +574,7 @@ DeepSeek_v4_for_VisualStudio.Tests/
 <details>
 <summary><b>Q: OCR 识别中文不准？</b></summary>
 
-配置 MCP OCR 服务器（如 paddleocr-mcp）以获得高精度中文 OCR。`工具 → 选项 → DeepSeek Chat → MCP 配置`。
+配置 MCP OCR 服务器（如 `uvx paddleocr-mcp`，内置 PP-OCRv5 模型）以获得高精度中文 OCR。在聊天窗口点击 🔌 MCP 按钮添加服务器即可。
 </details>
 
 <details>
