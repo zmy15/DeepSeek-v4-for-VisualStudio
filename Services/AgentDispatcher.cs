@@ -33,6 +33,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private ExploreAgent? _exploreAgent;
         private PlanAgent? _planAgent;
         private EditAgent? _editAgent;
+        private BuildAgent? _buildAgent;
 
         // ── 属性（注入工具服务） ──
         public AskAgent AskAgent
@@ -87,6 +88,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 return _editAgent;
             }
         }
+        public BuildAgent BuildAgent
+        {
+            get
+            {
+                if (_buildAgent == null)
+                {
+                    _buildAgent = new BuildAgent(_apiService);
+                    InjectToolServices(_buildAgent);
+                }
+                return _buildAgent;
+            }
+        }
 
         /// <summary>
         /// 向 Agent 注入工具服务（BuiltInToolService 和 McpManagerService）。
@@ -112,6 +125,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (_exploreAgent != null) _exploreAgent.McpManager = mcpManager;
             if (_planAgent != null) _planAgent.McpManager = mcpManager;
             if (_editAgent != null) _editAgent.McpManager = mcpManager;
+            if (_buildAgent != null) _buildAgent.McpManager = mcpManager;
 
             Logger.Info($"[AgentDispatcher] MCP 管理器已注入 (工具数: {mcpManager.AllTools.Count})");
         }
@@ -183,6 +197,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 AgentType.Explore => _exploreAgent,
                 AgentType.Plan => _planAgent,
                 AgentType.Edit => _editAgent,
+                AgentType.Build => _buildAgent,
                 _ => _askAgent,
             };
         }
@@ -198,6 +213,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 AgentType.Explore => ExploreAgent,
                 AgentType.Plan => PlanAgent,
                 AgentType.Edit => EditAgent,
+                AgentType.Build => BuildAgent,
                 _ => AskAgent,
             };
 
@@ -332,6 +348,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "plan" or "规划" => AgentType.Plan,
                 "edit" or "修改" => AgentType.Edit,
                 "explore" or "探索" => AgentType.Explore,
+                "build" or "构建" or "编译" => AgentType.Build,
                 _ => AgentType.Ask,
             };
 
@@ -363,10 +380,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "方法", "method", "出错了", "不工作", "报异常", "exception", "崩溃", "crash",
                 "改一下", "修改一下", "完善", "改进", "测试", "单元测试", "生成", "编写" };
 
+            // 构建修复类关键词（优先级高于普通修改）
+            var buildKeywords = new[] { "编译不过", "编译失败", "编译错误", "构建失败",
+                "build error", "build failed", "生成失败", "生成错误", "链接错误",
+                "link error", "无法编译", "编译不通过", "生成解决方案" };
+
             bool hasPlanKeyword = planKeywords.Any(k =>
                 userMessage.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
             bool hasEditKeyword = editKeywords.Any(k =>
                 userMessage.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
+            bool hasBuildKeyword = buildKeywords.Any(k =>
+                userMessage.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            // ── 构建修复关键词 → 直接路由到 Build Agent ──
+            if (hasBuildKeyword)
+            {
+                return new AgentRoutingResult
+                {
+                    TargetAgent = AgentType.Build,
+                    Confidence = "high",
+                    Reason = "检测到构建/编译错误关键词，路由到 Build Agent 进行诊断修复",
+                    NeedsPlanning = false,
+                };
+            }
 
             if (hasPlanKeyword && hasEditKeyword)
             {
@@ -504,6 +540,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     result = await exploreAgent.ExecuteAsync(userMessage, context);
                     break;
 
+                case AgentType.Build:
+                    var buildAgent = (BuildAgent)EnsureAgent(AgentType.Build);
+                    buildAgent.Context = context;
+                    ActiveAgentType = AgentType.Build;
+                    result = await buildAgent.ExecuteAsync(userMessage, context);
+                    break;
+
                 default:
                     var defaultAgent = (AskAgent)EnsureAgent(AgentType.Ask);
                     defaultAgent.Context = context;
@@ -591,6 +634,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 AgentType.Explore => AgentIntent.QandA,
                 AgentType.Plan => AgentIntent.CodeChange,
                 AgentType.Edit => AgentIntent.CodeChange,
+                AgentType.Build => AgentIntent.CodeChange,
                 _ => AgentIntent.QandA,
             };
         }

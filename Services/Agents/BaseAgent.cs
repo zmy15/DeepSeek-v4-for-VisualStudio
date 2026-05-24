@@ -347,7 +347,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // 使用自定义白名单或默认 Definition.AllowedTools
                     var effectiveWhitelist = toolWhitelist ?? Definition.AllowedTools;
 
-                    if (Definition.Type != AgentType.Edit && effectiveWhitelist != null)
+                    if (Definition.Type != AgentType.Edit && Definition.Type != AgentType.Build && effectiveWhitelist != null)
                     {
                         var modifyingTools = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                         {
@@ -578,8 +578,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
                 }
 
-                // ── 拦截非 Edit Agent 的修改工具调用 ──
-                if (Definition.Type != AgentType.Edit && toolCalls.Count > 0)
+                // ── 拦截非 Edit/非 Build Agent 的修改工具调用 ──
+                if (Definition.Type != AgentType.Edit && Definition.Type != AgentType.Build && toolCalls.Count > 0)
                 {
                     var modifyingTools = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     {

@@ -137,7 +137,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 UserInvocable = true,
                 AllowedTools = new List<string>(EditTools),
                 SubAgents = new List<AgentType>(),
-                Handoffs = new List<AgentHandoff>(),
+                Handoffs = new List<AgentHandoff>
+                {
+                    new AgentHandoff
+                    {
+                        Label = LocalizationService.Instance["agent.edit.handoffBuildLabel"],
+                        TargetAgent = AgentType.Build,
+                        Prompt = LocalizationService.Instance["agent.edit.handoffBuildPrompt"],
+                        AutoSend = false,
+                        ShowContinueOn = true,
+                    },
+                },
                 SystemPrompt = BuildSystemPrompt(),
             };
         }
@@ -171,6 +181,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 result.FileChanges = context.ActivePlan.ChangedFiles;
                 string aiSummary = await GenerateChangeSummaryAsync(context.ActivePlan, context.CancellationToken);
                 result.Content = BuildSummaryMarkdown(context.ActivePlan, aiSummary);
+
+                // ── 如果最终编译存在警告/失败，建议 Handoff 到 Build Agent ──
+                if (HasBuildWarningsInLogs())
+                {
+                    result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
+                }
             }
             else
             {
@@ -182,6 +198,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 result.FileChanges = plan.ChangedFiles;
                 string aiSummary = await GenerateChangeSummaryAsync(plan, context.CancellationToken);
                 result.Content = BuildSummaryMarkdown(plan, aiSummary);
+
+                // ── 如果最终编译存在警告/失败，建议 Handoff 到 Build Agent ──
+                if (HasBuildWarningsInLogs())
+                {
+                    result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
+                }
             }
 
             result.Logs.AddRange(_logs);
@@ -2533,6 +2555,29 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 return true;
             }
 
+            return false;
+        }
+
+        /// <summary>
+        /// 检查执行日志中是否有编译警告或失败信号。
+        /// 用于判断是否应建议 Handoff 到 Build Agent。
+        /// </summary>
+        private bool HasBuildWarningsInLogs()
+        {
+            foreach (var log in _logs)
+            {
+                if (log.Level == "WARN" || log.Level == "ERROR")
+                {
+                    string msg = log.Message ?? string.Empty;
+                    if (msg.Contains("编译") || msg.Contains("构建") || msg.Contains("build")
+                        || msg.Contains("Build") || msg.Contains("⚠️ 最终编译")
+                        || msg.Contains("error CS") || msg.Contains("error C")
+                        || msg.Contains("❌"))
+                    {
+                        return true;
+                    }
+                }
+            }
             return false;
         }
 

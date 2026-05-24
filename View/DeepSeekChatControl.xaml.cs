@@ -1405,6 +1405,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         AgentModeBadge.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x4C, 0xAF, 0x50));
                         AgentModeText.Text = "EDIT";
                         break;
+                    case Models.AgentType.Build:
+                        AgentModeBadge.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x6A, 0x1B, 0x9A)); // 紫
+                        AgentModeBadge.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x9C, 0x27, 0xB0));
+                        AgentModeText.Text = "BUILD";
+                        break;
                     case Models.AgentType.Explore:
                         AgentModeBadge.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1A, 0x6D, 0xA0)); // 蓝
                         AgentModeBadge.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3A, 0x8D, 0xC0));
@@ -1419,6 +1424,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     Models.AgentType.Plan => "规划模式 — AI 分析代码库并制定实现计划",
                     Models.AgentType.Edit => "编辑模式 — AI 正在修改项目代码",
+                    Models.AgentType.Build => "构建模式 — AI 正在诊断和修复编译错误",
                     Models.AgentType.Explore => "探索模式 — AI 正在检索项目代码",
                     _ => null,
                 };

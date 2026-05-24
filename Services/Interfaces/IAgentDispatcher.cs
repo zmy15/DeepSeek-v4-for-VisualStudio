@@ -15,6 +15,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         ExploreAgent ExploreAgent { get; }
         PlanAgent PlanAgent { get; }
         EditAgent EditAgent { get; }
+        BuildAgent BuildAgent { get; }
 
         AgentType ActiveAgentType { get; }
         AgentTaskPlan? ActivePlan { get; set; }

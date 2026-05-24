@@ -30,6 +30,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
             AgentType.Explore => AgentIntent.QandA,
             AgentType.Plan => AgentIntent.CodeChange,
             AgentType.Edit => AgentIntent.CodeChange,
+            AgentType.Build => AgentIntent.CodeChange,
             _ => AgentIntent.QandA,
         };
     }

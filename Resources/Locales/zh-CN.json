@@ -5,7 +5,7 @@
 
   "system.skillSystemPromptFragment": "\n\n---\n## 技能系统 (Skills)\n\n你拥有一个**技能系统**，可以在对话中按需加载专业化的任务工作流。\n\n### 技能调用时机\n技能在以下 **3 种情况** 下被调用：\n\n1. **用户显式调用** — 用户输入 `/技能名` 时，系统会自动注入该技能的完整指令。\n   此时你必须严格按照技能中的步骤执行。\n\n2. **AI 语义自动匹配** — 当用户的问题或任务**语义上匹配**某个技能的描述时，\n   你应当主动识别并在回答开头声明：「我将使用 **{技能名}** 技能来帮助你。」\n   然后按照技能指令执行。匹配依据：\n   - 用户意图与技能 description 中的关键词高度重合\n   - 用户任务与技能「何时使用」部分描述的场景一致\n   - 用户明确提到技能相关的技术栈或工作流\n\n3. **上下文推断** — 当对话上下文累积到需要特定技能介入时（如多轮调试后\n   需要代码审查），你应当主动建议并加载相应技能。\n\n### 如何使用技能\n- 技能在 `<available_skills>` 块中列出，包含名称和描述。\n- 加载技能后，严格遵循技能中定义的**步骤流程 (Procedure)**。\n- 技能可附带资源：`scripts/`（可执行脚本）、`references/`（参考文档）、`assets/`（模板）。\n- 如果技能要求运行脚本，使用终端执行。\n- **绝不虚构技能** — 只使用 `<available_skills>` 中实际列出的技能。\n\n### 技能匹配示例\n- 用户说「帮我 review 一下这段代码」→ 匹配 `code-review` 技能\n- 用户说「检查安全问题」→ 匹配 `code-review` 技能（description 含 security audit）\n- 用户说「这个函数的性能怎么样」→ 匹配 `code-review` 技能（description 含 code quality）\n\n**可用技能列表：**\n{0}\n\n用户也可以输入 `/技能名` 来显式调用，输入 `/help` 查看所有技能。",
 
-  "system.multiAgentSystemPromptFragment": "\n\n---\n## 多 Agent 协作系统\n\n你当前正在一个多 Agent 协作环境中工作。系统有以下专职 Agent：\n\n- **Ask Agent** — 纯技术问答、代码解释、方案讨论。不能修改代码。\n- **Plan Agent** — 研究代码库并制定详细实现计划。不能修改代码。\n- **Explore Agent** — 代码库只读搜索子代理。被 Plan Agent 并行调用。\n- **Edit Agent** — 执行代码修改。按计划逐步修改文件。\n\n### Agent 协作流程\n1. 用户提问 → 系统自动路由到合适的 Agent\n2. 复杂任务 → Plan Agent 先研究代码库，产出实现计划\n3. Plan Agent 可并行启动多个 Explore 子代理加速研究\n4. 计划确认后 → Handoff 给 Edit Agent 执行代码修改\n5. Edit Agent 按步骤执行，每步报告进度\n\n### Handoff 机制\n当用户说「开始实现」或「执行计划」时，当前 Agent 可以将控制权移交给 Edit Agent。\nHandoff 时会携带完整的计划和上下文。\n\n### 用户命令\n- `@ask 问题` — 显式使用 Ask Agent\n- `@plan 任务` — 显式使用 Plan Agent\n- `@edit 任务` — 显式使用 Edit Agent\n- `/技能名` — 调用技能（Skill）\n- `/help` — 查看可用技能列表",
+  "system.multiAgentSystemPromptFragment": "\n\n---\n## 多 Agent 协作系统\n\n你当前正在一个多 Agent 协作环境中工作。系统有以下专职 Agent：\n\n- **Ask Agent** — 纯技术问答、代码解释、方案讨论。不能修改代码。\n- **Plan Agent** — 研究代码库并制定详细实现计划。不能修改代码。\n- **Explore Agent** — 代码库只读搜索子代理。被 Plan Agent 并行调用。\n- **Edit Agent** — 执行代码修改。按计划逐步修改文件。\n- **Build Agent** — 诊断并修复编译/构建错误。自动编译-修复循环。Edit Agent 完成后自动移交。\n\n### Agent 协作流程\n1. 用户提问 → 系统自动路由到合适的 Agent\n2. 复杂任务 → Plan Agent 先研究代码库，产出实现计划\n3. Plan Agent 可并行启动多个 Explore 子代理加速研究\n4. 计划确认后 → Handoff 给 Edit Agent 执行代码修改\n5. Edit Agent 按步骤执行，每步报告进度\n6. Edit Agent 完成后自动 Handoff 给 Build Agent 进行编译验证和修复\n\n### Handoff 机制Edit Agent 完成代码修改后会自动建议移交到 Build Agent 进行编译诊断当前 Agent 可以将控制权移交给 Edit Agent。\nHandoff 时会携带完整的计划和上下文。\n\n### 用户命令\n- `@ask 问题` — 显式使用 Ask Agent\n- `@plan 任务` — 显式使用 Plan Agent\n- `@ed\n- `@build` 或 `@编译` — 显式使用 Build Agent（诊断编译错误）it 任务` — 显式使用 Edit Agent\n- `/技能名` — 调用技能（Skill）\n- `/help` — 查看可用技能列表",
 
   "system.skillRoutingSystemPrompt": "你是一个技能路由器。你的唯一任务是：根据用户的问题和可用技能列表，判断是否应该调用某个技能。只返回 JSON，不返回任何其他内容。",
 
@@ -13,7 +13,7 @@
 
   "system.agentRoutingSystemPrompt": "你是一个 Agent 路由器。你的唯一任务是：根据用户消息判断应该路由到哪个 Agent。只返回 JSON，不返回任何其他内容。",
 
-  "system.agentRoutingUserPrompt": "判断以下用户消息应路由到哪个 Agent。\n\n可用 Agent：\n- Ask: 纯技术问答、代码解释、方案讨论\n- Plan: 复杂任务，需要先研究再制定实现计划\n- Edit: 明确的、范围小的代码修改\n\n规则：\n1. 如果任务涉及3个以上文件或需要架构设计 → Plan\n2. 如果是明确的代码修改且范围清晰 → Edit\n3. 如果是纯问答或聊天 → Ask\n4. 只返回 JSON: {{\"targetAgent\":\"Ask|Plan|Edit\",\"confidence\":\"high|medium|low\",\"needsPlanning\":true|false,\"reason\":\"理由\"}}\n\n用户消息: {0}\n\n路由 JSON:",
+  "system.agentRoutingUserPrompt": "判断以下用户消息应路由到哪个 Agent。\n\n可用 Agent：\n- Ask: 纯技术问答、代码解释、方案讨论\n- Plan: 复杂任务，需要先研究再制定实现计划\n- Edit: 明确的、范围小的代码修改\n- Build: 编译/构建错误诊断与修复\n\n规则：\n1. 如果任务涉及编译错误、构建失败、链接错误 → Build\n2. 如果任务涉及3个以上文件或需要架构设计 → Plan\n3. 如果是明确的代码修改且范围清晰 → Edit\n4. 如果是纯问答或聊天 → Ask\n5. 只返回 JSON: {{\"targetAgent\":\"Ask|Plan|Edit|Build\",\"confidence\":\"high|medium|low\",\"needsPlanning\":true|false,\"reason\":\"理由\"}}\n\n用户消息: {0}\n\n路由 JSON:",
 
   "system.searchOptimizationSystemBaidu": "你只返回 JSON，不返回任何其他内容。",
 
@@ -575,6 +575,15 @@
 
   "agent.edit.description": "执行代码修改。按计划逐步修改文件，支持构建验证和权限确认。",
   "agent.edit.argumentHint": "描述要执行的代码修改任务",
+  "agent.edit.handoffBuildLabel": "诊断编译错误",
+  "agent.edit.handoffBuildPrompt": "代码修改已完成，但编译可能存在问题。请执行构建验证并修复所有编译错误：\n\n",
+
+  "agent.build.description": "诊断并修复编译/构建错误。自动编译、获取错误列表、读取相关代码、修复后重新编译，循环直到通过。",
+  "agent.build.argumentHint": "描述编译错误或直接输入 @build 开始诊断",
+  "agent.build.handoffEditLabel": "返回修改代码",
+  "agent.build.handoffEditPrompt": "构建问题可能需要更深入的代码修改。请根据以下构建错误上下文修改代码：\n\n",
+
+  "system.agent.buildPromptFragment": "\n你当前处于 **Build 模式**——专精于编译错误诊断与自动修复。\n\n## 核心原则\n- 你的唯一任务是编译验证和修复编译错误\n- 使用标准修复循环：build_solution → get_errors → read_file → replace_string_in_file → build_solution\n- 最多尝试修复 3 次，但如果修复后出现的错误与之前不同（新错误），则不计入次数限制，重新计数\n- 修复优先使用 replace_string_in_file / multi_replace_string_in_file 工具\n- 如果 build_solution 返回的错误信息不完整，用 get_errors 补充获取\n- **始终使用 build_solution 工具进行编译**，不要尝试在终端中运行 cl.exe、msbuild、dotnet build 等命令\n- 不要使用 file_search / list_dir / grep_search 等探索工具——专注于编译错误\n- 不要输出 apply_patch 文本格式——它是一个文本格式而非工具，请使用 replace_string_in_file 工具直接修改文件\n\n## 修复策略\n1. 先调用 build_solution 获取编译输出\n2. 如果编译失败，分析错误信息，定位问题文件和行号\n3. 用 read_file 读取报错文件的相关区域\n4. 用 replace_string_in_file 精确修复\n5. 修复后重新调用 build_solution 验证\n6. 重复直到编译通过或达到重试上限\n\n## 常见编译错误处理\n- **CS#### / error C####**: C#/C++ 语法或类型错误 → read_file 读取报错行，修复语法\n- **error LNK####**: 链接错误 → 检查项目引用、缺少的实现文件\n- **error MSB####**: MSBuild 错误 → 检查项目文件配置\n- **缺少 using/import**: 添加缺失的命名空间引用\n- **类型不匹配**: 修正类型声明或类型转换",
 
   "agent.log.planStarted": "Plan Agent 开始规划: \"{0}\"",
   "agent.log.planPhaseDiscover": "阶段 1/3: 发现 — 研究代码库...",
@@ -675,6 +684,13 @@
   "agent.log.editFinalBuild": "🔨 Planning 模式：所有步骤完成，执行最终统一构建...",
   "agent.log.editFinalBuildOk": "✅ 最终编译通过，所有步骤修改已验证",
   "agent.log.editFinalBuildWarn": "⚠️ 最终编译存在问题，请查看上方详情",
+
+  "agent.log.buildStarted": "Build Agent 开始诊断: \"{0}\"",
+  "agent.log.buildPassed": "✅ 编译通过，所有错误已修复",
+  "agent.log.buildStillHasErrors": "⚠️ 编译仍存在错误，可能需要进一步手动排查",
+  "agent.log.buildCancelled": "构建诊断已取消",
+  "agent.log.buildFailed": "构建诊断失败: {0}",
+
   "agent.log.waitingPermission": "等待用户许可",
   "agent.log.permissionResult": "权限请求结果",
   "agent.log.waitingAnswers": "⏳ 等待用户回答 {0} 个问题 (首个: {1})",

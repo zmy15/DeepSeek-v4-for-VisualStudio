@@ -29,6 +29,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>代码修改执行</summary>
         Edit,
+
+        /// <summary>构建修复，专注于编译错误诊断与修复</summary>
+        Build,
     }
 
     /// <summary>
