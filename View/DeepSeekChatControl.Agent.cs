@@ -168,6 +168,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     },
                 };
 
+                // ── 上下文感知执行：路由到 Edit 且存在待处理计划时，恢复 ActivePlan ──
+                // 场景：用户输入"开始执行"后 OverrideRoutingForPlanContext 路由到 Edit，
+                // 但 ActivePlan 未被恢复，EditAgent 会回退到单步执行。
+                if (routing?.TargetAgent == AgentType.Edit
+                    && !(routing?.NeedsPlanning == true))
+                {
+                    RestoreActivePlanIfNeeded(context);
+                }
+
                 // ── 记录 Token 用量日志 ──
                 var stats = _contextManager.GetStats();
                 Logger.Info($"[TokenUsage] 当前对话 Token: {stats.EstimatedTokens:N0}/{stats.TokenBudget:N0} ({stats.UsagePercent:F1}%) | 轮次: {stats.TurnCount} | 消息: {stats.MessageCount}");
@@ -1399,6 +1408,69 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
             }
             return null;
+        }
+
+        /// <summary>
+        /// 从消息列表的 PlanJson 中恢复 ActivePlan 到 AgentDispatcher。
+        /// 用于"开始执行"文本输入直接路由到 Edit 时，确保 EditAgent 按步骤执行而非单步回退。
+        /// </summary>
+        private void RestoreActivePlanIfNeeded(AgentContext context)
+        {
+            if (_agentDispatcher == null) return;
+
+            // 已有 ActivePlan，无需恢复
+            if (_agentDispatcher.ActivePlan != null && _agentDispatcher.ActivePlan.Steps.Count > 0)
+                return;
+
+            lock (_lock)
+            {
+                for (int i = _messages.Count - 1; i >= 0; i--)
+                {
+                    var msg = _messages[i];
+                    if (!string.IsNullOrEmpty(msg.PlanJson))
+                    {
+                        try
+                        {
+                            var plan = JsonSerializer.Deserialize<AgentTaskPlan>(
+                                msg.PlanJson,
+                                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                            if (plan != null && plan.Steps.Count > 0)
+                            {
+                                _agentDispatcher.ActivePlan = plan;
+                                context.ActivePlan = plan;
+                                context.IsPlanningMode = true;
+
+                                // 重建 PlanFilePath
+                                string baseDir = Path.Combine(
+                                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                    "DeepSeekVS", "plans");
+                                string subDir;
+                                if (!string.IsNullOrEmpty(_solutionPath))
+                                {
+                                    using (var sha256 = SHA256.Create())
+                                    {
+                                        var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(_solutionPath));
+                                        var hash = BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 16);
+                                        subDir = Path.Combine(baseDir, $"proj_{hash}");
+                                    }
+                                }
+                                else
+                                {
+                                    subDir = Path.Combine(baseDir, "_unsaved");
+                                }
+                                context.PlanFilePath = Path.Combine(subDir, "plan.md");
+
+                                Logger.Info($"[PlanContext] 从 PlanJson 恢复 ActivePlan: {plan.Steps.Count} 个步骤 (PlanId={plan.PlanId})");
+                                return;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Warn($"[PlanContext] 反序列化 PlanJson 失败: {ex.Message}");
+                        }
+                    }
+                }
+            }
         }
 
         #endregion
