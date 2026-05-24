@@ -490,7 +490,7 @@
   "tool.delete_file.desc": "Delete the file at the specified path. This operation is irreversible and requires user confirmation before execution.\nIf the file is part of a Visual Studio project, it will also be removed from the project.",
   "tool.apply_patch.desc": "Apply a custom diff-format patch to files. Use *** Begin Patch / *** End Patch to wrap, supports Update File / Add File / Delete File operations. Each file can have multiple @@ hunks for context anchors. Line prefixes: space=context, -=remove, +=add.",
   "tool.create_directory.desc": "Create a new directory structure. Recursively creates all parent directories (like mkdir -p). Use to create needed subdirectories in the source tree.",
-  "tool.run_in_terminal.desc": "Execute a shell command in a persistent terminal session.\nSupports PowerShell and CMD commands. Use for running builds, tests, package management, etc.\nReturns terminal output (up to 60KB).\nFor long-running commands (servers, watchers, etc.), use async mode.",
+  "tool.run_in_terminal.desc": "Execute a shell command in a persistent terminal session.\nSupports PowerShell and CMD commands. Use for running tests, package management, scripts, etc.\n⚠️ For compilation/build, use the build_solution tool (VS SDK native interface) instead — do NOT run dotnet build / msbuild in terminal.\nReturns terminal output (up to 60KB).\nFor long-running commands (servers, watchers, etc.), use async mode.",
   "tool.get_terminal_output.desc": "Get output from an async terminal command. Use to check the status and results of background commands.\nRequires the terminal ID returned by run_in_terminal async mode.",
 
   "══════════════════════════════": "═══ MCP Status ═══",

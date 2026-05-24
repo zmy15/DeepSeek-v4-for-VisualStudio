@@ -644,7 +644,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     "- **始终使用 build_solution 工具进行编译**，不要尝试在终端中运行 cl.exe、msbuild、dotnet build 等命令\n" +
                     "- build_solution 已内置 VS 编译环境，终端中这些工具可能不在 PATH 中而失败\n" +
                     "- 如果 build_solution 返回的错误信息不完整，用 get_errors 补充获取\n" +
-                    "- 最多尝试修复 3 次，如果仍失败则报告剩余问题\n\n" +
+                    "- 最多尝试修复 3 次，但如果修复后出现的错误与之前不同（新错误），则不计入次数限制，重新计数\n\n" +
                     "如果项目不支持构建（如纯脚本项目），请直接说明并跳过验证。";
 
                 // ── 使用 Definition.SystemPrompt 保持缓存前缀，验证指令通过 extraSystemMessages 注入 ──

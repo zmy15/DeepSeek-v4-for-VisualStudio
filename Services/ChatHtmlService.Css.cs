@@ -90,6 +90,20 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .task-close.finished{background:#3C1A1A;color:#E07878;border-color:#6A3A3A}
 .task-close.finished:hover{background:#c0392b;color:#fff;border-color:#c0392b}
 .agent-task-panel-body{padding:10px 14px}
+/* ── 终端命令审批卡片样式 ── */
+.terminal-approval-card{margin:12px 0;border:1px solid #5a4a2a;border-radius:10px;background:#1e1a12;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.3)}
+.terminal-approval-card-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#2a2218;border-bottom:1px solid #3a2e1a;font-size:13px;font-weight:600;color:#e0c870}
+.terminal-approval-card-header .icon{font-size:18px}
+.terminal-approval-card-header .title{color:#e0c870}
+.terminal-approval-card-body{padding:12px 14px}
+.terminal-approval-card-body .warning-text{color:#c88;font-size:12px;margin-bottom:8px}
+.terminal-approval-card-body .cmd-block{background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:10px 14px;font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:12px;color:#e0e0e0;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin-bottom:8px}
+.terminal-approval-card-body .cmd-explanation{color:#9a9a9a;font-size:11px;margin-top:6px}
+.terminal-approval-card-footer{display:flex;gap:8px;padding:10px 14px;border-top:1px solid #3a2e1a;justify-content:flex-end}
+.terminal-approval-btn-allow{background:#2a5a2a;color:#c0e8c0;border:1px solid #3a7a3a;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s}
+.terminal-approval-btn-allow:hover{background:#3a7a3a;color:#fff}
+.terminal-approval-btn-skip{background:#3c3c3c;color:#ccc;border:1px solid #555;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;transition:all .15s}
+.terminal-approval-btn-skip:hover{background:#505050;color:#fff}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:#1e1e1e}::-webkit-scrollbar-thumb{background:#555;border-radius:4px}::-webkit-scrollbar-thumb:hover{background:#777}";
 
         #endregion

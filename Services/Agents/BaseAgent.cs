@@ -801,15 +801,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 带超时保护的工具执行包装。
         /// 每个工具调用单独计时，超时则返回错误信息而非阻塞整个循环。
+        /// 对于需要用户交互的命令（run_in_terminal、delete_file、VisualStudio_askQuestions），不设超时。
         /// </summary>
         /// <param name="tc">工具调用定义</param>
         /// <param name="workspaceRoot">工作区根目录</param>
         /// <param name="ct">取消令牌</param>
-        /// <param name="timeout">超时时间</param>
+        /// <param name="timeout">超时时间（用户交互命令忽略此参数）</param>
         /// <returns>工具执行结果字符串</returns>
         private async Task<string> ExecuteToolWithTimeoutAsync(
             ToolCall tc, string? workspaceRoot, CancellationToken ct, TimeSpan timeout)
         {
+            // 需要用户交互的命令不设超时，直接执行
+            if (IsInteractiveTool(tc.Function.Name))
+            {
+                try
+                {
+                    return await ExecuteToolAsync(tc.Function.Name, tc.Function.Arguments, workspaceRoot, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 执行异常: {ex.Message}", ex);
+                    return $"❌ 工具执行异常: {ex.Message}";
+                }
+            }
+
             try
             {
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -994,6 +1009,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static bool IsFileModifyingTool(string toolName)
         {
             return toolName is "replace_string_in_file"
+                or "multi_replace_string_in_file"
+                or "create_file"
+                or "apply_patch";
+        }
+
+        /// <summary>
+        /// 判断工具是否需要用户交互（需要等待用户响应，不应设超时）。
+        /// 包括：终端命令、文件删除、提问、以及所有可能触发项目文件修改确认的写入工具。
+        /// </summary>
+        private static bool IsInteractiveTool(string toolName)
+        {
+            return toolName is "run_in_terminal"
+                or "delete_file"
+                or "VisualStudio_askQuestions"
+                or "replace_string_in_file"
                 or "multi_replace_string_in_file"
                 or "create_file"
                 or "apply_patch";

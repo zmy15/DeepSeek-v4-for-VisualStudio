@@ -2008,6 +2008,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 执行 run_in_terminal 工具 — 在终端中运行命令。
         /// 由于在 VS 扩展环境中，此工具通过 System.Diagnostics.Process 启动命令。
+        /// ⚠️ 编译/构建命令会被拦截，提示使用 build_solution 工具（VS SDK 接口）。
         /// </summary>
         private static async Task<string> RunInTerminalAsync(Dictionary<string, System.Text.Json.JsonElement> args)
         {
@@ -2016,6 +2017,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             if (string.IsNullOrEmpty(command))
                 return "❌ run_in_terminal: 缺少 command 参数";
+
+            // ── 拦截编译/构建命令，引导使用 VS SDK 接口 ──
+            if (IsBuildCommand(command))
+            {
+                return $"⛔ 禁止在终端中运行编译命令。请改用 build_solution 工具，它通过 VS SDK 原生接口编译，" +
+                    $"编译错误也会自动进入 VS Error List，可通过 get_errors 工具获取详细错误信息。\n\n" +
+                    $"被拦截的命令: {command}";
+            }
 
             bool isAsync = string.Equals(mode, "async", StringComparison.OrdinalIgnoreCase);
 
@@ -2070,6 +2079,74 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 return $"❌ run_in_terminal 失败: {ex.Message}";
             }
+        }
+
+        /// <summary>
+        /// 检测命令是否为编译/构建命令。
+        /// 这些命令应通过 build_solution（VS SDK 接口）执行，而非终端。
+        /// </summary>
+        private static bool IsBuildCommand(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command)) return false;
+
+            // 正规化命令：去除前导空格、引号包裹的 pwsh 调用等
+            string normalized = command.Trim();
+
+            // 去除可能的前缀（如 & 、powershell 调用等）
+            if (normalized.StartsWith("&"))
+                normalized = normalized.Substring(1).Trim();
+
+            // ── 编译/构建命令关键词 ──
+            // dotnet build / dotnet msbuild / dotnet publish / dotnet restore
+            if (normalized.Contains("dotnet build", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("dotnet msbuild", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("dotnet publish", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("dotnet restore", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("dotnet pack", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // MSBuild
+            if (normalized.Contains("msbuild", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("MSBuild.exe", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // C/C++ 编译器
+            if (normalized.Contains("cl.exe", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains(" link.exe", StringComparison.OrdinalIgnoreCase) ||
+                normalized.StartsWith("cl ", StringComparison.OrdinalIgnoreCase) ||
+                normalized.StartsWith("\"cl\"", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // GCC / G++ / Clang
+            if (normalized.StartsWith("gcc ", StringComparison.OrdinalIgnoreCase) ||
+                normalized.StartsWith("g++ ", StringComparison.OrdinalIgnoreCase) ||
+                normalized.StartsWith("clang", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains(" gcc ", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains(" g++ ", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // CMake / Make / Ninja 构建
+            if (normalized.Contains("cmake --build", StringComparison.OrdinalIgnoreCase) ||
+                normalized.StartsWith("make ", StringComparison.OrdinalIgnoreCase) ||
+                normalized.StartsWith("ninja", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains(" make ", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // 其他语言构建工具
+            if (normalized.Contains("cargo build", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("go build", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("npm run build", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("yarn build", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("pnpm build", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("gradle build", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("gradlew build", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("mvn ", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("mvnw ", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("pip install", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("nuget restore", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return false;
         }
 
         /// <summary>
