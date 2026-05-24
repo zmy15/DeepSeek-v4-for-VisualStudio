@@ -1034,9 +1034,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     // RAG-SOURCE: file-read 读取文件原始内容（计算变更行数）
                     string oldContent = System.IO.File.ReadAllText(filePath);
-                    int oldLines = CountLines(oldContent);
-                    linesAdded = Math.Max(0, newLines - oldLines);
-                    linesRemoved = Math.Max(0, oldLines - newLines);
+                    // 使用精确的逐行差异算法（CodeDiffService），而非简单行数减法
+                    CountDiffLines(oldContent, newContent, out int added, out int removed);
+                    linesAdded = added;
+                    linesRemoved = removed;
                 }
                 catch { }
             }

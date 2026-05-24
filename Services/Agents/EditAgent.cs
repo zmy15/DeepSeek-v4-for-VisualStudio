@@ -1862,7 +1862,15 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                             // 截取前 500 字符作为摘要
                             if (verifySection.Length > 500)
                                 verifySection = verifySection.Substring(0, 500) + "\n\n...(已截断，完整日志见执行过程)";
-                            sb.AppendLine($"  <details><summary>🔍 验证详情</summary>\n\n{verifySection}\n\n  </details>");
+                            // ── 使用 Markdown 块引用格式（非 HTML，兼容 DisableHtml 渲染管线）──
+                            sb.AppendLine();
+                            sb.AppendLine($"> 🔍 **验证详情**");
+                            sb.AppendLine(">");
+                            foreach (var line in verifySection.Split('\n'))
+                            {
+                                sb.AppendLine($"> {line}");
+                            }
+                            sb.AppendLine();
                         }
                     }
                 }
