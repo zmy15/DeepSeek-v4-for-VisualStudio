@@ -669,9 +669,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     step.AiResponse = (step.AiResponse ?? "") + "\n\n## 验证\n\n" + verifyResult;
                     AddLog("INFO", LocalizationService.Instance["agent.log.verifyPhaseComplete"]);
 
-                    // ── 如果验证结果提到编译失败/错误，追加到 result.Content 供用户查看 ──
-                    if (verifyResult.Contains("失败") || verifyResult.Contains("错误") || verifyResult.Contains("error")
-                        || verifyResult.Contains("failed") || verifyResult.Contains("FAILED"))
+                    // ── 智能检测编译是否真的失败 ──
+                    // 避免因 AI 回复中的否定表述（如"没有错误"）误报警告
+                    if (HasBuildFailure(verifyResult))
                     {
                         AddLog("WARN", "⚠️ 最终编译存在问题，请查看上方详情");
                     }
@@ -2340,6 +2340,62 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(10)
                 .ToList();
+        }
+
+        /// <summary>
+        /// 智能检测验证结果中是否真的存在编译/构建失败。
+        /// 
+        /// 与简单关键词匹配不同，此方法会排除 AI 自然语言中的否定表述
+        /// （如"没有错误"、"编译通过无错误"），只在实际有工具级失败标志时返回 true。
+        /// 
+        /// 检测策略：
+        /// 1. 工具返回的 ❌ 失败前缀（最可靠的失败信号）
+        /// 2. MSBuild 风格错误代码（error CS####、error C####、error LNK####）
+        /// 3. 明确的失败摘要（"0 succeeded, 1 failed"、"Build FAILED"）
+        /// 4. 中文"编译失败"/"构建失败"（排除"未编译失败"/"没有编译失败"等否定前置）
+        /// </summary>
+        private static bool HasBuildFailure(string verifyResult)
+        {
+            if (string.IsNullOrWhiteSpace(verifyResult))
+                return false;
+
+            // ── 策略1：工具级失败标志 ❌ ──
+            // 所有内置工具在失败时都以 ❌ 开头，这是最可靠的信号
+            // 但需要确认 ❌ 出现在 build/compile 上下文中
+            if (verifyResult.Contains("❌ 构建失败") || verifyResult.Contains("❌ 编译失败")
+                || verifyResult.Contains("❌ build") || verifyResult.Contains("❌ Build"))
+            {
+                return true;
+            }
+
+            // ── 策略2：MSBuild / 编译器错误代码 ──
+            // error CS1234, error C2065, error LNK2001 等
+            if (System.Text.RegularExpressions.Regex.IsMatch(verifyResult,
+                @"\berror\s+(CS|C|LNK|MSB|BC|FS|TS|RUST)\d+\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+
+            // ── 策略3：MSBuild 摘要失败模式 ──
+            // "0 succeeded, 1 failed" / "Build FAILED"（大写 FAILED 是 MSBuild 输出）
+            if (verifyResult.Contains("Build FAILED")
+                || System.Text.RegularExpressions.Regex.IsMatch(verifyResult,
+                    @"\b0\s+succeeded.*\b[1-9]\d*\s+failed\b",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+
+            // ── 策略4：编译/构建失败（排除否定表述）──
+            // "编译失败" / "构建失败" 但不能是 "没有编译失败" / "未编译失败"
+            if (System.Text.RegularExpressions.Regex.IsMatch(verifyResult,
+                @"(?<!\u6ca1\u6709|\u672a|\u4e0d|\u65e0)(\u7f16\u8bd1\u5931\u8d25|\u6784\u5efa\u5931\u8d25)"))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         #endregion

@@ -286,13 +286,29 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
 
             for (int level = 0; level < MaxNestingLevels; level++)
             {
-                SnapshotSpan enclosing = structureNavigator.GetSpanOfEnclosing(currentSpan);
-                if (enclosing.IsEmpty || enclosing == currentSpan)
+                try
                 {
-                    break; // no more enclosing structure found
-                }
+                    SnapshotSpan enclosing = structureNavigator.GetSpanOfEnclosing(currentSpan);
+                    if (enclosing.IsEmpty || enclosing == currentSpan)
+                    {
+                        break; // no more enclosing structure found
+                    }
 
-                currentSpan = enclosing;
+                    currentSpan = enclosing;
+                }
+                catch (System.Runtime.InteropServices.COMException ex)
+                {
+                    // C++ 语言服务在代码语法不完整时可能抛出 COM 异常（E_FAIL），
+                    // 此时停止向外扩展，使用已获取的上下文即可。
+                    Logger.Info($"[补全] GetSpanOfEnclosing COM 异常 (level={level}): {ex.Message}");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    // 其他异常也安全处理，不中断补全流程
+                    Logger.Info($"[补全] GetSpanOfEnclosing 异常 (level={level}): {ex.Message}");
+                    break;
+                }
             }
 
             return currentSpan;
