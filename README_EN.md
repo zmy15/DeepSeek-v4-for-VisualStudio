@@ -29,7 +29,7 @@
 
 It's more than a chat window; it's a complete **AI workflow system**:
 
-- **Multi-Agent Collaboration Engine** — Four specialized agents with automatic task dispatch and handoff
+- **Multi-Agent Collaboration Engine** — Five specialized agents with automatic task dispatch and handoff
 - **Skills Engine** — Define reusable AI workflows with Markdown
 - **MCP Protocol** — Connect to any tool ecosystem with automatic Function Calling
 - **1M Token Context** — Handle large codebases with intelligent compression that preserves information
@@ -45,7 +45,7 @@ It's more than a chat window; it's a complete **AI workflow system**:
 | Feature | Description |
 |---------|-------------|
 | 🧠 **DeepSeek V4** | Streaming chat · Deep Thinking (Reasoning) · Dual model (Pro / Flash) |
-| 🤖 **Multi-Agent System** | Ask / Explore / Plan / Edit agents with automatic Handoff collaboration |
+| 🤖 **Multi-Agent System** | Ask / Explore / Plan / Edit / Build agents with automatic Handoff collaboration |
 | 🔧 **MCP Protocol** | Multi-server connections · Function Calling · Tool allowlists · Persistent config |
 | 📐 **Skills System** | Slash commands · Project/User/Built-in tiers · YAML frontmatter metadata |
 | 📝 **Three Editing Methods** | apply_patch / insert_edit_into_file / create_file, four-level matching + Healing repair |
@@ -57,21 +57,24 @@ It's more than a chat window; it's a complete **AI workflow system**:
 | 🌐 **Internationalization** | Auto-detect system language · Manual override in Options · User-customizable translations |
 | 📊 **Code Diff Preview** | Red/green diff markers in editor · Accept/Undo per hunk · Apply all at once |
 | 💡 **Ghost Text Completion** | Inline grey predictions · Context-aware · Configurable debounce delay |
-| 💬 **Chat Window** | WebView2 rendering · Markdown/code highlighting · Multi-session persistence · Live plan display |
+| � **Stream Resume** | HTTP retry + stream-level recovery dual protection · Auto-reconnect on network interruption · Seamless partial content continuation |
+| 🛡️ **Terminal Approval** | Approval card before command execution · Shows command details + purpose · User-confirmed execution |
+| �💬 **Chat Window** | WebView2 rendering · Markdown/code highlighting · Multi-session persistence · Live plan display |
 | ⚙️ **Visual Configuration** | Tools → Options one-stop settings · Context/Search/OCR categorized management |
 
 ---
 
 ## Multi-Agent Collaboration System
 
-This extension includes four specialized agents that collaborate automatically via **Handoff** — no manual switching needed:
+This extension includes five specialized agents that collaborate automatically via **Handoff** — no manual switching needed:
 
 | Agent | Role | Capabilities | Can Handoff To |
 |-------|------|-------------|----------------|
 | **Ask** 🤔 | Q&A Assistant | Code explanation, read-only analysis, knowledge Q&A | Explore |
 | **Explore** 🔍 | Explorer | Codebase search, file discovery, structure analysis, reference tracking | Ask, Plan, Edit |
-| **Plan** 📋 | Planner | Task decomposition, solution design, plan.md generation | Edit, Explore |
-| **Edit** ✏️ | Executor | Code write/delete, file operations, post-edit diagnostics | Explore, Ask |
+| **Plan** 📋 | Planner | Task decomposition, solution design, plan.md generation | Edit, Explore, Build |
+| **Edit** ✏️ | Executor | Code write/delete, file operations, post-edit diagnostics | Explore, Ask, Build |
+| **Build** 🔧 | Build Fixer | Build verification · Error diagnosis · Auto-fix loop (max 3 rounds) · New errors don't count toward limit | Edit |
 
 ### Typical Collaboration Flow
 
@@ -81,6 +84,8 @@ User Question → Ask (Analyze problem)
                Plan (Create plan → generate plan.md)
                   ↓ Handoff
                Edit (Execute changes → notify Explore to investigate files)
+                  ↓ build errors
+               Build (Diagnose & fix → max 3 rounds)
                   ↓ completed
                Ask (Summarize and report)
 ```
@@ -267,6 +272,31 @@ Enable and configure under `Tools → Options → DeepSeek Chat`.
 
 ---
 
+## Stream Resume
+
+Automatically recover AI streaming responses on network fluctuation — no need to start over:
+
+- **Dual Protection**: HTTP layer auto-retry (exponential backoff) + stream-level context continuation
+- **Partial Content Preservation**: Saves received response and reasoning content on interruption
+- **Seamless Continuation**: Partial content auto-prepended after successful reconnection, invisible to user
+- **Smart Judgment**: Auth errors (401/403) are not retried; user cancellations are not retried
+- **Agent Compatible**: Agent workflows also benefit from HTTP layer auto-retry
+
+> 💡 Worst-case total retries ≤ 16 (4×4), but in practice far fewer.
+
+---
+
+## Terminal Command Approval
+
+When AI needs to execute a terminal command, an approval card pops up in the chat window for security:
+
+- **Approval Card**: Shows command details, purpose description, and execution environment
+- **User Confirmation**: Click "Allow" to execute, "Skip" to cancel
+- **Transparent Purpose**: AI must explain why the command is needed (e.g., "Build project to check for errors")
+- **Full Path Coverage**: Both Agent workflows and real-time conversations are protected by approval
+
+---
+
 ## Installation
 
 ### Recommended: Download VSIX Package
@@ -377,6 +407,7 @@ Visit [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) �
 | Invoke Skills | Type `/` to select slash commands |
 | Manage MCP Servers | Chat window → Click 🔌 MCP button |
 | Switch Agent | Agent selector at the top of the chat window |
+| Fix build errors | Type `@build` or paste build error messages directly |
 | Multi-session Management | Left sidebar session list → New/Switch/Delete |
 
 ---
@@ -397,7 +428,7 @@ Visit [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) �
 │  └──────┬──────┬──────┬──────┬────────────────────────┘  │
 │         │      │      │      │                           │
 │    ┌────┴─┐ ┌─┴───┐ ┌┴───┐ ┌┴────┐                      │
-│    │ Ask  │ │Expl.│ │Plan│ │Edit │                      │
+│    │ Ask  │ │Expl.│ │Plan│ │Edit │ │Build│              │
 │    └──────┘ └─────┘ └────┘ └─────┘                      │
 │                                                          │
 │  ┌───────────────────────────────────────────────────┐  │
@@ -419,6 +450,7 @@ Visit [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) �
 | Service | Responsibility |
 |---------|---------------|
 | `AgentDispatcher` | Multi-agent central routing, Handoff coordination, workflow orchestration |
+| `BuildAgent` | Build error diagnosis and auto-fix, build→diagnose→fix loop, automatic handoff |
 | `DeepSeekApiService` | DeepSeek API calls, streaming responses, Thinking/Reasoning control |
 | `SkillService` | Skill discovery, loading, YAML parsing, slash command completion |
 | `McpManagerService` | MCP server lifecycle management, tool aggregation and invocation |
@@ -457,8 +489,7 @@ DeepSeek_v4_for_VisualStudio/
 │   │   ├── AskAgent.cs      # Ask agent
 │   │   ├── ExploreAgent.cs  # Explore agent
 │   │   ├── PlanAgent.cs     # Plan agent
-│   │   └── EditAgent.cs     # Edit agent
-│   ├── AgentDispatcher.cs   # Agent dispatcher
+│   │   └── EditAgent.cs     # Edit agent│   │   └── BuildAgent.cs    # Build fix agent│   ├── AgentDispatcher.cs   # Agent dispatcher
 │   ├── ChatHtmlService.cs   # Chat HTML rendering
 │   ├── CodeDiffService.cs   # Code diff service
 │   ├── ContextCompressorService.cs  # Context compression
@@ -491,7 +522,7 @@ DeepSeek_v4_for_VisualStudio/
 
 ### Testing
 
-This extension includes **86 xUnit tests** covering core paths such as model serialization, patch parsing, context management, and API streaming responses.
+This extension includes **430+ xUnit tests** covering core paths such as model serialization, patch parsing, context management, API streaming responses, Agent dispatch, and MCP tool invocation.
 
 ### Running Tests
 
@@ -545,7 +576,7 @@ Check that your API Key is correct: `Tools → Options → DeepSeek Chat → API
 <details>
 <summary><b>Q: OCR Chinese recognition is inaccurate?</b></summary>
 
-Switch the OCR engine to `PaddleOCR-Sharp` (`Tools → Options → DeepSeek Chat → OCR Engine`). The ChineseV5 model will be automatically downloaded on first use.
+Use the built-in **PaddleOCR-Sharp** engine (`Tools → Options → DeepSeek Chat → OCR Engine`). The Chinese V5 model auto-downloads on first use with ≥95% accuracy. You can also configure an MCP OCR server for even higher precision.
 </details>
 
 <details>
