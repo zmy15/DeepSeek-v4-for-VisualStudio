@@ -68,7 +68,7 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .inline-edit-area{margin:4px 0}.inline-edit-area textarea{width:100%;min-height:80px;background:#1e1e1e;color:#d4d4d4;border:1px solid #4fc1ff;border-radius:6px;padding:8px 12px;font-size:13px;font-family:inherit;resize:vertical}
 .edit-actions{display:flex;gap:8px;margin-top:6px}.inline-edit-btn-save{background:#0e639c;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px}
 .inline-edit-btn-save:hover{background:#1177bb}.inline-edit-btn-cancel{background:#3c3c3c;color:#ccc;border:1px solid #555;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}.streaming-cursor{display:inline-block;width:1px;height:14px;background:#4fc1ff;margin-left:2px;animation:blink 1s infinite;vertical-align:text-bottom}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}.streaming-cursor{display:inline-block;width:1px;height:14px;background:#4fc1ff;margin-left:2px;animation:blink 1s infinite;vertical-align:text-bottom}
 .branch-nav{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:#888}
 .branch-nav-btn{background:transparent;border:1px solid #555;color:#aaa;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:3px}
 .branch-nav-btn:hover:not(:disabled){background:#3c3c3c;color:#e0e0e0}.branch-nav-btn:disabled{opacity:.3;cursor:default}.branch-nav-label{color:#aaa;min-width:40px;text-align:center}
@@ -104,6 +104,22 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .terminal-approval-btn-allow:hover{background:#3a7a3a;color:#fff}
 .terminal-approval-btn-skip{background:#3c3c3c;color:#ccc;border:1px solid #555;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;transition:all .15s}
 .terminal-approval-btn-skip:hover{background:#505050;color:#fff}
+/* ── 文件删除确认卡片样式 ── */
+.file-delete-card{margin:12px 0;border:1px solid #6a3a3a;border-radius:10px;background:#1e1a1a;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.3)}
+.file-delete-card-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#2a1a1a;border-bottom:1px solid #3a1a1a;font-size:13px;font-weight:600;color:#e07878}
+.file-delete-card-header .icon{font-size:18px}
+.file-delete-card-header .title{color:#e07878}
+.file-delete-card-body{padding:12px 14px}
+.file-delete-card-body .warning-text{color:#c88;font-size:12px;margin-bottom:8px}
+.file-delete-card-body .file-list{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.file-delete-card-body .file-item{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#1a1a1a;border:1px solid #3a2a2a;border-radius:4px}
+.file-delete-card-body .file-icon{font-size:14px}
+.file-delete-card-body .file-path{color:#d4d4d4;font-size:12px;font-family:'Cascadia Code','Fira Code',Consolas,monospace}
+.file-delete-card-footer{display:flex;gap:8px;padding:10px 14px;border-top:1px solid #3a1a1a;justify-content:flex-end}
+.file-delete-btn-confirm{background:#6a1a1a;color:#e07878;border:1px solid #8a3a3a;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s}
+.file-delete-btn-confirm:hover{background:#8a2a2a;color:#fff}
+.file-delete-btn-cancel{background:#3c3c3c;color:#ccc;border:1px solid #555;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;transition:all .15s}
+.file-delete-btn-cancel:hover{background:#505050;color:#fff}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:#1e1e1e}::-webkit-scrollbar-thumb{background:#555;border-radius:4px}::-webkit-scrollbar-thumb:hover{background:#777}";
 
         #endregion

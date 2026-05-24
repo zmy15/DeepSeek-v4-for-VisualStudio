@@ -1039,7 +1039,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
             {
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                if (ChatWebView.CoreWebView2 == null) return;
+                if (ChatWebView.CoreWebView2 == null)
+                {
+                    // WebView 未就绪，自动拒绝权限请求，避免无限等待
+                    Logger.Warn($"[Agent] CoreWebView2 未就绪，自动拒绝权限请求: {request.Title}");
+                    _agentDispatcher?.RespondToPermission(request.RequestId, false);
+                    return;
+                }
 
                 try
                 {
