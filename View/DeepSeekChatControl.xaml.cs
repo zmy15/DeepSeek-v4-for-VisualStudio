@@ -1489,6 +1489,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             public string? PendingStatus;
             public bool IsComplete;
             public long LastFlushTicks;
+            /// <summary>上次刷新时的 Reason 长度，用于判断思考内容是否显著增长</summary>
+            public int LastFlushedReasoningLength;
         }
 
         private readonly Dictionary<int, StreamBatchState> _streamBatchStates = new();
@@ -1558,13 +1560,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 long now = Stopwatch.GetTimestamp();
                 long elapsed = now - state.LastFlushTicks;
 
-                // 仅当满足条件时实际推送：已完成 / 状态变化 / 间隔达标 + 内容显著变化
+                // 仅当满足条件时实际推送：已完成 / 内容显著变化 / 思考显著变化 / 间隔达标且有任意内容
                 bool contentChanged = state.Content.Length > StreamRenderInterval;
+                bool reasoningChanged = state.Reasoning.Length > 0
+                    && state.Reasoning.Length - state.LastFlushedReasoningLength >= 50;
                 bool timeElapsed = elapsed >= StreamBatchMinIntervalTicks;
 
-                if (state.IsComplete || contentChanged || (timeElapsed && state.Content.Length > 0))
+                if (state.IsComplete || contentChanged || reasoningChanged
+                    || (timeElapsed && (state.Content.Length > 0 || state.Reasoning.Length > 0)))
                 {
                     state.LastFlushTicks = now;
+                    state.LastFlushedReasoningLength = state.Reasoning.Length;
                     PostStreamingUpdate(state.MessageIndex,
                         state.Content.ToString(),
                         state.Reasoning.ToString(),
@@ -1575,8 +1581,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         _streamBatchStates.Remove(messageIndex);
                 }
 
-                // ── 有内容且未完成：重置空闲超时定时器（300ms 无新输入则强制刷新）──
-                if (!state.IsComplete && state.Content.Length > 0)
+                // ── 有任意内容且未完成：重置空闲超时定时器（300ms 无新输入则强制刷新）──
+                if (!state.IsComplete && (state.Content.Length > 0 || state.Reasoning.Length > 0))
                 {
                     EnsureFlushIdleTimer();
                     _flushIdleTimer?.Stop();
