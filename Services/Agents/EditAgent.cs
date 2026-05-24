@@ -669,6 +669,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     step.AiResponse = (step.AiResponse ?? "") + "\n\n## 验证\n\n" + verifyResult;
                     AddLog("INFO", LocalizationService.Instance["agent.log.verifyPhaseComplete"]);
 
+                    // ── 追踪验证阶段的文件变更到 plan.ChangedFiles ──
+                    TrackVerifyPhaseChanges(verifyMessages, plan);
+
                     // ── 智能检测编译是否真的失败 ──
                     // 避免因 AI 回复中的否定表述（如"没有错误"）误报警告
                     if (HasBuildFailure(verifyResult))
@@ -2348,6 +2351,133 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(10)
                 .ToList();
+        }
+
+        /// <summary>
+        /// 追踪验证阶段产生的文件变更，合并到 plan.ChangedFiles。
+        /// 验证阶段 AI 可通过工具直接修改/创建文件，这些变更需要反映在最终总结中。
+        /// </summary>
+        private void TrackVerifyPhaseChanges(List<ChatApiMessage> verifyMessages, AgentTaskPlan plan)
+        {
+            try
+            {
+                for (int i = 0; i < verifyMessages.Count; i++)
+                {
+                    var msg = verifyMessages[i];
+                    if (msg.Role != "assistant" || msg.ToolCalls == null || msg.ToolCalls.Count == 0)
+                        continue;
+
+                    foreach (var tc in msg.ToolCalls)
+                    {
+                        string toolName = tc.Function?.Name ?? "";
+                        if (!IsFileModifyingTool(toolName))
+                            continue;
+
+                        string? filePath = ExtractFilePathFromArgs(tc.Function?.Arguments ?? "");
+                        if (string.IsNullOrWhiteSpace(filePath))
+                            continue;
+
+                        // 查找对应的 tool result 消息
+                        string toolResult = "";
+                        for (int j = i + 1; j < verifyMessages.Count; j++)
+                        {
+                            if (verifyMessages[j].Role == "tool"
+                                && verifyMessages[j].ToolCallId == tc.Id)
+                            {
+                                toolResult = verifyMessages[j].Content ?? "";
+                                break;
+                            }
+                        }
+
+                        // 判断操作是否成功（✅ 开头表示成功）
+                        if (!toolResult.StartsWith("✅")) continue;
+
+                        // 估算行数变更（从工具结果中提取 +N -M 模式）
+                        int linesAdded = 0;
+                        int linesRemoved = 0;
+                        var lineMatch = System.Text.RegularExpressions.Regex.Match(
+                            toolResult, @"\+(\d+)\s*-(\d+)");
+                        if (lineMatch.Success)
+                        {
+                            int.TryParse(lineMatch.Groups[1].Value, out linesAdded);
+                            int.TryParse(lineMatch.Groups[2].Value, out linesRemoved);
+                        }
+                        else if (toolName == "create_file")
+                        {
+                            linesAdded = 1; // 至少标记为有变更
+                        }
+
+                        string fileName = System.IO.Path.GetFileName(filePath);
+                        string description = toolName switch
+                        {
+                            "replace_string_in_file" => $"修改 {fileName}",
+                            "multi_replace_string_in_file" => $"批量修改 {fileName}",
+                            "create_file" => $"新建 {fileName}",
+                            _ => $"操作 {fileName}",
+                        };
+
+                        // 合并同一文件的多次变更
+                        var existing = plan.ChangedFiles.FirstOrDefault(
+                            c => string.Equals(c.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+                        if (existing != null)
+                        {
+                            existing.LinesAdded += linesAdded;
+                            existing.LinesRemoved += linesRemoved;
+                            if (!string.IsNullOrEmpty(description)
+                                && !(existing.BriefDescription ?? "").Contains(description))
+                            {
+                                existing.BriefDescription = (existing.BriefDescription ?? "") + "; " + description;
+                            }
+                        }
+                        else
+                        {
+                            plan.ChangedFiles.Add(new FileChangeSummary
+                            {
+                                FilePath = filePath,
+                                LinesAdded = linesAdded,
+                                LinesRemoved = linesRemoved,
+                                BriefDescription = description,
+                            });
+                        }
+                    }
+                }
+
+                if (plan.ChangedFiles.Count > 0)
+                {
+                    Logger.Info($"[EditAgent] 验证阶段追踪到文件变更，当前 ChangedFiles 总数: {plan.ChangedFiles.Count}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[EditAgent] 追踪验证阶段变更失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 从工具参数 JSON 中提取 filePath。
+        /// </summary>
+        private static string? ExtractFilePathFromArgs(string argumentsJson)
+        {
+            if (string.IsNullOrWhiteSpace(argumentsJson)) return null;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(argumentsJson);
+                if (doc.RootElement.TryGetProperty("filePath", out var fpProp))
+                    return fpProp.GetString();
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>
+        /// 判断工具名是否为文件修改类工具。
+        /// </summary>
+        private static bool IsFileModifyingTool(string toolName)
+        {
+            return toolName is "replace_string_in_file"
+                or "multi_replace_string_in_file"
+                or "create_file"
+                or "apply_patch";
         }
 
         /// <summary>

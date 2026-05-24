@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -375,68 +376,135 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         (toolWhitelist != null ? " (自定义白名单)" : ""));
                 }
 
-                // ── 流式调用 AI ──
-                try
+                // ── 流式调用 AI（带断点续传重试）──
+                bool streamSuccess = false;
+                int streamAttempt = 0;
+                const int maxStreamAttempts = 4; // 1 initial + 3 retries
+                string savedPartialContent = "";
+                string savedPartialReasoning = "";
+
+                while (!streamSuccess && streamAttempt < maxStreamAttempts)
                 {
-                    await foreach (var chunk in _apiService.ChatStreamAsync(messages, toolDefs, ct))
+                    try
                     {
-                        if (chunk.StartsWith("[THINKING]"))
+                        // 如果是重试，将已接收的部分内容注入对话上下文
+                        if (streamAttempt > 0)
                         {
-                            var thinking = chunk.Substring(10);
-                            reasoningBuilder.Append(thinking);
-                            onThinking?.Invoke(thinking);
-                        }
-                        else if (chunk.StartsWith("[TOOL_CALL]"))
-                        {
-                            var tcJson = chunk.Substring(11);
-                            try
+                            // 在消息列表中追加部分 AI 回复 + 继续指令
+                            var resumeMessages = new List<ChatApiMessage>(messages);
+                            resumeMessages.Add(new ChatApiMessage
                             {
-                                var deltas = JsonSerializer.Deserialize<List<ToolCallDelta>>(tcJson);
-                                if (deltas != null)
-                                {
-                                    foreach (var delta in deltas)
-                                    {
-                                        if (!toolCallAccumulator.ContainsKey(delta.Index))
-                                            toolCallAccumulator[delta.Index] = new Models.ToolCallAccumulator();
-                                        var acc = toolCallAccumulator[delta.Index];
-                                        if (!string.IsNullOrEmpty(delta.Id)) acc.Id = delta.Id!;
-                                        if (!string.IsNullOrEmpty(delta.Type)) acc.Type = delta.Type;
-                                        if (delta.Function != null)
-                                        {
-                                            if (!string.IsNullOrEmpty(delta.Function.Name)) acc.FunctionName = delta.Function.Name;
-                                            if (!string.IsNullOrEmpty(delta.Function.Arguments)) acc.ArgumentsBuilder.Append(delta.Function.Arguments);
-                                        }
-                                    }
-                                }
+                                Role = "assistant",
+                                Content = string.IsNullOrEmpty(savedPartialContent) ? null : savedPartialContent,
+                                ReasoningContent = string.IsNullOrEmpty(savedPartialReasoning) ? null : savedPartialReasoning
+                            });
+
+                            string tailContent = savedPartialContent.Length > 300
+                                ? "…(截断)…" + savedPartialContent.Substring(savedPartialContent.Length - 300)
+                                : savedPartialContent;
+                            resumeMessages.Add(new ChatApiMessage
+                            {
+                                Role = "user",
+                                Content = $"[系统指令] 你之前的回复因网络中断被截断。以下是已发送的末尾内容：\n```\n{tailContent}\n```\n请从截断处**精确**继续，不要重复任何已发送的内容，不要道歉或解释中断。直接继续未完成的句子或代码块。"
+                            });
+
+                            // 将部分内容预置到缓冲区
+                            contentBuilder.Append(savedPartialContent);
+                            reasoningBuilder.Append(savedPartialReasoning);
+                            Logger.Info($"[Agent:{Definition.Name}] 流断点续传：第 {streamAttempt + 1}/{maxStreamAttempts} 次，已注入 {savedPartialContent.Length} 字符部分内容");
+
+                            // 使用 resume 消息而不是原始消息
+                            await foreach (var chunk in _apiService.ChatStreamAsync(resumeMessages, toolDefs, ct))
+                            {
+                                ProcessStreamChunk(chunk, reasoningBuilder, contentBuilder, toolCallAccumulator, onThinking, onContent);
                             }
-                            catch (JsonException) { }
-                            // ── onToolCall 移出流式循环，避免每个 delta chunk 都触发 ──
-                        }
-                        else if (chunk.StartsWith("[CACHE]"))
-                        {
-                            // ── Cache 统计信息 ── 过滤，不混入正文
-                            // 累计统计由 ChatHtmlService.BuildCacheHitFooterHtml 渲染为外侧卡片
                         }
                         else
                         {
-                            contentBuilder.Append(chunk);
-                            onContent?.Invoke(chunk);
+                            await foreach (var chunk in _apiService.ChatStreamAsync(messages, toolDefs, ct))
+                            {
+                                ProcessStreamChunk(chunk, reasoningBuilder, contentBuilder, toolCallAccumulator, onThinking, onContent);
+                            }
+                        }
+
+                        streamSuccess = true;
+                        if (streamAttempt > 0)
+                        {
+                            Logger.Info($"[Agent:{Definition.Name}] 流断点续传成功 (尝试 {streamAttempt + 1}/{maxStreamAttempts})");
                         }
                     }
+                    catch (HttpRequestException ex) when (streamAttempt < maxStreamAttempts - 1)
+                    {
+                        string msg = ex.Message;
+                        // 401/403 认证错误不重试
+                        if (msg.Contains("401") || msg.Contains("403"))
+                            throw;
+
+                        streamAttempt++;
+                        savedPartialContent = contentBuilder.ToString();
+                        savedPartialReasoning = reasoningBuilder.ToString();
+                        double backoffSec = Math.Pow(2, streamAttempt);
+                        Logger.Warn($"[Agent:{Definition.Name}] 流中断 (尝试 {streamAttempt}/{maxStreamAttempts})，已收到 {savedPartialContent.Length} 字符，{backoffSec}s 后恢复…");
+                        contentBuilder.Clear();
+                        reasoningBuilder.Clear();
+                        toolCallAccumulator.Clear();
+                        await Task.Delay(TimeSpan.FromSeconds(backoffSec), ct);
+                    }
+                    catch (TaskCanceledException) when (!ct.IsCancellationRequested && streamAttempt < maxStreamAttempts - 1)
+                    {
+                        // 超时（非用户取消）
+                        streamAttempt++;
+                        savedPartialContent = contentBuilder.ToString();
+                        savedPartialReasoning = reasoningBuilder.ToString();
+                        double backoffSec = Math.Pow(2, streamAttempt);
+                        Logger.Warn($"[Agent:{Definition.Name}] 流超时 (尝试 {streamAttempt}/{maxStreamAttempts})，{backoffSec}s 后恢复…");
+                        contentBuilder.Clear();
+                        reasoningBuilder.Clear();
+                        toolCallAccumulator.Clear();
+                        await Task.Delay(TimeSpan.FromSeconds(backoffSec), ct);
+                    }
+                    catch (ObjectDisposedException) when (ct.IsCancellationRequested)
+                    {
+                        // 用户取消导致的流释放，不重试
+                        Logger.Info($"[Agent:{Definition.Name}] 流式调用被取消令牌中断");
+                        if (contentBuilder.Length == 0)
+                            contentBuilder.Append("\n\n> ⏏️ 操作已被取消。");
+                        streamSuccess = true; // 不视为失败，正常退出
+                    }
+                    catch (IOException) when (ct.IsCancellationRequested)
+                    {
+                        // 用户取消导致的 IO 异常，不重试
+                        Logger.Info($"[Agent:{Definition.Name}] 流式调用被取消令牌中断 (IO)");
+                        if (contentBuilder.Length == 0)
+                            contentBuilder.Append("\n\n> ⏏️ 操作已被取消。");
+                        streamSuccess = true;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // 用户取消，不重试
+                        Logger.Info($"[Agent:{Definition.Name}] 流式调用被取消");
+                        if (contentBuilder.Length == 0)
+                            contentBuilder.Append("\n\n> ⏏️ 操作已被取消。");
+                        streamSuccess = true;
+                    }
                 }
-                catch (ObjectDisposedException) when (ct.IsCancellationRequested)
+
+                if (!streamSuccess)
                 {
-                    // 取消令牌触发了流释放，正常中断
-                    Logger.Info($"[Agent:{Definition.Name}] 流式调用被取消令牌中断");
-                    if (contentBuilder.Length == 0)
-                        contentBuilder.Append("\n\n> ⏏️ 操作已被取消。");
-                }
-                catch (IOException) when (ct.IsCancellationRequested)
-                {
-                    // 取消令牌触发了流释放（备用异常类型）
-                    Logger.Info($"[Agent:{Definition.Name}] 流式调用被取消令牌中断 (IO)");
-                    if (contentBuilder.Length == 0)
-                        contentBuilder.Append("\n\n> ⏏️ 操作已被取消。");
+                    // 所有重试均失败，返回部分内容让用户可通过重试按钮继续
+                    Logger.Error($"[Agent:{Definition.Name}] 流式调用在 {maxStreamAttempts} 次尝试后全部失败");
+                    if (savedPartialContent.Length > 0 || contentBuilder.Length > 0)
+                    {
+                        string partial = contentBuilder.Length > 0 ? contentBuilder.ToString() : savedPartialContent;
+                        contentBuilder.Clear();
+                        contentBuilder.Append(partial);
+                        contentBuilder.Append($"\n\n> ⚠️ 网络连接在 {maxStreamAttempts} 次重试后仍未恢复。请点击重试按钮从中断处继续。");
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            $"[Agent:{Definition.Name}] 流式调用在 {maxStreamAttempts} 次尝试后仍失败且无部分内容");
+                    }
                 }
 
                 // ── 记录本轮 Cache 命中率 ──
@@ -847,6 +915,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 return "❌ VisualStudio_askQuestions: 缺少 questions 参数";
             }
 
+            // ── 修改项目文件（.vcxproj/.csproj/.slnx 等）需要用户确认 ──
+            if (BuiltInTools != null && IsFileModifyingTool(toolName))
+            {
+                string? targetPath = ExtractFilePathFromToolArgs(toolName, argumentsJson);
+                if (!string.IsNullOrWhiteSpace(targetPath) && IsProjectFile(targetPath))
+                {
+                    string fileName = System.IO.Path.GetFileName(targetPath);
+                    string operation = toolName switch
+                    {
+                        "replace_string_in_file" => "修改",
+                        "multi_replace_string_in_file" => "批量修改",
+                        "create_file" => "创建",
+                        "apply_patch" => "应用补丁到",
+                        _ => "操作"
+                    };
+                    bool approved = await RequestPermissionAsync(
+                        $"确认{operation}项目文件: {fileName}",
+                        $"即将{operation}项目配置文件 `{fileName}`\n\n路径: {targetPath}\n\n⚠️ 修改项目文件可能影响构建配置和项目结构。",
+                        "file_write");
+                    if (!approved)
+                    {
+                        AddLog("WARN", $"❌ 用户拒绝了项目文件修改: {fileName}");
+                        return $"⏭️ 用户取消了项目文件{operation}: {fileName}";
+                    }
+                    AddLog("INFO", $"✅ 用户已批准项目文件修改: {fileName}");
+                }
+            }
+
             // ── 1. 内置工具 ──
             if (BuiltInTools != null && BuiltInToolService.IsBuiltInTool(toolName))
             {
@@ -874,6 +970,114 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         #endregion
 
         #region Shared Utility Methods
+
+        /// <summary>
+        /// 需要用户确认才能修改的项目文件扩展名 / 文件名集合。
+        /// 修改这些文件可能影响项目结构，需要用户明确许可。
+        /// </summary>
+        private static readonly HashSet<string> ProjectFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".vcxproj", ".csproj", ".fsproj", ".vbproj",
+            ".sln", ".slnx",
+            ".vcxproj.filters", ".vcxproj.user",
+            ".csproj.user", ".vbproj.user",
+            "CMakeLists.txt", "CMakeSettings.json",
+            "packages.config", "Directory.Build.props", "Directory.Build.targets",
+            ".props", ".targets",
+            "Makefile", "makefile", "GNUmakefile",
+            ".slnf",
+        };
+
+        /// <summary>
+        /// 判断工具是否为文件修改类工具（可能修改用户文件）。
+        /// </summary>
+        private static bool IsFileModifyingTool(string toolName)
+        {
+            return toolName is "replace_string_in_file"
+                or "multi_replace_string_in_file"
+                or "create_file"
+                or "apply_patch";
+        }
+
+        /// <summary>
+        /// 从工具参数 JSON 中提取目标文件路径。
+        /// </summary>
+        private static string? ExtractFilePathFromToolArgs(string toolName, string argumentsJson)
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(argumentsJson);
+                if (doc.RootElement.TryGetProperty("filePath", out var fpProp))
+                    return fpProp.GetString();
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>
+        /// 检查文件是否为项目配置文件（需要用户确认才能修改）。
+        /// </summary>
+        private static bool IsProjectFile(string? filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return false;
+            string fileName = System.IO.Path.GetFileName(filePath);
+            string ext = System.IO.Path.GetExtension(filePath);
+            return ProjectFileExtensions.Contains(fileName) || ProjectFileExtensions.Contains(ext);
+        }
+
+        /// <summary>
+        /// 处理流式响应的单个 chunk，分派到 reasoning/content/tool_call 缓冲区。
+        /// 与 DeepSeekChatControl.Messaging.cs 中的逻辑一致。
+        /// </summary>
+        private static void ProcessStreamChunk(
+            string chunk,
+            StringBuilder reasoningBuilder,
+            StringBuilder contentBuilder,
+            Dictionary<int, Models.ToolCallAccumulator> toolCallAccumulator,
+            Action<string>? onThinking,
+            Action<string>? onContent)
+        {
+            if (chunk.StartsWith("[THINKING]"))
+            {
+                var thinking = chunk.Substring(10);
+                reasoningBuilder.Append(thinking);
+                onThinking?.Invoke(thinking);
+            }
+            else if (chunk.StartsWith("[TOOL_CALL]"))
+            {
+                var tcJson = chunk.Substring(11);
+                try
+                {
+                    var deltas = System.Text.Json.JsonSerializer.Deserialize<List<ToolCallDelta>>(tcJson);
+                    if (deltas != null)
+                    {
+                        foreach (var delta in deltas)
+                        {
+                            if (!toolCallAccumulator.ContainsKey(delta.Index))
+                                toolCallAccumulator[delta.Index] = new Models.ToolCallAccumulator();
+                            var acc = toolCallAccumulator[delta.Index];
+                            if (!string.IsNullOrEmpty(delta.Id)) acc.Id = delta.Id!;
+                            if (!string.IsNullOrEmpty(delta.Type)) acc.Type = delta.Type;
+                            if (delta.Function != null)
+                            {
+                                if (!string.IsNullOrEmpty(delta.Function.Name)) acc.FunctionName = delta.Function.Name;
+                                if (!string.IsNullOrEmpty(delta.Function.Arguments)) acc.ArgumentsBuilder.Append(delta.Function.Arguments);
+                            }
+                        }
+                    }
+                }
+                catch (System.Text.Json.JsonException) { }
+            }
+            else if (chunk.StartsWith("[CACHE]"))
+            {
+                // Cache 统计信息 — 过滤，不混入正文
+            }
+            else
+            {
+                contentBuilder.Append(chunk);
+                onContent?.Invoke(chunk);
+            }
+        }
 
         /// <summary>
         /// 判断 chunk 是否为正文内容（过滤 [THINKING]/[TOOL_CALL]/[CACHE] 等控制前缀）。
@@ -1295,18 +1499,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.waitingAnswers"],
                     questions.Count, questions[0].Header.Truncate(60)));
 
-                // 等待用户回答（最长 5 分钟超时）
-                var timeoutTask = Task.Delay(TimeSpan.FromMinutes(5));
-                var completedTask = await Task.WhenAny(request.ResponseTcs.Task, timeoutTask);
+                // 无限等待用户回答（不设超时），用户提交或跳过时通过 ResponseTcs 唤醒
+                string answers = await request.ResponseTcs.Task;
 
                 PendingQuestion = null;
-                if (completedTask == timeoutTask)
-                {
-                    request.ResponseTcs.TrySetResult("{}");
-                    return "⏱️ 用户未在 5 分钟内回答，已超时。请根据已有信息继续规划。";
-                }
-
-                string answers = await request.ResponseTcs.Task;
                 AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.answersReceived"],
                     answers.Truncate(200)));
                 return answers;

@@ -374,11 +374,17 @@ window.__executeHandoff=function(targetAgent,label){
 
         /// <summary>
         /// 转义字符串用于嵌入 JS 字符串字面量。
+        /// 使用 UnsafeRelaxedJsonEscaping 保留中文等非 ASCII 字符，避免输出 \uXXXX 编码。
         /// </summary>
+        private static readonly System.Text.Json.JsonSerializerOptions _jsEscapeOptions = new()
+        {
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        };
+
         private static string EscapeJsString(string s)
         {
             if (string.IsNullOrEmpty(s)) return "\"\"";
-            return System.Text.Json.JsonSerializer.Serialize(s);
+            return System.Text.Json.JsonSerializer.Serialize(s, _jsEscapeOptions);
         }
 
         #endregion

@@ -223,12 +223,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             return sb.ToString();
         }
 
+        private static readonly System.Text.Json.JsonSerializerOptions _statusJsonOptions = new()
+        {
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        };
+
         /// <summary>
         /// 构建仅状态栏更新的 JSON 消息。
         /// </summary>
         public static string BuildStatusUpdateJson(string statusText)
         {
-            return $"{{\"type\":\"streamStatus\",\"text\":{JsonSerializer.Serialize(statusText)}}}";
+            return $"{{\"type\":\"streamStatus\",\"text\":{JsonSerializer.Serialize(statusText, _statusJsonOptions)}}}";
         }
 
         /// <summary>
