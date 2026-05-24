@@ -1176,8 +1176,10 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             {
                 var q = request.Questions[qi];
                 string qId = $"aq-{qi}";
-                string escapedHeader = EscapeJsString(q.Header);
-                string escapedQuestion = EscapeJsString(q.Question ?? string.Empty);
+                // 使用 EscapeHtml 而非 EscapeJsString：这些文本直接嵌入 HTML innerHTML，
+                // 不需要 JSON 转义。同时将 \n 转换为 <br> 以在 HTML 中正确显示换行。
+                string escapedHeader = EscapeHtmlWithBreaks(q.Header);
+                string escapedQuestion = EscapeHtmlWithBreaks(q.Question ?? string.Empty);
 
                 questionsHtml.Append("<div style='margin-bottom:10px'>");
                 questionsHtml.Append($"<div style='color:#4fc1ff;font-size:12px;font-weight:600;margin-bottom:4px'>{escapedHeader}</div>");
@@ -1189,13 +1191,13 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
                     string inputType = q.MultiSelect ? "checkbox" : "radio";
                     foreach (var opt in q.Options)
                     {
-                        string escapedLabel = EscapeJsString(opt.Label);
-                        string escapedDesc = opt.Description != null ? EscapeJsString(opt.Description) : "";
+                        string escapedLabel = EscapeHtml(opt.Label);
+                        string escapedDesc = opt.Description != null ? EscapeHtml(opt.Description) : "";
                         string descHtml = !string.IsNullOrEmpty(escapedDesc)
                             ? $"<span style='color:#888;font-size:10px;margin-left:4px'>{escapedDesc}</span>"
                             : "";
                         questionsHtml.Append($"<label style='display:flex;align-items:center;gap:6px;margin:2px 0;cursor:pointer;font-size:11px;color:#ccc'>");
-                        questionsHtml.Append($"<input type='{inputType}' name='{qId}' value='{escapedLabel}' style='accent-color:#4fc1ff'>");
+                        questionsHtml.Append($"<input type='{inputType}' name='{qId}' value='{EscapeHtmlAttribute(opt.Label)}' style='accent-color:#4fc1ff'>");
                         questionsHtml.Append($"{escapedLabel}{descHtml}</label>");
                     }
                 }
@@ -1359,6 +1361,17 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
         {
             if (string.IsNullOrEmpty(text)) return string.Empty;
             return System.Net.WebUtility.HtmlEncode(text);
+        }
+
+        /// <summary>
+        /// HTML 转义 + 换行转 &lt;br&gt;（用于问题文本等需要保留换行的场景）。
+        /// </summary>
+        private static string EscapeHtmlWithBreaks(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return string.Empty;
+            string escaped = System.Net.WebUtility.HtmlEncode(text);
+            // 将 \n 转换为 <br> 以在 HTML 中正确显示换行
+            return escaped.Replace("\n", "<br>");
         }
 
         /// <summary>

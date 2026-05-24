@@ -137,7 +137,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 // ── 阶段 2: 对齐 — 与用户澄清需求（始终执行，确保用户参与）──
                 AddLog("INFO", L["agent.log.planPhaseAlign"]);
-                await RunAlignmentAsync(userMessage, discoveryContext, context);
+                string alignmentSummary = await RunAlignmentAsync(userMessage, discoveryContext, context);
 
                 // ── 阶段 3: 设计 — 产出实现计划 ──
                 AddLog("INFO", L["agent.log.planPhaseDesign"]);
@@ -148,6 +148,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     AddLog("INFO", string.Format(L["agent.log.planDone"], plan.Steps.Count, plan.Title));
                     result.Content = FormatPlanAsMarkdown(plan);
+
+                    // ── 将对齐阶段的规划概要前置到结果最前面 ──
+                    if (!string.IsNullOrWhiteSpace(alignmentSummary))
+                    {
+                        result.Content = "## 📋 规划概要\n\n" + alignmentSummary + "\n\n---\n\n" + result.Content;
+                    }
 
                     // ── 生成详细 plan.md 文件 ──
                     try
@@ -438,8 +444,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 运行对齐阶段：使用工具调用循环让 AI 通过 VisualStudio_askQuestions 向用户提问。
+        /// 返回对齐阶段 AI 生成的规划概要和用户确认结果。
         /// </summary>
-        private async Task RunAlignmentAsync(
+        private async Task<string> RunAlignmentAsync(
             string userMessage, string discoveryContext, AgentContext context)
         {
             var L = LocalizationService.Instance;
@@ -482,23 +489,38 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                               "3. 当用户认可规划方向后，回复 DONE 结束对齐阶段。"
                 });
 
-                // ── 使用工具调用循环（仅允许 VisualStudio_askQuestions）──
+                // ── 使用 onContent 回调实时捕获 AI 生成的规划概要 ──
+                var alignmentContent = new StringBuilder();
                 string alignmentResult = await CallAiWithToolLoopAsync(
                     messages,
                     context.SolutionPath,
                     ct,
                     maxTokens: 2048,
-                    toolWhitelist: new List<string> { "VisualStudio_askQuestions" });
+                    toolWhitelist: new List<string> { "VisualStudio_askQuestions" },
+                    onContent: (chunk) =>
+                    {
+                        alignmentContent.Append(chunk);
+                    });
+
+                // 将 AI 在提问前生成的规划概要合并到结果中
+                string planSummary = alignmentContent.ToString().Trim();
+                if (!string.IsNullOrWhiteSpace(planSummary))
+                {
+                    AddLog("INFO", $"[Plan] 对齐阶段规划概要: {planSummary.Truncate(200)}");
+                }
 
                 AddLog("INFO", $"[Plan] 对齐阶段完成 ({alignmentResult.Truncate(200)})");
+                return planSummary;
             }
             catch (OperationCanceledException)
             {
                 AddLog("WARN", "[Plan] 对齐阶段被用户取消");
+                return string.Empty;
             }
             catch (Exception ex)
             {
                 AddLog("WARN", $"[Plan] 对齐阶段出错（非致命，继续规划）: {ex.Message}");
+                return string.Empty;
             }
         }
 
