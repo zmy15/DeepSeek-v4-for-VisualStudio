@@ -1132,6 +1132,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private AgentRoutingResult OverrideRoutingForPlanContext(string userText, AgentRoutingResult originalRouting)
         {
+            // 用户显式指定 Agent（如 @plan / @edit），尊重用户意图，不覆盖
+            if (originalRouting.IsExplicit)
+                return originalRouting;
+
             // 没有待处理计划时，尝试从持久化的 HandoffJson 恢复
             if (_pendingHandoff == null || !_pendingHandoff.ShowContinueOn)
             {
@@ -1294,29 +1298,55 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private static bool IsQuestionAboutPlan(string userText)
         {
-            // 疑问句式
+            // 疑问句式（排除 URL 中的 ?，仅匹配中文问号或句末/空格后的英文问号）
             var questionPatterns = new[]
             {
                 "是什么", "为什么", "怎么做", "如何", "怎么样",
                 "可行吗", "可以吗", "对吗", "好不好",
                 "什么意思", "能否", "是否", "能不能",
                 "what", "why", "how", "explain",
-                "?", "？",
+                "？",  // 中文问号不会出现在 URL 中
             };
 
             // 计划相关上下文词（结合疑问才算计划提问）
             var planContextWords = new[]
             {
-                "步骤", "第", "计划", "方案", "step", "plan",
-                "这个", "这样", "那种", "方案",
+                "步骤", "第", "计划", "方案", "step",
+                "这个", "这样", "那种",
             };
+            // 注意: "plan" 从上下文词中移除，避免匹配 @plan 显式路由前缀
 
             bool hasQuestion = questionPatterns.Any(p =>
                 userText.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            // 英文问号单独处理：排除 URL 中的 ?（避免 ?envType=… 等被误判）
+            if (!hasQuestion)
+            {
+                int qmIdx = userText.IndexOf('?');
+                if (qmIdx >= 0)
+                {
+                    // 问号前面的字符不是 URL 分隔符（/ = & - _ .）时才算真正的疑问
+                    char prev = qmIdx > 0 ? userText[qmIdx - 1] : ' ';
+                    if (!IsUrlSeparatorChar(prev))
+                        hasQuestion = true;
+                }
+            }
+
             bool hasPlanContext = planContextWords.Any(p =>
                 userText.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0);
 
             return hasQuestion && hasPlanContext;
+        }
+
+        /// <summary>
+        /// 判断字符是否为 URL 中常见的分隔符（用于排除 URL 中的 ? 被误判为问句）。
+        /// </summary>
+        private static bool IsUrlSeparatorChar(char c)
+        {
+            return c == '/' || c == '=' || c == '&' || c == '-' || c == '_' || c == '.'
+                || c == '?' || c == '#' || c == ':'
+                || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                || (c >= '0' && c <= '9');
         }
 
         /// <summary>
