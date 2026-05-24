@@ -697,8 +697,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine();
             sb.AppendLine(string.Format(L["plan.format.stepCount"], plan.Steps.Count));
             sb.AppendLine();
-            sb.AppendLine(L["plan.format.seePanel"]);
-            sb.AppendLine();
+
+            // ── 详细步骤直接展示在对话中 ──
+            for (int i = 0; i < plan.Steps.Count; i++)
+            {
+                var step = plan.Steps[i];
+                string prefix = step.RequiresApproval ? "🔐" : "📌";
+                sb.AppendLine($"{prefix} **步骤 {step.Index}**: {step.Title}");
+
+                if (!string.IsNullOrWhiteSpace(step.Description))
+                {
+                    // 描述过长时截断，避免对话过于冗长
+                    string desc = step.Description.Length > 200
+                        ? step.Description.Substring(0, 200) + "..."
+                        : step.Description;
+                    // 将描述转为引用格式，缩进展示
+                    sb.AppendLine($"> {desc.Replace("\n", "\n> ")}");
+                }
+                sb.AppendLine();
+            }
+
             sb.AppendLine("---");
             sb.AppendLine(L["plan.format.readyToExecute"]);
 

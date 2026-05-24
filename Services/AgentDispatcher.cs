@@ -293,7 +293,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 var askAgent = EnsureAgent(AgentType.Ask);
                 string response = await askAgent.CallAiShortAsync(
                     AiPrompts.AgentRoutingSystemPrompt,
-                    classificationPrompt, ct, maxTokens: 256);
+                    classificationPrompt, ct, maxTokens: 512);
 
                 string json = ExtractJsonFromText(response);
                 // 规范化 targetAgent 值：AI 可能返回小写/混合大小写（如 "ask"/"Ask"/"ASK"），
@@ -811,16 +811,136 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         #region Helpers
 
         /// <summary>
-        /// 从文本中提取 JSON（可能被 markdown 包裹）。
+        /// 从文本中提取 JSON 对象（可能被 markdown 代码块、额外文本包裹）。
+        /// 使用平衡括号计数以正确处理字符串内的 } 字符，并支持截断 JSON 的修复。
         /// </summary>
         private static string ExtractJsonFromText(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return "{}";
-            int jsonStart = text.IndexOf('{');
-            int jsonEnd = text.LastIndexOf('}');
-            if (jsonStart >= 0 && jsonEnd > jsonStart)
-                return text.Substring(jsonStart, jsonEnd - jsonStart + 1);
+
+            // ── 第一步：找到最外层 JSON 对象（平衡括号计数）──
+            int jsonStart = -1;
+            int braceDepth = 0;
+            bool inString = false;
+            bool escaped = false;
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+
+                if (escaped)
+                {
+                    escaped = false;
+                    continue;
+                }
+
+                if (c == '\\' && inString)
+                {
+                    escaped = true;
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    inString = !inString;
+                    continue;
+                }
+
+                if (inString) continue;
+
+                if (c == '{')
+                {
+                    if (braceDepth == 0) jsonStart = i;
+                    braceDepth++;
+                }
+                else if (c == '}')
+                {
+                    braceDepth--;
+                    if (braceDepth == 0 && jsonStart >= 0)
+                    {
+                        // 找到匹配的最外层 }
+                        string extracted = text.Substring(jsonStart, i - jsonStart + 1);
+                        return RepairTruncatedJson(extracted);
+                    }
+                }
+            }
+
+            // ── 第二步：回退到 IndexOf/LastIndexOf（处理简单情况）──
+            int fallbackStart = text.IndexOf('{');
+            int fallbackEnd = text.LastIndexOf('}');
+            if (fallbackStart >= 0 && fallbackEnd > fallbackStart)
+            {
+                string extracted = text.Substring(fallbackStart, fallbackEnd - fallbackStart + 1);
+                return RepairTruncatedJson(extracted);
+            }
+
             return text.Trim();
+        }
+
+        /// <summary>
+        /// 修复截断的 JSON：如果 JSON 被 token 限制截断（如字符串值未闭合），
+        /// 尝试补全缺失的引号和括号，使其成为合法 JSON。
+        /// </summary>
+        private static string RepairTruncatedJson(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return "{}";
+
+            // 快速验证：如果已经是合法 JSON，直接返回
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                return json; // 合法 JSON，无需修复
+            }
+            catch
+            {
+                // JSON 不合法，尝试修复
+            }
+
+            // ── 修复策略：补全未闭合的字符串和括号 ──
+            var sb = new System.Text.StringBuilder(json);
+            bool inString = false;
+            bool escaped = false;
+            int braceDepth = 0;
+
+            for (int i = 0; i < sb.Length; i++)
+            {
+                char c = sb[i];
+                if (escaped) { escaped = false; continue; }
+                if (c == '\\' && inString) { escaped = true; continue; }
+                if (c == '"') { inString = !inString; continue; }
+                if (inString) continue;
+                if (c == '{') braceDepth++;
+                else if (c == '}') braceDepth--;
+            }
+
+            // 如果在字符串中间截断，闭合引号
+            if (inString)
+            {
+                sb.Append('"');
+            }
+
+            // 闭合未匹配的括号
+            while (braceDepth > 0)
+            {
+                sb.Append('}');
+                braceDepth--;
+            }
+
+            string repaired = sb.ToString();
+
+            // 验证修复结果
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(repaired);
+                Logger.Info($"[AgentDispatcher] JSON 修复成功 (原始长度: {json.Length}, 修复后: {repaired.Length})");
+                return repaired;
+            }
+            catch
+            {
+                // 修复失败，返回空 JSON 让调用方回退到启发式
+                Logger.Info($"[AgentDispatcher] JSON 修复失败，回退到空对象");
+                return "{}";
+            }
         }
 
         /// <summary>
