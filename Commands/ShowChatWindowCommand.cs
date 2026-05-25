@@ -58,11 +58,31 @@ namespace DeepSeek_v4_for_VisualStudio.Commands
         /// </summary>
         public static async System.Threading.Tasks.Task InitializeAsync(AsyncPackage package)
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
+            System.Diagnostics.Debug.WriteLine("[DeepSeek Cmd] InitializeAsync: starting...");
+            try
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
+                System.Diagnostics.Debug.WriteLine("[DeepSeek Cmd] InitializeAsync: switched to main thread");
 
-            var commandService = await package.GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService
-                ?? throw new InvalidOperationException("Failed to get OleMenuCommandService");
-            Instance = new ShowChatWindowCommand(package, commandService);
+                var rawService = await package.GetServiceAsync(typeof(IMenuCommandService));
+                var commandService = rawService as OleMenuCommandService;
+                if (commandService == null)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DeepSeek Cmd] InitializeAsync: IMenuCommandService type = {rawService?.GetType().FullName ?? "null"}, expected OleMenuCommandService");
+                    throw new InvalidOperationException(
+                        $"Failed to get OleMenuCommandService. Actual type: {rawService?.GetType().FullName ?? "null"}");
+                }
+
+                Instance = new ShowChatWindowCommand(package, commandService);
+                System.Diagnostics.Debug.WriteLine("[DeepSeek Cmd] InitializeAsync: 2 commands registered OK");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DeepSeek Cmd] InitializeAsync FAILED: {ex.GetType().Name}: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[DeepSeek Cmd] InitializeAsync stack: {ex.StackTrace}");
+                throw;
+            }
         }
 
         /// <summary>
@@ -70,13 +90,26 @@ namespace DeepSeek_v4_for_VisualStudio.Commands
         /// </summary>
         private void Execute(object sender, EventArgs e)
         {
+            System.Diagnostics.Debug.WriteLine("[DeepSeek Cmd] Execute: menu item clicked, opening tool window...");
             _ = _package.JoinableTaskFactory.RunAsync(async delegate
             {
-                await _package.ShowToolWindowAsync(
-                    typeof(View.DeepSeekChatWindowPane),
-                    0,
-                    create: true,
-                    cancellationToken: _package.DisposalToken);
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine("[DeepSeek Cmd] Execute: calling ShowToolWindowAsync...");
+                    await _package.ShowToolWindowAsync(
+                        typeof(View.DeepSeekChatWindowPane),
+                        0,
+                        create: true,
+                        cancellationToken: _package.DisposalToken);
+                    System.Diagnostics.Debug.WriteLine("[DeepSeek Cmd] Execute: ShowToolWindowAsync completed OK");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DeepSeek Cmd] Execute FAILED: {ex.GetType().Name}: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"[DeepSeek Cmd] Execute stack: {ex.StackTrace}");
+                    if (ex.InnerException != null)
+                        System.Diagnostics.Debug.WriteLine($"[DeepSeek Cmd] Execute inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                }
             });
         }
     }
