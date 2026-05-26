@@ -1002,9 +1002,9 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
             var insertEdits = _editPatchService.ParseInsertEdits(aiResult);
             AddLog("INFO", $"[EditAgent] 解析到 {insertEdits.Count} 个 InsertEdit 操作");
 
-            // ── 项目配置文件（.csproj/.slnx 等）优先处理，避免 VS 弹出"检测到冲突文件修改"对话框 ──
+            // ── 排序：项目配置优先（避免 VS 冲突对话框），构建定义文件最后（CMakeLists.txt 必须在源文件后写入）──
             var sortedEdits = insertEdits
-                .OrderBy(e => IsProjectFile(EditPatchService.ResolvePath(e.FilePath, workspaceRoot)) ? 0 : 1)
+                .OrderBy(e => GetEditPriority(EditPatchService.ResolvePath(e.FilePath, workspaceRoot)))
                 .ThenBy(e => e.FilePath, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -1170,9 +1170,9 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
         {
             var changes = ParseCodeChangesFromResult(aiResult);
 
-            // ── 项目配置文件（.csproj/.slnx 等）优先处理，避免 VS 弹出"检测到冲突文件修改"对话框 ──
+            // ── 排序：项目配置优先（避免 VS 冲突对话框），构建定义文件最后（CMakeLists.txt 必须在源文件后写入）──
             var sortedChanges = changes
-                .OrderBy(c => IsProjectFile(ResolveFilePath(c.FilePath, context.SolutionPath)) ? 0 : 1)
+                .OrderBy(c => GetEditPriority(ResolveFilePath(c.FilePath, context.SolutionPath)))
                 .ThenBy(c => c.FilePath, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -1596,6 +1596,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 sb.AppendLine("- ❌ **禁止手动添加/移除源文件引用**（<ClInclude> / <ClCompile> / <Compile> 等 ItemGroup 项）");
                 sb.AppendLine("- 添加新源文件的方法：用 create_file (```file: 格式) 创建文件 → 系统自动通过 VS SDK 加入项目");
                 sb.AppendLine("- **CMakeLists.txt** 不在此限制范围，可直接编辑（系统会请求确认）");
+                sb.AppendLine("- 对于 CMake 项目：**必须先 create_file 创建源文件，再编辑 CMakeLists.txt** 添加引用");
                 sb.AppendLine("- 如果 read_file 返回「文件不存在」，先创建该文件，不要尝试修改项目配置来绕过");
             }
             else
@@ -1685,6 +1686,16 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
         };
 
         /// <summary>
+        /// 构建定义文件名集合（CMakeLists.txt、Makefile 等）。
+        /// 这些文件引用源文件，因此必须在源文件创建完成后才能写入，
+        /// 否则构建系统会在文件还不存在时尝试编译它们。
+        /// </summary>
+        private static readonly HashSet<string> BuildDefinitionFileNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "CMakeLists.txt", "Makefile", "GNUmakefile", "makefile",
+        };
+
+        /// <summary>
         /// 检查文件是否为项目文件（需要用户确认才能修改）。
         /// </summary>
         private static bool IsProjectFile(string filePath)
@@ -1696,13 +1707,38 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
         }
 
         /// <summary>
-        /// 将文件路径列表排序，确保项目配置文件（.csproj/.slnx等）优先写入。
+        /// 检查文件是否为构建定义文件（CMakeLists.txt / Makefile 等）。
+        /// 构建定义文件引用源文件，必须在源文件创建完成后才能处理。
+        /// </summary>
+        private static bool IsBuildDefinitionFile(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return false;
+            string fileName = Path.GetFileName(filePath);
+            return BuildDefinitionFileNames.Contains(fileName);
+        }
+
+        /// <summary>
+        /// 获取编辑操作的排序优先级。
+        /// 0 = MSBuild 项目文件最先（避免 VS 冲突对话框）
+        /// 1 = 普通源文件
+        /// 2 = 构建定义文件最后（CMakeLists.txt/Makefile — 必须在源文件创建后才能写入）
+        /// </summary>
+        private static int GetEditPriority(string filePath)
+        {
+            if (IsBuildDefinitionFile(filePath)) return 2;
+            if (IsProjectFile(filePath)) return 0;
+            return 1;
+        }
+
+        /// <summary>
+        /// 将文件路径列表排序，确保项目配置文件（.csproj/.slnx等）优先写入，
+        /// 构建定义文件（CMakeLists.txt/Makefile）最后写入（必须在源文件创建后才能处理）。
         /// 避免 VS 在外部修改源文件后才检测到项目文件变更而弹出"检测到冲突文件修改"对话框。
         /// </summary>
         private static List<string> SortPathsWithProjectFilesFirst(IEnumerable<string> paths)
         {
             return paths
-                .OrderBy(p => IsProjectFile(p) ? 0 : 1)
+                .OrderBy(p => GetEditPriority(p))
                 .ThenBy(p => p, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }

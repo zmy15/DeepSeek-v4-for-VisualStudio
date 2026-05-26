@@ -624,6 +624,56 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             json = StripDsmlContent(json);
             json = ExtractJsonFromMarkdown(json);
 
+            // ── 早期检测：AI 是否返回了 JSON 格式的数据 ──
+            if (!json.TrimStart().StartsWith("{"))
+            {
+                string truncated = rawResponse.Length > 300
+                    ? rawResponse.Substring(0, 300) + "..."
+                    : rawResponse;
+                AddLog("WARN", string.Format(L["agent.plan.noJsonInResponse"], truncated));
+
+                // ── 重试：使用更强制性的提示要求 JSON ──
+                AddLog("INFO", "[Plan] Retrying with forceful JSON-only prompt...");
+                ct.ThrowIfCancellationRequested();
+
+                try
+                {
+                    string retryResponse = await CallAiLongAsync(
+                        Definition.SystemPrompt,
+                        "请**仅**输出 JSON 格式的计划，不要包含任何 markdown 分析、表格或注释。直接输出 JSON 对象，以 { 开头。",
+                        null,  // 不传发现上下文到重试，减少干扰
+                        ct,
+                        maxTokens: 4096,
+                        toolChoice: "none");
+
+                    retryResponse = StripDsmlContent(retryResponse);
+                    retryResponse = ExtractJsonFromMarkdown(retryResponse);
+
+                    if (retryResponse.TrimStart().StartsWith("{"))
+                    {
+                        json = retryResponse;
+                        AddLog("INFO", L["agent.plan.jsonRetrySucceeded"]);
+                    }
+                    else
+                    {
+                        string retryTruncated = retryResponse.Length > 300
+                            ? retryResponse.Substring(0, 300) + "..."
+                            : retryResponse;
+                        AddLog("WARN", string.Format(L["agent.plan.jsonRetryFailed"], retryTruncated));
+                        return BuildFallbackPlan(userMessage);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception retryEx)
+                {
+                    AddLog("WARN", string.Format(L["agent.plan.jsonRetryFailed"], retryEx.Message));
+                    return BuildFallbackPlan(userMessage);
+                }
+            }
+
             try
             {
                 var plan = JsonSerializer.Deserialize<AgentTaskPlan>(json, new JsonSerializerOptions
@@ -649,6 +699,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
 
             // 回退：单步计划
+            return BuildFallbackPlan(userMessage);
+        }
+
+        /// <summary>
+        /// 构建 JSON 解析失败时的单步回退计划。
+        /// </summary>
+        private static AgentTaskPlan BuildFallbackPlan(string userMessage)
+        {
             return new AgentTaskPlan
             {
                 Intent = AgentIntent.CodeChange,
@@ -698,7 +756,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine("  ]");
             sb.AppendLine("}");
             sb.AppendLine();
-            sb.AppendLine(SB["plan.creation.outputJson"]);
+            sb.AppendLine(SB["plan.creation.jsonOnlyHint"]);
 
             return sb.ToString();
         }
