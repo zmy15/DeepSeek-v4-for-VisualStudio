@@ -195,7 +195,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             // ── 取消令牌注册：当 ct 触发时释放底层流，使 ReadLineAsync 立即抛出异常 ──
             // .NET Framework 4.7.2 的 ReadLineAsync 不接受 CancellationToken，
-            // 通过释放流来实现同样的中断效果。异常传播到调用方后由其处理。
+            // 通过释放流来实现同样的中断效果。释放 SslStream 可能抛出
+            // ObjectDisposedException（而非 OperationCanceledException），
+            // 调用方应在 foreach 外层捕获 ObjectDisposedException 并检查取消状态。
             string? line;
             using (cancellationToken.Register(() =>
             {

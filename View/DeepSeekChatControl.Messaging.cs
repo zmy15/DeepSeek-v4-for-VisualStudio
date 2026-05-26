@@ -1043,6 +1043,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
                     PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
                 }
+                catch (ObjectDisposedException) when (_currentStreamingCts?.IsCancellationRequested == true)
+                {
+                    // 取消令牌触发时释放 SslStream 可能导致 ReadLineAsync 抛出
+                    // ObjectDisposedException 而非 OperationCanceledException，兜底处理为停止。
+                    Logger.Info("[Render] 用户停止生成 (ObjectDisposed)");
+                    assistantMsg.Content += "\n\n*[已停止]*";
+                    assistantMsg.IsStreaming = false;
+                    BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
+                    PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
+                }
                 catch (HttpRequestException ex) when (ex.Message.Contains("401") || ex.Message.Contains("403"))
                 {
                     Logger.Error($"[Render] API 认证失败", ex);
