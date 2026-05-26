@@ -70,6 +70,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 return pos;
             }
 
+            // 第5级：行级滑动窗口相似度匹配（95% 阈值，最后兜底）
+            // 参考: editFileToolUtils.tsx trySimilarityMatch
+            pos = SimilarityMatch(fileContent, searchText);
+            if (pos >= 0)
+            {
+                matchLevel = MatchLevel.Levenshtein;
+                return pos;
+            }
+
             matchLevel = MatchLevel.Levenshtein;
             return -1;
         }
@@ -169,6 +178,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             var tabCtx = trimEndCtx.Select(ReplaceExplicitTabs).ToArray();
             match = FindLineSequence(tabFile, tabCtx, startLine);
             if (match >= 0) { level = MatchLevel.Fuzzy; return match; }
+
+            // Pass 3.5: 标准化显式 \n → 换行符（仅单行上下文，参考 parser.ts Pass 4）
+            if (contextLines.Length == 1)
+            {
+                var nlFile = tabFile.Select(ReplaceExplicitNewlines).ToArray();
+                var nlCtx = tabCtx.Select(ReplaceExplicitNewlines).ToArray();
+                // expandFile: 如果 ctx 被 \n 拆成多行，扩展匹配窗口
+                if (nlCtx.Length != contextLines.Length)
+                {
+                    match = FindLineSequence(nlFile, nlCtx, startLine);
+                    if (match >= 0) { level = MatchLevel.Fuzzy; return match; }
+                }
+                else
+                {
+                    match = FindLineSequence(nlFile, nlCtx, startLine);
+                    if (match >= 0) { level = MatchLevel.Fuzzy; return match; }
+                }
+            }
 
             // Pass 4: 忽略所有周围空白
             var trimAllFile = tabFile.Select(l => l.Trim()).ToArray();
@@ -381,6 +408,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         }
 
         /// <summary>
+        /// 将显式的 "\n" 字符串替换为实际换行符（同时处理 \t）。
+        /// 参考: parser.ts replace_explicit_nl
+        /// </summary>
+        public static string ReplaceExplicitNewlines(string s)
+        {
+            return ReplaceExplicitTabs(s).Replace("\\n", "\n");
+        }
+
+        /// <summary>
         /// 标准化空白：将连续空白合并为单个空格。
         /// </summary>
         public static string NormalizeWhitespace(string text)
@@ -448,6 +484,114 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         {
             if (string.IsNullOrEmpty(text)) return text;
             return NormalizeLineEndings(text).Replace("\n", "\r\n");
+        }
+
+        /// <summary>
+        /// 获取 oldString 和 newString 首尾相同的字符数。
+        /// 参考: editFileToolUtils.tsx getIdenticalChars
+        /// 用于缩小编辑范围，只替换真正变化的部分。
+        /// </summary>
+        /// <returns>(leading 相同前导字符数, trailing 相同尾部字符数)</returns>
+        public static (int leading, int trailing) GetIdenticalLeadingTrailingChars(
+            string oldString, string newString)
+        {
+            int leading = 0;
+            int minLen = Math.Min(oldString.Length, newString.Length);
+            while (leading < minLen && oldString[leading] == newString[leading])
+                leading++;
+
+            int trailing = 0;
+            while (trailing + leading < minLen &&
+                   oldString[oldString.Length - 1 - trailing] == newString[newString.Length - 1 - trailing])
+                trailing++;
+
+            return (leading, trailing);
+        }
+
+        /// <summary>
+        /// 去除 AI 输出中第一行的文件路径注释。
+        /// 参考: markdown.ts removeLeadingFilepathComment
+        /// 例如: "path/to/file.cs\n...code..." → "...code..."
+        /// </summary>
+        public static string RemoveLeadingFilepathComment(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+
+            // 常见文件扩展名模式
+            var patterns = new[]
+            {
+                @"^[a-zA-Z]:[\\/][^\r\n]{3,200}\r?\n",        // Windows 绝对路径
+                @"^\/[^\r\n]{3,200}\r?\n",                     // Unix 绝对路径
+                @"^[^\r\n]{3,200}\.(cs|cpp|h|ts|js|py|java|go|rs|tsx|jsx|vue|html|css|json|xml|yaml|yml|md)\r?\n",
+            };
+
+            foreach (var pattern in patterns)
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(text, pattern);
+                if (match.Success)
+                {
+                    string remaining = text.Substring(match.Length);
+                    if (!string.IsNullOrWhiteSpace(remaining))
+                        return remaining;
+                }
+            }
+
+            return text;
+        }
+
+        /// <summary>
+        /// 相似度匹配：基于滑动窗口的 95% 行级相似度匹配。
+        /// 参考: editFileToolUtils.tsx trySimilarityMatch
+        /// 作为最后一级的兜底策略。
+        /// </summary>
+        public static int SimilarityMatch(string fileContent, string searchText, double threshold = 0.95)
+        {
+            var eol = "\n";
+            var fileLines = fileContent.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            var searchLines = searchText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+            if (searchLines.Length == 0 || fileLines.Length == 0) return -1;
+            if (searchLines.Length > fileLines.Length) return -1;
+            if (searchText.Length > 1000 || searchLines.Length > 20) return -1;
+            if (fileLines.Length > 1000) return -1;
+
+            int bestStartLine = -1;
+            double bestSimilarity = threshold;
+            int bestOldLength = 0;
+            int startOffset = 0;
+
+            for (int i = 0; i <= fileLines.Length - searchLines.Length; i++)
+            {
+                double totalSimilarity = 0;
+                int oldLength = 0;
+
+                for (int j = 0; j < searchLines.Length; j++)
+                {
+                    double sim = LevenshteinDistanceExtensions.CalculateSimilarity(
+                        searchLines[j], fileLines[i + j]);
+                    totalSimilarity += sim;
+                    oldLength += fileLines[i + j].Length + eol.Length;
+                }
+
+                double avgSimilarity = totalSimilarity / searchLines.Length;
+                if (avgSimilarity > bestSimilarity)
+                {
+                    bestSimilarity = avgSimilarity;
+                    bestStartLine = i;
+                    bestOldLength = oldLength;
+                }
+
+                startOffset += fileLines[i].Length + eol.Length;
+            }
+
+            if (bestStartLine < 0) return -1;
+
+            // 计算字符偏移
+            int charOffset = 0;
+            for (int i = 0; i < bestStartLine; i++)
+                charOffset += fileLines[i].Length + eol.Length;
+
+            return charOffset;
         }
 
         #endregion

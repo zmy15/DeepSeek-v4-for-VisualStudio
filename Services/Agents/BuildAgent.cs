@@ -15,31 +15,47 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     /// 
     /// 职责：
     /// - 编译验证代码变更
-    /// - 诊断编译错误并自动修复
+    /// - 诊断编译错误并直接修复 bug（拥有完整编辑权限）
     /// - 循环修复直到编译通过
     /// - 可独立调用（用户遇到编译错误时显式 @build）
     /// - 作为 Edit Agent 完成后的 Handoff 目标
+    /// - 可与 Edit Agent 双向移交（复杂重构场景移交 Edit，编译修复场景接受 Edit 移交）
     /// 
     /// 设计原则：
     /// - build_solution → get_errors → read_file → replace_string_in_file → build_solution 循环
-    /// - 最多修复 3 次，但新错误不计入限制
-    /// - 编辑后由 EditAgent 自动移交至此 Agent
+    /// - 拥有完整编辑工具集，可直接修复任何编译错误和代码 bug
+    /// - 最多尝试修复 3 次，但新错误不计入限制
+    /// - 修复过程中可使用 file_search/grep_search/list_dir 探索代码结构
     /// </summary>
     public class BuildAgent : BaseAgent
     {
         /// <summary>
-        /// Build Agent 工具集 — 构建、诊断、只读、修复。
+        /// Build Agent 工具集 — 构建、诊断、探索、编辑全覆盖。
+        /// 与 EditAgent 工具集对齐，专注于编译驱动的代码修复。
         /// </summary>
         public static readonly string[] BuildTools = new[]
         {
+            // 构建与诊断
             "build_solution",
             "get_errors",
+            // 文件读写与编辑
             "read_file",
             "replace_string_in_file",
             "multi_replace_string_in_file",
             "create_file",
+            "delete_file",
+            "apply_patch",
+            "create_directory",
+            // 代码探索
+            "file_search",
+            "grep_search",
+            "list_dir",
+            "get_changed_files",
+            // 终端
             "run_in_terminal",
             "get_terminal_output",
+            // 任务管理
+            "manage_todo_list",
         };
 
         public BuildAgent(DeepSeekApiService apiService) : base(apiService, AgentType.Build) { }

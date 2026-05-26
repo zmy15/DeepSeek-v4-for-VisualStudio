@@ -106,9 +106,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             {
                 string line = rawLine.TrimEnd('\r');
 
-                if (line.StartsWith("***") || (string.IsNullOrWhiteSpace(line) && currentHunk == null))
+                // ── 跳过文件头行（已在上面解析）──
+                if (line.StartsWith("*** Update") || line.StartsWith("*** Add") ||
+                    line.StartsWith("*** Delete") || line.StartsWith("*** Move"))
                     continue;
 
+                // ── *** End of File 标记：标记当前 Hunk 为文件末尾 ──
+                if (line.TrimStart().StartsWith("*** End of File"))
+                {
+                    if (currentHunk != null)
+                        currentHunk.IsEof = true;
+                    continue;
+                }
+
+                // ── 空行且尚未开始 Hunk → 跳过 ──
+                if (string.IsNullOrWhiteSpace(line) && currentHunk == null)
+                    continue;
+
+                // ── @@ 主标记：新 Hunk 开始 ──
                 var ctxMatch = PatchContextMarkerRegex.Match(line);
                 if (ctxMatch.Success)
                 {
@@ -123,6 +138,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     continue;
                 }
 
+                // ── 次级 @@ 标记 ──
                 if (currentHunk != null && line.TrimStart().StartsWith("@@"))
                 {
                     string marker = line.TrimStart().Substring(2).Trim();
@@ -131,6 +147,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     continue;
                 }
 
+                // ── 标准 Patch 行（- / + / 空格前缀）──
                 var plMatch = PatchLineRegex.Match(line);
                 if (currentHunk != null && plMatch.Success)
                 {
@@ -138,6 +155,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     {
                         Type = plMatch.Groups[1].Value[0],
                         Text = plMatch.Groups[2].Value,
+                    });
+                    currentHunk.RawText += line + "\n";
+                }
+                // ── FuzzMerge: 行缺少有效前缀（AI 偶尔漏写 -/+/空格）──
+                // 参考: parser.ts peek_next_section 的 tolerate invalid lines 逻辑
+                // 当作上下文行处理，确保 patch 不因格式小错而中断
+                else if (currentHunk != null && !string.IsNullOrWhiteSpace(line))
+                {
+                    currentHunk.Lines.Add(new PatchLine
+                    {
+                        Type = ' ',
+                        Text = line,
                     });
                     currentHunk.RawText += line + "\n";
                 }
@@ -311,6 +340,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                         fileLines, contextLines, 0, out level);
                 }
 
+                if (matchedLine < 0 && patch.Hunks[ci].IsEof)
+                {
+                    // ── EOF Hunk: 优先从文件末尾附近匹配 ──
+                    // 参考: parser.ts find_context 的 eof 优先逻辑
+                    int eofStart = Math.Max(0, fileLines.Length - contextLines.Length);
+                    matchedLine = EditStringMatcher.MatchContextInFileLines(
+                        fileLines, contextLines, eofStart, out level);
+                }
+
                 if (matchedLine < 0)
                 {
                     failedHunks.Add(patch.Hunks[ci]);
@@ -319,6 +357,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
                 chunk.OrigIndex += matchedLine;
                 searchStartLine = matchedLine + contextLines.Length;
+
+                // ── 缩进适配：AI 输出的缩进可能与目标文件不一致 ──
+                // 参考: parser.ts transformIndentation + additionalIndentation 逻辑
+                AdaptChunkIndentation(chunk, contextLines, fileLines, matchedLine);
             }
 
             if (failedHunks.Count > 0)
@@ -421,6 +463,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
         /// <summary>
         /// 文件重建：遍历原始行，按 Chunk 列表删除旧行、插入新行。
+        /// 保留原始文件的尾部空行数。
+        /// 参考: parser.ts _get_updated_file + applyPatchTool.tsx trailing empty line preservation
         /// </summary>
         private static string ReconstructFile(string[] originalLines, List<FileChunk> chunks)
         {
@@ -447,7 +491,93 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
             destLines.AddRange(originalLines.Skip(origIdx));
 
+            // ── 保留原始文件尾部空行数 ──
+            // 参考: applyPatchTool.tsx generateUpdateTextDocumentEdit 的 trailing empty line 逻辑
+            int origTrailingEmpty = CountTrailingEmptyLines(originalLines);
+            int newTrailingEmpty = CountTrailingEmptyLines(destLines);
+            for (int i = newTrailingEmpty; i < origTrailingEmpty; i++)
+                destLines.Add(string.Empty);
+
             return string.Join("\n", destLines);
+        }
+
+        /// <summary>
+        /// 统计字符串数组尾部的空行数。
+        /// </summary>
+        private static int CountTrailingEmptyLines(IList<string> lines)
+        {
+            int count = 0;
+            for (int i = lines.Count - 1; i >= 0; i--)
+            {
+                if (string.IsNullOrEmpty(lines[i].Trim()))
+                    count++;
+                else
+                    break;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// 统计字符串数组尾部的空行数（string[] 重载）。
+        /// </summary>
+        private static int CountTrailingEmptyLines(string[] lines) => CountTrailingEmptyLines((IList<string>)lines);
+
+        /// <summary>
+        /// 缩进适配：将 AI 输出的缩进调整为与目标文件一致。
+        /// 参考: parser.ts computeIndentLevel2 + transformIndentation + additionalIndentation
+        /// </summary>
+        private static void AdaptChunkIndentation(
+            FileChunk chunk, string[] contextLines, string[] fileLines, int matchedLine)
+        {
+            if (chunk.InsLines.Count == 0 || contextLines.Length == 0 || matchedLine >= fileLines.Length)
+                return;
+
+            // ── 计算 AI 输出的缩进层级（基于第一个上下文行）──
+            string firstCtx = contextLines[0];
+            int srcIndent = GetIndentLevel(firstCtx);
+
+            // ── 计算目标文件的缩进层级（基于匹配行）──
+            string matchedFileLine = fileLines[matchedLine];
+            int targetIndent = GetIndentLevel(matchedFileLine);
+
+            // ── 缩进差值：目标比 AI 多出的缩进量 ──
+            int indentDelta = targetIndent - srcIndent;
+            if (indentDelta <= 0) return; // AI 缩进已足够或更多
+
+            // ── 推断缩进字符（空格 vs 制表符）──
+            string indentChar = GetIndentChar(matchedFileLine);
+            string additionalIndent = new string(indentChar[0], indentDelta);
+
+            // ── 对每个插入行增加缩进 ──
+            for (int i = 0; i < chunk.InsLines.Count; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(chunk.InsLines[i]))
+                    chunk.InsLines[i] = additionalIndent + chunk.InsLines[i];
+            }
+        }
+
+        /// <summary>
+        /// 计算行的缩进级别（空格数，制表符按4空格计）。
+        /// </summary>
+        private static int GetIndentLevel(string line)
+        {
+            int level = 0;
+            foreach (char c in line)
+            {
+                if (c == ' ') level++;
+                else if (c == '\t') level += 4;
+                else break;
+            }
+            return level;
+        }
+
+        /// <summary>
+        /// 推断行的缩进字符（优先制表符，否则空格）。
+        /// </summary>
+        private static string GetIndentChar(string line)
+        {
+            if (line.Length > 0 && line[0] == '\t') return "\t";
+            return " ";
         }
 
         #endregion

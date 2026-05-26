@@ -51,6 +51,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>原始 Hunk 文本（用于匹配失败时的 healing）</summary>
         public string RawText { get; set; } = string.Empty;
+
+        /// <summary>是否为文件末尾 Hunk（由 *** End of File 标记）。匹配时优先从文件末尾搜索。</summary>
+        public bool IsEof { get; set; }
     }
 
     /// <summary>

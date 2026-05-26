@@ -58,14 +58,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         }
 
         /// <summary>
-        /// MultiReplace 的每文件编辑生成：与 ReplaceStringTool 相同。
+        /// MultiReplace 的每文件编辑生成：包含文件路径剥离、首尾优化、多重匹配检测。
+        /// 参考: abstractReplaceStringTool.tsx + editFileToolUtils.tsx
         /// </summary>
         protected override async Task<bool> GenerateEditForFileAsync(
             PreparedEdit prepared, string fileContent, CancellationToken ct)
         {
             var input = prepared.HealedInput ?? prepared.Input;
 
-            if (input.OldString == input.NewString)
+            // ── 剥离 AI 可能在首行重复输出的文件路径注释 ──
+            string oldString = EditStringMatcher.RemoveLeadingFilepathComment(
+                EditStringMatcher.NormalizeLineEndings(input.OldString));
+            string newString = EditStringMatcher.RemoveLeadingFilepathComment(
+                EditStringMatcher.NormalizeLineEndings(input.NewString));
+
+            if (oldString == newString)
             {
                 prepared.GeneratedEdit = new GeneratedEditResult
                 {
@@ -75,38 +82,42 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 return false;
             }
 
+            // ── 首尾相同字符修剪 ──
+            var (leading, trailing) = EditStringMatcher.GetIdenticalLeadingTrailingChars(oldString, newString);
+            string trimmedOld = oldString.Substring(leading,
+                oldString.Length - leading - Math.Max(0, trailing));
+            string trimmedNew = newString.Substring(leading,
+                newString.Length - leading - Math.Max(0, trailing));
+
             int matchPos = EditStringMatcher.MatchWithFallback(
-                fileContent, input.OldString, out MatchLevel matchLevel);
+                fileContent, trimmedOld, out MatchLevel matchLevel);
 
             if (matchPos < 0)
             {
                 prepared.GeneratedEdit = new GeneratedEditResult
                 {
                     Success = false,
-                    ErrorMessage = $"无法找到 oldString（已尝试 4 级匹配）",
+                    ErrorMessage = $"无法找到 oldString（已尝试多级匹配）",
                 };
                 return false;
             }
 
-            int matchEndPos;
+            // ── 多重匹配检测 ──
             if (matchLevel == MatchLevel.Exact)
             {
-                matchEndPos = matchPos + input.OldString.Length;
-            }
-            else
-            {
-                matchEndPos = EditStringMatcher.FindMatchEndByLineCount(
-                    fileContent, matchPos, input.OldString);
-                if (matchEndPos <= matchPos)
-                    matchEndPos = Math.Min(matchPos + input.OldString.Length + 50, fileContent.Length);
-
-                int exactPos = fileContent.IndexOf(input.OldString, matchPos, StringComparison.Ordinal);
-                if (exactPos >= 0 && exactPos - matchPos < 500)
+                int secondMatch = fileContent.IndexOf(trimmedOld, matchPos + 1, StringComparison.Ordinal);
+                if (secondMatch >= 0)
                 {
-                    matchPos = exactPos;
-                    matchEndPos = exactPos + input.OldString.Length;
+                    prepared.GeneratedEdit = new GeneratedEditResult
+                    {
+                        Success = false,
+                        ErrorMessage = $"oldString 在文件中匹配到多处。请添加更多上下文使其唯一。",
+                    };
+                    return false;
                 }
             }
+
+            int matchEndPos = matchPos + trimmedOld.Length;
 
             var (startLine, startCol) = EditStringMatcher.GetLineColumn(fileContent, matchPos);
             var (endLine, endCol) = EditStringMatcher.GetLineColumn(fileContent, matchEndPos);
@@ -122,7 +133,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                         StartColumn = startCol,
                         EndLine = endLine,
                         EndColumn = endCol,
-                        NewText = input.NewString,
+                        NewText = trimmedNew,
                         MatchedText = fileContent.Substring(matchPos,
                             Math.Min(matchEndPos - matchPos, fileContent.Length - matchPos)),
                         MatchLevelUsed = matchLevel,
