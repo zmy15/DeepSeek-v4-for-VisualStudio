@@ -787,8 +787,41 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var patches = ApplyPatchTool.ParsePatches(aiResult);
             AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatches"], patches.Count));
 
+            // ── 项目文件审批：在执行前检查所有 patch 目标，对项目文件请求用户确认 ──
+            var approvedPatches = new List<PatchOperation>();
+            foreach (var patch in patches)
+            {
+                string resolvedPath = EditPatchService.ResolvePath(patch.FilePath, workspaceRoot);
+                if (IsProjectFile(resolvedPath))
+                {
+                    string fileName = Path.GetFileName(resolvedPath);
+                    string patchPreview = patch.Hunks != null && patch.Hunks.Count > 0
+                        ? string.Join("\n", patch.Hunks.Select(h =>
+                            $"  @@ {string.Join(", ", h.ContextMarkers.Take(3))}"))
+                        : "(无 hunk 详情)";
+                    bool confirmed = await EnsureProjectFileWriteConfirmedAsync(
+                        resolvedPath,
+                        $"Patch 修改项目文件: {fileName}",
+                        "",
+                        $"向 `{fileName}` 应用代码补丁以完成项目配置修改\n\n补丁预览:\n{patchPreview}");
+                    if (!confirmed)
+                    {
+                        AddLog("WARN", $"⏭ 已跳过项目文件补丁（用户拒绝）: {fileName}");
+                        appliedResults.Add(new EditApplyResult
+                        {
+                            FilePath = resolvedPath,
+                            Success = false,
+                            OperationType = EditOperationType.ApplyPatch,
+                            ErrorMessage = "用户拒绝修改项目文件",
+                        });
+                        continue;
+                    }
+                }
+                approvedPatches.Add(patch);
+            }
+
             // ── 使用 ApplyPatchTool 批量执行（内置 Healing + 原子性）──
-            var results = await _applyPatchTool.ExecutePatchesAsync(patches, ct);
+            var results = await _applyPatchTool.ExecutePatchesAsync(approvedPatches, ct);
 
             foreach (var applyResult in results)
             {
@@ -808,7 +841,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.patchApplied"], resolvedPath, applyResult.AppliedEdits.Count));
 
                     // ── 新文件处理 ──
-                    var patch = patches.FirstOrDefault(p =>
+                    var patch = approvedPatches.FirstOrDefault(p =>
                         string.Equals(EditPatchService.ResolvePath(p.FilePath, workspaceRoot), resolvedPath, StringComparison.OrdinalIgnoreCase));
                     bool isNewFile = patch?.Action == PatchFileAction.Add;
 
@@ -850,19 +883,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 else
                 {
                     AddLog("ERROR", $"[EditAgent] Patch 应用失败: {resolvedPath} - {applyResult.ErrorMessage}");
-                    // ── Handle CMakeLists.txt / .csproj 确认 ──
-                    if (IsProjectFile(resolvedPath))
-                    {
-                        bool confirmed = await RequestPermissionAsync(
-                            "项目文件修改确认",
-                            $"将要修改项目文件: {Path.GetFileName(resolvedPath)}\n\n变更内容:\n{applyResult.FinalContent?.Truncate(500)}",
-                            "file_write");
-                        if (!confirmed)
-                        {
-                            AddLog("WARN", $"⏭ 已跳过项目文件修改（用户拒绝）: {Path.GetFileName(resolvedPath)}");
-                            continue;
-                        }
-                    }
                 }
 
                 appliedResults.Add(applyResult);
@@ -894,8 +914,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 .ThenBy(e => e.FilePath, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            // ── 项目文件审批：在执行前检查所有 InsertEdit 目标，对项目文件请求用户确认 ──
+            var approvedEdits = new List<InsertEditOperation>();
+            foreach (var edit in sortedEdits)
+            {
+                string resolvedPath = EditPatchService.ResolvePath(edit.FilePath, workspaceRoot);
+                if (IsProjectFile(resolvedPath))
+                {
+                    bool confirmed = await EnsureProjectFileWriteConfirmedAsync(
+                        resolvedPath,
+                        $"InsertEdit 修改项目文件: {Path.GetFileName(resolvedPath)}",
+                        "",
+                        $"对 `{Path.GetFileName(resolvedPath)}` 进行必要的配置变更");
+                    if (!confirmed)
+                    {
+                        AddLog("WARN", $"⏭ 已跳过项目文件 InsertEdit（用户拒绝）: {Path.GetFileName(resolvedPath)}");
+                        appliedResults.Add(new EditApplyResult
+                        {
+                            FilePath = resolvedPath,
+                            Success = false,
+                            OperationType = EditOperationType.InsertEditIntoFile,
+                            ErrorMessage = "用户拒绝修改项目文件",
+                        });
+                        continue;
+                    }
+                }
+                approvedEdits.Add(edit);
+            }
+
             // ── 使用 InsertEditTool 批量执行（内置 Healing + create_file 兜底）──
-            var results = await _insertEditTool.ExecuteInsertEditsAsync(sortedEdits, ct);
+            var results = await _insertEditTool.ExecuteInsertEditsAsync(approvedEdits, ct);
 
             foreach (var applyResult in results)
             {
