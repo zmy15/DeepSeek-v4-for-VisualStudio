@@ -1744,6 +1744,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                                     // 尝试宽松匹配（只匹配上下文行）
                                     matchStart = FindLooseContextMatch(originalLines, hunk.ContextLines);
                                 }
+                                if (matchStart < 0 && !string.IsNullOrEmpty(hunk.ContextMarker))
+                                {
+                                    // 尝试用 @@ 标记文本定位（如类名/函数名）
+                                    matchStart = FindContextByMarker(originalLines, hunk.ContextMarker);
+                                }
 
                                 if (matchStart >= 0)
                                 {
@@ -1853,6 +1858,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             public List<string> RemoveLines { get; set; } = new();
             public List<string> AddLines { get; set; } = new();
             public List<PatchLine> AllLines { get; set; } = new();
+            /// <summary>@@ 标记文本（如类名/函数名），用于上下文匹配失败时的 fallback 定位</summary>
+            public string? ContextMarker { get; set; }
         }
 
         /// <summary>
@@ -1883,7 +1890,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 var patch = new ParsedPatch();
                 PatchHunk? currentHunk = null;
 
-                var lines = blockContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                var lines = blockContent.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
                 foreach (var rawLine in lines)
                 {
                     string line = rawLine.TrimEnd();
@@ -1917,7 +1924,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     // 检测 hunk 标记
                     if (line.StartsWith("@@"))
                     {
-                        currentHunk = new PatchHunk();
+                        currentHunk = new PatchHunk
+                        {
+                            ContextMarker = line.Substring(2).Trim() // 存储 @@ 后的定位文本
+                        };
                         patch.Hunks.Add(currentHunk);
                         continue;
                     }
@@ -1970,7 +1980,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         private static int FindContextMatch(string[] sourceLines, List<string> contextLines, List<string> removeLines)
         {
-            if (contextLines.Count == 0) return 0;
+            // 空上下文无法定位，返回 -1 让调用方尝试 fallback（@@ 标记 / 宽松匹配）
+            if (contextLines.Count == 0) return -1;
 
             // 构建完整搜索模式：上下文行 + 待删除行
             var searchPattern = new List<string>();
@@ -2039,6 +2050,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             for (int i = 0; i < sourceLines.Length; i++)
             {
                 if (string.Equals(sourceLines[i].Trim(), firstCtx, StringComparison.Ordinal))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// 使用 @@ 标记文本在源文件中定位（上下文匹配失败时的 fallback）。
+        /// 返回匹配行的索引（0-based），未找到返回 -1。
+        /// </summary>
+        private static int FindContextByMarker(string[] sourceLines, string? marker)
+        {
+            if (string.IsNullOrEmpty(marker)) return -1;
+
+            // 第1级：精确匹配行内容
+            for (int i = 0; i < sourceLines.Length; i++)
+            {
+                if (sourceLines[i].Contains(marker, StringComparison.Ordinal))
+                    return i;
+            }
+
+            // 第2级：忽略大小写匹配
+            for (int i = 0; i < sourceLines.Length; i++)
+            {
+                if (sourceLines[i].Contains(marker, StringComparison.OrdinalIgnoreCase))
                     return i;
             }
 

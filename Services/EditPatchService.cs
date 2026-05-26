@@ -265,7 +265,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (string.IsNullOrEmpty(searchText))
             {
                 matchLevel = MatchLevel.Exact;
-                return 0; // 空搜索匹配开头
+                return -1; // 空搜索无法定位，让调用方尝试 @@ 标记 fallback
             }
 
             // ── 第1级：精确匹配 ──
@@ -496,6 +496,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 string replacementText = ExtractReplacementText(hunk);
 
                 int matchPos = MatchWithFallback(fileContent, searchPattern, out MatchLevel level);
+
+                if (matchPos < 0)
+                {
+                    // ── Fallback：用 @@ 标记文本定位 ──
+                    if (hunk.ContextMarkers.Count > 0)
+                    {
+                        foreach (var marker in hunk.ContextMarkers)
+                        {
+                            if (string.IsNullOrEmpty(marker)) continue;
+                            matchPos = fileContent.IndexOf(marker, StringComparison.Ordinal);
+                            if (matchPos >= 0)
+                            {
+                                level = MatchLevel.Exact;
+                                break;
+                            }
+                            // 忽略大小写再试
+                            matchPos = fileContent.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                            if (matchPos >= 0)
+                            {
+                                level = MatchLevel.Exact;
+                                break;
+                            }
+                        }
+                    }
+                }
 
                 if (matchPos < 0)
                 {
