@@ -653,10 +653,12 @@
                                   VerticalAlignment="Center" Margin="2,0,4,0"
                                   Checked="ThinkingCheckBox_Changed"
                                   Unchecked="ThinkingCheckBox_Changed" />
+                        <!-- TODO: RagCheckBox 暂时注释掉，功能未完善
                         <CheckBox x:Name="RagCheckBox"
                                   VerticalAlignment="Center" Margin="2,0,4,0"
                                   Checked="RagCheckBox_Changed"
                                   Unchecked="RagCheckBox_Changed" />
+                        -->
                         <ComboBox x:Name="EffortComboBox"
                                   MinWidth="65" Margin="2,0,4,0"
                                   SelectionChanged="EffortComboBox_SelectionChanged" />
