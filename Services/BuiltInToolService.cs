@@ -1676,6 +1676,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     .Replace("\r\n", "\n").Replace("\r", "\n")
                     .Replace("\n", "\r\n"); // 统一为 CRLF
 
+                // ── 代码内容合法性检测：防止 AI 写入描述/注释替代实际代码 ──
+                if (!string.IsNullOrEmpty(normalizedContent)
+                    && !Utils.CodeContentValidator.IsProbablySourceCode(filePath, normalizedContent))
+                {
+                    string lang = Utils.CodeContentValidator.GetLanguageDescription(filePath);
+                    return $"❌ create_file 被拒绝: `{Path.GetFileName(filePath)}` 的内容不像是合法的 {lang} 源代码。" +
+                        "\n请写入实际可编译的代码，严禁用自然语言描述、TODO 注释、文档摘要或功能说明替代代码。";
+                }
+
                 bool existed = File.Exists(filePath);
                 await Task.Run(() => File.WriteAllText(filePath, normalizedContent, System.Text.Encoding.UTF8));
 

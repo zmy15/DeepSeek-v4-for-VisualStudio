@@ -82,6 +82,17 @@ namespace DeepSeek_v4_for_VisualStudio.ToolWindows
             if (newContent == null)
                 newContent = string.Empty;
 
+            // ── 代码内容合法性检测：防止 AI 写入描述/注释替代实际代码 ──
+            if (!string.IsNullOrEmpty(newContent)
+                && !Utils.CodeContentValidator.IsProbablySourceCode(filePath, newContent))
+            {
+                string lang = Utils.CodeContentValidator.GetLanguageDescription(filePath);
+                string msg = $"❌ 文件写入被拒绝: `{Path.GetFileName(filePath)}` 的内容不像是合法的 {lang} 源代码。" +
+                    "\n请写入实际可编译的代码，严禁用自然语言描述、TODO 注释、文档摘要或功能说明替代代码。";
+                Logger.Warn($"[WriteCode] {msg}");
+                return msg;
+            }
+
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
             try

@@ -138,7 +138,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         Label = LocalizationService.Instance["agent.edit.handoffBuildLabel"],
                         TargetAgent = AgentType.Build,
                         Prompt = LocalizationService.Instance["agent.edit.handoffBuildPrompt"],
-                        AutoSend = false,
+                        AutoSend = true,
                         ShowContinueOn = true,
                     },
                 },
@@ -820,14 +820,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 approvedPatches.Add(patch);
             }
 
-            // ── 使用 ApplyPatchTool 批量执行（内置 Healing + 原子性）──
-            var results = await _applyPatchTool.ExecutePatchesAsync(approvedPatches, ct);
-
-            foreach (var applyResult in results)
+            // ── 保存原始内容（执行前读取，确保 diff 计算准确）──
+            foreach (var patch in approvedPatches)
             {
-                string resolvedPath = applyResult.FilePath;
-
-                // ── 保存原始内容（仅首次）──
+                string resolvedPath = EditPatchService.ResolvePath(patch.FilePath, workspaceRoot);
                 if (!originalContents.ContainsKey(resolvedPath))
                 {
                     string original = File.Exists(resolvedPath)
@@ -835,6 +831,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         : string.Empty;
                     originalContents[resolvedPath] = original;
                 }
+            }
+
+            // ── 使用 ApplyPatchTool 批量执行（内置 Healing + 原子性）──
+            var results = await _applyPatchTool.ExecutePatchesAsync(approvedPatches, ct);
+
+            foreach (var applyResult in results)
+            {
+                string resolvedPath = applyResult.FilePath;
 
                 if (applyResult.Success)
                 {
@@ -942,14 +946,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 approvedEdits.Add(edit);
             }
 
-            // ── 使用 InsertEditTool 批量执行（内置 Healing + create_file 兜底）──
-            var results = await _insertEditTool.ExecuteInsertEditsAsync(approvedEdits, ct);
-
-            foreach (var applyResult in results)
+            // ── 保存原始内容（执行前读取，确保 diff 计算准确）──
+            foreach (var edit in approvedEdits)
             {
-                string resolvedPath = applyResult.FilePath;
-
-                // ── 保存原始内容 ──
+                string resolvedPath = EditPatchService.ResolvePath(edit.FilePath, workspaceRoot);
                 if (!originalContents.ContainsKey(resolvedPath))
                 {
                     string original = File.Exists(resolvedPath)
@@ -957,6 +957,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         : string.Empty;
                     originalContents[resolvedPath] = original;
                 }
+            }
+
+            // ── 使用 InsertEditTool 批量执行（内置 Healing + create_file 兜底）──
+            var results = await _insertEditTool.ExecuteInsertEditsAsync(approvedEdits, ct);
+
+            foreach (var applyResult in results)
+            {
+                string resolvedPath = applyResult.FilePath;
 
                 if (applyResult.Success)
                 {

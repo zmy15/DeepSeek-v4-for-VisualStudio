@@ -145,7 +145,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 Logger.Info("[BuildService] 正在构建解决方案 (DTE)…");
 
-                // 检查是否已有构建在进行
+                // ── 等待 DTE 就绪：上一步构建刚完成时，DTE 内部状态可能尚未复位 ──
+                const int maxWaitRetries = 5;
+                for (int retry = 0; retry < maxWaitRetries; retry++)
+                {
+                    if (solutionBuild.BuildState != EnvDTE.vsBuildState.vsBuildStateInProgress)
+                        break;
+                    Logger.Info($"[BuildService] DTE 构建忙，等待就绪 ({retry + 1}/{maxWaitRetries})…");
+                    await Task.Delay(1000, ct);
+                }
+
                 if (solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress)
                 {
                     return LocalizationService.Instance["build.alreadyInProgress"];
