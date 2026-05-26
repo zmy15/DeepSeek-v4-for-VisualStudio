@@ -451,21 +451,42 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 workspaceRoot = System.IO.Path.GetDirectoryName(workspaceRoot) ?? workspaceRoot;
 
             // ── AI 调用循环（支持格式重试）──
+            // messages 在循环外声明，重试时复用前一次的完整对话上下文（含工具调用结果），
+            // 避免重复读取文件、重复搜索目录等浪费。
             var retryOutputs = new List<string>();
+            List<ChatApiMessage>? messages = null;
+
             for (int retry = 0; retry <= maxFormatRetries; retry++)
             {
                 if (ct.IsCancellationRequested) return;
 
-                string currentPrompt = stepPrompt;
-                if (retry > 0)
+                if (retry == 0)
                 {
-                    currentPrompt += "\n\n⚠️ 上次输出格式有误。请使用以下格式之一输出代码变更：\n\n" +
-                        "1. apply_patch（首选）: *** Begin Patch / *** End Patch\n" +
-                        "2. insert_edit_into_file: ```insert_edit_into_file:路径\\n...existing code...\n" +
-                        "3. create_file: ```file:路径\\n完整内容\n" +
-                        "不要添加额外解释，只输出编辑操作。";
+                    // 首次尝试：创建全新的消息列表
+                    messages = BuildContextAwareMessages(Definition.SystemPrompt, stepPrompt);
                 }
-                var messages = BuildContextAwareMessages(Definition.SystemPrompt, currentPrompt);
+                else
+                {
+                    // 重试：在上次消息基础上追加格式修正指令
+                    // messages 中已包含前次尝试的全部工具调用及结果（文件内容等），无需重复读取
+                    messages!.Add(new ChatApiMessage
+                    {
+                        Role = "assistant",
+                        Content = result // 上次的（格式错误）输出，作为对话上下文
+                    });
+                    messages.Add(new ChatApiMessage
+                    {
+                        Role = "user",
+                        Content = "⚠️ 上次输出格式不正确，未检测到有效的编辑操作。\n\n"
+                            + "请使用以下格式之一重新输出代码变更：\n\n"
+                            + "1. apply_patch（首选）: *** Begin Patch / *** End Patch\n"
+                            + "2. insert_edit_into_file: ```insert_edit_into_file:路径\\n...existing code...\n"
+                            + "3. create_file: ```file:路径\\n完整内容\n\n"
+                            + "**重要**：你已经在前面读取过相关文件的内容（见上方工具调用结果），"
+                            + "无需重复读取任何文件。请直接基于已读取的内容输出编辑操作。"
+                            + "不要添加任何额外解释，只输出编辑块。"
+                    });
+                }
 
                 // ── 使用工具调用循环：AI 可以先探索再修改 ──
                 AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.callingAiToolLoop"], retry));
@@ -721,6 +742,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             string.Join("; ", newDiags.Take(5))));
                     }
                 }
+            }
+
+            // ── 使已修改文件的读取缓存失效，确保后续步骤读取到最新内容 ──
+            if (BuiltInTools != null && appliedResults.Count > 0)
+            {
+                var modifiedPaths = appliedResults
+                    .Where(r => r.Success)
+                    .Select(r => r.FilePath)
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+                BuiltInTools.InvalidateFileReadCache(modifiedPaths);
             }
 
             // ── 恢复 diff 预览，统一显示一次最终 diff ──
@@ -1621,6 +1652,71 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 sb.AppendLine();
             }
 
+            // ── Planning 模式：注入前面步骤已读取的文件内容缓存，避免重复 read_file 调用 ──
+            if (context.IsPlanningMode && BuiltInTools != null)
+            {
+                var fileCache = BuiltInTools.GetFileReadCacheSnapshot();
+                if (fileCache.Count > 0)
+                {
+                    // 排除之前步骤已修改过的文件（内容可能已过时）
+                    var modifiedPaths = new HashSet<string>(
+                        plan.ChangedFiles.Select(c => NormalizePath(c.FilePath)),
+                        StringComparer.OrdinalIgnoreCase);
+
+                    // 过滤出与当前步骤可能相关的文件（基于步骤标题/描述中的文件名关键词）
+                    var relevantFiles = FilterRelevantCachedFiles(fileCache, step);
+                    var safeFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var kvp in relevantFiles)
+                    {
+                        if (!modifiedPaths.Contains(NormalizePath(kvp.Key)))
+                            safeFiles[kvp.Key] = kvp.Value;
+                    }
+
+                    if (safeFiles.Count > 0)
+                    {
+                        sb.AppendLine("## 前面步骤已读取的文件内容（可直接使用，无需重复调用 read_file）");
+                        sb.AppendLine("> ⚠️ 以下文件内容来自前面步骤的读取缓存，这些文件在之前步骤中**未被修改**，内容仍然有效。已被修改过的文件已自动排除。");
+                        sb.AppendLine();
+
+                        const int maxFilesToInclude = 15;
+                        const int maxCharsPerFile = 4000; // 每个文件最多注入 4KB
+                        int included = 0;
+                        long totalChars = 0;
+                        const long maxTotalChars = 30000; // 总计最多 30KB
+
+                        foreach (var kvp in safeFiles)
+                        {
+                            if (included >= maxFilesToInclude || totalChars >= maxTotalChars)
+                                break;
+
+                            string filePath = kvp.Key;
+                            string content = kvp.Value;
+                            bool truncated = content.Length > maxCharsPerFile;
+                            if (truncated)
+                                content = content.Substring(0, maxCharsPerFile) + "\n... (内容已截断，如需完整内容请使用 read_file)";
+
+                            sb.AppendLine($"### 📄 `{filePath}`");
+                            sb.AppendLine("```");
+                            sb.AppendLine(content);
+                            sb.AppendLine("```");
+                            sb.AppendLine();
+
+                            included++;
+                            totalChars += content.Length;
+                        }
+
+                        if (included < safeFiles.Count)
+                        {
+                            sb.AppendLine($"> 💡 还有 {safeFiles.Count - included} 个已缓存文件未显示（超出大小限制）。如需要，请使用 read_file 读取。");
+                            sb.AppendLine();
+                        }
+
+                        sb.AppendLine("**重要**: 上述文件内容已在前面步骤中通过 read_file 获取且未被修改。请直接使用这些内容进行分析和编辑，不要重复调用 read_file。");
+                        sb.AppendLine();
+                    }
+                }
+            }
+
             // ── 提示 AI 利用已有计划上下文，避免不必要的全项目搜索 ──
             sb.AppendLine("## 重要提示");
             sb.AppendLine("- 用户消息中已包含完整的 plan.md 计划文档，其中记录了项目结构、相关文件路径和修改方案");
@@ -1701,6 +1797,62 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
             }
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 从文件读取缓存中筛选与当前步骤可能相关的文件。
+        /// 匹配策略：文件名或路径片段出现在步骤标题/描述中，或者步骤关键词（如 WAL、B+树、Lock）匹配文件名。
+        /// </summary>
+        private static Dictionary<string, string> FilterRelevantCachedFiles(
+            Dictionary<string, string> fileCache, AgentStep step)
+        {
+            // 如果缓存文件数 ≤ 10，全部返回（无需过滤）
+            if (fileCache.Count <= 10)
+                return fileCache;
+
+            var relevant = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string stepText = $"{step.Title} {step.Description}".ToLowerInvariant();
+
+            // 从步骤文本提取关键词（取长度>2的单词）
+            var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var word in stepText.Split(new[] { ' ', '(', ')', '（', '）', '、', '，', '/', '\\', '_', '-', '.' },
+                StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (word.Length > 2)
+                    keywords.Add(word);
+            }
+
+            foreach (var kvp in fileCache)
+            {
+                string fileName = System.IO.Path.GetFileName(kvp.Key).ToLowerInvariant();
+                string filePath = kvp.Key.ToLowerInvariant();
+
+                // 文件名直接匹配步骤文本
+                if (stepText.Contains(fileName) || fileName.Contains(stepText))
+                {
+                    relevant[kvp.Key] = kvp.Value;
+                    continue;
+                }
+
+                // 关键词匹配文件名或路径
+                bool keywordMatch = false;
+                foreach (var kw in keywords)
+                {
+                    if (fileName.Contains(kw) || filePath.Contains(kw))
+                    {
+                        keywordMatch = true;
+                        break;
+                    }
+                }
+                if (keywordMatch)
+                {
+                    relevant[kvp.Key] = kvp.Value;
+                    continue;
+                }
+            }
+
+            // 如果没匹配到任何文件，返回全部（让 AI 自己决定）
+            return relevant.Count > 0 ? relevant : fileCache;
         }
 
         #endregion

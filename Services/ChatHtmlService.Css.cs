@@ -80,7 +80,7 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .tool-call-section code{background:#2a3a4a;color:#7eb8e0;font-size:11px}
 .tool-call-section strong{color:#d0d8e0}
 .tool-call-result{color:#8a8;font-size:11px;margin-left:4px}
-.agent-task-panel{margin:12px 0;border:1px solid #3a4a5a;border-radius:10px;background:#1a1e2a;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.3)}
+.agent-task-panel{position:sticky;bottom:0;z-index:10;margin:12px 0 0 0;border:1px solid #3a4a5a;border-radius:10px 10px 0 0;background:#1a1e2a;overflow:hidden;box-shadow:0 -2px 12px rgba(0,0,0,.4)}
 .agent-task-panel.collapsed .agent-task-panel-body{display:none}
 .agent-task-panel-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#222a3a;cursor:pointer;user-select:none;border-bottom:1px solid #2a3a4a}
 .agent-task-panel-header:hover{background:#263040}

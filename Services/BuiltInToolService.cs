@@ -30,6 +30,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private readonly ConcurrentDictionary<string, string> _fileReadCache = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
+        /// 获取文件读取缓存的快照（用于 Agent 步骤间上下文传递，避免后续步骤重复读取）。
+        /// 返回 Dictionary 的浅拷贝，调用方可安全遍历。
+        /// </summary>
+        public Dictionary<string, string> GetFileReadCacheSnapshot()
+        {
+            return new Dictionary<string, string>(_fileReadCache, StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 使指定文件的读取缓存失效（当文件被修改后调用，确保后续读取获得最新内容）。
+        /// </summary>
+        public void InvalidateFileReadCache(string filePath)
+        {
+            _fileReadCache.TryRemove(filePath, out _);
+        }
+
+        /// <summary>
+        /// 批量使文件读取缓存失效。
+        /// </summary>
+        public void InvalidateFileReadCache(IEnumerable<string> filePaths)
+        {
+            foreach (var path in filePaths)
+            {
+                _fileReadCache.TryRemove(path, out _);
+            }
+        }
+
+        /// <summary>
         /// i18n 便捷访问器。
         /// </summary>
         private static LocalizationService L => LocalizationService.Instance;
