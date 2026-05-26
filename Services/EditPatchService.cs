@@ -484,62 +484,33 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             // 优先使用预加载内容（避免同一文件多次读盘 + 保证原子性）
-            // RAG-SOURCE: file-read 读取目标文件当前内容（Patch 应用）
             string fileContent = existingContent
                 ?? await Task.Run(() => File.ReadAllText(result.FilePath), ct);
+
+            // ── 基于参考实现的重构方案 ──
+            // 不再使用「搜索模式 → 替换文本」的字符串替换方式。
+            // 改用与 OpenAI Codex apply_patch 参考实现一致的文件重建方式：
+            //   1. 将每个 Hunk 转换为 FileChunk（delLines / insLines）
+            //   2. 在文件行中进行上下文匹配定位
+            //   3. 遍历原始文件行，按 Chunk 的 OrigIndex 删除旧行、插入新行
+            // 这种方式从根本上避免了 AI 重复闭合符号等问题 ——
+            // 闭合符号要么在 delLines 中（被删除），要么保留在原始行中。
+            // ================================================================
+
+            var fileLines = fileContent.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            var chunks = new List<(FileChunk chunk, string[] contextLines)>();
             var failedHunks = new List<PatchHunk>();
 
+            // ── 阶段 1：将每个 Hunk 解析为 FileChunk + 上下文行 ──
             foreach (var hunk in patch.Hunks)
             {
-                // ── 提取 Hunk 上下文行（搜索模式）──
-                string searchPattern = ExtractContextSearchPattern(hunk);
-                string replacementText = ExtractReplacementText(hunk);
-
-                int matchPos = MatchWithFallback(fileContent, searchPattern, out MatchLevel level);
-
-                if (matchPos < 0)
+                var (chunk, contextArray) = HunkToChunk(hunk);
+                if (chunk == null)
                 {
-                    // ── Fallback：用 @@ 标记文本定位 ──
-                    if (hunk.ContextMarkers.Count > 0)
-                    {
-                        foreach (var marker in hunk.ContextMarkers)
-                        {
-                            if (string.IsNullOrEmpty(marker)) continue;
-                            matchPos = fileContent.IndexOf(marker, StringComparison.Ordinal);
-                            if (matchPos >= 0)
-                            {
-                                level = MatchLevel.Exact;
-                                break;
-                            }
-                            // 忽略大小写再试
-                            matchPos = fileContent.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-                            if (matchPos >= 0)
-                            {
-                                level = MatchLevel.Exact;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if (matchPos < 0)
-                {
-                    // 匹配失败
                     failedHunks.Add(hunk);
                     continue;
                 }
-
-                // ── 构造 TextEdit ──
-                var textEdit = CreateTextEditFromMatch(
-                    fileContent, matchPos, searchPattern, replacementText, level);
-
-                if (textEdit != null)
-                {
-                    result.AppliedEdits.Add(textEdit);
-
-                    // 更新文件内容（用于后续 Hunk 匹配）
-                    fileContent = ApplyTextEditToContent(fileContent, textEdit);
-                }
+                chunks.Add((chunk, contextArray));
             }
 
             if (failedHunks.Count > 0)
@@ -550,51 +521,397 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return result;
             }
 
-            // ── 所有 Hunk 匹配成功，标准化行尾并保存最终内容 ──
-            // 不直接写磁盘——由调用方通过 TerminalWindowHelper.WriteCodeToFileAsync 写入，
-            // 以正确集成 VS 编辑器（避免"外部文件变更"弹窗 + 行尾不一致提示）。
-            result.FinalContent = NormalizeToCrLf(fileContent);
+            // ── 阶段 2：上下文匹配 — 找到每个 Chunk 在文件中的行位置 ──
+            int searchStartLine = 0;
+            for (int ci = 0; ci < chunks.Count; ci++)
+            {
+                var (chunk, contextLines) = chunks[ci];
+                if (contextLines.Length == 0)
+                {
+                    // 空上下文：Chunk 位置已由 OrigIndex 确定，无需调整
+                    continue;
+                }
+
+                int matchedLine = MatchContextInFileLines(
+                    fileLines, contextLines, searchStartLine, out MatchLevel level);
+
+                if (matchedLine < 0)
+                {
+                    // ── Fallback：用 @@ 标记文本定位 ──
+                    var hunk = patch.Hunks[ci];
+                    matchedLine = MatchContextViaMarkers(fileLines, hunk.ContextMarkers, searchStartLine);
+                    if (matchedLine >= 0) level = MatchLevel.Exact;
+                }
+
+                if (matchedLine < 0)
+                {
+                    // ── 回退：从文件开头搜索（patch 可能乱序）──
+                    matchedLine = MatchContextInFileLines(
+                        fileLines, contextLines, 0, out level);
+                    if (matchedLine >= 0)
+                    {
+                        // 找到了但不在预期位置 — 接受
+                    }
+                }
+
+                if (matchedLine < 0)
+                {
+                    failedHunks.Add(patch.Hunks[ci]);
+                    continue;
+                }
+
+                // 调整 Chunk 位置到匹配行
+                chunk.OrigIndex += matchedLine;
+                searchStartLine = matchedLine + contextLines.Length;
+
+                // 记录编辑（用于日志）
+                result.AppliedEdits.Add(new TextEditOperation
+                {
+                    StartLine = matchedLine,
+                    StartColumn = 0,
+                    EndLine = matchedLine + contextLines.Length,
+                    EndColumn = 0,
+                    NewText = $"[Chunk: -{chunk.DelLines.Count} +{chunk.InsLines.Count} lines]",
+                    MatchedText = string.Join("\n", contextLines),
+                    MatchLevelUsed = level,
+                });
+            }
+
+            if (failedHunks.Count > 0)
+            {
+                result.Success = false;
+                result.FailedHunks = failedHunks;
+                result.ErrorMessage = L.Format("edit.hunksFailed", failedHunks.Count, patch.Hunks.Count);
+                return result;
+            }
+
+            // ── 阶段 3：文件重建 — 遍历原始行，应用所有 Chunk ──
+            string reconstructedContent = ReconstructFile(
+                fileLines, chunks.Select(c => c.chunk).ToList());
+
+            // ── 标准化行尾并保存最终内容 ──
+            result.FinalContent = NormalizeToCrLf(reconstructedContent);
             result.Success = true;
 
             return result;
         }
 
+        // ====================================================================
+        // Chunk-based 文件重建方法（基于 OpenAI Codex apply_patch 参考实现）
+        // ====================================================================
+
         /// <summary>
-        /// 提取 Hunk 上下文搜索模式（所有上下文行 + 旧行，去掉 +/- 前缀）。
+        /// 将 PatchHunk 转换为 FileChunk + 上下文行数组。
+        /// 参考 peek_next_section：解析 patch 行，区分上下文/删除/新增，
+        /// 构建 { OrigIndex, DelLines, InsLines } 结构。
         /// </summary>
-        private static string ExtractContextSearchPattern(PatchHunk hunk)
+        /// <returns>(chunk, contextLines)。chunk 为 null 表示解析失败。</returns>
+        private static (FileChunk? chunk, string[] contextLines) HunkToChunk(PatchHunk hunk)
         {
-            var sb = new StringBuilder();
+            var contextLines = new List<string>();
+            var delLines = new List<string>();
+            var insLines = new List<string>();
+            int origIndex = 0; // 在原始文件中，第一个受影响的行索引
+            bool hasChanges = false;
 
             foreach (var line in hunk.Lines)
             {
-                if (line.Type == ' ' || line.Type == '-')
+                switch (line.Type)
                 {
-                    if (sb.Length > 0) sb.Append('\n');
-                    sb.Append(line.Text);
+                    case ' ':
+                        // 上下文行：如果在删除/新增之后出现，表示当前段结束
+                        if (hasChanges)
+                        {
+                            // 上下文行只用于匹配，不参与 chunk 计算
+                            contextLines.Add(line.Text);
+                        }
+                        else
+                        {
+                            // 变更前的上下文：增加 origIndex
+                            contextLines.Add(line.Text);
+                            origIndex++;
+                        }
+                        break;
+
+                    case '-':
+                        hasChanges = true;
+                        delLines.Add(line.Text);
+                        contextLines.Add(line.Text); // 用于上下文匹配
+                        break;
+
+                    case '+':
+                        hasChanges = true;
+                        insLines.Add(line.Text);
+                        // 注意：+ 行不加入 contextLines（它们不在原始文件中）
+                        break;
                 }
             }
 
+            if (!hasChanges)
+            {
+                // 纯上下文 Hunk（无变更）—— 跳过
+                return (null, Array.Empty<string>());
+            }
+
+            // ── 防御性修复：检测尾部 + 行重复闭合符号 ──
+            // AI 模型常见错误：将闭合括号（) } ] end 等）同时标记为上下文行和 + 行。
+            // 例如在 CMakeLists.txt 的 add_executable(...) 末尾：
+            //   上下文: )
+            //   +新增:  )
+            // 结果是 InsLines 包含重复的闭合符号。
+            // 
+            // 策略：如果最后一个 InsLine 是闭合 token 且内容与最后一个上下文行相同，
+            // 将其从 InsLines 中移除，避免重建文件时产生 ))、}} 等畸形输出。
+            if (insLines.Count > 0 && contextLines.Count > 0)
+            {
+                string lastIns = insLines[insLines.Count - 1];
+                string lastCtx = contextLines[contextLines.Count - 1];
+
+                if (IsClosingToken(lastIns) && 
+                    string.Equals(lastIns.Trim(), lastCtx.Trim(), StringComparison.Ordinal))
+                {
+                    insLines.RemoveAt(insLines.Count - 1);
+                }
+            }
+
+            // origIndex 表示：在原始文件的 contextLines 中，
+            // 从第 origIndex 行开始是第一个受 Chunk 影响的行
+            var chunk = new FileChunk
+            {
+                OrigIndex = origIndex,
+                DelLines = delLines,
+                InsLines = insLines,
+            };
+
+            return (chunk, contextLines.ToArray());
+        }
+
+        /// <summary>
+        /// 判断单行是否为闭合符号（用于检测 AI 重复闭合符号错误）。
+        /// </summary>
+        private static bool IsClosingToken(string line)
+        {
+            string trimmed = line.Trim();
+            return trimmed switch
+            {
+                ")" or "}" or "]" => true,
+                ");" or "};" or "]);" => true,
+                "end" or "endif" or "fi" or "done" or "esac" => true,
+                _ => trimmed.Length <= 2 && (trimmed == ")" || trimmed == "}" || trimmed == "]"),
+            };
+        }
+
+        /// <summary>
+        /// 在文件行数组中匹配上下文行。
+        /// 使用与参考实现 find_context_core 相同的 5 层降级策略：
+        ///   1. 精确匹配
+        ///   2. 忽略尾部空白
+        ///   3. 标准化显式 \t
+        ///   4. 忽略所有周围空白
+        ///   5. 编辑距离模糊匹配
+        /// </summary>
+        /// <returns>匹配到的行索引（0-based），-1 表示未找到。</returns>
+        private static int MatchContextInFileLines(
+            string[] fileLines, string[] contextLines, int startLine, out MatchLevel level)
+        {
+            level = MatchLevel.Exact;
+
+            if (contextLines.Length == 0 || startLine >= fileLines.Length)
+                return -1;
+
+            int maxStart = fileLines.Length - contextLines.Length;
+            if (maxStart < 0) return -1;
+
+            // ── Pass 1：精确匹配（Unicode NFC 标准化后）──
+            var canonFile = fileLines.Select(NormalizeUnicode).ToArray();
+            var canonCtx = contextLines.Select(NormalizeUnicode).ToArray();
+            int match = FindLineSequence(canonFile, canonCtx, startLine);
+            if (match >= 0) { level = MatchLevel.Exact; return match; }
+
+            // ── Pass 2：忽略尾部空白 ──
+            var trimEndFile = canonFile.Select(l => l.TrimEnd()).ToArray();
+            var trimEndCtx = canonCtx.Select(l => l.TrimEnd()).ToArray();
+            match = FindLineSequence(trimEndFile, trimEndCtx, startLine);
+            if (match >= 0) { level = MatchLevel.WhitespaceFlexible; return match; }
+
+            // ── Pass 3：标准化显式 \t → 制表符 ──
+            var tabFile = trimEndFile.Select(ReplaceExplicitTabs).ToArray();
+            var tabCtx = trimEndCtx.Select(ReplaceExplicitTabs).ToArray();
+            match = FindLineSequence(tabFile, tabCtx, startLine);
+            if (match >= 0) { level = MatchLevel.Fuzzy; return match; }
+
+            // ── Pass 4：忽略所有周围空白 ──
+            var trimAllFile = tabFile.Select(l => l.Trim()).ToArray();
+            var trimAllCtx = tabCtx.Select(l => l.Trim()).ToArray();
+            match = FindLineSequence(trimAllFile, trimAllCtx, startLine);
+            if (match >= 0) { level = MatchLevel.Fuzzy; return match; }
+
+            // ── Pass 5：编辑距离模糊匹配（每行容忍 ~34% 编辑距离）──
+            match = FuzzyLineMatch(trimAllFile, trimAllCtx, startLine);
+            if (match >= 0) { level = MatchLevel.Levenshtein; return match; }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// 在行数组中查找连续行序列的起始位置。
+        /// </summary>
+        private static int FindLineSequence(string[] fileLines, string[] pattern, int startLine)
+        {
+            int maxStart = fileLines.Length - pattern.Length;
+            for (int i = Math.Max(0, startLine); i <= maxStart; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < pattern.Length; j++)
+                {
+                    if (fileLines[i + j] != pattern[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// 编辑距离模糊行匹配：累计各行编辑距离不超过阈值。
+        /// 参考 find_context_core Pass 5。
+        /// </summary>
+        private static int FuzzyLineMatch(string[] fileLines, string[] contextLines, int startLine)
+        {
+            const double EDIT_DISTANCE_ALLOWANCE_PER_LINE = 0.34;
+            int maxDistance = (int)Math.Floor(contextLines.Length * EDIT_DISTANCE_ALLOWANCE_PER_LINE);
+            if (maxDistance <= 0) return -1;
+
+            int maxStart = fileLines.Length - contextLines.Length;
+
+            for (int i = Math.Max(0, startLine); i <= maxStart; i++)
+            {
+                int totalDistance = 0;
+                for (int j = 0; j < contextLines.Length && totalDistance <= maxDistance; j++)
+                {
+                    totalDistance += CalculateSimilarityDistance(fileLines[i + j], contextLines[j]);
+                }
+                if (totalDistance <= maxDistance) return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// 计算两个字符串的编辑距离（用于模糊行匹配，返回原始距离值）。
+        /// </summary>
+        private static int CalculateSimilarityDistance(string a, string b)
+        {
+            return LevenshteinDistance(a, b);
+        }
+
+        /// <summary>
+        /// Unicode 标点规范化：将全角/变体标点映射为 ASCII。
+        /// 参考 find_context_core 的 canon() 函数。
+        /// </summary>
+        private static string NormalizeUnicode(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s ?? string.Empty;
+
+            // NFC 标准化后替换常见 Unicode 标点变体
+            string normalized = s.Normalize(System.Text.NormalizationForm.FormC);
+
+            // 仅在包含非 ASCII 字符时进行替换（性能优化）
+            if (normalized.All(c => c < 128)) return normalized;
+
+            var sb = new StringBuilder(normalized.Length);
+            foreach (char c in normalized)
+            {
+                sb.Append(c switch
+                {
+                    '\u2010' or '\u2011' or '\u2012' or '\u2013' or '\u2014' or '\u2212' => '-',
+                    '\u201C' or '\u201D' or '\u201E' or '\u00AB' or '\u00BB' => '"',
+                    '\u2018' or '\u2019' or '\u201B' => '\'',
+                    '\u00A0' or '\u202F' => ' ',
+                    _ => c,
+                });
+            }
             return sb.ToString();
         }
 
         /// <summary>
-        /// 提取 Hunk 替换文本（所有上下文行 + 新行，去掉空格/+ 前缀）。
+        /// 将显式的 "\t" 字符串替换为实际制表符。
+        /// 参考 replace_explicit_tabs。
         /// </summary>
-        private static string ExtractReplacementText(PatchHunk hunk)
+        private static string ReplaceExplicitTabs(string s)
         {
-            var sb = new StringBuilder();
+            return s.Replace("\\t", "\t");
+        }
 
-            foreach (var line in hunk.Lines)
+        /// <summary>
+        /// 通过 @@ 标记文本在文件中定位。
+        /// </summary>
+        private static int MatchContextViaMarkers(
+            string[] fileLines, List<string> contextMarkers, int startLine)
+        {
+            if (contextMarkers == null || contextMarkers.Count == 0) return -1;
+
+            foreach (var marker in contextMarkers)
             {
-                if (line.Type == ' ' || line.Type == '+')
+                if (string.IsNullOrEmpty(marker)) continue;
+                string normalized = NormalizeUnicode(marker);
+                for (int i = Math.Max(0, startLine); i < fileLines.Length; i++)
                 {
-                    if (sb.Length > 0) sb.Append('\n');
-                    sb.Append(line.Text);
+                    if (NormalizeUnicode(fileLines[i]).Contains(normalized))
+                        return i;
+                }
+                // 忽略大小写再试
+                for (int i = Math.Max(0, startLine); i < fileLines.Length; i++)
+                {
+                    if (NormalizeUnicode(fileLines[i]).Contains(normalized, StringComparison.OrdinalIgnoreCase))
+                        return i;
                 }
             }
+            return -1;
+        }
 
-            return sb.ToString();
+        /// <summary>
+        /// 文件重建：遍历原始行，按 Chunk 列表删除旧行、插入新行。
+        /// 参考 _get_updated_file。
+        /// 
+        /// 这是核心方法 — 通过直接操作行数组而非文本替换，
+        /// 从根本上杜绝了 AI 重复闭合符号等 patch 格式错误。
+        /// </summary>
+        private static string ReconstructFile(string[] originalLines, List<FileChunk> chunks)
+        {
+            // ── 按 OrigIndex 排序 Chunk（确保处理顺序正确）──
+            var sorted = chunks.OrderBy(c => c.OrigIndex).ToList();
+
+            var destLines = new List<string>();
+            int origIdx = 0;
+
+            foreach (var chunk in sorted)
+            {
+                if (chunk.OrigIndex > originalLines.Length)
+                    throw new InvalidOperationException(
+                        $"文件重建错误: Chunk.OrigIndex ({chunk.OrigIndex}) 超出文件行数 ({originalLines.Length})");
+
+                if (origIdx > chunk.OrigIndex)
+                    throw new InvalidOperationException(
+                        $"文件重建错误: 当前索引 ({origIdx}) 超过 Chunk.OrigIndex ({chunk.OrigIndex})，Chunk 可能重叠");
+
+                // ── 复制 Chunk 之前的原始行 ──
+                destLines.AddRange(originalLines.Skip(origIdx).Take(chunk.OrigIndex - origIdx));
+                origIdx = chunk.OrigIndex;
+
+                // ── 插入新行 ──
+                destLines.AddRange(chunk.InsLines);
+
+                // ── 跳过被删除的行 ──
+                origIdx += chunk.DelLines.Count;
+            }
+
+            // ── 复制剩余原始行 ──
+            destLines.AddRange(originalLines.Skip(origIdx));
+
+            return string.Join("\n", destLines);
         }
 
         /// <summary>
@@ -654,24 +971,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 MatchedText = matchedText,
                 MatchLevelUsed = matchLevel,
             };
-        }
-
-        /// <summary>
-        /// 将 TextEdit 应用到内存中的文件内容。
-        /// </summary>
-        private static string ApplyTextEditToContent(string fileContent, TextEditOperation edit)
-        {
-            int startPos = GetPositionFromLineColumn(fileContent, edit.StartLine, edit.StartColumn);
-            int endPos = GetPositionFromLineColumn(fileContent, edit.EndLine, edit.EndColumn);
-
-            if (startPos < 0 || endPos < 0 || startPos > endPos)
-                return fileContent;
-
-            var sb = new StringBuilder();
-            sb.Append(fileContent.Substring(0, startPos));
-            sb.Append(edit.NewText);
-            sb.Append(fileContent.Substring(endPos));
-            return sb.ToString();
         }
 
         #endregion
@@ -1512,35 +1811,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             return (line, col);
-        }
-
-        /// <summary>
-        /// 根据行列号获取字符位置（0-based）。
-        /// </summary>
-        private static int GetPositionFromLineColumn(string text, int line, int column)
-        {
-            if (string.IsNullOrEmpty(text)) return 0;
-            if (line < 0) return 0;
-
-            int currentLine = 0;
-            int pos = 0;
-
-            while (pos < text.Length && currentLine < line)
-            {
-                if (text[pos] == '\n') currentLine++;
-                pos++;
-            }
-
-            // 现在在目标行的开头
-            int colPos = pos;
-            int colCount = 0;
-            while (colPos < text.Length && colCount < column && text[colPos] != '\n')
-            {
-                colPos++;
-                colCount++;
-            }
-
-            return colPos;
         }
 
         /// <summary>

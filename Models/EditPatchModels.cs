@@ -66,6 +66,23 @@ namespace DeepSeek_v4_for_VisualStudio.Models
     }
 
     /// <summary>
+    /// 文件重建块（对应参考实现 peek_next_section 中的 Chunk）。
+    /// 描述在原始文件的某个位置删除/插入哪些行。
+    /// 使用文件重建方式而非文本搜索替换，从根本上避免 AI 重复闭合符号等问题。
+    /// </summary>
+    public class FileChunk
+    {
+        /// <summary>在原始文件行数组中的起始索引（0-based），指向第一个被替换的行</summary>
+        public int OrigIndex { get; set; }
+
+        /// <summary>要删除的行列表</summary>
+        public List<string> DelLines { get; set; } = new();
+
+        /// <summary>要插入的行列表</summary>
+        public List<string> InsLines { get; set; } = new();
+    }
+
+    /// <summary>
     /// 一个完整的 Patch 操作（对应一个 *** Begin Patch / *** End Patch 块）。
     /// </summary>
     public class PatchOperation
