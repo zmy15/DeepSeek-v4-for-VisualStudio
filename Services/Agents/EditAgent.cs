@@ -797,7 +797,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     string fileName = Path.GetFileName(resolvedPath);
                     string patchPreview = patch.Hunks != null && patch.Hunks.Count > 0
                         ? string.Join("\n", patch.Hunks.Select(h =>
-                            $"  @@ {string.Join(", ", h.ContextMarkers.Take(3))}"))
+                            h.RawText.TrimEnd('\n', '\r')))
                         : "(无 hunk 详情)";
                     bool confirmed = await EnsureProjectFileWriteConfirmedAsync(
                         resolvedPath,
