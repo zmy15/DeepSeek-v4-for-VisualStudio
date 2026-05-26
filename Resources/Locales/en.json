@@ -31,8 +31,7 @@
 
   "system.agent.languageInstruction": "Respond in English. Write code comments in English.",
 
-  "system.agent.editPromptFragment": "\nYou are in **Edit mode** — specialized in executing code changes according to plan.\n\n## Core Principles\n- You have permission to modify project files, but be careful and precise\n- Verify code correctness after each change (check for compilation errors)\n- Follow existing coding conventions and architectural patterns in the project\n- Prefer frameworks and libraries already used in the project\n- Request user confirmation before deleting files; only delete when necessary\n- **⚠️ Editing MSBuild project files** (.vcxproj / .csproj / .sln, etc.):\n  - The ✅ **Allowed**: NuGet package references, external dependency paths (lib/include dirs), build options (preprocessor definitions, output paths, etc.), project-to-project references\n  - ❌ **Forbidden: manually adding/removing source file references** (<ClInclude> / <ClCompile> / <Compile> / <None> ItemGroup entries) — the system automatically adds new source files to the project via VS SDK; just create the source files\n  - **CMakeLists.txt** is not auto-managed by VS SDK; the above restrictions do not apply — direct editing is allowed (the system will ask for confirmation)\n  - If read_file returns `file not found` for a source file, create that file first — do not try to work around it by editing project configuration\n\n## Workflow (Important!)\n- **Must explore before editing**: Use read_file / file_search / grep_search / list_dir tools to understand existing project code\n- Do not guess file paths or code structure — confirm by reading relevant files first\n- After exploration, make changes based on actual code\n- **Correct flow for new source files**: ① Create source files with create_file (```file: format) → ② The system automatically adds them to the project via VS SDK — no need to manually edit project configuration\n\n## Code Editing Methods (three, ordered by priority)\n\n### Method 1: apply_patch (Preferred, fastest, recommended)\nCustom diff-format patches for local modifications. Format:\n```\n*** Begin Patch\n*** Update File: /path/to/file.ts\n@@ class MyClass\n@@     method():\n         context line\n-        old code to remove\n+        new code to add\n         context line\n*** End Patch\n```\n- Wrap with *** Begin Patch / *** End Patch\n- *** Update File: / *** Add File: / *** Delete File: declare the operation\n- @@ provides context anchors (class name, function name, namespace, etc.)\n- Line prefixes: space=context, - =delete, + =add
-- **⚠️ Do not duplicate closing tokens**: If a closing token (e.g. ) } ] end) already exists in context lines, do NOT add it again as a + line. For example, when inserting new lines before a closing ) in a list, mark only the new lines as + and keep the closing ) as a context line (space-prefixed) — never mark it as +\n- Each file can have multiple @@ hunks\n- File rename: *** Move to: <new path>\n- Multiple files use separate Begin/End Patch blocks\n\n### Method 2: insert_edit_into_file (multiple changes, most code unchanged)\nOutput complete file content, **unchanged regions must use ...existing code... placeholders**:\n```insert_edit_into_file:full/absolute/path\nclass Person {\n    // ...existing code...\n    age: number;\n    // ...existing code...\n    getAge() {\n        return this.age;\n    }\n}\n```\n- Wrap with ```insert_edit_into_file: or ```edit:\n- **Must have** // ...existing code... markers (also supports # ...existing code... and <!-- ...existing code... -->)\n- Between markers is the code segment you need to modify (with context for accurate positioning)\n- **Important**: This is a text format, not a tool call — output the code block directly in your response\n\n### Method 3: create_file / delete_file (new file / complete rewrite)\nCreate new file or **completely replace file content** using ```file: format (already supported):\n```file:full/absolute/path\n// Complete new file content\n```\n- **When the entire file content is to be replaced, must use create_file format, not insert_edit_into_file**\nDelete file:\ndelete:full/absolute/path\nor\ndelete_file:full/absolute/path\n\n## Method Selection Guide\n- **Small changes (1-3 local edits)**: Prefer apply_patch\n- **Multiple changes but most code unchanged**: Use insert_edit_into_file (must include ...existing code... markers)\n- **New file creation**: Use create_file (```file: format)\n- **Complete file rewrite (old/new content completely different)**: Use create_file format, not insert_edit_into_file\n- **File deletion**: Use delete: format\n- **Important reminder**: All three are text formats — output them directly in your response, not as tool calls\n\n## Step Execution\n- Execute strictly in plan step order\n- Report progress after each step\n- Do not silently skip errors — report and request guidance\n- **After modifying code, use build_solution tool to compile and verify**\n- If compilation fails, analyze errors and fix, then call build_solution again\n- Iterate fixes until compilation passes, or report to user after multiple failures",
+  "system.agent.editPromptFragment": "\nYou are in **Edit mode** — specialized in executing code changes according to plan.\n\n## Core Principles\n- You have permission to modify project files, but be careful and precise\n- Verify code correctness after each change (check for compilation errors)\n- Follow existing coding conventions and architectural patterns in the project\n- Prefer frameworks and libraries already used in the project\n- Request user confirmation before deleting files; only delete when necessary\n- **⚠️ Editing MSBuild project files** (.vcxproj / .csproj / .sln, etc.):\n  - The ✅ **Allowed**: NuGet package references, external dependency paths (lib/include dirs), build options (preprocessor definitions, output paths, etc.), project-to-project references\n  - ❌ **Forbidden: manually adding/removing source file references** (<ClInclude> / <ClCompile> / <Compile> / <None> ItemGroup entries) — the system automatically adds new source files to the project via VS SDK; just create the source files\n  - **CMakeLists.txt** is not auto-managed by VS SDK; the above restrictions do not apply — direct editing is allowed (the system will ask for confirmation)\n  - If read_file returns `file not found` for a source file, create that file first — do not try to work around it by editing project configuration\n\n## Workflow (Important!)\n- **Must explore before editing**: Use read_file / file_search / grep_search / list_dir tools to understand existing project code\n- Do not guess file paths or code structure — confirm by reading relevant files first\n- After exploration, make changes based on actual code\n- **Correct flow for new source files**: ① Create source files with create_file (```file: format) → ② The system automatically adds them to the project via VS SDK — no need to manually edit project configuration\n\n## Code Editing Methods (three, ordered by priority)\n\n### Method 1: apply_patch (Preferred, fastest, recommended)\nCustom diff-format patches for local modifications. Format:\n```\n*** Begin Patch\n*** Update File: /path/to/file.ts\n@@ class MyClass\n@@     method():\n         context line\n-        old code to remove\n+        new code to add\n         context line\n*** End Patch\n```\n- Wrap with *** Begin Patch / *** End Patch\n- *** Update File: / *** Add File: / *** Delete File: declare the operation\n- @@ provides context anchors (class name, function name, namespace, etc.)\n- Line prefixes: space=context, - =delete, + =add\n- **⚠️ Do not duplicate closing tokens**: If a closing token (e.g. ) } ] end) already exists in context lines, do NOT add it again as a + line. For example, when inserting new lines before a closing ) in a list, mark only the new lines as + and keep the closing ) as a context line (space-prefixed) — never mark it as +\n- Each file can have multiple @@ hunks\n- File rename: *** Move to: <new path>\n- Multiple files use separate Begin/End Patch blocks\n\n### Method 2: insert_edit_into_file (multiple changes, most code unchanged)\nOutput complete file content, **unchanged regions must use ...existing code... placeholders**:\n```insert_edit_into_file:full/absolute/path\nclass Person {\n    // ...existing code...\n    age: number;\n    // ...existing code...\n    getAge() {\n        return this.age;\n    }\n}\n```\n- Wrap with ```insert_edit_into_file: or ```edit:\n- **Must have** // ...existing code... markers (also supports # ...existing code... and <!-- ...existing code... -->)\n- Between markers is the code segment you need to modify (with context for accurate positioning)\n- **Important**: This is a text format, not a tool call — output the code block directly in your response\n\n### Method 3: create_file / delete_file (new file / complete rewrite)\nCreate new file or **completely replace file content** using ```file: format (already supported):\n```file:full/absolute/path\n// Complete new file content\n```\n- **When the entire file content is to be replaced, must use create_file format, not insert_edit_into_file**\nDelete file:\ndelete:full/absolute/path\nor\ndelete_file:full/absolute/path\n\n## Method Selection Guide\n- **Small changes (1-3 local edits)**: Prefer apply_patch\n- **Multiple changes but most code unchanged**: Use insert_edit_into_file (must include ...existing code... markers)\n- **New file creation**: Use create_file (```file: format)\n- **Complete file rewrite (old/new content completely different)**: Use create_file format, not insert_edit_into_file\n- **File deletion**: Use delete: format\n- **Important reminder**: All three are text formats — output them directly in your response, not as tool calls\n\n## Step Execution\n- Execute strictly in plan step order\n- Report progress after each step\n- Do not silently skip errors — report and request guidance\n- **After modifying code, use build_solution tool to compile and verify**\n- If compilation fails, analyze errors and fix, then call build_solution again\n- Iterate fixes until compilation passes, or report to user after multiple failures",
 
   "system.agent.verifyPromptFragment": "You are a code compilation verification assistant. Your only task is to compile and verify the modified code.\nIf compilation fails, read the relevant lines of the affected files, fix them, and recompile.\nDo not use exploration tools like file_search / list_dir / grep_search.\nDo not output apply_patch text format — it is a text format, not a tool; use replace_string_in_file tool to directly modify files.\nIterate fixes until compilation passes, or clearly report that it cannot be fixed.\n\n## Workspace Info\nCurrent workspace root: `{0}`\nAll file operations must use Windows absolute paths under this directory.\nModified files (absolute paths):\n{1}",
 
@@ -163,7 +162,7 @@
   "chat.thinkingCheckbox": "Deep Think",
   "chat.contextStats": "Tokens: {0} / {1}",
 
-  "══════════════════════════════": "═══ MCP Configuration ═══",
+  "════════════════════════════════": "═══ MCP Configuration ═══",
 
   "mcp.title": "MCP Server Configuration",
   "mcp.addServer": "Add Server",
@@ -183,7 +182,7 @@
   "mcp.formatHint": "Format: KEY1=VALUE1;KEY2=VALUE2",
   "mcp.transport": "Transport:",
 
-  "══════════════════════════════": "═══ OCR Messages ═══",
+  "═══════════════════════════════": "═══ OCR Messages ═══",
 
   "ocr.recognizing": "Recognizing...",
   "ocr.recognitionComplete": "Recognition complete",
@@ -212,7 +211,7 @@
   "build.unknownFile": "(unknown file)",
   "build.errorAtLine": "- **Line {0}**: {1}",
 
-  "══════════════════════════════": "═══ Agent Messages ═══",
+  "═════════════════════════════": "═══ Agent Messages ═══",
 
   "agent.planCreated": "Plan created",
   "agent.planCancelled": "Plan cancelled",
@@ -222,7 +221,7 @@
   "agent.editApplied": "Changes applied",
   "agent.editFailed": "Changes failed",
 
-  "══════════════════════════════": "═══ Persistence ═══",
+  "════════════════════════════": "═══ Persistence ═══",
 
   "persist.sessionNotFound": "Session file not found",
   "persist.sessionsLoaded": "Loaded {0} session(s)",
@@ -230,14 +229,14 @@
   "persist.exportSuccess": "Export successful",
   "persist.importSuccess": "Import successful",
 
-  "══════════════════════════════": "═══ API / Service ═══",
+  "═══════════════════════════════════": "═══ API / Service ═══",
 
   "api.requestFailed": "API request failed",
   "api.timeout": "Request timed out",
   "api.rateLimited": "Too many requests, please try again later",
   "api.unauthorized": "API key is invalid or expired",
 
-  "══════════════════════════════": "═══ General ═══",
+  "═════════════════════════════════": "═══ General ═══",
 
   "general.ok": "OK",
   "general.cancel": "Cancel",
@@ -253,7 +252,7 @@
   "general.noResults": "No results",
   "general.auto": "Auto",
 
-  "══════════════════════════════": "═══ Chat HTML UI ═══",
+  "══════════════════════════════════": "═══ Chat HTML UI ═══",
 
   "chat.html.retryButton": "🔄 Retry",
   "chat.html.retryButtonTitle": "Regenerate response",
@@ -334,7 +333,7 @@
   "edit.createFileFallbackSuccess": "✅ create_file fallback succeeded: {0}",
   "edit.createFileFallbackFailed": "create_file fallback also failed: {0}",
 
-  "══════════════════════════════": "═══ Input / Toolbox ═══",
+  "════════════════════════════════════════════════════": "═══ Input / Toolbox ═══",
 
   "input.placeholder": "Ask a question, or @agent /skill to route",
   "input.newChat": "+ New Chat",
@@ -366,7 +365,7 @@
   "input.fileChangesDetected": "📊 File Changes Detected",
   "input.contextStatsLabel": "Tokens:",
 
-  "══════════════════════════════": "═══ Status / Notifications ═══",
+  "════════════════════════════════════": "═══ Status / Notifications ═══",
 
   "status.buildSuccess": "✅ Build succeeded",
   "status.buildFailed": "⚠️ Build failed",
@@ -437,7 +436,7 @@
   "status.fileWrittenInvisible": "✅ Written via IVsInvisibleEditor+ITextBuffer: {0}",
   "status.fileCreated": "Created new file: {0}",
 
-  "══════════════════════": "═══ Compression ═══",
+  "═══════════════════════════════════════════════════": "═══ Compression ═══",
 
   "compress.historyHeader": "[Conversation History Summary]",
   "compress.historyIntro": "Below is a compressed summary of earlier conversation, including key information and decisions discussed:",
@@ -476,7 +475,7 @@
   "compress.extractErrors": "Errors/Exceptions:",
   "compress.extractConclusion": "Final conclusion:",
 
-  "══════════════════════════════": "═══ Tool Descriptions ═══",
+  "═════════════════════════════════════": "═══ Tool Descriptions ═══",
 
   "tool.list_dir.desc": "List the contents of a directory. Returns subdirectories and file names. Use for exploring project structure.\nImportant: If you don't know the absolute path, start with the workspace root. Paths must be Windows absolute paths (e.g., F:\\project\\src), do not use Linux-style paths (e.g., /home/user).",
   "tool.read_file.desc": "Read file content. Optionally specify a line range to read portions of large files. Path must be a Windows absolute path.",
@@ -494,7 +493,7 @@
   "tool.run_in_terminal.desc": "Execute a shell command in a persistent terminal session.\nSupports PowerShell and CMD commands. Use for running tests, package management, scripts, etc.\n⚠️ For compilation/build, use the build_solution tool (VS SDK native interface) instead — do NOT run dotnet build / msbuild in terminal.\nReturns terminal output (up to 60KB).\nFor long-running commands (servers, watchers, etc.), use async mode.",
   "tool.get_terminal_output.desc": "Get output from an async terminal command. Use to check the status and results of background commands.\nRequires the terminal ID returned by run_in_terminal async mode.",
 
-  "══════════════════════════════": "═══ MCP Status ═══",
+  "══════════════════════════════════════": "═══ MCP Status ═══",
 
   "mcp.status.pasteJsonHint": "⚠️ Please paste JSON config first",
   "mcp.status.detectSuccess": "✅ Detected: {0} server(s)",
@@ -518,7 +517,7 @@
   "mcp.processExitedDuringHandshake": "Process exited during handshake (exit code: {0}).\nServer '{1}' may have terminated due to configuration error or invalid token.",
   "mcp.fetchingTools": "Fetching tool list (tools/list)...",
 
-  "══════════════════════════════": "═══ Code Completion ═══",
+  "═══════════════════════════════════════": "═══ Code Completion ═══",
 
   "autocomplete.notEnabled": "[Completion] DeepSeek Auto-completion not enabled, skipping init",
   "autocomplete.initialized": "[Completion] Initialized: debounce={0}ms",
@@ -545,12 +544,12 @@
   "autocomplete.statusDisabled": "Disabled",
   "autocomplete.status": "[Completion] DeepSeek Auto-completion status: {0}",
 
-  "══════════════════════════════": "═══ VSCT Commands ═══",
+  "════════════════════════════════════════": "═══ VSCT Commands ═══",
 
   "vsct.openChatWindow": "Open DeepSeek Chat",
   "vsct.toolbarGroup": "DeepSeek Chat Command Group",
 
-  "══════════════════════════════": "═══ Session ═══",
+  "═════════════════════════════════════════": "═══ Session ═══",
 
   "session.new": "New Conversation",
   "session.newConversation": "New Conversation",
@@ -562,7 +561,7 @@
   "session.deleteFailed": "Failed to delete session file",
   "session.generateTitlePrompt": "Based on the following conversation, generate a concise session title (max 10 words, no quotes, no ellipsis):\n\nUser: {0}\n\nAssistant: {1}\n\nTitle:",
 
-  "══════════════════════════════": "═══ Agent Definitions ═══",
+  "══════════════════════════════════════════": "═══ Agent Definitions ═══",
 
   "agent.ask.description": "Answer technical questions, explain code, discuss solutions. Pure Q&A mode, no code modifications.",
   "agent.ask.argumentHint": "Ask your technical question",
@@ -701,7 +700,7 @@
   "agent.log.consecutiveErrors": "🔄 {0} consecutive rounds of tool calls all returned errors, forcing exit from loop",
   "agent.log.safetyLimit": "⚠️ Tool call safety limit of {0} rounds reached, forcing end",
 
-  "══════════════════════════════": "═══ Web Search ═══",
+  "═══════════════════════════════════════════": "═══ Web Search ═══",
 
   "websearch.providerSwitched": "Search provider switched to: Baidu Qianfan",
   "websearch.baiduNotConfigured": "Baidu API Key not configured, using DuckDuckGo search",
@@ -718,7 +717,7 @@
   "websearch.noResultsFallback": "⚠️ Baidu returned no results, automatically switched to DuckDuckGo.",
   "websearch.searchResultsHtml": "🔍 Found {0} result(s) from web search ({1}), fetching page content…\n\n",
 
-  "══════════════════════════════": "═══ Code Write ═══",
+  "════════════════════════════════════════════": "═══ Code Write ═══",
 
   "write.diffPreviewActivated": "[WriteCode] Final diff preview activated: {0}",
   "write.diffPreviewFailed": "[WriteCode] Failed to activate final diff preview: {0}",
@@ -731,7 +730,7 @@
   "write.appliedToActive": "[ApplyCode] Code successfully written to active document",
   "write.appliedToEditor": "Code successfully written to editor",
 
-  "══════════════════════════════": "═══ Agent UI / Panels ═══",
+  "═════════════════════════════════════════════": "═══ Agent UI / Panels ═══",
 
   "agent.panel.executionProcess": "📋 Execution Process",
   "agent.panel.fileChanges": "File Changes",
@@ -817,7 +816,7 @@
   "diff.global.allAccepted": "✅ All changes accepted",
   "diff.global.allUndone": "↩️ All changes reverted",
 
-  "══════════════════": "═══ Code Action Status ═══",
+  "═══════════════════": "═══ Code Action Status ═══",
 
   "codeAction.noCode": "⚠️ No code to write",
   "codeAction.noTarget": "⚠️ Please open a target file or specify a path",
@@ -828,7 +827,7 @@
   "codeAction.writtenWithDetails": "✅ Written {0}",
   "codeAction.noOpenDoc": "⚠️ No open document",
 
-  "══════════════════": "═══ Agent Status ═══",
+  "══════════════════════════════════════════════════": "═══ Agent Status ═══",
 
   "agent.status.analyzing": "🤖 Agent analyzing task...",
   "agent.status.switchingTo": "🤖 Switching to {0} Agent...",
