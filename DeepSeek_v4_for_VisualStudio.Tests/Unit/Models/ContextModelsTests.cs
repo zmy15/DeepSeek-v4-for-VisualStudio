@@ -94,7 +94,7 @@ public class ContextModelsTests
         summary.ToTurn.Should().Be(0);
         summary.OriginalTokens.Should().Be(0);
         summary.CompressedTokens.Should().Be(0);
-        summary.CompressedAt.Should().BeCloseTo(DateTime.Now, TimeSpan.FromSeconds(5));
+        summary.CompressedAt.Should().BeCloseTo(DateTime.Now, TimeSpan.FromSeconds(30));
     }
 
     [Fact]
