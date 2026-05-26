@@ -1764,9 +1764,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                                             updatedLines.Add(hunkLine.Text);
                                         // Remove 行不添加
                                     }
-                                    // 保留 hunk 之后的行（跳过被删除的行数）
-                                    int removedCount = hunk.RemoveLines.Count;
-                                    int afterHunkStart = matchStart + hunk.ContextLines.Count + removedCount;
+                                    // 保留 hunk 之后的行
+                                    // ContextLines 已包含 RemoveLines，无需再加 removedCount
+                                    int afterHunkStart = matchStart + hunk.ContextLines.Count;
                                     if (afterHunkStart < 0) afterHunkStart = 0;
                                     for (int i = afterHunkStart; i < newLines.Length; i++)
                                         updatedLines.Add(newLines[i]);
