@@ -205,11 +205,11 @@ namespace MyApp
     }
 
     [Fact]
-    public void DetectOperationType_EmptyInput_ReturnsApplyPatch()
+    public void DetectOperationType_EmptyInput_ReturnsCreateFile()
     {
         var type = _service.DetectOperationType("");
 
-        type.Should().Be(EditOperationType.ApplyPatch);
+        type.Should().Be(EditOperationType.CreateFile);
     }
 
     #endregion
