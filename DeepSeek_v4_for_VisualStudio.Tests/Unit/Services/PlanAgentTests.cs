@@ -159,7 +159,7 @@ public class PlanAgentTests
     }
 
     [Fact]
-    public void BuildPhase2Prompt_WithStructureContext_IncludesTruncatedContext()
+    public void BuildPhase2Prompt_WithStructureContext_PreservesFullContext()
     {
         var context = new AgentContext();
         var structureContext = new string('x', 4000);
@@ -167,9 +167,11 @@ public class PlanAgentTests
 
         var result = BuildPhase2PromptPublic(area, structureContext, context);
 
-        result.Length.Should().BeLessThan(5000); // structure truncated
-        result.Should().Contain("truncated");
+        // 不再截断：完整上下文应被保留
+        result.Should().Contain(structureContext);
+        result.Length.Should().BeGreaterThan(4000);
         result.Should().Contain("跳过");
+        result.Should().NotContain("truncated");
     }
 
     [Fact]
