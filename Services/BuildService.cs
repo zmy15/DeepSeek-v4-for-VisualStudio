@@ -32,21 +32,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 解析工作区根目录 ──
             string? workspaceDir = NormalizeToDirectory(solutionPath);
 
-            // ── 检测是否为 CMake / Open Folder 项目 ──
+            // ── 检测是否为 CMake / Open Folder 项目（用于日志和回退策略）──
             bool isCmakeProject = IsCmakeProject(workspaceDir);
 
             Logger.Info($"[BuildService] 开始构建 (CMake={isCmakeProject}, workspace={workspaceDir ?? "(null)"})");
 
-            // ── 方案1：IVsSolutionBuildManager（.sln 项目首选）──
-            if (!isCmakeProject)
-            {
-                string? result = await TryBuildWithSolutionManagerAsync(ct);
-                if (result != null)
-                    return result; // 成功启动或明确失败
-                // result 为 null → 需要回退
-            }
+            // ── 方案1：IVsSolutionBuildManager（VS 2022 支持 .sln 和 CMake/Open Folder）──
+            string? slnResult = await TryBuildWithSolutionManagerAsync(ct);
+            if (slnResult != null)
+                return slnResult; // 成功启动或明确失败
+            // slnResult 为 null → 需要回退
 
-            // ── 方案2：DTE.SolutionBuild（CMake / Open Folder 回退）──
+            // ── 方案2：DTE.SolutionBuild / ExecuteCommand（回退方案）──
             string? dteResult = await TryBuildWithDteAsync(ct);
             if (dteResult != null)
                 return dteResult;
@@ -57,7 +54,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         #region Build Methods
 
         /// <summary>
-        /// 使用 IVsSolutionBuildManager 构建（适用于 .sln 项目）。
+        /// 使用 IVsSolutionBuildManager 构建。
+        /// VS 2022 中同时支持 .sln 和 CMake/Open Folder 项目。
         /// 返回 null 表示需要回退到其他方式。
         /// </summary>
         private static async Task<string?> TryBuildWithSolutionManagerAsync(CancellationToken ct)
@@ -122,7 +120,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// 使用 DTE.SolutionBuild 构建（CMake / Open Folder 回退方案）。
+        /// 使用 DTE 构建（回退方案）。
+        /// 优先使用 ExecuteCommand 以兼容 CMake/Open Folder 项目；
+        /// 回退到 SolutionBuild.Build 处理传统 .sln 项目。
         /// </summary>
         private static async Task<string?> TryBuildWithDteAsync(CancellationToken ct)
         {
@@ -143,7 +143,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return null;
                 }
 
-                Logger.Info("[BuildService] 正在构建解决方案 (DTE.SolutionBuild)…");
+                Logger.Info("[BuildService] 正在构建解决方案 (DTE)…");
 
                 // 检查是否已有构建在进行
                 if (solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress)
@@ -154,15 +154,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // 启动构建（DTE 方式是同步阻塞的，用 Task.Run 包裹）
                 bool buildSuccess = await Task.Run(() =>
                 {
+                    // ── 方案 A：ExecuteCommand（兼容 CMake/Open Folder）──
                     try
                     {
-                        solutionBuild.Build(true); // true = WaitForBuildToFinish
+                        dte.ExecuteCommand("Build.BuildSolution");
                         return solutionBuild.LastBuildInfo == 0; // 0 errors = success
                     }
-                    catch (Exception ex)
+                    catch (Exception exCmd)
                     {
-                        Logger.Warn($"[BuildService] DTE Build 异常: {ex.Message}");
-                        return false;
+                        Logger.Warn($"[BuildService] DTE ExecuteCommand 异常: {exCmd.Message}");
+
+                        // ── 方案 B：SolutionBuild.Build 回退（传统 .sln 项目）──
+                        try
+                        {
+                            solutionBuild.Build(true); // true = WaitForBuildToFinish
+                            return solutionBuild.LastBuildInfo == 0;
+                        }
+                        catch (Exception exBuild)
+                        {
+                            Logger.Warn($"[BuildService] DTE SolutionBuild.Build 异常: {exBuild.Message}");
+                            return false;
+                        }
                     }
                 }, ct);
 

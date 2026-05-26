@@ -2,8 +2,6 @@
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.ToolWindows;
 using DeepSeek_v4_for_VisualStudio.Utils;
-using Microsoft.VisualStudio;
-using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -1384,116 +1382,23 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
 
         /// <summary>
         /// 执行构建/运行步骤。
-        /// 使用 IVsSolutionBuildManager (VS SDK Interop) 替代 EnvDTE。
+        /// 委托给 BuildService 统一处理（支持 .sln 和 CMake/Open Folder）。
         /// </summary>
         private async Task<string> ExecuteBuildStepAsync(AgentStep step, string? solutionPath, CancellationToken ct)
         {
             AddLog("INFO", $"开始构建步骤: {step.Title}");
 
-            await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-            // ── 获取 IVsSolutionBuildManager（触发解决方案构建）──
-            var buildManager = (IVsSolutionBuildManager?)Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider
-                .GetService(typeof(SVsSolutionBuildManager));
-
-            if (buildManager == null)
-            {
-                Logger.Warn("[EditAgent] 无法获取 IVsSolutionBuildManager，跳过构建");
-                return "⚠️ 无法获取构建管理器，请在 VS 中手动构建。";
-            }
-
-            // ── 检查构建管理器是否正忙 ──
-            int isBusy;
-            buildManager.QueryBuildManagerBusy(out isBusy);
-            if (isBusy != 0)
-            {
-                Logger.Warn("[EditAgent] 构建管理器正忙，跳过构建");
-                return "⚠️ 构建管理器正忙，请等待当前构建完成后重试。";
-            }
-
-            var buildEventsSink = new BuildEventsSink();
-            uint buildCookie = 0;
-            bool advised = false;
-
             try
             {
-                // ── 订阅构建事件以获知构建完成 ──
-                buildManager.AdviseUpdateSolutionEvents(buildEventsSink, out buildCookie);
-                advised = true;
-
-                Logger.Info("[EditAgent] 正在构建解决方案…");
-
-                // ── 启动解决方案构建 ──
-                int hr = buildManager.StartSimpleUpdateSolutionConfiguration(
-                    (uint)VSSOLNBUILDUPDATEFLAGS.SBF_OPERATION_BUILD,
-                    0,      // dwDefQueryResults
-                    0);     // fSuppressUI
-
-                if (hr < 0)
-                {
-                    Logger.Warn($"[EditAgent] StartSimpleUpdateSolutionConfiguration 失败: 0x{hr:X8}");
-                    return $"⚠️ 启动构建失败 (0x{hr:X8})";
-                }
-
-                // ── 等待构建完成（最长 5 分钟超时）──
-                bool completed = await buildEventsSink.WaitForCompletionAsync(ct, TimeSpan.FromMinutes(5));
-
-                if (!completed)
-                {
-                    Logger.Warn("[EditAgent] ⚠️ 构建超时（5 分钟），请检查解决方案状态");
-                    return "⚠️ 构建超时（5 分钟），请手动检查构建状态。可能是解决方案过大或存在循环依赖。";
-                }
-
-                // ── 收集构建结果 ──
-                int buildSucceeded, buildFailed, buildCancelled;
-                buildEventsSink.GetBuildResult(out buildSucceeded, out buildFailed, out buildCancelled);
-
-                // ── 收集错误列表 ──
-                string errorDetails = CollectBuildErrors();
-
-                if (buildFailed == 0 && buildCancelled == 0)
-                {
-                    Logger.Info($"[EditAgent] ✅ 构建成功 ({buildSucceeded} 个项目)");
-                    return $"✅ 构建成功，{buildSucceeded} 个项目通过";
-                }
-
-                if (buildCancelled != 0)
-                {
-                    Logger.Info("[EditAgent] ⚠️ 构建已取消");
-                    return "⚠️ 构建已取消";
-                }
-
-                var result = new StringBuilder();
-                result.AppendLine($"⚠️ 构建完成，{buildFailed} 个项目失败");
-                if (!string.IsNullOrEmpty(errorDetails))
-                {
-                    result.AppendLine();
-                    result.AppendLine("## 编译错误详情");
-                    result.Append(errorDetails);
-                }
-
-                string fullResult = result.ToString();
-                Logger.Info($"[EditAgent] {fullResult.Truncate(500)}");
-                return fullResult;
-            }
-            catch (OperationCanceledException)
-            {
-                Logger.Info("[EditAgent] 构建已取消");
-                return "⚠️ 构建已取消";
+                var buildService = new BuildService();
+                string result = await buildService.BuildAsync(solutionPath, ct);
+                Logger.Info($"[EditAgent] 构建完成: {(result.Length > 200 ? result.Substring(0, 200) + "..." : result)}");
+                return result;
             }
             catch (Exception ex)
             {
                 Logger.Warn($"[EditAgent] 构建异常: {ex.Message}");
                 return $"⚠️ 构建失败: {ex.Message}";
-            }
-            finally
-            {
-                // ── 确保取消订阅事件 ──
-                if (advised && buildCookie != 0)
-                {
-                    try { buildManager.UnadviseUpdateSolutionEvents(buildCookie); } catch { }
-                }
-                buildEventsSink.Dispose();
             }
         }
 
@@ -1504,103 +1409,6 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
         private static string CollectBuildErrors()
         {
             return BuildService.CollectBuildErrors();
-        }
-
-        /// <summary>
-        /// 构建事件接收器，实现 IVsUpdateSolutionEvents 以监听构建开始/完成/取消。
-        /// 通过 TaskCompletionSource 将事件驱动的回调转换为可等待的 Task。
-        /// 内置超时保护，防止因构建事件丢失而永久挂起。
-        /// </summary>
-        private sealed class BuildEventsSink : IVsUpdateSolutionEvents, IDisposable
-        {
-            private readonly TaskCompletionSource<bool> _tcs = new();
-            private CancellationTokenRegistration _ctRegistration;
-            private int _succeeded;
-            private int _failed;
-            private int _cancelled;
-            private bool _disposed;
-
-            /// <summary>
-            /// 等待构建完成或超时。
-            /// </summary>
-            /// <returns>true 表示构建事件正常触发；false 表示超时</returns>
-            public async Task<bool> WaitForCompletionAsync(CancellationToken ct, TimeSpan timeout)
-            {
-                _ctRegistration = ct.Register(() => _tcs.TrySetCanceled());
-                try
-                {
-                    var completedTask = await Task.WhenAny(_tcs.Task, Task.Delay(timeout, ct)).ConfigureAwait(false);
-                    if (completedTask == _tcs.Task)
-                    {
-                        await completedTask.ConfigureAwait(false); // 传播异常（如有）
-                        return true;
-                    }
-                    return false; // 超时
-                }
-                catch (OperationCanceledException)
-                {
-                    return false;
-                }
-            }
-
-            public void GetBuildResult(out int succeeded, out int failed, out int cancelled)
-            {
-                succeeded = _succeeded;
-                failed = _failed;
-                cancelled = _cancelled;
-            }
-
-            public int UpdateSolution_Begin(ref int pfCancelUpdate)
-            {
-                pfCancelUpdate = 0; // 不取消构建
-                return VSConstants.S_OK;
-            }
-
-            public int UpdateSolution_StartUpdate(ref int pfCancelUpdate)
-            {
-                pfCancelUpdate = 0; // 不取消更新
-                return VSConstants.S_OK;
-            }
-
-            public int UpdateSolution_Done(int fSucceeded, int fModified, int fCancelCommand)
-            {
-                if (fCancelCommand != 0)
-                    _cancelled = 1;
-                else if (fSucceeded != 0)
-                    _succeeded = 1;
-                else
-                    _failed = 1;
-
-                _tcs.TrySetResult(true);
-                return VSConstants.S_OK;
-            }
-
-            public int UpdateSolution_StartUpdateProjectCfg(
-                ref int pfCancel, IVsHierarchy pHierProj, IVsCfg pCfgProj,
-                IVsCfg pCfgSln, uint dwProjectCfgOfInterest, uint dwCopyFlags, int fCancel)
-            {
-                return VSConstants.S_OK;
-            }
-
-            public int UpdateSolution_Cancel()
-            {
-                _cancelled = 1;
-                _tcs.TrySetResult(true);
-                return VSConstants.S_OK;
-            }
-
-            public int OnActiveProjectCfgChange(IVsHierarchy pIVsHierarchy)
-            {
-                return VSConstants.S_OK;
-            }
-
-            public void Dispose()
-            {
-                if (_disposed) return;
-                _disposed = true;
-                _ctRegistration.Dispose();
-                _tcs.TrySetResult(false);
-            }
         }
 
         #endregion
