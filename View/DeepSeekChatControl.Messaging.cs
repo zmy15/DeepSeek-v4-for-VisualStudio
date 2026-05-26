@@ -212,8 +212,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // ── 上下文感知意图覆盖：当存在待处理计划时的特殊路由 ──
                     routing = OverrideRoutingForPlanContext(userText, routing);
 
-                    bool needsAgent = routing.TargetAgent == AgentType.Plan
-                        || routing.TargetAgent == AgentType.Edit
+                    bool needsAgent = routing.TargetAgent != AgentType.Ask
                         || routing.NeedsPlanning;
 
                     if (needsAgent)
