@@ -70,6 +70,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
             typingTimer.Tick += TypingTimer_Tick;
 
             this.view.TextBuffer.Changed += TextBuffer_Changed;
+            this.view.Caret.PositionChanged += Caret_PositionChanged;
             this.view.Closed += OnViewClosed;
         }
 
@@ -376,6 +377,17 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         #region Private Methods - Event Handlers
 
         /// <summary>
+        /// 用户移动光标时清除当前幽灵文本，确保预测不会停留在错误位置。
+        /// </summary>
+        private void Caret_PositionChanged(object sender, CaretPositionChangedEventArgs e)
+        {
+            if (view.Properties.TryGetProperty(GhostTextTagger.TaggerKey, out GhostTextTagger tagger))
+            {
+                tagger.ClearSuggestion();
+            }
+        }
+
+        /// <summary>
         /// 用户编辑缓冲区时重启打字防抖定时器，并清除当前幽灵文本。
         /// </summary>
         private void TextBuffer_Changed(object sender, TextContentChangedEventArgs e)
@@ -426,6 +438,7 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
             try
             {
                 view.TextBuffer.Changed -= TextBuffer_Changed;
+                view.Caret.PositionChanged -= Caret_PositionChanged;
                 view.Closed -= OnViewClosed;
 
                 if (typingTimer != null)
