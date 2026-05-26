@@ -1166,7 +1166,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
         '</div>';
 
     var container=document.getElementById('chat-container');
-    if(container)container.appendChild(div);
+    if(container)window.__insertBeforeTaskPanel(div);
     window.__scrollToBottom('smooth');
 }})();";
         }
@@ -1237,7 +1237,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
         '</div>';
 
     var container=document.getElementById('chat-container');
-    if(container)container.appendChild(div);
+    if(container)window.__insertBeforeTaskPanel(div);
     window.__scrollToBottom('smooth');
 }})();";
         }
@@ -1306,7 +1306,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
     div.innerHTML={escapedInnerHtml};
 
     var container=document.getElementById('chat-container');
-    if(container)container.appendChild(div);
+    if(container)window.__insertBeforeTaskPanel(div);
     window.__scrollToBottom('smooth');
 }})();";
         }
@@ -1364,7 +1364,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
     div.innerHTML={escapedInnerHtml};
 
     var container=document.getElementById('chat-container');
-    if(container)container.appendChild(div);
+    if(container)window.__insertBeforeTaskPanel(div);
     window.__scrollToBottom('smooth');
 }})();";
         }

@@ -121,6 +121,17 @@ new MutationObserver(function(){
         private static string BuildAppendMessageJsFunction()
         {
             return @"
+window.__insertBeforeTaskPanel=function(element){
+    var container=document.getElementById('chat-container');
+    if(!container)return;
+    var taskPanel=container.querySelector('[id^=""agent-task-panel-""]');
+    if(taskPanel){
+        container.insertBefore(element, taskPanel);
+    } else {
+        container.appendChild(element);
+    }
+};
+
 window.__appendMessageHtml=function(html){
     var container=document.getElementById('chat-container');
     if(!container)return;
@@ -131,7 +142,13 @@ window.__appendMessageHtml=function(html){
     while(temp.firstChild){
         fragment.appendChild(temp.firstChild);
     }
-    container.appendChild(fragment);
+    // 如果存在 agent-task-panel，将新消息插入面板之前（保持面板始终在最底部）
+    var taskPanel=container.querySelector('[id^=""agent-task-panel-""]');
+    if(taskPanel){
+        container.insertBefore(fragment, taskPanel);
+    } else {
+        container.appendChild(fragment);
+    }
     // 流式追加期间跳过语法高亮（节省性能），由 BuildFinalRenderJs 在完成时统一处理
     if (typeof window.__scrollToBottom === 'function') {
         window.__scrollToBottom('smooth');
