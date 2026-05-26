@@ -1,4 +1,4 @@
-using DeepSeek_v4_for_VisualStudio.Services;
+﻿using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Shell;
 using System;
@@ -7,14 +7,14 @@ using System.Runtime.InteropServices;
 namespace DeepSeek_v4_for_VisualStudio.View
 {
     /// <summary>
-    /// 工具窗口窗格，对标共享项�?TerminalWindowTurbo�?
-    /// 宿主 DeepSeekChatControl (WPF UserControl with WebView2)�?
+    /// 工具窗口窗格，对标共享项目 TerminalWindowTurbo。
+    /// 宿主 DeepSeekChatControl (WPF UserControl with WebView2)。
     /// </summary>
     [Guid("8F3A9C2D-1E5B-4F6A-9C8D-2E3F5A7B1D4E")]
     public class DeepSeekChatWindowPane : ToolWindowPane
     {
         /// <summary>
-        /// 初始化工具窗口�?
+        /// 初始化工具窗口。
         /// </summary>
         public DeepSeekChatWindowPane() : base(null)
         {
@@ -44,7 +44,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 throw;
             }
 
-            // 订阅语言变更以动态更新标�?
+            // 订阅语言变更以动态更新标题
             try
             {
                 LocalizationService.Instance.LanguageChanged += (_, _) =>
@@ -61,7 +61,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 窗口创建完成，将 Package 引用传入 UserControl�?
+        /// 窗口创建完成，将 Package 引用传入 UserControl。
         /// </summary>
         protected override void OnCreate()
         {
@@ -90,7 +90,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 窗口销毁时释放资源�?
+        /// 窗口销毁时释放资源。
         /// </summary>
         protected override void Dispose(bool disposing)
         {
