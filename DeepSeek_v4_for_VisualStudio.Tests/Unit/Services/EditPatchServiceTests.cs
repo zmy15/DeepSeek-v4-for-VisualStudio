@@ -252,15 +252,14 @@ namespace MyApp
     }
 
     [Fact]
-    public void MatchWithFallback_EmptySearch_ReturnsZero()
+    public void MatchWithFallback_EmptySearch_ReturnsNegative()
     {
         var fileContent = "some content";
         var searchText = "";
 
         var pos = _service.MatchWithFallback(fileContent, searchText, out var level);
 
-        pos.Should().Be(0);
-        level.Should().Be(MatchLevel.Exact);
+        pos.Should().Be(-1); // 空搜索不应匹配到文件开头（修复：原 return 0 导致纯新增 hunk 插入到错误位置）
     }
 
     [Fact]
