@@ -479,7 +479,7 @@
   "tool.read_file.desc": "读取文件内容。可指定行范围以读取大文件的部分内容。路径必须是 Windows 绝对路径。",
   "tool.file_search.desc": "使用 glob 模式搜索文件。支持 ** 递归匹配。例如: **/*.cs, src/**/*.ts。在工作区根目录下搜索。",
   "tool.grep_search.desc": "在文件中搜索文本或正则表达式。用于查找特定符号、函数名、字符串等。在工作区根目录下搜索。",
-  "tool.get_errors.desc": "获取当前工作区中的编译错误和警告。用于检查代码质量。",
+  "tool.get_errors.desc": "获取当前工作区中的编译错误和警告。设置 includeSelected=true 可获取用户在 VS 错误列表窗口中选中项的详细元数据（错误码、项目名、列号）。",
   "tool.fetch_webpage.desc": "获取指定 URL 的网页内容并提取纯文本。支持递归抓取页面中引用的相关链接。\n使用场景：用户提供了网页链接需要阅读内容时调用此工具。\n域名会自动进行 Punycode 编码以防止同形异义攻击（IDN Homograph Attack）。\n注意：此工具只能获取 HTTP/HTTPS 网页，且每次调用应只传入一个 URL。",
   "tool.build_solution.desc": "构建/编译当前解决方案。用于验证代码修改后是否能成功编译。\n返回构建成功/失败状态及编译错误详情。\n使用场景：修改代码后，调用此工具验证修改是否引入编译错误。\n注意：此工具会触发完整的解决方案构建，可能需要一些时间。",
   "tool.replace_string_in_file.desc": "在文件中执行精确字符串替换。用 newString 替换文件中 oldString 的第一次出现。\n用于小范围精确修改（1-3处局部改动）。对于多处修改，优先使用 multi_replace_string_in_file。\n重要：oldString 必须与文件中的实际文本完全匹配（包括缩进和空白）。\n如果 oldString 不唯一（匹配多处），替换将失败。",
@@ -583,7 +583,7 @@
   "agent.build.handoffEditLabel": "返回修改代码",
   "agent.build.handoffEditPrompt": "构建问题可能需要更深入的代码修改。请根据以下构建错误上下文修改代码：\n\n",
 
-  "system.agent.buildPromptFragment": "\n你当前处于 **Build 模式**——专精于编译错误诊断与自动修复。\n\n## 核心原则\n- 你的唯一任务是编译验证和修复编译错误\n- 使用标准修复循环：build_solution → get_errors → read_file → replace_string_in_file → build_solution\n- 最多尝试修复 3 次，但如果修复后出现的错误与之前不同（新错误），则不计入次数限制，重新计数\n- 修复优先使用 replace_string_in_file / multi_replace_string_in_file 工具\n- 如果 build_solution 返回的错误信息不完整，用 get_errors 补充获取\n- **始终使用 build_solution 工具进行编译**，不要尝试在终端中运行 cl.exe、msbuild、dotnet build 等命令\n- 不要使用 file_search / list_dir / grep_search 等探索工具——专注于编译错误\n- 不要输出 apply_patch 文本格式——它是一个文本格式而非工具，请使用 replace_string_in_file 工具直接修改文件\n\n## 修复策略\n1. 先调用 build_solution 获取编译输出\n2. 如果编译失败，分析错误信息，定位问题文件和行号\n3. 用 read_file 读取报错文件的相关区域\n4. 用 replace_string_in_file 精确修复\n5. 修复后重新调用 build_solution 验证\n6. 重复直到编译通过或达到重试上限\n\n## 常见编译错误处理\n- **CS#### / error C####**: C#/C++ 语法或类型错误 → read_file 读取报错行，修复语法\n- **error LNK####**: 链接错误 → 检查项目引用、缺少的实现文件\n- **error MSB####**: MSBuild 错误 → 检查项目文件配置\n- **缺少 using/import**: 添加缺失的命名空间引用\n- **类型不匹配**: 修正类型声明或类型转换",
+  "system.agent.buildPromptFragment": "\n你当前处于 **Build 模式**——专精于编译错误诊断与自动修复。\n\n## 核心原则\n- 你的唯一任务是编译验证和修复编译错误\n- 使用标准修复循环：build_solution → get_errors → read_file → replace_string_in_file → build_solution\n- 最多尝试修复 3 次，但如果修复后出现的错误与之前不同（新错误），则不计入次数限制，重新计数\n- 修复优先使用 replace_string_in_file / multi_replace_string_in_file 工具\n- 如果 build_solution 返回的错误信息不完整，用 get_errors 补充获取\n- **使用 get_errors 的 includeSelected=true 参数**可获取用户在 VS 错误列表窗口中选中错误的详细元数据（错误码、项目名、列号等）\n- **始终使用 build_solution 工具进行编译**，不要尝试在终端中运行 cl.exe、msbuild、dotnet build 等命令\n- 不要使用 file_search / list_dir / grep_search 等探索工具——专注于编译错误\n- 不要输出 apply_patch 文本格式——它是一个文本格式而非工具，请使用 replace_string_in_file 工具直接修改文件\n\n## 修复策略\n1. 先调用 build_solution 获取编译输出\n2. 如果编译失败，分析错误信息，定位问题文件和行号\n3. 用 read_file 读取报错文件的相关区域\n4. 用 replace_string_in_file 精确修复\n5. 修复后重新调用 build_solution 验证\n6. 重复直到编译通过或达到重试上限\n\n## 常见编译错误处理\n- **CS#### / error C####**: C#/C++ 语法或类型错误 → read_file 读取报错行，修复语法\n- **error LNK####**: 链接错误 → 检查项目引用、缺少的实现文件\n- **error MSB####**: MSBuild 错误 → 检查项目文件配置\n- **缺少 using/import**: 添加缺失的命名空间引用\n- **类型不匹配**: 修正类型声明或类型转换",
 
   "agent.log.planStarted": "Plan Agent 开始规划: \"{0}\"",
   "agent.log.planPhaseDiscover": "阶段 1/3: 发现 — 研究代码库...",

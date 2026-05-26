@@ -408,6 +408,175 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         #endregion
 
+        #region Error List Methods
+
+        /// <summary>
+        /// 获取错误列表中用户当前选中的错误项信息。
+        /// 通过 IVsTaskList2 (SVsErrorList) 接口获取 VS Error List 窗口中用户高亮的条目。
+        /// 仅在 UI 线程调用。
+        /// </summary>
+        public async Task<List<ErrorListItem>> GetSelectedErrorsAsync(CancellationToken ct)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
+
+            var results = new List<ErrorListItem>();
+
+            try
+            {
+                var errorList = ServiceProvider.GlobalProvider
+                    .GetService(typeof(SVsErrorList)) as IVsTaskList2;
+                if (errorList == null)
+                {
+                    Logger.Info("[BuildService] SVsErrorList 服务不可用，无法获取选中错误项");
+                    return results;
+                }
+
+                errorList.EnumSelectedItems(out IVsEnumTaskItems? enumSelected);
+                if (enumSelected == null) return results;
+
+                results = CollectTaskItemsFromEnum(enumSelected);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BuildService] 获取选中错误项失败: {ex.Message}");
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// 从 IVsEnumTaskItems 枚举器中收集所有错误项的结构化信息。
+        /// 同时支持 IVsTaskItem（基础）和 IVsTaskItem2/3（扩展）接口，提取错误码、项目名等扩展字段。
+        /// </summary>
+        private static List<ErrorListItem> CollectTaskItemsFromEnum(IVsEnumTaskItems enumerator)
+        {
+            var results = new List<ErrorListItem>();
+            IVsTaskItem[] items = new IVsTaskItem[1];
+            uint[] fetched = new uint[1];
+
+            while (enumerator.Next(1, items, fetched) == VSConstants.S_OK && fetched[0] == 1)
+            {
+                try
+                {
+                    var item = items[0];
+                    var entry = ExtractErrorListItem(item);
+                    if (entry != null)
+                        results.Add(entry);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[BuildService] 跳过无法读取的选中 Task Item: {ex.Message}");
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// 从 IVsTaskItem 中提取结构化的错误项信息。
+        /// 尝试将 IVsTaskItem 转换为 IVsTaskItem2/3 以获取更丰富的元数据（错误码、项目名、子类别等）。
+        /// </summary>
+        private static ErrorListItem? ExtractErrorListItem(IVsTaskItem item)
+        {
+            string? text = null;
+            item.get_Text(out text);
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            var entry = new ErrorListItem { Description = text };
+
+            // ── 基本信息（IVsTaskItem 基接口）──
+            item.Document(out string? fileName);
+            entry.FileName = fileName;
+
+            item.Line(out int line);
+            entry.Line = line;
+
+            item.Column(out int column);
+            entry.Column = column;
+
+            // 类别
+            var catArr = new VSTASKCATEGORY[1];
+            item.Category(catArr);
+            entry.Category = catArr[0] switch
+            {
+                VSTASKCATEGORY.CAT_BUILDCOMPILE => "error",
+                VSTASKCATEGORY.CAT_USER => "user",
+                _ => "info"
+            };
+
+            // 优先级
+            var priArr = new VSTASKPRIORITY[1];
+            item.get_Priority(priArr);
+            entry.Priority = priArr[0] switch
+            {
+                VSTASKPRIORITY.TP_HIGH => "high",
+                VSTASKPRIORITY.TP_NORMAL => "normal",
+                VSTASKPRIORITY.TP_LOW => "low",
+                _ => "normal"
+            };
+
+            // ── 扩展信息（IVsTaskItem2）──
+            if (item is IVsTaskItem2 item2)
+            {
+                // 自定义列值 — 尝试获取错误码和项目名
+                // VS Error List 默认列：Severity(0), Code(1), Description(2), Project(3), File(4), Line(5)
+                // get_CustomColumnText 签名: (ref Guid guidFormat, uint iColumn, out string pbstrText)
+                Guid defaultFormat = Guid.Empty;
+
+                try
+                {
+                    item2.get_CustomColumnText(ref defaultFormat, 1, out string? errorCode);
+                    if (!string.IsNullOrWhiteSpace(errorCode))
+                        entry.ErrorCode = errorCode;
+                }
+                catch
+                {
+                    // 某些 IVsTaskItem2 实现可能不支持 get_CustomColumnText
+                }
+
+                try
+                {
+                    item2.get_CustomColumnText(ref defaultFormat, 3, out string? project);
+                    if (!string.IsNullOrWhiteSpace(project))
+                        entry.Project = project;
+                }
+                catch { }
+            }
+
+            // ── 扩展信息（IVsTaskItem3）──
+            if (item is IVsTaskItem3 item3)
+            {
+                // 尝试获取更精确的列值
+                // GetColumnValue 签名: (int iColumn, out uint ptvfFlags, out uint pvtfColourFlags, out object pvarValue, out string pbstrCanonical)
+                try
+                {
+                    if (string.IsNullOrEmpty(entry.ErrorCode))
+                    {
+                        item3.GetColumnValue(1, out uint _, out uint _, out object varValue, out string _);
+                        if (varValue is string code && !string.IsNullOrWhiteSpace(code))
+                            entry.ErrorCode = code;
+                    }
+                }
+                catch { }
+
+                try
+                {
+                    if (string.IsNullOrEmpty(entry.Project))
+                    {
+                        item3.GetColumnValue(3, out uint _, out uint _, out object varValue, out string _);
+                        if (varValue is string proj && !string.IsNullOrWhiteSpace(proj))
+                            entry.Project = proj;
+                    }
+                }
+                catch { }
+            }
+
+            return entry;
+        }
+
+        #endregion
+
         #region Project Detection
 
         /// <summary>

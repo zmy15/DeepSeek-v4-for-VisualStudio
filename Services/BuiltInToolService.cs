@@ -214,6 +214,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                                     type = "array",
                                     items = new { type = "string" },
                                     description = "可选，指定要检查的文件路径列表。不指定则获取所有文件的错误。"
+                                },
+                                includeSelected = new
+                                {
+                                    type = "boolean",
+                                    description = "可选，设为 true 时返回用户在 Error List 窗口中当前选中的错误项信息（包含错误码、项目名、行列号等完整元数据）。默认 false。"
                                 }
                             },
                             required = new string[] { }
@@ -1326,8 +1331,64 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
         }
 
-        private static Task<string> GetErrorsAsync(Dictionary<string, System.Text.Json.JsonElement> args)
+        private async Task<string> GetErrorsAsync(Dictionary<string, System.Text.Json.JsonElement> args)
         {
+            var L = LocalizationService.Instance;
+
+            // ── 检查是否请求选中项 ──
+            bool includeSelected = GetBoolArg(args, "includeSelected", false);
+
+            if (includeSelected && _buildService != null)
+            {
+                try
+                {
+                    var selectedErrors = await _buildService.GetSelectedErrorsAsync(CancellationToken.None);
+                    if (selectedErrors.Count > 0)
+                    {
+                        var sb = new StringBuilder();
+                        sb.AppendLine("🔍 错误列表中选中的错误项");
+                        sb.AppendLine();
+                        sb.AppendLine($"| # | 描述 | 文件 | 行 | 列 | 错误码 | 项目 |");
+                        sb.AppendLine("|---|------|------|----|----|--------|------|");
+                        for (int i = 0; i < selectedErrors.Count; i++)
+                        {
+                            var e = selectedErrors[i];
+                            string desc = e.Description.Truncate(80);
+                            string file = Path.GetFileName(e.FileName ?? "");
+                            string line = e.Line > 0 ? e.Line.ToString() : "-";
+                            string col = e.Column > 0 ? e.Column.ToString() : "-";
+                            string code = e.ErrorCode ?? "-";
+                            string proj = e.Project ?? "-";
+                            sb.AppendLine($"| {i + 1} | {desc} | {file} | {line} | {col} | {code} | {proj} |");
+                        }
+                        sb.AppendLine();
+                        sb.AppendLine("---");
+                        sb.AppendLine("### 详细错误信息");
+                        sb.AppendLine();
+                        foreach (var e in selectedErrors)
+                        {
+                            sb.AppendLine($"**{e.ErrorCode ?? "Error"}** ({e.Category}, {e.Priority}): {e.Description}");
+                            if (!string.IsNullOrEmpty(e.FileName))
+                                sb.AppendLine($"  📄 `{e.FileName}`" +
+                                    (e.Line > 0 ? $":{e.Line}" : "") +
+                                    (e.Column > 0 ? $":{e.Column}" : ""));
+                            if (!string.IsNullOrEmpty(e.Project))
+                                sb.AppendLine($"  📦 项目: {e.Project}");
+                            if (!string.IsNullOrEmpty(e.SubCategory))
+                                sb.AppendLine($"  🏷️ 子类别: {e.SubCategory}");
+                            sb.AppendLine();
+                        }
+                        return sb.ToString().TrimEnd();
+                    }
+                    return "🔍 错误列表中未选中任何错误项。请在错误列表窗口中点击选中错误项后重试。";
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[BuiltInTool] get_errors (selected) 异常: {ex.Message}");
+                    return $"❌ 获取选中错误项失败: {ex.Message}";
+                }
+            }
+
             // ── 委托给 BuildService.CollectBuildErrors() 获取真实编译错误 ──
             try
             {
@@ -1339,16 +1400,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     sb.AppendLine("🔧 编译错误检查");
                     sb.AppendLine();
                     sb.AppendLine(errors);
-                    return Task.FromResult(sb.ToString().TrimEnd());
+                    return sb.ToString().TrimEnd();
                 }
 
                 // ── 无编译错误时的回退信息 ──
-                return Task.FromResult("🔧 编译错误检查: 未检测到编译错误。如果刚完成构建且预期有错误，请先调用 build_solution 触发编译。");
+                return "🔧 编译错误检查: 未检测到编译错误。如果刚完成构建且预期有错误，请先调用 build_solution 触发编译。";
             }
             catch (Exception ex)
             {
                 Logger.Warn($"[BuiltInTool] get_errors 异常: {ex.Message}");
-                return Task.FromResult($"❌ 获取编译错误失败: {ex.Message}\n💡 建议使用 build_solution 工具触发编译并获取错误详情。");
+                return $"❌ 获取编译错误失败: {ex.Message}\n💡 建议使用 build_solution 工具触发编译并获取错误详情。";
             }
         }
 
@@ -2325,6 +2386,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (element.ValueKind == System.Text.Json.JsonValueKind.False) return false;
             }
             return false;
+        }
+
+        /// <summary>
+        /// 获取布尔类型参数，支持自定义默认值。
+        /// </summary>
+        private static bool GetBoolArg(Dictionary<string, System.Text.Json.JsonElement> args, string key, bool defaultValue)
+        {
+            if (args.TryGetValue(key, out var element))
+            {
+                if (element.ValueKind == System.Text.Json.JsonValueKind.True) return true;
+                if (element.ValueKind == System.Text.Json.JsonValueKind.False) return false;
+            }
+            return defaultValue;
         }
 
         #endregion
