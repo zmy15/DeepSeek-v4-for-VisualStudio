@@ -1,6 +1,7 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -22,6 +23,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private readonly McpManagerService? _mcpManager;
         private readonly WebSearchService? _webSearchService;
         private readonly IBuildService? _buildService;
+
+        // ── 文件读取缓存：同一会话内相同路径只从磁盘读取一次 ──
+        // ExploreAgent 并行执行时各子代理可能重复读取相同文件（如公共头文件），
+        // 缓存可大幅减少 I/O 并加速探索阶段。
+        private readonly ConcurrentDictionary<string, string> _fileReadCache = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// i18n 便捷访问器。
@@ -1020,11 +1026,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
         }
 
-        private static Task<string> ReadFileAsync(Dictionary<string, System.Text.Json.JsonElement> args, string? workspaceRoot)
+        private Task<string> ReadFileAsync(Dictionary<string, System.Text.Json.JsonElement> args, string? workspaceRoot)
         {
             string filePath = GetStringArg(args, "filePath");
             if (string.IsNullOrEmpty(filePath))
                 return Task.FromResult("❌ read_file: 缺少 filePath 参数");
+
+            // ── 缓存命中：直接返回，避免重复 I/O（ExploreAgent 并行探索时常见）──
+            if (_fileReadCache.TryGetValue(filePath, out string? cached))
+                return Task.FromResult($"📄 [缓存] 文件: {filePath}\n\n{cached}");
 
             if (!File.Exists(filePath))
             {
@@ -1075,6 +1085,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // RAG-MARK: no-truncate — 不再截断 read_file 返回结果，完整返回文件内容
                 // RAG-SOURCE: file-read 读取文件内容（BuiltInTool read_file 工具）
                 string result = resultBuilder.ToString().TrimEnd();
+
+                // ── 缓存文件内容（不含行号前缀的原始内容，用于后续缓存命中）──
+                string rawContent = sb.ToString().TrimEnd();
+                _fileReadCache.TryAdd(filePath, rawContent);
 
                 return Task.FromResult(result);
             }

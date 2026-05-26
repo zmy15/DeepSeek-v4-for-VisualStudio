@@ -281,7 +281,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     (string.IsNullOrEmpty(context.SolutionPath) ? ""
                         : $"Solution path: {context.SolutionPath}\n\n") +
                     (string.IsNullOrEmpty(structureContext) ? ""
-                        : $"{L["agent.plan.discoveryStructureHint"]}\n{structureContext.Truncate(1500)}\n\n") +
+                        : $"{L["agent.plan.discoveryStructureHint"]}\n{structureContext}\n\n") +
                     $"{L["agent.plan.discoveryPromptTail"]}";
 
                 string routingResponse = await CallAiShortAsync(
@@ -351,14 +351,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             if (!string.IsNullOrEmpty(structureContext))
             {
-                // 截断结构上下文（保留前 3000 字符，足够理解项目结构）
-                string truncatedStructure = structureContext.Length > 3000
-                    ? structureContext.Substring(0, 3000) + "\n... (truncated)"
-                    : structureContext;
-
                 sb.AppendLine();
                 sb.AppendLine(L["agent.plan.discoveryPhase2InjectedHeader"]);
-                sb.AppendLine(truncatedStructure);
+                sb.AppendLine(structureContext);
                 sb.AppendLine();
                 sb.AppendLine(L["agent.plan.discoveryPhase2SkipHint"]);
             }
@@ -424,7 +419,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 string checkPrompt =
                     $"用户任务: {userMessage}\n\n" +
-                    $"代码库研究发现:\n{discoveryContext.Truncate(2000)}\n\n" +
+                    $"代码库研究发现:\n{discoveryContext}\n\n" +
                     "基于以上信息，在制定实现计划之前，你是否需要向用户提问澄清需求？\n" +
                     "只回复 YES 或 NO。";
 
@@ -460,14 +455,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     new ChatApiMessage { Role = "system", Content = Definition.SystemPrompt },
                 };
 
-                // 注入发现上下文
+                // 注入发现上下文（完整传递，不截断）
                 if (!string.IsNullOrEmpty(discoveryContext))
                 {
                     messages.Add(new ChatApiMessage
                     {
                         Role = "system",
                         Content = L["agent.plan.discoveryFallback"] + "\n\n" +
-                                  discoveryContext.Truncate(3000)
+                                  discoveryContext
                     });
                 }
 
@@ -495,8 +490,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     messages,
                     context.SolutionPath,
                     ct,
-                    maxTokens: 2048,
-                    toolWhitelist: new List<string> { "VisualStudio_askQuestions" },
+                    maxTokens: 4096,
+                    toolWhitelist: new List<string> { "VisualStudio_askQuestions", "list_dir", "read_file", "grep_search", "file_search" },
                     onContent: (chunk) =>
                     {
                         alignmentContent.Append(chunk);
