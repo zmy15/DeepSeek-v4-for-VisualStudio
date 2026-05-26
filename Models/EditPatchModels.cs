@@ -196,46 +196,5 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [JsonIgnore]
         public string? FinalContent { get; set; }
     }
-
-    /// <summary>
-    /// Healing 请求：发送给降级模型修正匹配失败的编辑。
-    /// </summary>
-    public class HealingRequest
-    {
-        /// <summary>目标文件路径</summary>
-        public string FilePath { get; set; } = string.Empty;
-
-        /// <summary>文件当前完整内容</summary>
-        public string CurrentFileContent { get; set; } = string.Empty;
-
-        /// <summary>原始编辑操作类型</summary>
-        public EditOperationType OriginalOperationType { get; set; }
-
-        /// <summary>失败的 Patch 操作（apply_patch 模式）</summary>
-        public PatchOperation? FailedPatch { get; set; }
-
-        /// <summary>失败的 insert_edit_into_file 完整内容</summary>
-        public string? FailedInsertEditContent { get; set; }
-
-        /// <summary>匹配失败的详细原因</summary>
-        public string FailureReason { get; set; } = string.Empty;
-    }
-
-    /// <summary>
-    /// Healing 响应：降级模型修正后的编辑。
-    /// </summary>
-    public class HealingResponse
-    {
-        /// <summary>是否成功修正</summary>
-        public bool Success { get; set; }
-
-        /// <summary>修正后的 Patch 操作（apply_patch 模式）</summary>
-        public PatchOperation? CorrectedPatch { get; set; }
-
-        /// <summary>修正后的完整文件内容（insert_edit_into_file 模式）</summary>
-        public string? CorrectedInsertEditContent { get; set; }
-
-        /// <summary>错误描述</summary>
-        public string? ErrorMessage { get; set; }
-    }
 }
+

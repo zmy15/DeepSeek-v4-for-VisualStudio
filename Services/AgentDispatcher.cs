@@ -26,7 +26,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private readonly DeepSeekApiService _apiService;
         private readonly BuiltInToolService? _builtInToolService;
         private McpManagerService? _mcpManager;
-        private EditPatchService? _editPatchService;
 
         // ── Agent 实例（懒加载） ──
         private AskAgent? _askAgent;
@@ -80,10 +79,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     _editAgent = new EditAgent(_apiService);
                     InjectToolServices(_editAgent);
-                    // 注入 EditPatchService（用于 apply_patch / insert_edit_into_file 编辑格式）
-                    if (_editPatchService == null)
-                        _editPatchService = new EditPatchService(_apiService);
-                    _editAgent.EditPatchService = _editPatchService;
                 }
                 return _editAgent;
             }

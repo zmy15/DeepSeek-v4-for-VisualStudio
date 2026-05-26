@@ -1,5 +1,6 @@
 ﻿using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
+using DeepSeek_v4_for_VisualStudio.Services.EditTools;
 using DeepSeek_v4_for_VisualStudio.ToolWindows;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
@@ -26,17 +27,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     {
         private CancellationTokenSource? _agentCts;
         private ExploreAgent? _exploreAgent;
-        private EditPatchService? _editPatchService;
 
-        /// <summary>
-        /// EditPatchService 引用，由 AgentDispatcher 注入。
-        /// 用于解析和应用 apply_patch / insert_edit_into_file / create_file 三种编辑格式。
-        /// </summary>
-        public EditPatchService? EditPatchService
-        {
-            get => _editPatchService;
-            set => _editPatchService = value;
-        }
+        // ── 编辑工具（懒加载，由 EnsureEditTools 初始化）──
+        private ApplyPatchTool? _applyPatchTool;
+        private InsertEditTool? _insertEditTool;
+        private ReplaceStringTool? _replaceStringTool;
+        private MultiReplaceStringTool? _multiReplaceStringTool;
 
         /// <summary>
         /// ExploreAgent 引用，由 AgentDispatcher 注入。
@@ -269,7 +265,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             ? $"步骤 {step.Index} ({step.Title}) 已完成"
                             : $"步骤 {step.Index} ({step.Title}): {step.ResultSummary}";
                         context.AccumulatedContext = (context.AccumulatedContext ?? "") + "\n" + stepResult;
-                        if (!string.IsNullOrEmpty(step.AiResponse) && step.AiResponse.Length < 3000)
+                        if (!string.IsNullOrEmpty(step.AiResponse) && step.AiResponse!.Length < 3000)
                             context.AccumulatedContext += "\n" + step.AiResponse;
                         AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.contextAccumulated"], context.AccumulatedContext.Length));
                     }
@@ -371,7 +367,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 step.Status = AgentStepStatus.WaitingApproval;
                 NotifyPlanUpdated();
 
-                bool approved = await RequestPermissionAsync(step.Title, step.PendingCommand, "command");
+                bool approved = await RequestPermissionAsync(step.Title, step.PendingCommand!, "command");
                 if (!approved)
                 {
                     step.Status = AgentStepStatus.Skipped;
@@ -534,10 +530,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
 
             // ── 检测编辑操作类型 ──
-            var operationType = _editPatchService?.DetectOperationType(result)
-                ?? EditOperationType.CreateFile;
+            var operationType = DetectOperationType(result);
 
             AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editTypeDetected"], operationType));
+
+            // ── 初始化编辑工具（懒加载，使用当前 workspaceRoot）──
+            EnsureEditTools(workspaceRoot);
 
             // ── 保存原始文件内容（用于最终 diff 比较）──
             var originalContents = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -727,11 +725,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
 
             // ── 编辑后诊断检查 ──
-            if (_editPatchService != null && appliedResults.Count > 0)
+            if (appliedResults.Count > 0)
             {
                 foreach (var editResult in appliedResults.Where(r => r.Success))
                 {
-                    var newDiags = await _editPatchService.CheckNewDiagnosticsAsync(editResult.FilePath);
+                    var newDiags = await EditPatchService.CheckNewDiagnosticsAsync(editResult.FilePath);
                     if (newDiags.Count > 0)
                     {
                         editResult.NewDiagnostics = newDiags;
@@ -771,7 +769,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         #region Sub-methods for each edit format
 
         /// <summary>
-        /// 执行 apply_patch 格式的编辑。
+        /// 执行 apply_patch 格式的编辑（使用 ApplyPatchTool）。
         /// </summary>
         private async Task ExecutePatchEditsAsync(
             string aiResult, AgentTaskPlan plan, AgentContext context,
@@ -780,211 +778,99 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             List<EditApplyResult> appliedResults,
             CancellationToken ct)
         {
-            if (_editPatchService == null)
+            if (_applyPatchTool == null)
             {
                 AddLog("WARN", LocalizationService.Instance["agent.log.patchServiceMissing"]);
                 return;
             }
 
-            var patches = _editPatchService.ParsePatches(aiResult);
-AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatches"], patches.Count));
+            var patches = ApplyPatchTool.ParsePatches(aiResult);
+            AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatches"], patches.Count));
 
-            // ── 跟踪每个文件的内存内容，实现跨 Patch 原子性 ──
-            // Key: 文件路径, Value: (是否已写入磁盘, 当前内存中的内容)
-            var fileState = new Dictionary<string, (bool written, string content)>(StringComparer.OrdinalIgnoreCase);
+            // ── 使用 ApplyPatchTool 批量执行（内置 Healing + 原子性）──
+            var results = await _applyPatchTool.ExecutePatchesAsync(patches, ct);
 
-            foreach (var patch in patches)
+            foreach (var applyResult in results)
             {
-                if (ct.IsCancellationRequested) break;
-
-                string resolvedPath = EditPatchService.ResolvePath(patch.FilePath, workspaceRoot);
+                string resolvedPath = applyResult.FilePath;
 
                 // ── 保存原始内容（仅首次）──
                 if (!originalContents.ContainsKey(resolvedPath))
                 {
-                    // RAG-SOURCE: file-read 读取文件原始内容（Patch 应用前保存）
                     string original = File.Exists(resolvedPath)
                         ? await Task.Run(() => File.ReadAllText(resolvedPath), ct)
                         : string.Empty;
                     originalContents[resolvedPath] = original;
-
-                    // 初始化内存状态：以原始文件内容为起点
-                    fileState[resolvedPath] = (written: false, content: original);
                 }
-
-                // ── 使用内存中的最新内容进行匹配（避免读盘拿到旧内容）──
-                string currentContent = fileState.TryGetValue(resolvedPath, out var state)
-                    ? state.content
-                    : originalContents[resolvedPath];
-
-                var applyResult = await _editPatchService.ApplyPatchWithContentAsync(
-                    patch, workspaceRoot, ct, existingContent: currentContent);
-
-                if (!applyResult.Success && applyResult.FailedHunks != null && applyResult.FailedHunks.Count > 0)
-                {
-                    // ── Healing 机制：匹配失败 → 降级模型修正 ──
-                    string failedHunkDetails = string.Join("; ", applyResult.FailedHunks.Select(h =>
-                        $"Hunk ({h.ContextMarkers.Count} 定位标记: {string.Join(", ", h.ContextMarkers.Take(3))})"));
-                    AddLog("WARN", $"[EditAgent] Patch 匹配失败 ({applyResult.ErrorMessage})，失败详情: {failedHunkDetails}，启动 healing...");
-
-                    var healingRequest = new HealingRequest
-                    {
-                        FilePath = resolvedPath,
-                        CurrentFileContent = currentContent,
-                        OriginalOperationType = EditOperationType.ApplyPatch,
-                        FailedPatch = patch,
-                        FailureReason = applyResult.ErrorMessage ?? "未知原因",
-                    };
-
-                    var healingResponse = await _editPatchService.HealFailedEditAsync(healingRequest, ct);
-
-                    // ── Healing 兜底：降级模型失败 → 用完整模型重试一次 ──
-                    if (healingResponse?.Success != true || healingResponse.CorrectedPatch == null)
-                    {
-                        AddLog("WARN", $"[EditAgent] 降级模型 healing 失败 ({healingResponse?.ErrorMessage ?? "无响应"})，尝试完整模型...");
-                        healingResponse = await _editPatchService.HealFailedEditWithFullModelAsync(healingRequest, ct);
-                    }
-
-                    if (healingResponse?.Success == true && healingResponse.CorrectedPatch != null)
-                    {
-                        AddLog("INFO", "[EditAgent] Healing 成功，使用修正后的 Patch 重试...");
-                        applyResult = await _editPatchService.ApplyPatchWithContentAsync(
-                            healingResponse.CorrectedPatch, workspaceRoot, ct, existingContent: currentContent);
-
-                        // ── 兜底：Healing 修正后仍失败 → 尝试作为 create_file 写入完整内容 ──
-                        if (!applyResult.Success && !string.IsNullOrEmpty(applyResult.FinalContent))
-                        {
-                            AddLog("WARN", $"[EditAgent] Healing 修正后仍失败 ({applyResult.ErrorMessage})，启用 create_file 兜底写入...");
-                            try
-                            {
-                                bool fallbackAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                                    resolvedPath, "Healing 兜底写入（Patch→create_file）", applyResult.FinalContent ?? string.Empty);
-                                if (fallbackAllowed)
-                                {
-                                    await TerminalWindowHelper.WriteCodeToFileAsync(
-                                        applyResult.FilePath, applyResult.FinalContent!);
-                                    applyResult.Success = true;
-                                    fileState[resolvedPath] = (written: true, content: applyResult.FinalContent!);
-                                    AddLog("INFO", $"[EditAgent] ✅ create_file 兜底成功: {resolvedPath}");
-                                }
-                                else
-                                {
-                                    AddLog("WARN", $"[EditAgent] ⏭ 已跳过项目文件兜底写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
-                                }
-                            }
-                            catch (Exception fallbackEx)
-                            {
-                                AddLog("ERROR", $"[EditAgent] create_file 兜底也失败: {fallbackEx.Message}");
-                            }
-                        }
-                    }
-                    else
-                    {
-                        AddLog("ERROR", $"[EditAgent] Healing 完全失败: {healingResponse?.ErrorMessage ?? "未知"}");
-                    }
-                }
-                else if (!applyResult.Success)
-                {
-                    // ── 无 FailedHunks 但仍失败（如文件不存在、权限问题等）──
-                    AddLog("ERROR", $"[EditAgent] Patch 应用失败（非匹配问题）: {resolvedPath} - {applyResult.ErrorMessage}");
-                }
-
-                appliedResults.Add(applyResult);
 
                 if (applyResult.Success)
                 {
-                    // ── 更新内存中的文件内容（延迟写盘，保证原子性）──
-                    if (!string.IsNullOrEmpty(applyResult.FinalContent))
-                    {
-                        fileState[resolvedPath] = (written: false, content: applyResult.FinalContent!);
-                    }
+                    AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.patchApplied"], resolvedPath, applyResult.AppliedEdits.Count));
 
-                    // ── 新文件：需要先写入再加入项目 ──
-                    bool isNewFile = patch.Action == PatchFileAction.Add;
+                    // ── 新文件处理 ──
+                    var patch = patches.FirstOrDefault(p =>
+                        string.Equals(EditPatchService.ResolvePath(p.FilePath, workspaceRoot), resolvedPath, StringComparison.OrdinalIgnoreCase));
+                    bool isNewFile = patch?.Action == PatchFileAction.Add;
+
                     if (isNewFile)
                     {
-                        // 新文件必须立即写入磁盘才能加入项目
                         bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
                             resolvedPath, $"Patch 新建文件", applyResult.FinalContent ?? string.Empty);
-                        if (writeAllowed)
+                        if (writeAllowed && File.Exists(resolvedPath))
                         {
-                            await TerminalWindowHelper.WriteCodeToFileAsync(
-                                applyResult.FilePath, applyResult.FinalContent!);
-                            fileState[resolvedPath] = (written: true, content: applyResult.FinalContent!);
-
-                            if (File.Exists(resolvedPath))
-                                await AddFileToProjectAsync(resolvedPath, ct);
-                        }
-                        else
-                        {
-                            AddLog("WARN", $"⏭ 已跳过项目文件写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
-                            applyResult.Success = false;
-                            applyResult.ErrorMessage = "用户拒绝修改项目文件";
+                            await AddFileToProjectAsync(resolvedPath, ct);
                         }
                     }
 
-                    if (applyResult.Success)
+                    NotifyFileChange(plan.PlanId,
+                        isNewFile ? "create" : "modify",
+                        resolvedPath,
+                        string.Format(LocalizationService.Instance["agent.log.patchEditPoints"], applyResult.AppliedEdits.Count));
+
+                    // ── 更新 plan.ChangedFiles ──
+                    if (!plan.ChangedFiles.Any(c => string.Equals(c.FilePath, resolvedPath, StringComparison.OrdinalIgnoreCase)))
                     {
-                        AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.patchMatched"], resolvedPath, applyResult.AppliedEdits.Count));
-                        NotifyFileChange(plan.PlanId,
-                            isNewFile ? "create" : "modify",
-                            resolvedPath,
-                            string.Format(LocalizationService.Instance["agent.log.patchEditPoints"], applyResult.AppliedEdits.Count));
-
-                        // ── 更新 plan.ChangedFiles ──
-                        if (!plan.ChangedFiles.Any(c => string.Equals(c.FilePath, resolvedPath, StringComparison.OrdinalIgnoreCase)))
+                        int added = 0, removed = 0;
+                        if (originalContents.TryGetValue(resolvedPath, out string? orig))
                         {
-                            int added = 0, removed = 0;
-                            if (originalContents.TryGetValue(resolvedPath, out string? orig))
-                            {
-                                string final = applyResult.FinalContent ?? orig;
-                                CountDiffLines(orig, final, out added, out removed);
-                            }
-                            else { added = applyResult.AppliedEdits.Count; }
-
-                            plan.ChangedFiles.Add(new FileChangeSummary
-                            {
-                                FilePath = resolvedPath,
-                                LinesAdded = added,
-                                LinesRemoved = removed,
-                                BriefDescription = $"{Path.GetFileName(resolvedPath)} (Patch)",
-                            });
+                            string final = applyResult.FinalContent ?? orig;
+                            CountDiffLines(orig, final, out added, out removed);
                         }
+                        else { added = applyResult.AppliedEdits.Count; }
+
+                        plan.ChangedFiles.Add(new FileChangeSummary
+                        {
+                            FilePath = resolvedPath,
+                            LinesAdded = added,
+                            LinesRemoved = removed,
+                            BriefDescription = $"{Path.GetFileName(resolvedPath)} (patch)",
+                        });
                     }
                 }
                 else
                 {
-                    AddLog("ERROR", $"❌ Patch 应用失败: {resolvedPath} - {applyResult.ErrorMessage}");
+                    AddLog("ERROR", $"[EditAgent] Patch 应用失败: {resolvedPath} - {applyResult.ErrorMessage}");
+                    // ── Handle CMakeLists.txt / .csproj 确认 ──
+                    if (IsProjectFile(resolvedPath))
+                    {
+                        bool confirmed = await RequestPermissionAsync(
+                            "项目文件修改确认",
+                            $"将要修改项目文件: {Path.GetFileName(resolvedPath)}\n\n变更内容:\n{applyResult.FinalContent?.Truncate(500)}",
+                            "file_write");
+                        if (!confirmed)
+                        {
+                            AddLog("WARN", $"⏭ 已跳过项目文件修改（用户拒绝）: {Path.GetFileName(resolvedPath)}");
+                            continue;
+                        }
+                    }
                 }
-            } // foreach patch
 
-            // ── 原子写盘：所有 Patch 匹配成功后，统一批量写入文件 ──
-            // 项目配置文件（.csproj/.slnx 等）优先写入，避免 VS 弹出"检测到冲突文件修改"对话框
-            var sortedFilePaths = SortPathsWithProjectFilesFirst(fileState.Keys);
-            foreach (var filePath in sortedFilePaths)
-            {
-                if (!fileState.TryGetValue(filePath, out var state)) continue;
-                if (state.written) continue; // 已写入（新文件等）
-                if (ct.IsCancellationRequested) break;
-
-                string finalContent = state.content;
-
-                bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                    filePath, $"Patch 批量写入（原子模式）", finalContent);
-                if (writeAllowed)
-                {
-                    await TerminalWindowHelper.WriteCodeToFileAsync(filePath, finalContent);
-                    AddLog("INFO", $"💾 批量写盘: {Path.GetFileName(filePath)}");
-                }
-                else
-                {
-                    AddLog("WARN", $"⏭ 已跳过批量写盘（用户拒绝）: {Path.GetFileName(filePath)}");
-                }
+                appliedResults.Add(applyResult);
             }
         }
 
         /// <summary>
-        /// 执行 insert_edit_into_file 格式的编辑。
+        /// 执行 insert_edit_into_file 格式的编辑（使用 InsertEditTool）。
         /// </summary>
         private async Task ExecuteInsertEditsAsync(
             string aiResult, AgentTaskPlan plan, AgentContext context,
@@ -993,130 +879,47 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
             List<EditApplyResult> appliedResults,
             CancellationToken ct)
         {
-            if (_editPatchService == null)
+            if (_insertEditTool == null)
             {
-                AddLog("WARN", "EditPatchService 未注入，无法处理 insert_edit_into_file 格式");
+                AddLog("WARN", "InsertEditTool 未注入，无法处理 insert_edit_into_file 格式");
                 return;
             }
 
-            var insertEdits = _editPatchService.ParseInsertEdits(aiResult);
+            var insertEdits = InsertEditTool.ParseInsertEdits(aiResult);
             AddLog("INFO", $"[EditAgent] 解析到 {insertEdits.Count} 个 InsertEdit 操作");
 
-            // ── 排序：项目配置优先（避免 VS 冲突对话框），构建定义文件最后（CMakeLists.txt 必须在源文件后写入）──
+            // ── 排序：项目配置优先，构建定义文件最后 ──
             var sortedEdits = insertEdits
                 .OrderBy(e => GetEditPriority(EditPatchService.ResolvePath(e.FilePath, workspaceRoot)))
                 .ThenBy(e => e.FilePath, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            foreach (var edit in sortedEdits)
-            {
-                if (ct.IsCancellationRequested) break;
+            // ── 使用 InsertEditTool 批量执行（内置 Healing + create_file 兜底）──
+            var results = await _insertEditTool.ExecuteInsertEditsAsync(sortedEdits, ct);
 
-                string resolvedPath = EditPatchService.ResolvePath(edit.FilePath, workspaceRoot);
+            foreach (var applyResult in results)
+            {
+                string resolvedPath = applyResult.FilePath;
 
                 // ── 保存原始内容 ──
                 if (!originalContents.ContainsKey(resolvedPath))
                 {
-                    // RAG-SOURCE: file-read 读取文件原始内容（InsertEdit 应用前保存）
                     string original = File.Exists(resolvedPath)
                         ? await Task.Run(() => File.ReadAllText(resolvedPath), ct)
                         : string.Empty;
                     originalContents[resolvedPath] = original;
                 }
 
-                // ── 应用 InsertEdit ──
-                var applyResult = await _editPatchService.ApplyInsertEditAsync(edit, workspaceRoot, ct);
-
-                if (!applyResult.Success && applyResult.FailedRegions != null && applyResult.FailedRegions.Count > 0)
-                {
-                    // ── Healing 机制 ──
-                    string failedRegionDetails = string.Join("; ", applyResult.FailedRegions.Select(r =>
-                        r.Length > 80 ? r.Substring(0, 80) + "…" : r));
-                    AddLog("WARN", $"[EditAgent] InsertEdit 匹配失败 ({applyResult.ErrorMessage})，失败区域: {failedRegionDetails}，启动 healing...");
-
-                    var healingRequest = new HealingRequest
-                    {
-                        FilePath = resolvedPath,
-                        CurrentFileContent = originalContents.TryGetValue(resolvedPath, out string? orig2) ? orig2 : "",
-                        OriginalOperationType = EditOperationType.InsertEditIntoFile,
-                        FailedInsertEditContent = edit.FullContent,
-                        FailureReason = applyResult.ErrorMessage ?? "未知原因",
-                    };
-
-                    var healingResponse = await _editPatchService.HealFailedEditAsync(healingRequest, ct);
-
-                    if (healingResponse?.Success == true && !string.IsNullOrEmpty(healingResponse.CorrectedInsertEditContent))
-                    {
-                        AddLog("INFO", "[EditAgent] Healing 成功，使用修正后的内容重试...");
-                        var correctedEdit = new InsertEditOperation
-                        {
-                            FilePath = edit.FilePath,
-                            FullContent = healingResponse.CorrectedInsertEditContent!,
-                        };
-                        applyResult = await _editPatchService.ApplyInsertEditAsync(correctedEdit, workspaceRoot, ct);
-
-                        // ── 兜底：Healing 修正后仍失败 → 尝试作为 create_file 写入完整内容 ──
-                        // 优先使用 applyResult.FinalContent（匹配成功时有值），
-                        // 其次使用 healing 修正后的内容（全替换场景下 FinalContent 可能为 null）
-                        string? fallbackContent = applyResult.FinalContent;
-                        if (string.IsNullOrEmpty(fallbackContent))
-                            fallbackContent = healingResponse.CorrectedInsertEditContent;
-                        if (string.IsNullOrEmpty(fallbackContent))
-                            fallbackContent = edit.FullContent;
-
-                        if (!applyResult.Success && !string.IsNullOrEmpty(fallbackContent))
-                        {
-                            AddLog("WARN", $"[EditAgent] Healing 修正后仍失败 ({applyResult.ErrorMessage})，启用 create_file 兜底写入...");
-                            try
-                            {
-                                // ── 项目文件拦截 ──
-                                bool fallbackAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                                    resolvedPath, "Healing 兜底写入（InsertEdit→create_file）", fallbackContent ?? string.Empty);
-                                if (fallbackAllowed)
-                                {
-                                    await TerminalWindowHelper.WriteCodeToFileAsync(
-                                        applyResult.FilePath, fallbackContent!);
-                                    applyResult.Success = true;
-                                    AddLog("INFO", $"[EditAgent] ✅ create_file 兜底成功: {resolvedPath}");
-                                }
-                                else
-                                {
-                                    AddLog("WARN", $"[EditAgent] ⏭ 已跳过项目文件兜底写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
-                                }
-                            }
-                            catch (Exception fallbackEx)
-                            {
-                                AddLog("ERROR", $"[EditAgent] create_file 兜底也失败: {fallbackEx.Message}");
-                            }
-                        }
-                    }
-                    else
-                    {
-                        AddLog("ERROR", $"[EditAgent] Healing 失败: {healingResponse?.ErrorMessage ?? "未知"}");
-                    }
-                }
-                else if (!applyResult.Success)
-                {
-                    // ── 无 FailedRegions 但仍失败（如文件不存在、权限问题等）──
-                    AddLog("ERROR", $"[EditAgent] InsertEdit 应用失败（非匹配问题）: {resolvedPath} - {applyResult.ErrorMessage}");
-                }
-
-                appliedResults.Add(applyResult);
-
                 if (applyResult.Success)
                 {
-                    // ── 通过 VS SDK 写入文件 ──
+                    AddLog("INFO", $"✅ InsertEdit 已应用: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑)");
+
+                    // ── 项目文件拦截 ──
                     if (!string.IsNullOrEmpty(applyResult.FinalContent))
                     {
-                        // ── 项目文件拦截：修改 .vcxproj/.sln 等前请求用户确认 ──
                         bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                            resolvedPath, string.Format(LocalizationService.Instance["agent.log.insertEditPoints"], applyResult.AppliedEdits.Count), applyResult.FinalContent ?? string.Empty);
-                        if (writeAllowed)
-                        {
-                            await TerminalWindowHelper.WriteCodeToFileAsync(
-                                applyResult.FilePath, applyResult.FinalContent!);
-                        }
-                        else
+                            resolvedPath, $"{applyResult.AppliedEdits.Count} 个编辑点", applyResult.FinalContent!);
+                        if (!writeAllowed)
                         {
                             AddLog("WARN", $"⏭ 已跳过项目文件写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
                             applyResult.Success = false;
@@ -1126,11 +929,9 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
 
                     if (applyResult.Success)
                     {
-                        AddLog("INFO", string.Format("✅ InsertEdit 已应用: {0} ({1} 个编辑)", resolvedPath, applyResult.AppliedEdits.Count));
                         NotifyFileChange(plan.PlanId, "modify", resolvedPath,
                             string.Format(LocalizationService.Instance["agent.log.patchEditPoints"], applyResult.AppliedEdits.Count));
 
-                        // ── 更新 plan.ChangedFiles 确保文件计数正确（计算真实行数变化）──
                         if (!plan.ChangedFiles.Any(c => string.Equals(c.FilePath, resolvedPath, StringComparison.OrdinalIgnoreCase)))
                         {
                             int added = 0, removed = 0;
@@ -1155,6 +956,8 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 {
                     AddLog("ERROR", $"❌ InsertEdit 应用失败: {resolvedPath} - {applyResult.ErrorMessage}");
                 }
+
+                appliedResults.Add(applyResult);
             }
         }
 
@@ -1924,7 +1727,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                         FileName = Path.GetFileName(g.First().FilePath),
                         LinesAdded = g.Sum(c => c.LinesAdded),
                         LinesRemoved = g.Sum(c => c.LinesRemoved),
-                        Description = g.Select(c => c.BriefDescription).FirstOrDefault(d => !string.IsNullOrEmpty(d) && !d.Contains("(Patch)") && !d.Contains("(InsertEdit)") && !d.Contains("(CreateFile)")),
+                        Description = g.Select(c => c.BriefDescription).FirstOrDefault(d => !string.IsNullOrEmpty(d) && !d!.Contains("(Patch)") && !d!.Contains("(InsertEdit)") && !d!.Contains("(CreateFile)")),
                     })
                     .ToList();
 
@@ -1996,7 +1799,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                         _ => "⬜",
                     };
                     string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
-                        ? step.ResultSummary
+                        ? step.ResultSummary!
                         : "(无)";
                     summaryPrompt.AppendLine($"- {status} {step.Title}: {summary}");
                 }
@@ -2097,7 +1900,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
 
                     AddLog("INFO", $"[EditAgent] 委托 ExploreAgent 智能发现相关文件: \"{userQuery.Truncate(80)}\"");
                     relevantFiles = await ExploreAgent.DiscoverRelevantFilesAsync(
-                        solutionPath, userQuery, maxFiles: 30,
+                        solutionPath!, userQuery, maxFiles: 30,
                         additionalContext: additionalCtx);
                     AddLog("INFO", $"[EditAgent] ExploreAgent 返回 {relevantFiles.Count} 个相关文件");
                 }
@@ -2107,12 +1910,12 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                     if (ExploreAgent != null)
                     {
                         relevantFiles = await ExploreAgent.DiscoverSolutionFilesAsync(
-                            solutionPath, maxFiles: 50);
+                            solutionPath!, maxFiles: 50);
                     }
                     else
                     {
                         // ── 最终回退：简单的目录扫描 ──
-                        relevantFiles = await FallbackFileScanAsync(solutionPath);
+                        relevantFiles = await FallbackFileScanAsync(solutionPath!);
                     }
                 }
 
@@ -2123,7 +1926,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
 
                     try
                     {
-                        string relativePath = GetRelativePath(solutionPath, file);
+                        string relativePath = GetRelativePath(solutionPath ?? "", file);
                         // RAG-SOURCE: file-read 项目文件内容（EditAgent 项目上下文收集）
                         string content = await Task.Run(() => File.ReadAllText(file));
                         // RAG-MARK: no-truncate — 不再截断项目文件内容，完整提供给 AI
@@ -2211,9 +2014,9 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
 
             try
             {
-                var dte = (EnvDTE.DTE?)Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider
+                var dteService = Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider
                     .GetService(typeof(EnvDTE.DTE));
-                if (dte?.Solution == null || !dte.Solution.IsOpen)
+                if (dteService is not EnvDTE.DTE dte || dte.Solution == null || !dte.Solution.IsOpen)
                     return;
 
                 // 遍历所有项目，找到包含该文件路径的最佳匹配项目
@@ -2466,7 +2269,7 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                         {
                             plan.ChangedFiles.Add(new FileChangeSummary
                             {
-                                FilePath = filePath,
+                                FilePath = filePath!,
                                 LinesAdded = linesAdded,
                                 LinesRemoved = linesRemoved,
                                 BriefDescription = description,
@@ -2590,6 +2393,51 @@ AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.parsedPatch
                 }
             }
             return false;
+        }
+
+        #endregion
+
+        #region Edit Tool Helpers
+
+        /// <summary>
+        /// 懒加载初始化编辑工具实例。
+        /// </summary>
+        private void EnsureEditTools(string workspaceRoot)
+        {
+            _applyPatchTool ??= new ApplyPatchTool(_apiService, workspaceRoot);
+            _insertEditTool ??= new InsertEditTool(_apiService, workspaceRoot);
+            _replaceStringTool ??= new ReplaceStringTool(_apiService, workspaceRoot);
+            _multiReplaceStringTool ??= new MultiReplaceStringTool(_apiService, workspaceRoot);
+        }
+
+        /// <summary>
+        /// 检测 AI 输出中的编辑操作类型（不依赖 EditPatchService）。
+        /// </summary>
+        private static EditOperationType DetectOperationType(string aiOutput)
+        {
+            if (string.IsNullOrWhiteSpace(aiOutput))
+                return EditOperationType.CreateFile; // 默认
+
+            // 检测 patch 格式
+            if (System.Text.RegularExpressions.Regex.IsMatch(aiOutput,
+                @"\*\*\*\s*Begin\s*Patch", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return EditOperationType.ApplyPatch;
+
+            // 检测 insert_edit_into_file 格式
+            if (System.Text.RegularExpressions.Regex.IsMatch(aiOutput,
+                @"```(?:insert_edit_into_file|edit)\s*:", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return EditOperationType.InsertEditIntoFile;
+
+            // 检测 ...existing code... 标记
+            if (aiOutput.Contains("...existing code..."))
+                return EditOperationType.InsertEditIntoFile;
+
+            // 检测 create_file / delete_file
+            if (System.Text.RegularExpressions.Regex.IsMatch(aiOutput,
+                @"```file:\s*[^\r\n]+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return EditOperationType.CreateFile;
+
+            return EditOperationType.CreateFile; // 默认
         }
 
         #endregion

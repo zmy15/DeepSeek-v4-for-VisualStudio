@@ -130,40 +130,6 @@ public class EditAgentTests
 
     #endregion
 
-    #region EditPatchService Property
-
-    [Fact]
-    public void EditPatchService_DefaultsToNull()
-    {
-        var agent = new EditAgent(_apiService);
-
-        agent.EditPatchService.Should().BeNull();
-    }
-
-    [Fact]
-    public void EditPatchService_CanBeSet()
-    {
-        var agent = new EditAgent(_apiService);
-        var patchService = new EditPatchService(_apiService);
-
-        agent.EditPatchService = patchService;
-
-        agent.EditPatchService.Should().Be(patchService);
-    }
-
-    [Fact]
-    public void EditPatchService_CanBeSetToNull()
-    {
-        var agent = new EditAgent(_apiService);
-        agent.EditPatchService = new EditPatchService(_apiService);
-
-        agent.EditPatchService = null;
-
-        agent.EditPatchService.Should().BeNull();
-    }
-
-    #endregion
-
     #region ExploreAgent Property
 
     [Fact]

@@ -60,8 +60,7 @@ public class AgentDispatcherTests
         var agent = dispatcher.EditAgent;
 
         agent.Should().NotBeNull();
-        // EditAgent 应自动获得 EditPatchService
-        agent.EditPatchService.Should().NotBeNull();
+        // EditAgent 现在使用 ApplyPatchTool / InsertEditTool / ReplaceStringTool / MultiReplaceStringTool（懒加载）
     }
 
     [Fact]
