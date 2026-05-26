@@ -27,6 +27,95 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     {
         public ExploreAgent(DeepSeekApiService apiService) : base(apiService, AgentType.Explore) { }
 
+        // ═══════════════════════════════════════════════════════════════
+        // 缓存策略 — 以后会被 RAG 替代
+        // ═══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// 解决方案文件列表缓存（solutionPath → 文件路径列表）。
+        /// 避免同一会话内多次调用 DiscoverSolutionFilesAsync 重复枚举 DTE 项目。
+        /// 以后会被 RAG 向量检索替代。
+        /// </summary>
+        private readonly Dictionary<string, List<string>> _discoveredFilesCache = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// 文件内容缓存（文件路径 → 文件内容）。
+        /// 跨 Agent 共享使用：PlanAgent 读取的文件 EditAgent 可直接复用。
+        /// 以后会被 RAG 向量检索替代。
+        /// </summary>
+        private readonly Dictionary<string, string> _fileContentCache = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// 标准化缓存 key：将 solutionPath 转为目录路径（.sln 文件取其目录）。
+        /// 以后会被 RAG 替代。
+        /// </summary>
+        private static string NormalizeCacheKey(string solutionPath)
+        {
+            if (string.IsNullOrEmpty(solutionPath)) return "__empty__";
+            try
+            {
+                if (System.IO.File.Exists(solutionPath))
+                    return System.IO.Path.GetDirectoryName(solutionPath) ?? solutionPath;
+                return solutionPath;
+            }
+            catch { return solutionPath; }
+        }
+
+        /// <summary>
+        /// 获取缓存的文件列表（不触发新扫描）。
+        /// 以后会被 RAG 替代。
+        /// </summary>
+        public List<string>? GetCachedDiscoveredFiles(string solutionPath)
+        {
+            string cacheKey = NormalizeCacheKey(solutionPath);
+            lock (_discoveredFilesCache)
+            {
+                _discoveredFilesCache.TryGetValue(cacheKey, out var cached);
+                return cached;
+            }
+        }
+
+        /// <summary>
+        /// 向文件内容缓存写入一条记录（由外部 Agent 在 read_file 成功时调用）。
+        /// 以后会被 RAG 替代。
+        /// </summary>
+        public void CacheFileContent(string filePath, string content)
+        {
+            if (string.IsNullOrEmpty(filePath) || content == null) return;
+            lock (_fileContentCache)
+            {
+                _fileContentCache[filePath] = content;
+            }
+        }
+
+        /// <summary>
+        /// 从文件内容缓存读取一条记录。
+        /// 以后会被 RAG 替代。
+        /// </summary>
+        public bool TryGetCachedFileContent(string filePath, out string? content)
+        {
+            lock (_fileContentCache)
+            {
+                return _fileContentCache.TryGetValue(filePath, out content);
+            }
+        }
+
+        /// <summary>
+        /// 清除所有发现缓存（解决方案重新加载时调用）。
+        /// 以后会被 RAG 替代。
+        /// </summary>
+        public void ClearDiscoveredFilesCache()
+        {
+            lock (_discoveredFilesCache)
+            {
+                _discoveredFilesCache.Clear();
+            }
+            lock (_fileContentCache)
+            {
+                _fileContentCache.Clear();
+            }
+        }
+
         #region Agent Definition
 
         /// <summary>
@@ -293,10 +382,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 自动发现解决方案中的源代码文件。
         /// 所有 DTE COM 操作集中在一次主线程切换中完成，避免多次切换导致 UI 卡顿。
+        /// 结果按 solutionPath 缓存，同一会话内重复调用直接返回缓存（以后会被 RAG 替代）。
         /// </summary>
         public async Task<List<string>> DiscoverSolutionFilesAsync(
             string solutionPath, int maxFiles = 200)
         {
+            // ── 缓存策略：同一会话内重复调用直接返回缓存，避免重复枚举 DTE 项目 ──
+            // 以后会被 RAG 向量检索替代
+            string cacheKey = NormalizeCacheKey(solutionPath);
+            lock (_discoveredFilesCache)
+            {
+                if (_discoveredFilesCache.TryGetValue(cacheKey, out var cached))
+                {
+                    AddLog("INFO", $"[Discover] 命中文件列表缓存: {cached.Count} 个文件 (solutionPath={solutionPath})");
+                    // 如果缓存的文件数 >= 请求数，直接返回；否则返回全部缓存
+                    if (cached.Count >= maxFiles)
+                        return cached.Take(maxFiles).ToList();
+                    return cached;
+                }
+            }
+
             var discoveredFiles = new List<string>();
 
             try
@@ -395,6 +500,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 catch (Exception ex)
                 {
                     AddLog("WARN", $"[Discover] 目录扫描回退异常: {ex.Message}");
+                }
+            }
+
+            // ── 存入缓存（以后会被 RAG 替代）──
+            if (discoveredFiles.Count > 0)
+            {
+                lock (_discoveredFilesCache)
+                {
+                    _discoveredFilesCache[cacheKey] = discoveredFiles;
                 }
             }
 

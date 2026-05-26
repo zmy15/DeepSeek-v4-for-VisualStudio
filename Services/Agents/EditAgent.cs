@@ -218,6 +218,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             CurrentPlan = plan;
             _agentCts = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
 
+            // ═══════════════════════════════════════════════════════════════
+            // 缓存策略：将 BuiltInToolService 已读取的文件同步到 AgentContext
+            // 全局缓存，避免后续步骤重复 read_file（以后会被 RAG 替代）
+            // ═══════════════════════════════════════════════════════════════
+            if (context.FileReadCache.Count == 0 && BuiltInTools != null)
+            {
+                var builtInCache = BuiltInTools.GetFileReadCacheSnapshot();
+                if (builtInCache.Count > 0)
+                {
+                    foreach (var kvp in builtInCache)
+                        context.FileReadCache[kvp.Key] = kvp.Value;
+                    AddLog("INFO", $"[EditAgent] 已同步 BuiltInToolService 文件读取缓存: {builtInCache.Count} 个文件（以后会被 RAG 替代）");
+                }
+            }
+
             try
             {
                 for (int i = 0; i < plan.Steps.Count; i++)
@@ -1936,46 +1951,73 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 List<string> relevantFiles;
 
-                // ── 优先使用 ExploreAgent 智能发现相关文件 ──
-                if (ExploreAgent != null && !string.IsNullOrWhiteSpace(userQuery))
-                {
-                    // ── 构建附加上下文：当前计划标题 + 已完成的步骤信息 ──
-                    string additionalCtx = "";
-                    if (CurrentPlan != null)
-                    {
-                        additionalCtx = $"{LocalizationService.Instance["edit.plan.currentTask"]}: {CurrentPlan.Title}";
-                        var completedSteps = CurrentPlan.Steps
-                            .Where(s => s.Status == AgentStepStatus.Completed)
-                            .ToList();
-                        if (completedSteps.Count > 0)
-                        {
-                            additionalCtx += "\n已完成步骤: " + string.Join("; ",
-                                completedSteps.Select(s => s.Title));
-                        }
-                    }
+                // ═══════════════════════════════════════════════════════════
+                // 缓存策略（三层优先，以后会被 RAG 替代）：
+                // 第1层：ActivePlan.DiscoveredFiles（PlanAgent 已发现，最高优先级）
+                // 第2层：ExploreAgent 文件列表缓存（同一次会话内已扫描）
+                // 第3层：实时 DiscoverRelevantFilesAsync / DiscoverSolutionFilesAsync
+                // ═══════════════════════════════════════════════════════════
 
-                    AddLog("INFO", $"[EditAgent] 委托 ExploreAgent 智能发现相关文件: \"{userQuery.Truncate(80)}\"");
-                    relevantFiles = await ExploreAgent.DiscoverRelevantFilesAsync(
-                        solutionPath!, userQuery, maxFiles: 30,
-                        additionalContext: additionalCtx);
-                    AddLog("INFO", $"[EditAgent] ExploreAgent 返回 {relevantFiles.Count} 个相关文件");
-                }
-                else
+                // ── 第1层：PlanAgent 传递的已发现文件列表 ──
+                var discoveredFromPlan = Context?.ActivePlan?.DiscoveredFiles;
+                if (discoveredFromPlan != null && discoveredFromPlan.Count > 0)
                 {
-                    // ── 回退：使用 ExploreAgent 全量发现 ──
-                    if (ExploreAgent != null)
+                    relevantFiles = discoveredFromPlan;
+                    AddLog("INFO", $"[EditAgent] 复用 PlanAgent 已发现文件: {relevantFiles.Count} 个（以后会被 RAG 替代）");
+                }
+                // ── 第2层：ExploreAgent 文件列表缓存 ──
+                else if (ExploreAgent != null)
+                {
+                    var cached = ExploreAgent.GetCachedDiscoveredFiles(solutionPath);
+                    if (cached != null && cached.Count > 0)
                     {
-                        relevantFiles = await ExploreAgent.DiscoverSolutionFilesAsync(
-                            solutionPath!, maxFiles: 50);
+                        relevantFiles = cached;
+                        AddLog("INFO", $"[EditAgent] 命中 ExploreAgent 文件列表缓存: {relevantFiles.Count} 个（以后会被 RAG 替代）");
+                    }
+                    else if (!string.IsNullOrWhiteSpace(userQuery))
+                    {
+                        // ── 第2.5层：智能发现相关文件（结果会自动缓存）──
+                        string additionalCtx = "";
+                        if (CurrentPlan != null)
+                        {
+                            additionalCtx = $"{LocalizationService.Instance["edit.plan.currentTask"]}: {CurrentPlan.Title}";
+                            var completedSteps = CurrentPlan.Steps
+                                .Where(s => s.Status == AgentStepStatus.Completed)
+                                .ToList();
+                            if (completedSteps.Count > 0)
+                            {
+                                additionalCtx += "\n已完成步骤: " + string.Join("; ",
+                                    completedSteps.Select(s => s.Title));
+                            }
+                        }
+
+                        AddLog("INFO", $"[EditAgent] 委托 ExploreAgent 智能发现相关文件: \"{userQuery.Truncate(80)}\"");
+                        relevantFiles = await ExploreAgent.DiscoverRelevantFilesAsync(
+                            solutionPath!, userQuery, maxFiles: 30,
+                            additionalContext: additionalCtx);
+                        AddLog("INFO", $"[EditAgent] ExploreAgent 返回 {relevantFiles.Count} 个相关文件（已自动缓存，以后会被 RAG 替代）");
                     }
                     else
                     {
-                        // ── 最终回退：简单的目录扫描 ──
-                        relevantFiles = await FallbackFileScanAsync(solutionPath!);
+                        // ── 第3层：回退到全量发现（结果会自动缓存）──
+                        relevantFiles = await ExploreAgent.DiscoverSolutionFilesAsync(
+                            solutionPath!, maxFiles: 50);
+                        AddLog("INFO", $"[EditAgent] 全量文件发现: {relevantFiles.Count} 个（已自动缓存，以后会被 RAG 替代）");
                     }
                 }
+                else
+                {
+                    // ── 最终回退：简单的目录扫描 ──
+                    relevantFiles = await FallbackFileScanAsync(solutionPath!);
+                }
 
-                // ── 读取发现的文件内容 ──
+                // ── 向 AgentContext 共享已发现文件列表（供后续 Agent 复用）──
+                if (Context != null && relevantFiles.Count > 0)
+                {
+                    Context.DiscoveredFiles = relevantFiles;
+                }
+
+                // ── 读取发现的文件内容（优先从缓存读取）──
                 foreach (var file in relevantFiles)
                 {
                     if (totalChars >= maxTotalChars) break;
@@ -1983,11 +2025,51 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     try
                     {
                         string relativePath = GetRelativePath(solutionPath ?? "", file);
-                        // RAG-SOURCE: file-read 项目文件内容（EditAgent 项目上下文收集）
-                        string content = await Task.Run(() => File.ReadAllText(file));
+
+                        // ═══════════════════════════════════════════════
+                        // 内容缓存策略（以后会被 RAG 替代）：
+                        // 第1层：AgentContext.FileReadCache
+                        // 第2层：ExploreAgent._fileContentCache
+                        // 第3层：磁盘读取
+                        // ═══════════════════════════════════════════════
+                        string content;
+                        bool fromCache = false;
+
+                        // 第1层：AgentContext 全局缓存
+                        if (Context?.FileReadCache != null &&
+                            Context.FileReadCache.TryGetValue(file, out var cachedContent))
+                        {
+                            content = cachedContent;
+                            fromCache = true;
+                        }
+                        // 第2层：ExploreAgent 本地文件内容缓存
+                        else if (ExploreAgent != null &&
+                            ExploreAgent.TryGetCachedFileContent(file, out var exploreCached) &&
+                            exploreCached != null)
+                        {
+                            content = exploreCached;
+                            fromCache = true;
+                        }
+                        else
+                        {
+                            // 第3层：磁盘读取
+                            // RAG-SOURCE: file-read 项目文件内容（EditAgent 项目上下文收集）
+                            content = await Task.Run(() => File.ReadAllText(file));
+
+                            // 写入缓存（以后会被 RAG 替代）
+                            ExploreAgent?.CacheFileContent(file, content);
+                            if (Context?.FileReadCache != null)
+                            {
+                                lock (Context.FileReadCache)
+                                {
+                                    Context.FileReadCache[file] = content;
+                                }
+                            }
+                        }
+
                         // RAG-MARK: no-truncate — 不再截断项目文件内容，完整提供给 AI
 
-                        sb.AppendLine($"### {relativePath}");
+                        sb.AppendLine($"### {relativePath}{(fromCache ? " (cached)" : "")}");
                         sb.AppendLine("```");
                         sb.AppendLine(content);
                         sb.AppendLine("```");
@@ -2001,7 +2083,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
                 }
 
-                AddLog("INFO", $"[EditAgent] 项目文件上下文: {relevantFiles.Count} 个文件, {totalChars} 字符");
+                AddLog("INFO", $"[EditAgent] 项目文件上下文: {relevantFiles.Count} 个文件, {totalChars} 字符（以后会被 RAG 替代）");
             }
             catch (Exception ex)
             {

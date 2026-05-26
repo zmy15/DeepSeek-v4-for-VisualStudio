@@ -233,10 +233,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 注入 ExploreAgent 到 PlanAgent，使其发现阶段能正确执行工具调用 ──
             // PlanAgent 内部创建的 ExploreAgent 缺少工具服务注入，必须替换为
             // AgentDispatcher 中已正确注入 BuiltInTools/McpManager 的实例。
+            // 注意：PlanAgent 构造函数会创建私有 ExploreAgent，因此必须无条件替换（不能用 == null 检查）。
+            // 替换后的共享 ExploreAgent 携带文件列表缓存，可跨 Agent 复用（以后会被 RAG 替代）。
             if (agent is PlanAgent planAgent)
             {
-                if (planAgent.ExploreAgent == null)
-                    planAgent.ExploreAgent = ExploreAgent;
+                planAgent.ExploreAgent = ExploreAgent;
             }
 
             // 绑定事件（如果尚未绑定）

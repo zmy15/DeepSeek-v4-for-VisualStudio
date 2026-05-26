@@ -144,6 +144,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 var plan = await CreatePlanAsync(userMessage, discoveryContext, context);
                 result.Plan = plan;
 
+                // ═══════════════════════════════════════════════════════════
+                // 缓存策略：将探索阶段已发现的文件列表传递给 EditAgent
+                // 避免 EditAgent 重新扫描整个解决方案（以后会被 RAG 替代）
+                // ═══════════════════════════════════════════════════════════
+                if (plan != null && ExploreAgent != null && !string.IsNullOrEmpty(context.SolutionPath))
+                {
+                    var cachedFiles = ExploreAgent.GetCachedDiscoveredFiles(context.SolutionPath);
+                    if (cachedFiles != null && cachedFiles.Count > 0)
+                    {
+                        plan.DiscoveredFiles = cachedFiles;
+                        AddLog("INFO", $"[PlanAgent] 已将 {cachedFiles.Count} 个已发现文件注入计划（以后会被 RAG 替代）");
+                    }
+                }
+
                 if (plan != null && plan.Steps.Count > 0)
                 {
                     AddLog("INFO", string.Format(L["agent.log.planDone"], plan.Steps.Count, plan.Title));

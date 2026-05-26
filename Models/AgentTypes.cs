@@ -156,6 +156,27 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>Plan Agent 生成的 plan.md 文件绝对路径（供 Edit Agent 执行完毕后清理）。</summary>
         [JsonIgnore]
         public string? PlanFilePath { get; set; }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 缓存策略 — 以后会被 RAG 替代
+        // ═══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// 全局文件读取缓存（文件路径 → 文件内容）。
+        /// 跨 Agent 共享：PlanAgent 读取的文件 EditAgent 可直接复用，避免重复 read_file。
+        /// 注意：已被修改的文件应从缓存中移除。
+        /// 以后会被 RAG 向量检索替代。
+        /// </summary>
+        [JsonIgnore]
+        public Dictionary<string, string> FileReadCache { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// 已发现的解决方案源文件列表（PlanAgent 产出，EditAgent 复用）。
+        /// 避免 EditAgent 重新调用 DiscoverSolutionFilesAsync。
+        /// 以后会被 RAG 向量检索替代。
+        /// </summary>
+        [JsonIgnore]
+        public List<string>? DiscoveredFiles { get; set; }
     }
 
     /// <summary>

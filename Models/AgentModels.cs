@@ -113,6 +113,18 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>标记此计划是否由 Plan Agent 产出（而非 Edit Agent 内部单步计划）。用于 UI 判断是否显示下方面板。</summary>
         public bool IsFromPlanAgent { get; set; }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 缓存策略 — 以后会被 RAG 替代
+        // ═══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Plan Agent 发现阶段已扫描的源文件路径列表。
+        /// Edit Agent 可直接复用此列表，跳过重复的 DiscoverSolutionFilesAsync。
+        /// 以后会被 RAG 向量检索替代。
+        /// </summary>
+        [JsonIgnore]
+        public List<string> DiscoveredFiles { get; set; } = new();
     }
 
     /// <summary>
