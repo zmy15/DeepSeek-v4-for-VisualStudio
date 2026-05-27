@@ -83,7 +83,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private static string BuildSystemPrompt()
         {
-            return CommonSystemPromptPrefix + LocalizationService.Instance["agent.ask.systemPromptFragment"];
+            return CommonSystemPromptPrefix + LocalizationService.Instance["agent.ask.systemPromptFragment"]
+                + "\n\n## 记忆系统 (memory 工具)\n"
+                + "你拥有一个持久化记忆系统，通过 `memory` 工具管理三层记忆：\n"
+                + "- **用户记忆** (`/memories/`): 跨所有工作区持久化，用于存储用户偏好、编码习惯、常用命令等\n"
+                + "- **会话记忆** (`/memories/session/`): 当前对话内有效，存储临时上下文和进行中笔记\n"
+                + "- **仓库记忆** (`/memories/repo/`): 当前解决方案内有效，存储项目约定、构建命令、架构决策等\n"
+                + "建议：\n"
+                + "- 用户说出明确的偏好或习惯时 → 主动记录到用户记忆\n"
+                + "- 发现重要的项目特定信息时 → 记录到仓库记忆\n"
+                + "- 长时间任务中积累的中间上下文 → 记录到会话记忆\n"
+                + "- 开始新对话时前先 `memory view` 查看用户记忆和仓库记忆，了解已有知识";
         }
 
         #endregion

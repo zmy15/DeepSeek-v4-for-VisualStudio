@@ -133,6 +133,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "get_changed_files",// 获取变更文件
             "fetch_webpage",    // 获取网页内容
             "github_repo",      // GitHub 仓库搜索
+            "memory",           // 记忆管理
         };
 
         protected override AgentDefinition CreateDefinition(AgentType agentType)

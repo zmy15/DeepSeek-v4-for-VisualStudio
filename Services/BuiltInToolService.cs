@@ -22,6 +22,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private readonly McpManagerService? _mcpManager;
         private readonly WebSearchService? _webSearchService;
         private readonly IBuildService? _buildService;
+        private readonly IMemoryService? _memoryService;
 
         // ── 文件读取缓存：同一会话内相同路径只从磁盘读取一次 ──
         private readonly ConcurrentDictionary<string, string> _fileReadCache = new(StringComparer.OrdinalIgnoreCase);
@@ -29,11 +30,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         // ── 工具注册表 ──
         private readonly Dictionary<string, BuiltInToolBase> _tools = new(StringComparer.OrdinalIgnoreCase);
 
-        public BuiltInToolService(McpManagerService? mcpManager = null, WebSearchService? webSearchService = null, IBuildService? buildService = null)
+        /// <summary>
+        /// 当前会话 ID，供 MemoryTool 等需要会话上下文的工具使用。
+        /// 由 ChatControl 在会话切换/创建时设置。
+        /// </summary>
+        public string? CurrentSessionId { get; set; }
+
+        public BuiltInToolService(
+            McpManagerService? mcpManager = null,
+            WebSearchService? webSearchService = null,
+            IBuildService? buildService = null,
+            IMemoryService? memoryService = null)
         {
             _mcpManager = mcpManager;
             _webSearchService = webSearchService;
             _buildService = buildService;
+            _memoryService = memoryService;
 
             // ── 注册所有内置工具 ──
             RegisterAllTools();
@@ -72,6 +84,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             // 交互工具
             Register(new AskQuestionsTool());
+
+            // 记忆工具
+            if (_memoryService != null)
+            {
+                Register(new MemoryTool(_memoryService,
+                    () => CurrentSessionId,
+                    () => null)); // solutionPath 从 ExecuteAsync 的 workspaceRoot 获取
+            }
         }
 
         private void Register(BuiltInToolBase tool)
@@ -216,7 +236,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     or "fetch_webpage" or "build_solution"
                     or "replace_string_in_file" or "multi_replace_string_in_file" or "create_file" or "delete_file"
                     or "apply_patch" or "create_directory"
-                    or "run_in_terminal" or "get_terminal_output" or "VisualStudio_askQuestions" => true,
+                    or "run_in_terminal" or "get_terminal_output" or "VisualStudio_askQuestions"
+                    or "memory" => true,
                 _ => false
             };
         }
