@@ -65,13 +65,19 @@ public class EditAgentTests
     }
 
     [Fact]
-    public void Definition_HasBuildHandoff()
+    public void Definition_HasAskAndBuildHandoffs()
     {
         var agent = new EditAgent(_apiService);
 
-        agent.Definition.Handoffs.Should().HaveCount(1);
-        agent.Definition.Handoffs[0].TargetAgent.Should().Be(AgentType.Build);
-        agent.Definition.Handoffs[0].ShowContinueOn.Should().BeTrue();
+        agent.Definition.Handoffs.Should().HaveCount(2);
+        agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Ask);
+        agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Build);
+        // Ask handoff is auto-send (for summary generation)
+        var askHandoff = agent.Definition.Handoffs.First(h => h.TargetAgent == AgentType.Ask);
+        askHandoff.AutoSend.Should().BeTrue();
+        // Build handoff retains ShowContinueOn
+        var buildHandoff = agent.Definition.Handoffs.First(h => h.TargetAgent == AgentType.Build);
+        buildHandoff.ShowContinueOn.Should().BeTrue();
     }
 
     [Fact]
@@ -269,42 +275,6 @@ public class EditAgentTests
 
     #endregion
 
-    #region BuildSummaryMarkdown
-
-    [Fact]
-    public void BuildSummaryMarkdown_WithChanges_IncludesFileList()
-    {
-        var plan = new AgentTaskPlan
-        {
-            Title = "测试计划",
-            ChangedFiles =
-            {
-                new FileChangeSummary { FilePath = "src/a.ts", LinesAdded = 10, LinesRemoved = 2 },
-                new FileChangeSummary { FilePath = "src/b.ts", LinesAdded = 5, LinesRemoved = 0 },
-            },
-        };
-
-        var result = BuildSummaryMarkdownPublic(plan, "AI 生成的变更摘要");
-
-        result.Should().Contain("测试计划");
-        // BuildSummaryMarkdown uses Path.GetFileName() so only filename shown
-        result.Should().Contain("a.ts");
-        result.Should().Contain("b.ts");
-        result.Should().Contain("AI 生成的变更摘要");
-    }
-
-    [Fact]
-    public void BuildSummaryMarkdown_NoChanges_ShowsEmptyMessage()
-    {
-        var plan = new AgentTaskPlan { Title = "空计划" };
-
-        var result = BuildSummaryMarkdownPublic(plan, null);
-
-        result.Should().Contain("空计划");
-    }
-
-    #endregion
-
     // ──────────── Reflection helpers for testing private methods ────────────
 
     private static AgentTaskPlan CreateSingleStepPlanPublic(string userMessage)
@@ -312,13 +282,6 @@ public class EditAgentTests
         var method = typeof(EditAgent).GetMethod("CreateSingleStepPlan",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         return (AgentTaskPlan)method!.Invoke(null, new object[] { userMessage })!;
-    }
-
-    private static string BuildSummaryMarkdownPublic(AgentTaskPlan plan, string? aiSummary)
-    {
-        var method = typeof(EditAgent).GetMethod("BuildSummaryMarkdown",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        return (string)method!.Invoke(null, new object?[] { plan, aiSummary })!;
     }
 
     private static void RaiseLogEntryAddedPublic(ExploreAgent agent, AgentLogEntry entry)

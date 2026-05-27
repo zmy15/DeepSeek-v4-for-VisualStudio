@@ -2,6 +2,8 @@ using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -76,6 +78,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         AutoSend = false,
                         ShowContinueOn = true,
                     },
+                    new AgentHandoff
+                    {
+                        Label = LocalizationService.Instance["agent.ask.handoffBuildLabel"],
+                        TargetAgent = AgentType.Build,
+                        Prompt = LocalizationService.Instance["agent.ask.handoffBuildPrompt"],
+                        AutoSend = true,
+                        ShowContinueOn = true,
+                    },
                 },
                 SystemPrompt = BuildSystemPrompt(),
             };
@@ -102,10 +112,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// Ask Agent 执行入口。
-        /// 直接将用户问题发送给 AI 并返回回答。
+        /// 支持两种模式：
+        /// 1. 普通问答：直接将用户问题发送给 AI 并返回回答。
+        /// 2. 摘要生成：接收 Edit Agent 的 Handoff，生成代码变更总结。
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
+            // ── 检测是否为 Edit Agent 的摘要 Handoff ──
+            if (IsSummaryHandoff(context))
+            {
+                return await ExecuteSummaryAsync(userMessage, context);
+            }
+
             AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.askStarted"], userMessage.Truncate(100)));
 
             var result = new AgentResult
@@ -175,6 +193,63 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
+        /// 检测是否为 Edit Agent 移交的摘要生成请求。
+        /// 当 context 中带有已完成的计划且包含文件变更时，认为是摘要 Handoff。
+        /// </summary>
+        private static bool IsSummaryHandoff(AgentContext context)
+        {
+            return context.ActivePlan != null
+                && context.ActivePlan.IsCompleted
+                && context.ActivePlan.ChangedFiles.Count > 0;
+        }
+
+        /// <summary>
+        /// 执行代码变更摘要生成（接收 Edit Agent 的 Handoff）。
+        /// 生成 AI 文字总结 + 文件变更统计表格 + 缓存命中率。
+        /// </summary>
+        private async Task<AgentResult> ExecuteSummaryAsync(string userMessage, AgentContext context)
+        {
+            var L = LocalizationService.Instance;
+            AddLog("INFO", L["agent.log.askSummaryStarted"]);
+
+            var result = new AgentResult
+            {
+                AgentType = AgentType.Ask,
+                Success = true,
+            };
+
+            try
+            {
+                var plan = context.ActivePlan!;
+                result.Plan = plan;
+                result.FileChanges = plan.ChangedFiles;
+
+                // ── 生成 AI 文字总结 ──
+                string aiSummary = await GenerateChangeSummaryAsync(plan, context.CancellationToken);
+
+                // ── 构建最终 Markdown 总结 ──
+                result.Content = BuildSummaryMarkdown(plan, aiSummary);
+
+                AddLog("INFO", string.Format(L["agent.log.askSummaryDone"], result.Content.Length));
+                result.Logs.AddRange(_logs);
+            }
+            catch (OperationCanceledException)
+            {
+                result.Success = false;
+                result.ErrorMessage = L["agent.log.askCancelled"];
+                AddLog("WARN", L["agent.log.askCancelled"]);
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.ErrorMessage = ex.Message;
+                AddLog("ERROR", string.Format(L["agent.log.askFailed"], ex.Message));
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// 构建包含文件和项目上下文的 prompt。
         /// </summary>
         private static string BuildContextualPrompt(string userMessage, AgentContext context)
@@ -198,6 +273,218 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine(userMessage);
 
             return sb.ToString();
+        }
+
+        #endregion
+
+        #region Summary Generation
+
+        /// <summary>
+        /// 构建代码变更总结 Markdown（包含文件变更统计、步骤详情、缓存命中率等）。
+        /// </summary>
+        private static string BuildSummaryMarkdown(AgentTaskPlan plan, string? aiSummary = null)
+        {
+            var L = LocalizationService.Instance;
+
+            if (plan.IsCancelled)
+                return L["edit.summary.cancelled"];
+
+            var sb = new StringBuilder();
+            sb.AppendLine(L["edit.summary.complete"]);
+            sb.AppendLine();
+            sb.AppendLine($"**{L["edit.summary.taskLabel"]}**: {plan.Title}");
+            sb.AppendLine($"**{L["edit.summary.fileCount"]}**: {plan.ChangedFiles.Count}");
+            sb.AppendLine();
+
+            // ── AI 生成的文字总结 ──
+            if (!string.IsNullOrWhiteSpace(aiSummary))
+            {
+                sb.AppendLine($"### {L["edit.summary.changeSummary"]}");
+                sb.AppendLine();
+                sb.AppendLine(aiSummary);
+                sb.AppendLine();
+            }
+
+            // ── 步骤执行详情 ──
+            if (plan.Steps.Count > 0)
+            {
+                sb.AppendLine($"### {L["edit.summary.stepDetails"]}");
+                sb.AppendLine();
+                foreach (var step in plan.Steps)
+                {
+                    string statusIcon = step.Status == AgentStepStatus.Completed ? "✅"
+                        : step.Status == AgentStepStatus.Failed ? "❌"
+                        : step.Status == AgentStepStatus.Skipped ? "⏭️"
+                        : "🔄";
+                    sb.AppendLine($"- {statusIcon} **步骤 {step.Index}**: {step.Title}");
+                    if (!string.IsNullOrEmpty(step.ResultSummary))
+                        sb.AppendLine($"  - 结果: {step.ResultSummary}");
+
+                    // ── 包含验证结果：如果步骤的 AiResponse 中有验证章节，提取关键信息 ──
+                    if (!string.IsNullOrEmpty(step.AiResponse))
+                    {
+                        string aiResp = step.AiResponse!;
+                        int verifyIdx = aiResp.IndexOf("## 验证");
+                        if (verifyIdx >= 0)
+                        {
+                            string verifySection = aiResp.Substring(verifyIdx);
+                            // 截取前 500 字符作为摘要
+                            if (verifySection.Length > 500)
+                                verifySection = verifySection.Substring(0, 500) + "\n\n...(已截断，完整日志见执行过程)";
+                            // ── 使用 Markdown 块引用格式（非 HTML，兼容 DisableHtml 渲染管线）──
+                            sb.AppendLine();
+                            sb.AppendLine($"> 🔍 **验证详情**");
+                            sb.AppendLine(">");
+                            foreach (var line in verifySection.Split('\n'))
+                            {
+                                sb.AppendLine($"> {line}");
+                            }
+                            sb.AppendLine();
+                        }
+                    }
+                }
+                sb.AppendLine();
+            }
+
+            if (plan.ChangedFiles.Count > 0)
+            {
+                // ── 按文件路径合并相同文件的多条变更记录 ──
+                var mergedFiles = plan.ChangedFiles
+                    .GroupBy(c => NormalizePath(c.FilePath), StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new
+                    {
+                        DisplayPath = g.First().FilePath,
+                        FileName = Path.GetFileName(g.First().FilePath),
+                        LinesAdded = g.Sum(c => c.LinesAdded),
+                        LinesRemoved = g.Sum(c => c.LinesRemoved),
+                        Description = g.Select(c => c.BriefDescription).FirstOrDefault(d => !string.IsNullOrEmpty(d) && !d!.Contains("(Patch)") && !d!.Contains("(InsertEdit)") && !d!.Contains("(CreateFile)")),
+                    })
+                    .ToList();
+
+                sb.AppendLine(LocalizationService.Instance["agent.panel.fileChangeStats"]);
+                sb.AppendLine();
+                sb.AppendLine("| 文件 | 变更 | 说明 |");
+                sb.AppendLine("|------|------|------|");
+                foreach (var change in mergedFiles)
+                {
+                    string delta = $"{(change.LinesAdded > 0 ? $"+{change.LinesAdded}" : "")}"
+                        + $"{(change.LinesRemoved > 0 ? $" -{change.LinesRemoved}" : "")}";
+                    string desc = change.Description ?? (change.LinesAdded > 0 && change.LinesRemoved == 0 ? "新增" : change.LinesRemoved > 0 && change.LinesAdded == 0 ? "删除" : "修改");
+                    // 截断过长的描述
+                    if (desc.Length > 40) desc = desc.Substring(0, 37) + "...";
+                    sb.AppendLine($"| `{change.FileName}` | {delta} | {desc} |");
+                }
+                sb.AppendLine();
+                sb.AppendLine(LocalizationService.Instance.Format("edit.summary.totalChanges",
+                    mergedFiles.Sum(c => c.LinesAdded),
+                    mergedFiles.Sum(c => c.LinesRemoved)));
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 生成 AI 文字总结，概括本次代码变更的内容和目的。
+        /// 包含变更统计、受影响文件、每步操作概述，提供给 AI 生成更详细的摘要。
+        /// </summary>
+        private async Task<string> GenerateChangeSummaryAsync(AgentTaskPlan plan, CancellationToken ct)
+        {
+            if (plan.ChangedFiles.Count == 0) return string.Empty;
+
+            try
+            {
+                var L = LocalizationService.Instance;
+                var summaryPrompt = new StringBuilder();
+                summaryPrompt.AppendLine(L["edit.summary.genPrompt"]);
+                summaryPrompt.AppendLine();
+                summaryPrompt.AppendLine(L.Format("edit.summary.taskHeader", plan.Title));
+                summaryPrompt.AppendLine(L.Format("edit.summary.stepCount", plan.Steps.Count, plan.Steps.Count(s => s.Status == AgentStepStatus.Completed)));
+                summaryPrompt.AppendLine();
+
+                // ── 合并相同文件 ──
+                var mergedFiles = plan.ChangedFiles
+                    .GroupBy(c => c.FilePath, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new { Path = g.Key, Added = g.Sum(c => c.LinesAdded), Removed = g.Sum(c => c.LinesRemoved), Names = g.Select(c => Path.GetFileName(c.FilePath)).First() })
+                    .ToList();
+                int totalAdded = mergedFiles.Sum(f => f.Added);
+                int totalRemoved = mergedFiles.Sum(f => f.Removed);
+
+                summaryPrompt.AppendLine(L.Format("edit.summary.changeStats", totalAdded, totalRemoved, mergedFiles.Count));
+                summaryPrompt.AppendLine();
+                summaryPrompt.AppendLine(L["edit.summary.modifiedFiles"]);
+                foreach (var file in mergedFiles)
+                {
+                    summaryPrompt.AppendLine($"- **{file.Names}** (+{file.Added} -{file.Removed})");
+                }
+                summaryPrompt.AppendLine();
+
+                summaryPrompt.AppendLine("## 步骤执行情况");
+                foreach (var step in plan.Steps)
+                {
+                    string status = step.Status switch
+                    {
+                        AgentStepStatus.Completed => "✅",
+                        AgentStepStatus.Failed => "❌",
+                        AgentStepStatus.Skipped => "⏭",
+                        _ => "⬜",
+                    };
+                    string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
+                        ? step.ResultSummary!
+                        : "(无)";
+                    summaryPrompt.AppendLine($"- {status} {step.Title}: {summary}");
+                }
+                summaryPrompt.AppendLine();
+
+                // 语言跟随：根据当前语言选择摘要输出语言
+                bool isEnglish = !string.Equals(LocalizationService.Instance.CurrentLanguage, "zh-CN", StringComparison.OrdinalIgnoreCase);
+                string langInstruction = isEnglish
+                    ? "Please output a detailed change summary in English (be thorough, covering what was changed, why, the approach taken, and any notable details):"
+                    : "请用中文输出详细的变更摘要（尽量详细，包含改了什么、为什么改、改法思路、技术细节等）：";
+                summaryPrompt.AppendLine(langInstruction);
+
+                string shortSystemPrompt = isEnglish
+                    ? "You only output a code change summary in English, nothing else."
+                    : "你只输出中文代码变更摘要，不输出任何其他内容。";
+
+                string result = await CallAiShortAsync(
+                    shortSystemPrompt,
+                    summaryPrompt.ToString(), ct, maxTokens: 4096);
+
+                // ── 安全剥离：防止 AI 意外输出工具调用标记或思考过程 ──
+                result = StripToolCallMarkers(result);
+                return result?.Trim() ?? string.Empty;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[AskAgent] 生成变更摘要失败: {ex.Message}");
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// 剥离 AI 输出中意外包含的工具调用标记和思考过程文本。
+        /// 当 toolChoice="none" 时 AI 仍可能输出工具调用意图文本。
+        /// </summary>
+        private static string StripToolCallMarkers(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return text;
+
+            // 移除 <|tool_calls|>...</|tool_calls|>  XML 片段
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"<\|[^>]*tool_calls?[^>]*\|>.*?</\|[^>]*tool_calls?[^>]*\|>",
+                string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // 移除单个工具调用标签
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"</?\|[^>]*tool_calls?[^>]*\|>",
+                string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // 移除思考前缀（"让我先查看..."等，AI 思考但没有真正调用工具）
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"^(让我先查看|让我检查|我需要先|我先用|让我读取|我需要读取).*?[。\n]",
+                string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline);
+
+            return text.Trim();
         }
 
         #endregion

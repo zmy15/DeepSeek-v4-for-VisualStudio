@@ -64,13 +64,14 @@ public class AskAgentTests
     }
 
     [Fact]
-    public void Definition_HasHandoffs_ToEditAndPlan()
+    public void Definition_HasHandoffs_ToEditAndPlanAndBuild()
     {
         var agent = new AskAgent(_apiService);
 
-        agent.Definition.Handoffs.Should().HaveCount(2);
+        agent.Definition.Handoffs.Should().HaveCount(3);
         agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Edit);
         agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Plan);
+        agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Build);
     }
 
     [Fact]
@@ -254,7 +255,50 @@ const y = 2;
 
     #endregion
 
+    #region BuildSummaryMarkdown
+
+    [Fact]
+    public void BuildSummaryMarkdown_WithChanges_IncludesFileList()
+    {
+        var plan = new AgentTaskPlan
+        {
+            Title = "测试计划",
+            ChangedFiles =
+            {
+                new FileChangeSummary { FilePath = "src/a.ts", LinesAdded = 10, LinesRemoved = 2 },
+                new FileChangeSummary { FilePath = "src/b.ts", LinesAdded = 5, LinesRemoved = 0 },
+            },
+        };
+
+        var result = BuildSummaryMarkdownPublic(plan, "AI 生成的变更摘要");
+
+        result.Should().Contain("测试计划");
+        // BuildSummaryMarkdown uses Path.GetFileName() so only filename shown
+        result.Should().Contain("a.ts");
+        result.Should().Contain("b.ts");
+        result.Should().Contain("AI 生成的变更摘要");
+    }
+
+    [Fact]
+    public void BuildSummaryMarkdown_NoChanges_ShowsEmptyMessage()
+    {
+        var plan = new AgentTaskPlan { Title = "空计划" };
+
+        var result = BuildSummaryMarkdownPublic(plan, null);
+
+        result.Should().Contain("空计划");
+    }
+
+    #endregion
+
     // ──────────── Reflection helpers for testing private methods ────────────
+
+    private static string BuildSummaryMarkdownPublic(AgentTaskPlan plan, string? aiSummary)
+    {
+        var method = typeof(AskAgent).GetMethod("BuildSummaryMarkdown",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        return (string)method!.Invoke(null, new object?[] { plan, aiSummary })!;
+    }
 
     private static string BuildContextualPromptPublic(string userMessage, AgentContext context)
     {

@@ -568,6 +568,8 @@
   "agent.ask.handoffEditPrompt": "用户需要修改代码。请根据以下上下文执行代码变更：\n\n",
   "agent.ask.handoffPlanLabel": "制定计划",
   "agent.ask.handoffPlanPrompt": "用户需要详细的实现计划。请研究代码库并制定方案：\n\n",
+  "agent.ask.handoffBuildLabel": "诊断编译错误",
+  "agent.ask.handoffBuildPrompt": "代码变更总结已生成，但编译可能存在问题。请执行构建验证并修复所有编译错误：\n\n",
 
   "agent.plan.description": "研究和规划多步骤实现方案。深入分析需求，研究代码库，与用户对齐后产出详细计划。",
   "agent.plan.argumentHint": "描述要规划的目标或问题",
@@ -575,6 +577,8 @@
 
   "agent.edit.description": "执行代码修改。按计划逐步修改文件，支持构建验证和权限确认。",
   "agent.edit.argumentHint": "描述要执行的代码修改任务",
+  "agent.edit.handoffAskLabel": "生成变更总结",
+  "agent.edit.handoffAskPrompt": "代码修改已完成，以下是变更详情。请根据以下上下文生成一份详细的变更总结：\n\n",
   "agent.edit.handoffBuildLabel": "诊断编译错误",
   "agent.edit.handoffBuildPrompt": "代码修改已完成，但编译可能存在问题。请执行构建验证并修复所有编译错误：\n\n",
 
@@ -679,6 +683,8 @@
   "agent.log.askDone": "Ask Agent 完成 ({0} 字符)",
   "agent.log.askCancelled": "回答已取消",
   "agent.log.askFailed": "回答失败: {0}",
+  "agent.log.askSummaryStarted": "Ask Agent 开始生成变更总结...",
+  "agent.log.askSummaryDone": "Ask Agent 变更总结完成 ({0} 字符)",
   "agent.log.editNoPlan": "无计划，执行单步代码修改...",
   "agent.log.editStepExec": "执行步骤 {0}/{1}: {2}",
   "agent.log.editStepDone": "✅ 步骤 {0} 完成: {1}",
