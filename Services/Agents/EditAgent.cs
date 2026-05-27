@@ -42,34 +42,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         public ExploreAgent? ExploreAgent
         {
             get => _exploreAgent;
-            set
-            {
-                if (_exploreAgent != null)
-                {
-                    _exploreAgent.LogEntryAdded -= OnExploreLog;
-                    _exploreAgent.FileChangeNotified -= OnExploreFileChange;
-                }
-                _exploreAgent = value;
-                if (_exploreAgent != null)
-                {
-                    _exploreAgent.LogEntryAdded += OnExploreLog;
-                    _exploreAgent.FileChangeNotified += OnExploreFileChange;
-                }
-            }
-        }
-
-        private void OnExploreLog(AgentLogEntry entry)
-        {
-            // 转发 ExploreAgent 日志到 EditAgent 订阅者，避免重复写日志文件
-            var forwarded = new AgentLogEntry { Level = entry.Level, Message = $"[Explore] {entry.Message}" };
-            _logs.Add(forwarded);
-            RaiseLogEntryAdded(forwarded);
-        }
-
-        private void OnExploreFileChange(AgentFileChangeEventArgs args)
-        {
-            // 转发 ExploreAgent 的文件变更通知
-            NotifyFileChange(args.PlanId, args.ChangeType, args.FilePath, args.Detail);
+            set => RegisterExploreAgent(value, ref _exploreAgent);
         }
 
         /// <summary>当前正在执行的任务计划</summary>
@@ -1546,19 +1519,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 需要用户确认才能修改的项目文件扩展名集合。
         /// 修改这些文件可能影响项目结构，需要用户明确许可。
         /// </summary>
-        private static readonly HashSet<string> ProjectFileExtensions = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ".vcxproj", ".csproj", ".fsproj", ".vbproj",
-            ".sln", ".slnx",
-            ".vcxproj.filters", ".vcxproj.user",
-            ".csproj.user", ".vbproj.user",
-            "CMakeLists.txt", "CMakeSettings.json",
-            "packages.config", "Directory.Build.props", "Directory.Build.targets",
-            ".props", ".targets",
-            "Makefile", "makefile", "GNUmakefile",
-            ".slnf",
-        };
-
         /// <summary>
         /// 构建定义文件名集合（CMakeLists.txt、Makefile 等）。
         /// 这些文件引用源文件，因此必须在源文件创建完成后才能写入，
@@ -1568,17 +1528,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             "CMakeLists.txt", "Makefile", "GNUmakefile", "makefile",
         };
-
-        /// <summary>
-        /// 检查文件是否为项目文件（需要用户确认才能修改）。
-        /// </summary>
-        private static bool IsProjectFile(string filePath)
-        {
-            if (string.IsNullOrWhiteSpace(filePath)) return false;
-            string fileName = Path.GetFileName(filePath);
-            string ext = Path.GetExtension(filePath);
-            return ProjectFileExtensions.Contains(fileName) || ProjectFileExtensions.Contains(ext);
-        }
 
         /// <summary>
         /// 检查文件是否为构建定义文件（CMakeLists.txt / Makefile 等）。
@@ -2458,58 +2407,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 智能检测验证结果中是否真的存在编译/构建失败。
         /// 
         /// 与简单关键词匹配不同，此方法会排除 AI 自然语言中的否定表述
-        /// （如"没有错误"、"编译通过无错误"），只在实际有工具级失败标志时返回 true。
-        /// 
-        /// 检测策略：
-        /// 1. 工具返回的 ❌ 失败前缀（最可靠的失败信号）
-        /// 2. MSBuild 风格错误代码（error CS####、error C####、error LNK####）
-        /// 3. 明确的失败摘要（"0 succeeded, 1 failed"、"Build FAILED"）
-        /// 4. 中文"编译失败"/"构建失败"（排除"未编译失败"/"没有编译失败"等否定前置）
-        /// </summary>
-        private static bool HasBuildFailure(string verifyResult)
-        {
-            if (string.IsNullOrWhiteSpace(verifyResult))
-                return false;
-
-            // ── 策略1：工具级失败标志 ❌ ──
-            // 所有内置工具在失败时都以 ❌ 开头，这是最可靠的信号
-            // 但需要确认 ❌ 出现在 build/compile 上下文中
-            if (verifyResult.Contains("❌ 构建失败") || verifyResult.Contains("❌ 编译失败")
-                || verifyResult.Contains("❌ build") || verifyResult.Contains("❌ Build"))
-            {
-                return true;
-            }
-
-            // ── 策略2：MSBuild / 编译器错误代码 ──
-            // error CS1234, error C2065, error LNK2001 等
-            if (System.Text.RegularExpressions.Regex.IsMatch(verifyResult,
-                @"\berror\s+(CS|C|LNK|MSB|BC|FS|TS|RUST)\d+\b",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-            {
-                return true;
-            }
-
-            // ── 策略3：MSBuild 摘要失败模式 ──
-            // "0 succeeded, 1 failed" / "Build FAILED"（大写 FAILED 是 MSBuild 输出）
-            if (verifyResult.Contains("Build FAILED")
-                || System.Text.RegularExpressions.Regex.IsMatch(verifyResult,
-                    @"\b0\s+succeeded.*\b[1-9]\d*\s+failed\b",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-            {
-                return true;
-            }
-
-            // ── 策略4：编译/构建失败（排除否定表述）──
-            // "编译失败" / "构建失败" 但不能是 "没有编译失败" / "未编译失败"
-            if (System.Text.RegularExpressions.Regex.IsMatch(verifyResult,
-                @"(?<!\u6ca1\u6709|\u672a|\u4e0d|\u65e0)(\u7f16\u8bd1\u5931\u8d25|\u6784\u5efa\u5931\u8d25)"))
-            {
-                return true;
-            }
-
-            return false;
-        }
-
         /// <summary>
         /// 检查执行日志中是否有编译警告或失败信号。
         /// 用于判断是否应建议 Handoff 到 Build Agent。

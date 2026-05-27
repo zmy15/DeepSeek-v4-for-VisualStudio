@@ -29,11 +29,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         // ── 工具注册表 ──
         private readonly Dictionary<string, BuiltInToolBase> _tools = new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>
-        /// i18n 便捷访问器。
-        /// </summary>
-        private static LocalizationService L => LocalizationService.Instance;
-
         public BuiltInToolService(McpManagerService? mcpManager = null, WebSearchService? webSearchService = null, IBuildService? buildService = null)
         {
             _mcpManager = mcpManager;
@@ -118,11 +113,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         #region Tool Definitions
 
         /// <summary>
-        /// 获取所有内置工作区工具的定义列表（静态方法，向后兼容）。
+        /// 创建所有内置工具的轻量实例（无外部依赖），作为定义的单一数据源。
         /// </summary>
-        public static List<ToolDefinition> GetBuiltInToolDefinitions()
+        private static BuiltInToolBase[] CreateAllDisplayTools()
         {
-            var tools = new BuiltInToolBase[]
+            return new BuiltInToolBase[]
             {
                 new ListDirTool(),
                 new ReadFileTool(new ConcurrentDictionary<string, string>()),
@@ -141,8 +136,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 new GetTerminalOutputTool(),
                 new AskQuestionsTool(),
             };
+        }
 
-            return tools.Select(t => t.GetDefinition()).ToList();
+        /// <summary>
+        /// 获取所有内置工作区工具的定义列表（静态方法，向后兼容）。
+        /// </summary>
+        public static List<ToolDefinition> GetBuiltInToolDefinitions()
+        {
+            return CreateAllDisplayTools().Select(t => t.GetDefinition()).ToList();
         }
 
         /// <summary>
@@ -280,30 +281,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// 获取用于显示文本的轻量工具实例（无状态依赖，可安全临时创建）。
+        /// 获取用于显示文本的轻量工具实例（委托 CreateAllDisplayTools）。
         /// </summary>
         private static BuiltInToolBase? GetToolInstanceForDisplay(string toolName)
         {
-            return toolName switch
-            {
-                "list_dir" => new ListDirTool(),
-                "read_file" => new ReadFileTool(new ConcurrentDictionary<string, string>()),
-                "file_search" => new FileSearchTool(),
-                "grep_search" => new GrepSearchTool(),
-                "get_errors" => new GetErrorsTool(),
-                "fetch_webpage" => new FetchWebpageTool(),
-                "build_solution" => new BuildSolutionTool(),
-                "replace_string_in_file" => new ReplaceStringInFileTool(),
-                "multi_replace_string_in_file" => new MultiReplaceStringInFileTool(),
-                "create_file" => new CreateFileTool(),
-                "delete_file" => new DeleteFileTool(),
-                "apply_patch" => new ApplyPatchTool(),
-                "create_directory" => new CreateDirectoryTool(),
-                "run_in_terminal" => new RunInTerminalTool(),
-                "get_terminal_output" => new GetTerminalOutputTool(),
-                "VisualStudio_askQuestions" => new AskQuestionsTool(),
-                _ => null
-            };
+            return CreateAllDisplayTools().FirstOrDefault(t =>
+                string.Equals(t.Name, toolName, StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>

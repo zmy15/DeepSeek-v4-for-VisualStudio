@@ -37,37 +37,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         public ExploreAgent? ExploreAgent
         {
             get => _exploreAgent;
-            set
-            {
-                if (_exploreAgent != null)
-                {
-                    _exploreAgent.LogEntryAdded -= OnExploreLog;
-                    _exploreAgent.FileChangeNotified -= OnExploreFileChange;
-                }
-                _exploreAgent = value;
-                if (_exploreAgent != null)
-                {
-                    _exploreAgent.LogEntryAdded += OnExploreLog;
-                    _exploreAgent.FileChangeNotified += OnExploreFileChange;
-                }
-            }
-        }
-
-        private void OnExploreLog(AgentLogEntry entry)
-        {
-            AddLog(entry.Level, $"[Explore] {entry.Message}");
-        }
-
-        private void OnExploreFileChange(AgentFileChangeEventArgs args)
-        {
-            NotifyFileChange(args.PlanId, args.ChangeType, args.FilePath, args.Detail);
+            set => RegisterExploreAgent(value, ref _exploreAgent);
         }
 
         public PlanAgent(DeepSeekApiService apiService) : base(apiService, AgentType.Plan)
         {
-            _exploreAgent = new ExploreAgent(apiService);
-            _exploreAgent.LogEntryAdded += OnExploreLog;
-            _exploreAgent.FileChangeNotified += OnExploreFileChange;
+            var explore = new ExploreAgent(apiService);
+            RegisterExploreAgent(explore, ref _exploreAgent);
         }
 
         #region Agent Definition

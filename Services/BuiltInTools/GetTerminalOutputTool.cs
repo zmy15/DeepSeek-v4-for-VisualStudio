@@ -12,8 +12,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public class GetTerminalOutputTool : BuiltInToolBase
     {
-        private static LocalizationService L => LocalizationService.Instance;
-
         public override string Name => "get_terminal_output";
 
         public override ToolDefinition GetDefinition()

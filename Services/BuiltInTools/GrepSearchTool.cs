@@ -16,8 +16,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public class GrepSearchTool : BuiltInToolBase
     {
-        private static LocalizationService L => LocalizationService.Instance;
-
         private static readonly HashSet<string> ExcludeDirs = new(StringComparer.OrdinalIgnoreCase)
         {
             "node_modules", ".git", "bin", "obj", "packages", ".vs", "Debug", "Release",

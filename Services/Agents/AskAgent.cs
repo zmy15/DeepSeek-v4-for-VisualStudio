@@ -25,7 +25,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// ExploreAgent 引用，由 AgentDispatcher 注入。
-        /// 用于在需要时委托代码库探索任务。
         /// </summary>
         public ExploreAgent? ExploreAgent { get; set; }
 

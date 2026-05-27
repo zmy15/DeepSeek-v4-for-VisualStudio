@@ -1,4 +1,5 @@
 using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,6 +14,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public abstract class BuiltInToolBase
     {
+        /// <summary>i18n 便捷访问器（所有子类共享）</summary>
+        protected static LocalizationService L => LocalizationService.Instance;
+
         /// <summary>工具名称（与 Agent AllowedTools 白名单一致）</summary>
         public abstract string Name { get; }
 

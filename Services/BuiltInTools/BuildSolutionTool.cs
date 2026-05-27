@@ -14,7 +14,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public class BuildSolutionTool : BuiltInToolBase
     {
-        private static LocalizationService L => LocalizationService.Instance;
         private readonly IBuildService? _buildService;
 
         public BuildSolutionTool(IBuildService? buildService = null)

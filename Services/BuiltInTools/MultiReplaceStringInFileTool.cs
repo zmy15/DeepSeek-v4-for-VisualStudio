@@ -14,7 +14,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public class MultiReplaceStringInFileTool : BuiltInToolBase
     {
-        private static LocalizationService L => LocalizationService.Instance;
         private readonly ReplaceStringInFileTool _singleReplacer = new();
 
         public override string Name => "multi_replace_string_in_file";

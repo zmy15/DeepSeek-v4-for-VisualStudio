@@ -1007,7 +1007,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 需要用户确认才能修改的项目文件扩展名 / 文件名集合。
         /// 修改这些文件可能影响项目结构，需要用户明确许可。
         /// </summary>
-        private static readonly HashSet<string> ProjectFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+        protected static readonly HashSet<string> ProjectFileExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
             ".vcxproj", ".csproj", ".fsproj", ".vbproj",
             ".sln", ".slnx",
@@ -1019,6 +1019,145 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "Makefile", "makefile", "GNUmakefile",
             ".slnf",
         };
+
+        /// <summary>
+        /// 检查文件是否为项目配置文件（需要用户确认才能修改）。
+        /// EditAgent / BuildAgent 共享使用。
+        /// </summary>
+        protected static bool IsProjectFile(string? filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return false;
+            string fileName = System.IO.Path.GetFileName(filePath);
+            string ext = System.IO.Path.GetExtension(filePath);
+            return ProjectFileExtensions.Contains(fileName) || ProjectFileExtensions.Contains(ext);
+        }
+
+        /// <summary>
+        /// 从 AgentContext 解析工作区根目录。
+        /// BuildAgent / EditAgent / ExploreAgent 共享使用。
+        /// </summary>
+        protected static string GetWorkspaceRoot(AgentContext context)
+        {
+            string root = context.SolutionPath ?? string.Empty;
+            if (!string.IsNullOrEmpty(root) && File.Exists(root))
+                root = Path.GetDirectoryName(root) ?? root;
+            return root;
+        }
+
+        /// <summary>
+        /// 检测 AI 回复中是否表明编译仍存在错误。
+        /// 使用多层策略：❌ 前缀 → 错误代码正则 → MSBuild 摘要 → 关键词匹配。
+        /// BuildAgent / EditAgent 共享使用。
+        /// </summary>
+        protected static bool HasBuildFailure(string aiResponse)
+        {
+            if (string.IsNullOrWhiteSpace(aiResponse))
+                return false;
+
+            // ── 策略1：工具级失败标志 ❌ ──
+            if (aiResponse.Contains("❌ 构建失败") || aiResponse.Contains("❌ 编译失败")
+                || aiResponse.Contains("❌ build") || aiResponse.Contains("❌ Build"))
+                return true;
+
+            // ── 策略2：MSBuild / 编译器错误代码 ──
+            if (System.Text.RegularExpressions.Regex.IsMatch(aiResponse,
+                @"\berror\s+(CS|C|LNK|MSB|BC|FS|TS|RUST)\d+\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return true;
+
+            // ── 策略3：MSBuild 摘要失败模式 ──
+            if (aiResponse.Contains("Build FAILED")
+                || System.Text.RegularExpressions.Regex.IsMatch(aiResponse,
+                    @"\b0\s+succeeded.*\b[1-9]\d*\s+failed\b",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return true;
+
+            // ── 策略4：关键词匹配（排除误报）──
+            string lower = aiResponse.ToLowerInvariant();
+            bool hasFailure = lower.Contains("build failed")
+                || lower.Contains("构建失败")
+                || lower.Contains("编译失败")
+                || lower.Contains("error cs")
+                || lower.Contains("error lnk")
+                || lower.Contains("error msb");
+
+            bool hasSuccess = lower.Contains("build succeeded")
+                || lower.Contains("0 个错误")
+                || lower.Contains("0 errors")
+                || lower.Contains("✅")
+                || lower.Contains("编译通过")
+                || lower.Contains("构建成功");
+
+            return hasFailure && !hasSuccess;
+        }
+
+        /// <summary>
+        /// 剥离 DeepSeek V4 泄露到 content 中的 DSML/工具调用 XML 标签。
+        /// PlanAgent / BaseAgent 共享使用。
+        /// </summary>
+        protected static string StripDsmlContent(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return text;
+
+            string[] blockTags = {
+                "DSML", "function_calls?", "tool_calls?", "invoke", "parameter",
+                "VisualStudio_askQuestions", "runSubagent", "tool_result",
+                "file_search", "grep_search", "list_dir", "read_file",
+                "semantic_search", "fetch_webpage", "run_in_terminal",
+                "create_file", "replace_string_in_file", "edit_notebook_file",
+                "create_directory"
+            };
+
+            string result = text;
+            foreach (var tag in blockTags)
+            {
+                result = System.Text.RegularExpressions.Regex.Replace(result,
+                    @"<\s*" + tag + @"(\s+[^>]*)?\s*/\s*>", "",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+                result = System.Text.RegularExpressions.Regex.Replace(result,
+                    @"<\s*" + tag + @"(\s+[^>]*)?\s*>.*?</\s*" + tag + @"\s*>", "",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+            }
+
+            result = System.Text.RegularExpressions.Regex.Replace(result,
+                @"</?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|VisualStudio_askQuestions|runSubagent|tool_result)[^>]*>", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            result = System.Text.RegularExpressions.Regex.Replace(result,
+                @"</?\s*(?:response|thinking|analysis|reasoning|plan|reflection)[^>]*>", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            return result.Trim();
+        }
+
+        /// <summary>
+        /// 注册 ExploreAgent 子代理，自动管理日志和文件变更事件转发。
+        /// EditAgent / PlanAgent 共享使用，消除重复的样板代码。
+        /// </summary>
+        protected void RegisterExploreAgent(ExploreAgent? exploreAgent, ref ExploreAgent? field)
+        {
+            if (field != null)
+            {
+                field.LogEntryAdded -= OnExploreLog;
+                field.FileChangeNotified -= OnExploreFileChange;
+            }
+            field = exploreAgent;
+            if (field != null)
+            {
+                field.LogEntryAdded += OnExploreLog;
+                field.FileChangeNotified += OnExploreFileChange;
+            }
+        }
+
+        private void OnExploreLog(AgentLogEntry entry)
+        {
+            AddLog(entry.Level, $"[Explore] {entry.Message}");
+        }
+
+        private void OnExploreFileChange(AgentFileChangeEventArgs args)
+        {
+            NotifyFileChange(args.PlanId, args.ChangeType, args.FilePath, args.Detail);
+        }
 
         /// <summary>
         /// 判断工具是否为文件修改类工具（可能修改用户文件）。
@@ -1033,7 +1172,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 判断工具是否需要用户交互（需要等待用户响应，不应设超时）。
-        /// 包括：终端命令、文件删除、提问、以及所有可能触发项目文件修改确认的写入工具。
         /// </summary>
         private static bool IsInteractiveTool(string toolName)
         {
@@ -1059,17 +1197,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
             catch { }
             return null;
-        }
-
-        /// <summary>
-        /// 检查文件是否为项目配置文件（需要用户确认才能修改）。
-        /// </summary>
-        private static bool IsProjectFile(string? filePath)
-        {
-            if (string.IsNullOrWhiteSpace(filePath)) return false;
-            string fileName = System.IO.Path.GetFileName(filePath);
-            string ext = System.IO.Path.GetExtension(filePath);
-            return ProjectFileExtensions.Contains(fileName) || ProjectFileExtensions.Contains(ext);
         }
 
         /// <summary>
