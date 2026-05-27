@@ -109,6 +109,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     new AgentHandoff
                     {
+                        Label = LocalizationService.Instance["agent.edit.handoffAskLabel"],
+                        TargetAgent = AgentType.Ask,
+                        Prompt = LocalizationService.Instance["agent.edit.handoffAskPrompt"],
+                        AutoSend = true,
+                        ShowContinueOn = false,
+                    },
+                    new AgentHandoff
+                    {
                         Label = LocalizationService.Instance["agent.edit.handoffBuildLabel"],
                         TargetAgent = AgentType.Build,
                         Prompt = LocalizationService.Instance["agent.edit.handoffBuildPrompt"],
@@ -147,10 +155,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 await ExecutePlanAsync(context.ActivePlan, context);
                 result.Plan = context.ActivePlan;
                 result.FileChanges = context.ActivePlan.ChangedFiles;
-                string aiSummary = await GenerateChangeSummaryAsync(context.ActivePlan, context.CancellationToken);
-                result.Content = BuildSummaryMarkdown(context.ActivePlan, aiSummary);
 
-                // ── 如果最终编译存在警告/失败，建议 Handoff 到 Build Agent ──
+                // ── 移交 Ask Agent 生成最终总结（包含文件变更统计、缓存命中率等）──
+                result.Handoff = BuildSummaryHandoff(context.ActivePlan);
+
+                // ── 如果最终编译存在警告/失败，叠加 Handoff 到 Build Agent ──
                 if (HasBuildWarningsInLogs())
                 {
                     result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
@@ -164,10 +173,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 await ExecutePlanAsync(plan, context);
                 result.Plan = plan;
                 result.FileChanges = plan.ChangedFiles;
-                string aiSummary = await GenerateChangeSummaryAsync(plan, context.CancellationToken);
-                result.Content = BuildSummaryMarkdown(plan, aiSummary);
 
-                // ── 如果最终编译存在警告/失败，建议 Handoff 到 Build Agent ──
+                // ── 移交 Ask Agent 生成最终总结（包含文件变更统计、缓存命中率等）──
+                result.Handoff = BuildSummaryHandoff(plan);
+
+                // ── 如果最终编译存在警告/失败，叠加 Handoff 到 Build Agent ──
                 if (HasBuildWarningsInLogs())
                 {
                     result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
@@ -1673,209 +1683,92 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             try { PlanUpdated?.Invoke(CurrentPlan!); } catch { }
         }
 
-        private static string BuildSummaryMarkdown(AgentTaskPlan plan, string? aiSummary = null)
+        /// <summary>
+        /// 构建移交 Ask Agent 生成总结的 Handoff。
+        /// 将文件变更统计、步骤执行情况、缓存命中率等上下文打包传递给 Ask Agent。
+        /// </summary>
+        private AgentHandoff BuildSummaryHandoff(AgentTaskPlan plan)
         {
             var L = LocalizationService.Instance;
 
             if (plan.IsCancelled)
-                return L["edit.summary.cancelled"];
+            {
+                return new AgentHandoff
+                {
+                    Label = L["agent.edit.handoffAskLabel"],
+                    TargetAgent = AgentType.Ask,
+                    Prompt = L["edit.summary.cancelled"],
+                    AutoSend = true,
+                    ShowContinueOn = false,
+                };
+            }
 
+            // 构建包含所有统计数据的 handoff prompt
             var sb = new StringBuilder();
-            sb.AppendLine(L["edit.summary.complete"]);
+            sb.AppendLine(L["agent.edit.handoffAskPrompt"]);
             sb.AppendLine();
             sb.AppendLine($"**{L["edit.summary.taskLabel"]}**: {plan.Title}");
             sb.AppendLine($"**{L["edit.summary.fileCount"]}**: {plan.ChangedFiles.Count}");
             sb.AppendLine();
 
-            // ── AI 生成的文字总结 ──
-            if (!string.IsNullOrWhiteSpace(aiSummary))
+            // 合并相同文件的变更记录
+            if (plan.ChangedFiles.Count > 0)
             {
-                sb.AppendLine($"### {L["edit.summary.changeSummary"]}");
+                var mergedFiles = plan.ChangedFiles
+                    .GroupBy(c => NormalizePath(c.FilePath), StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new
+                    {
+                        FileName = Path.GetFileName(g.First().FilePath),
+                        LinesAdded = g.Sum(c => c.LinesAdded),
+                        LinesRemoved = g.Sum(c => c.LinesRemoved),
+                    })
+                    .ToList();
+
+                sb.AppendLine(L.Format("edit.summary.changeStats",
+                    mergedFiles.Sum(c => c.LinesAdded),
+                    mergedFiles.Sum(c => c.LinesRemoved),
+                    mergedFiles.Count));
                 sb.AppendLine();
-                sb.AppendLine(aiSummary);
+                sb.AppendLine(L["edit.summary.modifiedFiles"]);
+                foreach (var file in mergedFiles)
+                {
+                    sb.AppendLine($"- **{file.FileName}** (+{file.LinesAdded} -{file.LinesRemoved})");
+                }
                 sb.AppendLine();
             }
 
-            // ── 步骤执行详情 ──
+            // 步骤执行情况
             if (plan.Steps.Count > 0)
             {
-                sb.AppendLine($"### {L["edit.summary.stepDetails"]}");
-                sb.AppendLine();
+                sb.AppendLine("## 步骤执行情况");
                 foreach (var step in plan.Steps)
                 {
                     string statusIcon = step.Status == AgentStepStatus.Completed ? "✅"
                         : step.Status == AgentStepStatus.Failed ? "❌"
                         : step.Status == AgentStepStatus.Skipped ? "⏭️"
                         : "🔄";
-                    sb.AppendLine($"- {statusIcon} **步骤 {step.Index}**: {step.Title}");
-                    if (!string.IsNullOrEmpty(step.ResultSummary))
-                        sb.AppendLine($"  - 结果: {step.ResultSummary}");
-
-                    // ── 包含验证结果：如果步骤的 AiResponse 中有验证章节，提取关键信息 ──
-                    if (!string.IsNullOrEmpty(step.AiResponse))
-                    {
-                        string aiResp = step.AiResponse!;
-                        int verifyIdx = aiResp.IndexOf("## 验证");
-                        if (verifyIdx >= 0)
-                        {
-                            string verifySection = aiResp.Substring(verifyIdx);
-                            // 截取前 500 字符作为摘要
-                            if (verifySection.Length > 500)
-                                verifySection = verifySection.Substring(0, 500) + "\n\n...(已截断，完整日志见执行过程)";
-                            // ── 使用 Markdown 块引用格式（非 HTML，兼容 DisableHtml 渲染管线）──
-                            sb.AppendLine();
-                            sb.AppendLine($"> 🔍 **验证详情**");
-                            sb.AppendLine(">");
-                            foreach (var line in verifySection.Split('\n'))
-                            {
-                                sb.AppendLine($"> {line}");
-                            }
-                            sb.AppendLine();
-                        }
-                    }
-                }
-                sb.AppendLine();
-            }
-
-            if (plan.ChangedFiles.Count > 0)
-            {
-                // ── 按文件路径合并相同文件的多条变更记录 ──
-                var mergedFiles = plan.ChangedFiles
-                    .GroupBy(c => NormalizePath(c.FilePath), StringComparer.OrdinalIgnoreCase)
-                    .Select(g => new
-                    {
-                        DisplayPath = g.First().FilePath,
-                        FileName = Path.GetFileName(g.First().FilePath),
-                        LinesAdded = g.Sum(c => c.LinesAdded),
-                        LinesRemoved = g.Sum(c => c.LinesRemoved),
-                        Description = g.Select(c => c.BriefDescription).FirstOrDefault(d => !string.IsNullOrEmpty(d) && !d!.Contains("(Patch)") && !d!.Contains("(InsertEdit)") && !d!.Contains("(CreateFile)")),
-                    })
-                    .ToList();
-
-                sb.AppendLine(LocalizationService.Instance["agent.panel.fileChangeStats"]);
-                sb.AppendLine();
-                sb.AppendLine("| 文件 | 变更 | 说明 |");
-                sb.AppendLine("|------|------|------|");
-                foreach (var change in mergedFiles)
-                {
-                    string delta = $"{(change.LinesAdded > 0 ? $"+{change.LinesAdded}" : "")}"
-                        + $"{(change.LinesRemoved > 0 ? $" -{change.LinesRemoved}" : "")}";
-                    string desc = change.Description ?? (change.LinesAdded > 0 && change.LinesRemoved == 0 ? "新增" : change.LinesRemoved > 0 && change.LinesAdded == 0 ? "删除" : "修改");
-                    // 截断过长的描述
-                    if (desc.Length > 40) desc = desc.Substring(0, 37) + "...";
-                    sb.AppendLine($"| `{change.FileName}` | {delta} | {desc} |");
-                }
-                sb.AppendLine();
-                sb.AppendLine(LocalizationService.Instance.Format("edit.summary.totalChanges",
-                    mergedFiles.Sum(c => c.LinesAdded),
-                    mergedFiles.Sum(c => c.LinesRemoved)));
-            }
-
-            return sb.ToString();
-        }
-
-        /// <summary>
-        /// 生成 AI 文字总结，概括本次代码变更的内容和目的。
-        /// 包含变更统计、受影响文件、每步操作概述，提供给 AI 生成更详细的摘要。
-        /// </summary>
-        private async Task<string> GenerateChangeSummaryAsync(AgentTaskPlan plan, CancellationToken ct)
-        {
-            if (plan.ChangedFiles.Count == 0) return string.Empty;
-
-            try
-            {
-                var L = LocalizationService.Instance;
-                var summaryPrompt = new StringBuilder();
-                summaryPrompt.AppendLine(L["edit.summary.genPrompt"]);
-                summaryPrompt.AppendLine();
-                summaryPrompt.AppendLine(L.Format("edit.summary.taskHeader", plan.Title));
-                summaryPrompt.AppendLine(L.Format("edit.summary.stepCount", plan.Steps.Count, plan.Steps.Count(s => s.Status == AgentStepStatus.Completed)));
-                summaryPrompt.AppendLine();
-
-                // ── 合并相同文件 ──
-                var mergedFiles = plan.ChangedFiles
-                    .GroupBy(c => c.FilePath, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => new { Path = g.Key, Added = g.Sum(c => c.LinesAdded), Removed = g.Sum(c => c.LinesRemoved), Names = g.Select(c => Path.GetFileName(c.FilePath)).First() })
-                    .ToList();
-                int totalAdded = mergedFiles.Sum(f => f.Added);
-                int totalRemoved = mergedFiles.Sum(f => f.Removed);
-
-                summaryPrompt.AppendLine(L.Format("edit.summary.changeStats", totalAdded, totalRemoved, mergedFiles.Count));
-                summaryPrompt.AppendLine();
-                summaryPrompt.AppendLine(L["edit.summary.modifiedFiles"]);
-                foreach (var file in mergedFiles)
-                {
-                    summaryPrompt.AppendLine($"- **{file.Names}** (+{file.Added} -{file.Removed})");
-                }
-                summaryPrompt.AppendLine();
-
-                summaryPrompt.AppendLine("## 步骤执行情况");
-                foreach (var step in plan.Steps)
-                {
-                    string status = step.Status switch
-                    {
-                        AgentStepStatus.Completed => "✅",
-                        AgentStepStatus.Failed => "❌",
-                        AgentStepStatus.Skipped => "⏭",
-                        _ => "⬜",
-                    };
                     string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
                         ? step.ResultSummary!
                         : "(无)";
-                    summaryPrompt.AppendLine($"- {status} {step.Title}: {summary}");
+                    sb.AppendLine($"- {statusIcon} **步骤 {step.Index}**: {step.Title} — {summary}");
                 }
-                summaryPrompt.AppendLine();
-
-                // 语言跟随：根据当前语言选择摘要输出语言
-                bool isEnglish = !string.Equals(LocalizationService.Instance.CurrentLanguage, "zh-CN", StringComparison.OrdinalIgnoreCase);
-                string langInstruction = isEnglish
-                    ? "Please output a detailed change summary in English (be thorough, covering what was changed, why, the approach taken, and any notable details):"
-                    : "请用中文输出详细的变更摘要（尽量详细，包含改了什么、为什么改、改法思路、技术细节等）：";
-                summaryPrompt.AppendLine(langInstruction);
-
-                string shortSystemPrompt = isEnglish
-                    ? "You only output a code change summary in English, nothing else."
-                    : "你只输出中文代码变更摘要，不输出任何其他内容。";
-
-                string result = await CallAiShortAsync(
-                    shortSystemPrompt,
-                    summaryPrompt.ToString(), ct, maxTokens: 4096);
-
-                // ── 安全剥离：防止 AI 意外输出工具调用标记或思考过程 ──
-                result = StripToolCallMarkers(result);
-                return result?.Trim() ?? string.Empty;
+                sb.AppendLine();
             }
-            catch (Exception ex)
+
+            // 编译警告（如果有）
+            if (HasBuildWarningsInLogs())
             {
-                Logger.Warn($"[EditAgent] 生成变更摘要失败: {ex.Message}");
-                return string.Empty;
+                sb.AppendLine("⚠️ 最终编译存在警告或失败，请在总结中提及。");
             }
-        }
 
-        /// <summary>
-        /// 剥离 AI 输出中意外包含的工具调用标记和思考过程文本。
-        /// 当 toolChoice="none" 时 AI 仍可能输出工具调用意图文本。
-        /// </summary>
-        private static string StripToolCallMarkers(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return text;
-
-            // 移除 <|tool_calls|>...</|tool_calls|>  XML 片段
-            text = System.Text.RegularExpressions.Regex.Replace(
-                text, @"<\|[^>]*tool_calls?[^>]*\|>.*?</\|[^>]*tool_calls?[^>]*\|>",
-                string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-            // 移除单个工具调用标签
-            text = System.Text.RegularExpressions.Regex.Replace(
-                text, @"</?\|[^>]*tool_calls?[^>]*\|>",
-                string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-            // 移除思考前缀（"让我先查看..."等，AI 思考但没有真正调用工具）
-            text = System.Text.RegularExpressions.Regex.Replace(
-                text, @"^(让我先查看|让我检查|我需要先|我先用|让我读取|我需要读取).*?[。\n]",
-                string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline);
-
-            return text.Trim();
+            return new AgentHandoff
+            {
+                Label = L["agent.edit.handoffAskLabel"],
+                TargetAgent = AgentType.Ask,
+                Prompt = sb.ToString(),
+                AutoSend = true,
+                ShowContinueOn = false,
+            };
         }
 
         #endregion
@@ -2173,15 +2066,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 return relative;
             }
             return fullPath;
-        }
-
-        /// <summary>
-        /// 规范化文件路径（统一分隔符、去除尾部空格），用于 GroupBy 合并。
-        /// </summary>
-        private static string NormalizePath(string filePath)
-        {
-            if (string.IsNullOrEmpty(filePath)) return filePath;
-            return filePath.Replace('/', '\\').Trim().TrimEnd('\\');
         }
 
         #endregion

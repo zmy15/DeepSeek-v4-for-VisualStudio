@@ -570,6 +570,8 @@
   "agent.ask.handoffEditPrompt": "The user needs code modifications. Please execute code changes based on the following context:\n\n",
   "agent.ask.handoffPlanLabel": "Create Plan",
   "agent.ask.handoffPlanPrompt": "The user needs a detailed implementation plan. Please research the codebase and create a proposal:\n\n",
+  "agent.ask.handoffBuildLabel": "Diagnose Build Errors",
+  "agent.ask.handoffBuildPrompt": "Change summary has been generated, but the build may have issues. Please run build verification and fix all compilation errors:\n\n",
 
   "agent.plan.description": "Research and plan multi-step implementation. Deeply analyze requirements, study the codebase, align with user, and produce detailed plans.",
   "agent.plan.argumentHint": "Describe the goal or problem to plan for",
@@ -577,6 +579,8 @@
 
   "agent.edit.description": "Execute code modifications. Modify files step by step according to the plan, with build verification and permission confirmation.",
   "agent.edit.argumentHint": "Describe the code modification task",
+  "agent.edit.handoffAskLabel": "Generate Change Summary",
+  "agent.edit.handoffAskPrompt": "Code changes are complete. Here are the change details. Please generate a detailed change summary based on the following context:\n\n",
   "agent.edit.handoffBuildLabel": "Diagnose Build Errors",
   "agent.edit.handoffBuildPrompt": "Code changes are complete, but the build may have issues. Please run build verification and fix all compilation errors:\n\n",
 
@@ -681,6 +685,8 @@
   "agent.log.askDone": "Ask Agent finished ({0} chars)",
   "agent.log.askCancelled": "Answer cancelled",
   "agent.log.askFailed": "Answer failed: {0}",
+  "agent.log.askSummaryStarted": "Ask Agent started generating change summary...",
+  "agent.log.askSummaryDone": "Ask Agent change summary completed ({0} chars)",
   "agent.log.editNoPlan": "No plan, executing single-step code modification...",
   "agent.log.editStepExec": "Executing step {0}/{1}: {2}",
   "agent.log.editStepDone": "✅ Step {0} complete: {1}",  "agent.log.editPlanProgress": "📊 Plan execution finished: {0} total → completed {1} / skipped {2} / failed {3} / pending {4}",  "agent.log.editStepSkipped": "⏭ Step {0} cancelled",

@@ -1803,5 +1803,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         #endregion
+
+        #region Shared Helpers
+
+        /// <summary>
+        /// 规范化文件路径（统一分隔符、去除尾部空格），用于 GroupBy 合并。
+        /// </summary>
+        protected static string NormalizePath(string filePath)
+        {
+            if (string.IsNullOrEmpty(filePath)) return filePath;
+            return filePath.Replace('/', '\\').Trim().TrimEnd('\\');
+        }
+
+        #endregion
     }
 }
