@@ -224,6 +224,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _activeSession = session;
                     _activeSession.LastActiveAt = DateTime.Now;
 
+                    // ── 同步当前会话 ID 到内置工具服务（MemoryTool 需要）──
+                    if (_builtInToolService != null)
+                        _builtInToolService.CurrentSessionId = _activeSession.Id;
+
                     // ── 重置 AI 标题生成状态（切换到的会话可能已有标题） ──
                     _pendingAiTitle = false;
                     _firstUserMessageForTitle = null;
@@ -375,6 +379,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _sessionsContainer = new SessionsContainer { SolutionPath = _solutionPath ?? "(unsaved)" };
                 _sessionsContainer.Sessions.Add(_activeSession);
                 _sessionsContainer.ActiveSessionId = _activeSession.Id;
+
+                // ── 同步当前会话 ID 到内置工具服务 ──
+                if (_builtInToolService != null)
+                    _builtInToolService.CurrentSessionId = _activeSession.Id;
 
                 lock (_lock)
                 {

@@ -46,6 +46,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>RAG 检索上下文（独立存储，注入为 system 消息）</summary>
         private string? _ragContext;
 
+        /// <summary>记忆上下文（独立存储，注入为 system 消息）</summary>
+        private string? _memoryContext;
+
         /// <summary>当前 Token 估算计数器</summary>
         private int _estimatedTokens;
 
@@ -109,6 +112,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public void SetSkillContext(string? skillContext)
         {
             _skillContext = skillContext;
+        }
+
+        /// <summary>
+        /// <summary>
+        /// 设置记忆上下文（注入为 system 消息）。
+        /// 会话初始化时由 ChatControl 调用，包含用户记忆和仓库记忆。
+        /// </summary>
+        public void SetMemoryContext(string? memoryContext)
+        {
+            _memoryContext = memoryContext;
         }
 
         /// <summary>
@@ -288,7 +301,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 messages.Add(new ChatApiMessage { Role = "system", Content = _ragContext });
             }
 
-            // ── 5. 遍历对话历史，正确构建消息 ──
+            // ── 5. 注入记忆上下文（作为独立的 system 消息） ──
+            if (!string.IsNullOrWhiteSpace(_memoryContext))
+            {
+                messages.Add(new ChatApiMessage { Role = "system", Content = _memoryContext });
+            }
+
+            // ── 6. 遍历对话历史，正确构建消息 ──
             foreach (var entry in _entries)
             {
                 // 跳过没有内容的条目（除非有 tool_calls）

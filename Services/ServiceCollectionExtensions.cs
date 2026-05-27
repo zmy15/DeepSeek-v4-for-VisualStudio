@@ -67,6 +67,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             services.AddSingleton<IWebSearchService, WebSearchService>();
             services.AddSingleton<IRagService, RagService>();
 
+            // ── 记忆服务 ──
+            services.AddSingleton<IMemoryService, MemoryService>();
+
             // ── MCP 服务 ──
             services.AddSingleton<IMcpManagerService, McpManagerService>();
 
@@ -79,7 +82,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 var mcpManager = sp.GetService<IMcpManagerService>() as McpManagerService;
                 var webSearch = sp.GetService<IWebSearchService>() as WebSearchService;
                 var buildService = sp.GetService<IBuildService>();
-                return new BuiltInToolService(mcpManager, webSearch, buildService);
+                var memoryService = sp.GetService<IMemoryService>();
+                return new BuiltInToolService(mcpManager, webSearch, buildService, memoryService);
             });
 
             // ── 持久化服务（适配器包装静态类） ──

@@ -1158,6 +1158,24 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             _contextManager.SetSearchContext(string.IsNullOrWhiteSpace(searchContext) ? null : searchContext);
 
+            // ── 注入记忆上下文（用户记忆 + 仓库记忆）──
+            try
+            {
+                if (_memoryService != null)
+                {
+                    string userMemory = _memoryService.GetMemoryContext(MemoryScope.User);
+                    string repoMemory = _memoryService.GetMemoryContext(MemoryScope.Repo, solutionPath: _solutionPath);
+                    var memoryContext = new System.Text.StringBuilder();
+                    if (!string.IsNullOrWhiteSpace(userMemory))
+                        memoryContext.AppendLine(userMemory);
+                    if (!string.IsNullOrWhiteSpace(repoMemory))
+                        memoryContext.AppendLine(repoMemory);
+                    string combined = memoryContext.ToString().Trim();
+                    _contextManager.SetMemoryContext(string.IsNullOrWhiteSpace(combined) ? null : combined);
+                }
+            }
+            catch (Exception ex) { Logger.Warn($"[Memory] 记忆上下文注入失败: {ex.Message}"); }
+
             if (_options?.ShowContextStats == true || _contextManager.UsageRatio > 0.7)
             {
                 var stats = _contextManager.GetStats();

@@ -77,6 +77,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "create_and_run_task",
             "manage_todo_list",
             "build_solution",
+            "memory",
         };
 
         /// <summary>

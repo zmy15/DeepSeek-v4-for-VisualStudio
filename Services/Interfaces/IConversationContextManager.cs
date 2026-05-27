@@ -26,6 +26,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         void SetSearchContext(string? searchContext);
         void SetSkillContext(string? skillContext);
         void SetRagContext(string? ragContext);
+        void SetMemoryContext(string? memoryContext);
         void SetCompressor(ContextCompressorService? compressor);
 
         // ── 消息管理 ──

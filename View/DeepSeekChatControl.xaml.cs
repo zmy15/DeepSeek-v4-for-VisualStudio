@@ -127,6 +127,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         private RagService? _ragService;
         private ContextCompressorService? _compressorService;
+        private MemoryService? _memoryService;
         private bool _isGenerating;
         private string _webSearchEngine = "Off"; // "Off" | "Baidu" | "DuckDuckGo"
         private readonly List<string> _pendingWarnings = new(); // 待注入的警告消息
@@ -379,7 +380,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── 创建内置工具服务 ──
             var buildService = new BuildService();
-            _builtInToolService = new BuiltInToolService(_mcpManager, _webSearchService, buildService);
+            _memoryService = new MemoryService();
+            _builtInToolService = new BuiltInToolService(_mcpManager, _webSearchService, buildService, _memoryService);
 
             _agentDispatcher = new AgentDispatcher(_apiService, _builtInToolService, _mcpManager);
             _agentDispatcher.ContextManager = _contextManager;
