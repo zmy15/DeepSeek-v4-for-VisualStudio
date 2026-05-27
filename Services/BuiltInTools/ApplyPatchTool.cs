@@ -14,8 +14,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public class ApplyPatchTool : BuiltInToolBase
     {
-        private static LocalizationService L => LocalizationService.Instance;
-
         public override string Name => "apply_patch";
 
         public override ToolDefinition GetDefinition()

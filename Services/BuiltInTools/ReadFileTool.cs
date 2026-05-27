@@ -15,7 +15,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public class ReadFileTool : BuiltInToolBase
     {
-        private static LocalizationService L => LocalizationService.Instance;
         private readonly ConcurrentDictionary<string, string> _fileReadCache;
 
         public ReadFileTool(ConcurrentDictionary<string, string> fileReadCache)

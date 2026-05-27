@@ -15,7 +15,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public class GetErrorsTool : BuiltInToolBase
     {
-        private static LocalizationService L => LocalizationService.Instance;
         private readonly IBuildService? _buildService;
 
         public GetErrorsTool(IBuildService? buildService = null)

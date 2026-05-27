@@ -208,43 +208,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 从 AgentContext 解析工作区根目录。
         /// </summary>
-        private static string GetWorkspaceRoot(AgentContext context)
-        {
-            string root = context.SolutionPath ?? string.Empty;
-            if (!string.IsNullOrEmpty(root) && File.Exists(root))
-                root = Path.GetDirectoryName(root) ?? root;
-            return root;
-        }
-
-        /// <summary>
-        /// 检测 AI 回复中是否表明编译仍存在错误。
-        /// </summary>
-        private static bool HasBuildFailure(string aiResponse)
-        {
-            if (string.IsNullOrWhiteSpace(aiResponse)) return false;
-
-            string lower = aiResponse.ToLowerInvariant();
-
-            // 明确失败信号
-            bool hasFailure = lower.Contains("build failed")
-                || lower.Contains("构建失败")
-                || lower.Contains("编译失败")
-                || lower.Contains("error cs")
-                || lower.Contains("error lnk")
-                || lower.Contains("error c2")
-                || lower.Contains("error msb");
-
-            // 排除误报：如果包含明确的成功信号，不算失败
-            bool hasSuccess = lower.Contains("build succeeded")
-                || lower.Contains("0 个错误")
-                || lower.Contains("0 errors")
-                || lower.Contains("✅")
-                || lower.Contains("编译通过")
-                || lower.Contains("构建成功");
-
-            return hasFailure && !hasSuccess;
-        }
-
         #endregion
     }
 }

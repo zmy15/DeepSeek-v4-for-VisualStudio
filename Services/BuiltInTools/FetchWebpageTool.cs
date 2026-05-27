@@ -13,7 +13,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public class FetchWebpageTool : BuiltInToolBase
     {
-        private static LocalizationService L => LocalizationService.Instance;
         private readonly WebSearchService? _webSearchService;
 
         public FetchWebpageTool(WebSearchService? webSearchService = null)

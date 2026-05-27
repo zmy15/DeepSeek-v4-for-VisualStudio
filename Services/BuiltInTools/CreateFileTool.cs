@@ -14,8 +14,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public class CreateFileTool : BuiltInToolBase
     {
-        private static LocalizationService L => LocalizationService.Instance;
-
         public override string Name => "create_file";
 
         public override ToolDefinition GetDefinition()
