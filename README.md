@@ -43,6 +43,7 @@
 | 🛡️ **终端审批** | 命令执行前弹窗确认，保障安全 |
 | 🌐 **国际化** | 中英文自动切换，支持自定义翻译 |
 | 🔄 **断点续传** | 网络中断自动恢复，已接收内容无缝衔接 |
+| 🧠 **AI 记忆系统** | 三层持久化记忆（用户/会话/仓库），AI 自主管理笔记 |
 
 ---
 
@@ -110,6 +111,24 @@ Ask (分析) → Plan (规划) → Edit (执行) → Build (编译修复) → As
 ```
 
 技能来源：**项目级** (`.github/skills/`) → **用户级** (`~/.copilot/skills/`) → **内置级** (随扩展发布)。
+
+---
+
+## 记忆系统
+
+AI 通过 `memory` 工具管理三层持久化记忆，记住你的偏好、项目约定和对话上下文：
+
+| 作用域 | 路径前缀 | 存储位置 | 生命周期 |
+|--------|---------|---------|---------|
+| **用户记忆** | `/memories/` | `%LocalAppData%\DeepSeekVS\memories\user\` | 跨所有解决方案持久化 |
+| **会话记忆** | `/memories/session/` | `%LocalAppData%\DeepSeekVS\memories\session\` | 当前对话内有效 |
+| **仓库记忆** | `/memories/repo/` | `%LocalAppData%\DeepSeekVS\memories\repo\` | 当前解决方案内有效 |
+
+**支持的操作**：`view`、`create`、`str_replace`、`insert`、`delete`、`rename`
+
+**自动注入**：新对话开始时，用户记忆和仓库记忆自动注入 System Prompt，AI 开箱即知你的偏好和项目约定。
+
+所有 Agent（Ask / Explore / Plan / Edit / Build）均可使用记忆工具。
 
 ---
 

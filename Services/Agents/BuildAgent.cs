@@ -56,6 +56,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "get_terminal_output",
             // 任务管理
             "manage_todo_list",
+            // 记忆
+            "memory",
         };
 
         public BuildAgent(DeepSeekApiService apiService) : base(apiService, AgentType.Build) { }
