@@ -825,8 +825,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                         }
                                     }
 
-                                    // ── 优先内置工具，其次 MCP 工具 ──
-                                    if (_builtInToolService != null
+                                    // ── 优先 MCP 工具，其次内置工具（同名时 MCP 覆盖）──
+                                    bool isMcpTool = _mcpManager?.AllTools.Any(
+                                        t => string.Equals(t.Name, acc.FunctionName, StringComparison.OrdinalIgnoreCase)) == true;
+                                    if (isMcpTool && _mcpManager != null)
+                                    {
+                                        string sanitizedArgs = SanitizeOcrToolArguments(acc.FunctionName!, acc.ArgumentsBuilder.ToString());
+                                        toolResult = await _mcpManager.CallToolAsync(acc.FunctionName!, sanitizedArgs, streamingCts.Token);
+                                    }
+                                    else if (_builtInToolService != null
                                         && BuiltInToolService.IsBuiltInTool(acc.FunctionName!))
                                     {
                                         // ── 诊断日志：记录工具调用时传入的 _solutionPath ──
@@ -834,11 +841,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                         toolResult = await _builtInToolService.ExecuteBuiltInToolAsync(
                                             acc.FunctionName!, acc.ArgumentsBuilder.ToString(), _solutionPath)
                                             ?? "❌ 内置工具未返回结果";
-                                    }
-                                    else if (_mcpManager != null)
-                                    {
-                                        string sanitizedArgs = SanitizeOcrToolArguments(acc.FunctionName!, acc.ArgumentsBuilder.ToString());
-                                        toolResult = await _mcpManager.CallToolAsync(acc.FunctionName!, sanitizedArgs, streamingCts.Token);
                                     }
                                     else
                                     {

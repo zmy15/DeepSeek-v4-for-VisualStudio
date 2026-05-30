@@ -358,16 +358,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         effectiveWhitelist = effectiveWhitelist.Where(t => !modifyingTools.Contains(t)).ToList();
                     }
 
-                    // 内置工具
+                    // 内置工具（含通过 BuiltInToolService 统一管理的 MCP 工具）
                     if (BuiltInTools != null)
                     {
                         var builtInDefs = BuiltInTools.GetFilteredToolDefinitions(effectiveWhitelist);
                         toolDefs.AddRange(builtInDefs);
                     }
-
-                    // MCP 外部工具
-                    if (McpManager != null && McpManager.AllTools.Count > 0)
+                    // MCP 工具已由 BuiltInTools.GetFilteredToolDefinitions 统一返回，无需再次添加
+                    else if (McpManager != null && McpManager.AllTools.Count > 0)
                     {
+                        // 仅当 BuiltInTools 不可用时才单独获取 MCP 工具
                         var mcpDefs = McpManager.GetFilteredToolDefinitions(effectiveWhitelist);
                         toolDefs.AddRange(mcpDefs);
                     }
@@ -975,25 +975,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
             }
 
-            // ── 1. 内置工具 ──
+            // ── 1. MCP 工具优先（同名时覆盖内置）──
+            if (McpManager != null)
+            {
+                var mcpTools = McpManager.AllTools;
+                bool hasMcpTool = mcpTools.Any(t => string.Equals(t.Name, toolName, StringComparison.OrdinalIgnoreCase));
+                if (hasMcpTool)
+                {
+                    try
+                    {
+                        return await McpManager.CallToolAsync(toolName, argumentsJson, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        return $"❌ MCP 工具调用失败 ({toolName}): {ex.Message}";
+                    }
+                }
+            }
+
+            // ── 2. 内置工具（回退）──
             if (BuiltInTools != null && BuiltInToolService.IsBuiltInTool(toolName))
             {
                 string? result = await BuiltInTools.ExecuteBuiltInToolAsync(toolName, argumentsJson, workspaceRoot);
                 if (result != null)
                     return result;
-            }
-
-            // ── 2. MCP 工具 ──
-            if (McpManager != null)
-            {
-                try
-                {
-                    return await McpManager.CallToolAsync(toolName, argumentsJson, ct);
-                }
-                catch (Exception ex)
-                {
-                    return $"❌ MCP 工具调用失败 ({toolName}): {ex.Message}";
-                }
             }
 
             return $"❌ 未知工具: {toolName}";

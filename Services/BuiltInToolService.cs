@@ -168,31 +168,40 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 根据 Agent 白名单获取过滤后的工具定义。
-        /// 合并内置工具和 MCP 外部工具。
+        /// 合并内置工具和 MCP 外部工具。同名时 MCP 工具优先（覆盖内置）。
         /// </summary>
         public List<ToolDefinition> GetFilteredToolDefinitions(List<string>? allowedTools)
         {
             var definitions = new List<ToolDefinition>();
 
-            // ── 1. 添加内置工具（按白名单过滤）──
+            // ── 1. 先收集 MCP 外部工具（同名时优先 MCP）──
+            List<ToolDefinition> mcpDefs = new();
+            if (_mcpManager != null && _mcpManager.AllTools.Count > 0)
+            {
+                mcpDefs = _mcpManager.GetFilteredToolDefinitions(allowedTools);
+                definitions.AddRange(mcpDefs);
+            }
+
+            // ── 2. 添加内置工具（按白名单过滤，排除与 MCP 同名的）──
+            var mcpNames = new HashSet<string>(mcpDefs.Select(d => d.Function.Name), StringComparer.OrdinalIgnoreCase);
             var builtInDefs = _tools.Values.Select(t => t.GetDefinition()).ToList();
             if (allowedTools != null && allowedTools.Count > 0)
             {
                 var whitelist = new HashSet<string>(allowedTools, StringComparer.OrdinalIgnoreCase);
-                builtInDefs = builtInDefs.Where(d => whitelist.Contains(d.Function.Name)).ToList();
+                builtInDefs = builtInDefs
+                    .Where(d => whitelist.Contains(d.Function.Name) && !mcpNames.Contains(d.Function.Name))
+                    .ToList();
+            }
+            else
+            {
+                builtInDefs = builtInDefs.Where(d => !mcpNames.Contains(d.Function.Name)).ToList();
             }
             definitions.AddRange(builtInDefs);
 
-            // ── 2. 添加 MCP 外部工具（按白名单过滤）──
-            if (_mcpManager != null && _mcpManager.AllTools.Count > 0)
-            {
-                var mcpDefs = _mcpManager.GetFilteredToolDefinitions(allowedTools);
-                definitions.AddRange(mcpDefs);
-            }
-
             if (allowedTools != null)
             {
-                Logger.Info($"[BuiltInTool] 工具定义: {definitions.Count} 个 (内置: {builtInDefs.Count}, MCP: {definitions.Count - builtInDefs.Count})");
+                Logger.Info($"[BuiltInTool] 工具定义: {definitions.Count} 个 (MCP: {mcpDefs.Count}, 内置: {builtInDefs.Count})"
+                    + (mcpNames.Count > 0 ? $", MCP 覆盖内置: [{string.Join(", ", mcpNames)}]" : ""));
             }
 
             return definitions;
