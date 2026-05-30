@@ -23,26 +23,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     public class BuildService : IBuildService
     {
         /// <summary>
-        /// 最近一次异步构建的启动时间（UTC）。
-        /// 供 get_errors 使用，检测构建是否刚启动（BuildState 可能尚未更新）。
-        /// </summary>
-        private DateTime? _lastBuildStartUtc;
-
-        /// <summary>
-        /// 构建启动后，BuildState 更新为 InProgress 的最小等待窗口。
-        /// </summary>
-        private static readonly TimeSpan BuildStartWindow = TimeSpan.FromSeconds(10);
-
-        /// <summary>
-        /// 检查最近是否启动了构建（即使 BuildState 尚未反映）。
-        /// </summary>
-        public bool WasBuildRecentlyStarted()
-        {
-            if (!_lastBuildStartUtc.HasValue) return false;
-            return (DateTime.UtcNow - _lastBuildStartUtc.Value) < BuildStartWindow;
-        }
-
-        /// <summary>
         /// 执行解决方案构建。自动检测项目类型并选择合适的构建方式。
         /// </summary>
         public async Task<string> BuildAsync(string? solutionPath, CancellationToken ct)
@@ -71,62 +51,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return dteResult;
 
             return LocalizationService.Instance["build.noBuildSystem"];
-        }
-
-        /// <summary>
-        /// 异步启动构建 — 通过 DTE ExecuteCommand 触发构建后立即返回。
-        /// 不等待构建完成，构建结果会输出到 VS 输出窗口和错误列表。
-        /// 适用于 CMake/Open Folder 项目（IVsSolutionBuildManager 和 DTE SolutionBuild.Build 均不兼容）。
-        /// </summary>
-        public async Task<string> StartBuildAsync(string? solutionPath)
-        {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-            string? workspaceDir = NormalizeToDirectory(solutionPath);
-            bool isCmakeProject = IsCmakeProject(workspaceDir);
-
-            Logger.Info($"[BuildService] 异步启动构建 (CMake={isCmakeProject}, workspace={workspaceDir ?? "(null)"})");
-
-            try
-            {
-                var dte = (EnvDTE.DTE?)ServiceProvider.GlobalProvider
-                    .GetService(typeof(EnvDTE.DTE));
-                if (dte == null)
-                {
-                    Logger.Warn("[BuildService] 无法获取 DTE，异步构建启动失败");
-                    return "❌ 无法连接到 Visual Studio DTE，请确认 VS 已打开解决方案/文件夹。";
-                }
-
-                if (dte.Solution == null || string.IsNullOrEmpty(dte.Solution.FullName))
-                {
-                    Logger.Warn("[BuildService] 未打开解决方案/文件夹，异步构建启动失败");
-                    return "❌ 当前未打开任何解决方案或文件夹，请先在 VS 中打开项目。";
-                }
-
-                // ── 检查是否已有构建在进行中 ──
-                var solutionBuild = dte.Solution?.SolutionBuild;
-                if (solutionBuild != null && solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress)
-                {
-                    Logger.Info("[BuildService] 构建已在后台运行中");
-                    return "🔨 构建已在后台运行中。请等待构建完成后使用 get_errors 检查编译错误。";
-                }
-
-                // ── 通过 ExecuteCommand 启动构建（兼容 CMake/MSBuild 等所有项目类型）──
-                Logger.Info("[BuildService] 通过 DTE ExecuteCommand 异步启动构建...");
-                _lastBuildStartUtc = DateTime.UtcNow;  // 记录启动时间，供 get_errors 检测
-                dte.ExecuteCommand("Build.BuildSolution");
-
-                string projectType = isCmakeProject ? "CMake" : "MSBuild";
-                return $"🔨 构建已启动（{projectType} 项目）。\n\n" +
-                       $"构建正在后台运行，输出将显示在 VS 输出窗口和错误列表中。\n" +
-                       $"请在构建完成后使用 get_errors 工具检查编译错误。\n" +
-                       $"💡 提示：CMake 项目构建通常需要 1-5 分钟，大型项目可能更长。";
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn($"[BuildService] 异步构建启动异常: {ex.Message}");
-                return $"❌ 构建启动失败: {ex.Message}";
-            }
         }
 
         #region Build Methods

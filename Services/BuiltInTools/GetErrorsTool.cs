@@ -154,10 +154,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     return sb.ToString().TrimEnd();
                 }
 
-                return "🔧 编译错误检查: 未检测到编译错误。\n\n" +
-                       "💡 说明：\n" +
-                       "- 如果刚通过 `build_solution` 触发了构建，请等待构建完成后再调用 `get_errors`。\n" +
-                       "- 如果构建已完成且确实无错误，则代码编译通过。";
+                return "🔧 编译错误检查: 未检测到编译错误。代码编译通过。";
             }
             catch (Exception ex)
             {
@@ -167,7 +164,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         }
 
         /// <summary>
-        /// 检查 VS 中是否正在构建或最近启动了构建。
+        /// 检查 VS 中是否正在构建。
         /// 如果正在构建，返回提示消息让 AI 等待；
         /// 返回 null 表示没有构建在进行中。
         /// </summary>
@@ -175,15 +172,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             try
             {
-                // ── 检查 1：最近是否启动了构建（即使 BuildState 尚未更新）──
-                if (_buildService != null && _buildService.WasBuildRecentlyStarted())
-                {
-                    Logger.Info("[BuiltInTool] get_errors: 检测到最近启动了构建，提示 AI 等待");
-                    return "⏳ 构建刚刚启动，VS 正在准备编译环境，错误列表尚未更新。\n\n" +
-                           "请等待 5-10 秒后再次调用 `get_errors` 获取编译结果。\n" +
-                           "💡 不要在此轮对话中重复调用 get_errors，等待下一轮再查。";
-                }
-
                 return ThreadHelper.JoinableTaskFactory.Run(async () =>
                 {
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
