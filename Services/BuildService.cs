@@ -533,59 +533,114 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             return sb.ToString();
         }
 
+        /// <summary>
+        /// 从 VS Output Window 的"生成"窗格中提取编译错误行。
+        /// 必须在 UI 线程上调用（访问 DTE COM 对象）。
+        /// 优先匹配 GUID，回退到按名称匹配。
+        /// </summary>
         private static void TryCollectFromOutputWindow(StringBuilder sb)
         {
-            try
+            // ── 确保在 UI 线程上访问 DTE COM 对象 ──
+            // 跨线程访问 DTE 会导致 FatalExecutionEngineError / ExecutionEngineException
+            ThreadHelper.JoinableTaskFactory.Run(async () =>
             {
-                var dte = (EnvDTE.DTE?)ServiceProvider.GlobalProvider
-                    .GetService(typeof(EnvDTE.DTE));
-                if (dte == null) return;
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
-                EnvDTE.Window window = dte.Windows.Item(EnvDTE.Constants.vsWindowKindOutput);
-                EnvDTE.OutputWindow outputWin = (EnvDTE.OutputWindow)window.Object;
-
-                const string buildPaneGuid = "{1BD8A850-02D1-11D1-BEE7-00A0C913D83C}";
-                EnvDTE.OutputWindowPane? buildPane = null;
-                foreach (EnvDTE.OutputWindowPane pane in outputWin.OutputWindowPanes)
+                try
                 {
-                    if (pane.Guid == buildPaneGuid)
+                    var dte = (EnvDTE.DTE?)ServiceProvider.GlobalProvider
+                        .GetService(typeof(EnvDTE.DTE));
+                    if (dte == null) return;
+
+                    EnvDTE.Window window = dte.Windows.Item(EnvDTE.Constants.vsWindowKindOutput);
+                    EnvDTE.OutputWindow outputWin = (EnvDTE.OutputWindow)window.Object;
+
+                    // ── 查找"生成"输出窗格 ──
+                    // VS 2022 中 Build 窗格的 GUID 为 {1BD8A850-02D1-11D1-BEE7-00A0C913D83C}
+                    // 部分版本/场景下 GUID 可能不同，回退到按名称匹配
+                    EnvDTE.OutputWindowPane? buildPane = FindBuildPane(outputWin);
+
+                    if (buildPane == null) return;
+
+                    // ── 安全读取窗格文本 ──
+                    EnvDTE.TextDocument textDoc = buildPane.TextDocument;
+                    var sel = textDoc.Selection;
+                    sel.SelectAll();
+                    string output = sel.Text ?? string.Empty;
+
+                    if (string.IsNullOrWhiteSpace(output)) return;
+
+                    var errorLines = output
+                        .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Where(line =>
+                            line.Contains("error", StringComparison.OrdinalIgnoreCase)
+                            && !line.Contains("0 Error", StringComparison.OrdinalIgnoreCase)
+                            && !line.Contains("0 错误", StringComparison.OrdinalIgnoreCase))
+                        .Take(30)
+                        .Select(line => line.Trim())
+                        .ToList();
+
+                    if (errorLines.Count > 0)
                     {
-                        buildPane = pane;
-                        break;
+                        sb.AppendLine("### 构建输出 (Output Window)");
+                        foreach (var line in errorLines)
+                            sb.AppendLine($"- {line}");
+                        sb.AppendLine();
                     }
                 }
-
-                if (buildPane == null) return;
-
-                EnvDTE.TextDocument textDoc = buildPane.TextDocument;
-                var sel = textDoc.Selection;
-                sel.SelectAll();
-                string output = sel.Text ?? string.Empty;
-
-                if (string.IsNullOrWhiteSpace(output)) return;
-
-                var errorLines = output
-                    .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Where(line =>
-                        line.Contains("error", StringComparison.OrdinalIgnoreCase)
-                        && !line.Contains("0 Error", StringComparison.OrdinalIgnoreCase)
-                        && !line.Contains("0 错误", StringComparison.OrdinalIgnoreCase))
-                    .Take(30)
-                    .Select(line => line.Trim())
-                    .ToList();
-
-                if (errorLines.Count > 0)
+                catch (Exception ex)
                 {
-                    sb.AppendLine("### 构建输出 (Output Window)");
-                    foreach (var line in errorLines)
-                        sb.AppendLine($"- {line}");
-                    sb.AppendLine();
+                    Logger.Warn($"[TryCollectFromOutputWindow] Output 窗口读取失败: {ex.Message}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// 在 Output Window 中查找"生成"窗格。
+        /// 优先按 GUID 匹配，回退到按名称匹配（兼容不同 VS 版本/语言）。
+        /// </summary>
+        private static EnvDTE.OutputWindowPane? FindBuildPane(EnvDTE.OutputWindow outputWin)
+        {
+            // ── 已知的 Build 窗格 GUID ──
+            string[] buildPaneGuids = {
+                "{1BD8A850-02D1-11D1-BEE7-00A0C913D83C}",  // VS 生成窗格标准 GUID
+                "{1BD8A850-02D1-11D1-BEE7-00A0C913D1F8}",  // 备选（部分版本）
+            };
+
+            foreach (EnvDTE.OutputWindowPane pane in outputWin.OutputWindowPanes)
+            {
+                try
+                {
+                    string paneGuid = pane.Guid;
+                    foreach (var guid in buildPaneGuids)
+                    {
+                        if (string.Equals(paneGuid, guid, StringComparison.OrdinalIgnoreCase))
+                            return pane;
+                    }
+                }
+                catch
+                {
+                    // 某些窗格可能不支持读取 Guid，忽略
                 }
             }
-            catch (Exception ex)
+
+            // ── 回退：按名称匹配（中英文）──
+            string[] buildPaneNames = { "Build", "生成", "build", "生成输出" };
+            foreach (EnvDTE.OutputWindowPane pane in outputWin.OutputWindowPanes)
             {
-                Logger.Warn($"[BuildService] Output 窗口读取失败: {ex.Message}");
+                try
+                {
+                    string name = pane.Name;
+                    foreach (var candidate in buildPaneNames)
+                    {
+                        if (string.Equals(name, candidate, StringComparison.OrdinalIgnoreCase))
+                            return pane;
+                    }
+                }
+                catch { }
             }
+
+            return null;
         }
 
         #endregion
