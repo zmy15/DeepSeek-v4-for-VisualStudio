@@ -496,25 +496,54 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
             json = json.Trim();
 
+            List<McpServerConfig> result;
+
             // ── 格式 1: Claude Desktop / VS Code {"mcpServers": {...}} ──
             if (json.StartsWith("{") && json.Contains("\"mcpServers\""))
             {
-                return ParseClaudeFormat(json);
+                result = ParseClaudeFormat(json);
             }
-
             // ── 格式 2: 数组 [{...}, ...] ──
-            if (json.StartsWith("["))
+            else if (json.StartsWith("["))
             {
-                return ParseArrayFormat(json);
+                result = ParseArrayFormat(json);
             }
-
             // ── 格式 3: 键值对象 {"serverName": {...}} ──
-            if (json.StartsWith("{"))
+            else if (json.StartsWith("{"))
             {
-                return ParseKeyValueFormat(json);
+                result = ParseKeyValueFormat(json);
+            }
+            else
+            {
+                return new List<McpServerConfig>();
             }
 
-            return new List<McpServerConfig>();
+            // ── 智能传输检测：有 URL 无 Command → 自动切换为 HTTP 传输 ──
+            foreach (var config in result)
+            {
+                NormalizeTransport(config);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 智能检测传输类型。
+        /// 如果配置了 URL 但没有指定 Command（且 Transport 仍为默认 stdio），
+        /// 自动切换为 HTTP 传输。
+        /// 适用于 Claude Desktop 等只填 url 字段的简化配置。
+        /// </summary>
+        private static void NormalizeTransport(McpServerConfig config)
+        {
+            bool hasUrl = !string.IsNullOrWhiteSpace(config.Url);
+            bool hasNoCommand = string.IsNullOrWhiteSpace(config.Command);
+            bool isDefaultTransport = string.IsNullOrEmpty(config.Transport) ||
+                                      config.Transport.Equals("stdio", StringComparison.OrdinalIgnoreCase);
+
+            if (hasUrl && hasNoCommand && isDefaultTransport)
+            {
+                config.Transport = "http";
+            }
         }
 
         private static List<McpServerConfig> ParseClaudeFormat(string json)
