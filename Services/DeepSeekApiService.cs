@@ -140,6 +140,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             });
             var requestBodyBytes = Encoding.UTF8.GetBytes(requestJson);
 
+            // ── 记录请求元数据 ──
+            Logger.Info($"[API] 发送请求: {requestBodyBytes.Length / 1024}KB, 消息数={request.Messages.Count}, 工具数={tools?.Count ?? 0}, maxTokens={maxTokens}");
+
             // ── HTTP 层重试（指数退避：1s, 2s, 4s；最多 3 次额外重试）──
             HttpResponseMessage? response = null;
             int sendAttempt = 0;
@@ -162,13 +165,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     response.EnsureSuccessStatusCode();
                     break; // success
                 }
-                catch (HttpRequestException) when (sendAttempt < maxSendAttempts - 1)
+                catch (HttpRequestException ex) when (sendAttempt < maxSendAttempts - 1)
                 {
                     sendAttempt++;
+                    int statusCode = (int)(response?.StatusCode ?? 0);
+                    string? responseBody = null;
+                    try
+                    {
+                        if (response?.Content != null)
+                        {
+                            var bodyBytes = await response.Content.ReadAsByteArrayAsync();
+                            responseBody = Encoding.UTF8.GetString(bodyBytes);
+                            if (responseBody.Length > 500)
+                                responseBody = responseBody.Substring(0, 500) + "…(截断)";
+                        }
+                    }
+                    catch { }
                     response?.Dispose();
                     double backoff = Math.Pow(2, sendAttempt - 1);
-                    Logger.Warn($"[API] HTTP 请求失败 (尝试 {sendAttempt + 1}/{maxSendAttempts})，{backoff}s 后重试…");
-                    await Task.Delay(TimeSpan.FromSeconds(backoff), cancellationToken);
+                    Logger.Warn($"[API] HTTP {statusCode} 请求失败 (尝试 {sendAttempt + 1}/{maxSendAttempts})，{backoff}s 后重试…"
+                        + (responseBody != null ? $"\n[API] 响应: {responseBody}" : ""));
                 }
                 catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested && sendAttempt < maxSendAttempts - 1)
                 {

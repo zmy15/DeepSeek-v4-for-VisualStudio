@@ -1757,6 +1757,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             ? labelProp.GetString() ?? LocalizationService.Instance["plan.handoff.label"] : LocalizationService.Instance["plan.handoff.label"];
                         _ = ExecuteAgentHandoffAsync(targetAgent, label);
                     }
+                    // ── 关闭任务面板：清除持久化的 PlanJson，防止重启后重新显示 ──
+                    else if (type == "dismissTaskPanel")
+                    {
+                        string planId = obj.TryGetProperty("planId", out var planIdProp)
+                            ? planIdProp.GetString() ?? string.Empty : string.Empty;
+                        if (!string.IsNullOrEmpty(planId))
+                        {
+                            DismissTaskPanel(planId);
+                        }
+                    }
                 }
             }
             catch (Exception ex)

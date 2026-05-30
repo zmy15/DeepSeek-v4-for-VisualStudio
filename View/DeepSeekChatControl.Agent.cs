@@ -1810,6 +1810,40 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 关闭任务面板：清除对应消息的 PlanJson，防止重启后重新显示已关闭的面板。
+        /// 通过 planId 匹配消息中的 PlanJson。
+        /// </summary>
+        private void DismissTaskPanel(string planId)
+        {
+            lock (_lock)
+            {
+                var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+                for (int i = _messages.Count - 1; i >= 0; i--)
+                {
+                    var msg = _messages[i];
+                    if (string.IsNullOrEmpty(msg.PlanJson)) continue;
+
+                    try
+                    {
+                        var plan = JsonSerializer.Deserialize<AgentTaskPlan>(msg.PlanJson, opts);
+                        if (plan != null && plan.PlanId == planId)
+                        {
+                            msg.PlanJson = null;
+                            _createdPlanIds.Remove(planId);
+                            Logger.Info($"[Panel] 任务面板已关闭并清除持久化数据: PlanId={planId}");
+                            return;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn($"[Panel] DismissTaskPanel 反序列化 PlanJson 失败: {ex.Message}");
+                    }
+                }
+            }
+            Logger.Info($"[Panel] DismissTaskPanel: 未找到 PlanId={planId} 的消息");
+        }
+
+        /// <summary>
         /// 检查指定轮次是否有文件变更，如果有则询问用户是否回退。
         /// </summary>
         /// <param name="userMsgIndex">用户消息索引</param>
@@ -2431,8 +2465,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         routing = await _agentDispatcher.RouteAsync(enrichedContent);
                     }
 
-                    bool needsAgent = routing.TargetAgent == AgentType.Plan
-                        || routing.TargetAgent == AgentType.Edit
+                    bool needsAgent = routing.TargetAgent != AgentType.Ask
                         || routing.NeedsPlanning;
 
                     if (needsAgent)
@@ -2612,6 +2645,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (OperationCanceledException)
             {
                 Logger.Info("[Retry] 用户停止生成");
+                if (assistantMsg != null)
+                {
+                    assistantMsg.Content += "\n\n*[已停止]*";
+                    assistantMsg.IsStreaming = false;
+                    BatchStreamingUpdate(newAssistantIdx, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
+                    PostStreamEnd(newAssistantIdx, assistantMsg.Content, assistantMsg.ReasoningContent);
+                }
+            }
+            catch (ObjectDisposedException) when (retryCts?.IsCancellationRequested == true)
+            {
+                // 用户点击停止导致 SslStream 释放，兜底处理为停止
+                Logger.Info("[Retry] 用户停止生成 (ObjectDisposed)");
                 if (assistantMsg != null)
                 {
                     assistantMsg.Content += "\n\n*[已停止]*";
