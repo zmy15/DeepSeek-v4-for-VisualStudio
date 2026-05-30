@@ -17,6 +17,69 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
         /// 语言检测规则：扩展名 → 必须在内容中匹配的关键词/模式列表。
         /// 内容需匹配至少一个模式才被视为"可能是代码"。
         /// </summary>
+        // ── Shared patterns (must be defined before LanguagePatterns to avoid null refs) ──
+        private static readonly Regex[] CppPatterns = new[]
+        {
+            new Regex(@"#\s*include", RegexOptions.Compiled),
+            new Regex(@"#\s*define|#\s*ifdef|#\s*ifndef|#\s*if\b|#\s*endif|#\s*pragma", RegexOptions.Compiled),
+            new Regex(@"\b(namespace|class|struct|enum\s+(class\s+)?|template|typename)\b", RegexOptions.Compiled),
+            new Regex(@"\b(void|int|char|bool|double|float|long|short|auto|const|constexpr|size_t)\b", RegexOptions.Compiled),
+            new Regex(@"\b(return|if|for|while|switch|case|break|continue|try|catch|throw)\b", RegexOptions.Compiled),
+            new Regex(@"::", RegexOptions.Compiled),
+        };
+
+        private static readonly Regex[] PyPatterns = new[]
+        {
+            new Regex(@"\b(def|class|import|from|async\s+def)\b", RegexOptions.Compiled),
+            new Regex(@"\b(return|yield|if\s+__name__|with|raise|try|except|finally|lambda)\b", RegexOptions.Compiled),
+            new Regex(@"^\s*@\w+", RegexOptions.Compiled | RegexOptions.Multiline), // decorator
+        };
+
+        private static readonly Regex[] JsPatterns = new[]
+        {
+            new Regex(@"\b(function|const|let|var|import|export|class|interface|type|enum)\b", RegexOptions.Compiled),
+            new Regex(@"\b(return|if|for|while|switch|try|catch|throw|async|await|yield)\b", RegexOptions.Compiled),
+            new Regex(@"=>", RegexOptions.Compiled),
+        };
+
+        private static readonly Regex[] CmakePatterns = new[]
+        {
+            new Regex(@"\bcmake_minimum_required\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"\bproject\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"\b(add_executable|add_library|target_|set\s*\(|find_package|include_directories|file\s*\()", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"\b(if|else|endif|foreach|endforeach)\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        };
+
+        private static readonly Regex[] XmlPatterns = new[]
+        {
+            new Regex(@"<\?xml", RegexOptions.Compiled),
+            new Regex(@"<Project\b", RegexOptions.Compiled),
+            new Regex(@"<[A-Za-z_]\w*[\s/>]", RegexOptions.Compiled),
+        };
+
+        private static readonly Regex[] YamlPatterns = new[]
+        {
+            new Regex(@"^\s*[\w-]+\s*:", RegexOptions.Compiled | RegexOptions.Multiline),
+            new Regex(@"^\s*-\s+", RegexOptions.Compiled | RegexOptions.Multiline),
+        };
+
+        private static readonly Regex[] ShellPatterns = new[]
+        {
+            new Regex(@"^#!", RegexOptions.Compiled | RegexOptions.Multiline),
+            new Regex(@"\b(echo|export|source|cd|mkdir|rm|cp|mv|chmod|grep|sed|awk|git|docker)\b", RegexOptions.Compiled),
+            new Regex(@"\b(if|then|else|elif|fi|for|while|do|done|case|esac)\b", RegexOptions.Compiled),
+        };
+
+        private static readonly Regex[] MakefilePatterns = new[]
+        {
+            new Regex(@"^[a-zA-Z_][\w./-]*\s*:", RegexOptions.Compiled | RegexOptions.Multiline),
+            new Regex(@"^\t", RegexOptions.Compiled | RegexOptions.Multiline), // recipe tab
+        };
+
+        /// <summary>
+        /// 语言检测规则：扩展名 → 必须在内容中匹配的关键词/模式列表。
+        /// 内容需匹配至少一个模式才被视为"可能是代码"。
+        /// </summary>
         private static readonly Dictionary<string, Regex[]> LanguagePatterns = new(StringComparer.OrdinalIgnoreCase)
         {
             // ── C/C++ (.c, .cpp, .cc, .cxx, .h, .hpp, .hxx, .inl) ──
@@ -145,65 +208,6 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
             {
                 new Regex(@"\b(package|import|class|object|interface|fun|val|var)\b", RegexOptions.Compiled),
             },
-        };
-
-        // ── Shared patterns ──
-        private static readonly Regex[] CppPatterns = new[]
-        {
-            new Regex(@"#\s*include", RegexOptions.Compiled),
-            new Regex(@"#\s*define|#\s*ifdef|#\s*ifndef|#\s*if\b|#\s*endif|#\s*pragma", RegexOptions.Compiled),
-            new Regex(@"\b(namespace|class|struct|enum\s+(class\s+)?|template|typename)\b", RegexOptions.Compiled),
-            new Regex(@"\b(void|int|char|bool|double|float|long|short|auto|const|constexpr|size_t)\b", RegexOptions.Compiled),
-            new Regex(@"\b(return|if|for|while|switch|case|break|continue|try|catch|throw)\b", RegexOptions.Compiled),
-            new Regex(@"::", RegexOptions.Compiled),
-        };
-
-        private static readonly Regex[] PyPatterns = new[]
-        {
-            new Regex(@"\b(def|class|import|from|async\s+def)\b", RegexOptions.Compiled),
-            new Regex(@"\b(return|yield|if\s+__name__|with|raise|try|except|finally|lambda)\b", RegexOptions.Compiled),
-            new Regex(@"^\s*@\w+", RegexOptions.Compiled | RegexOptions.Multiline), // decorator
-        };
-
-        private static readonly Regex[] JsPatterns = new[]
-        {
-            new Regex(@"\b(function|const|let|var|import|export|class|interface|type|enum)\b", RegexOptions.Compiled),
-            new Regex(@"\b(return|if|for|while|switch|try|catch|throw|async|await|yield)\b", RegexOptions.Compiled),
-            new Regex(@"=>", RegexOptions.Compiled),
-        };
-
-        private static readonly Regex[] CmakePatterns = new[]
-        {
-            new Regex(@"\bcmake_minimum_required\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
-            new Regex(@"\bproject\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
-            new Regex(@"\b(add_executable|add_library|target_|set\s*\(|find_package|include_directories|file\s*\()", RegexOptions.IgnoreCase | RegexOptions.Compiled),
-            new Regex(@"\b(if|else|endif|foreach|endforeach)\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled),
-        };
-
-        private static readonly Regex[] XmlPatterns = new[]
-        {
-            new Regex(@"<\?xml", RegexOptions.Compiled),
-            new Regex(@"<Project\b", RegexOptions.Compiled),
-            new Regex(@"<[A-Za-z_]\w*[\s/>]", RegexOptions.Compiled),
-        };
-
-        private static readonly Regex[] YamlPatterns = new[]
-        {
-            new Regex(@"^\s*[\w-]+\s*:", RegexOptions.Compiled | RegexOptions.Multiline),
-            new Regex(@"^\s*-\s+", RegexOptions.Compiled | RegexOptions.Multiline),
-        };
-
-        private static readonly Regex[] ShellPatterns = new[]
-        {
-            new Regex(@"^#!", RegexOptions.Compiled | RegexOptions.Multiline),
-            new Regex(@"\b(echo|export|source|cd|mkdir|rm|cp|mv|chmod|grep|sed|awk|git|docker)\b", RegexOptions.Compiled),
-            new Regex(@"\b(if|then|else|elif|fi|for|while|do|done|case|esac)\b", RegexOptions.Compiled),
-        };
-
-        private static readonly Regex[] MakefilePatterns = new[]
-        {
-            new Regex(@"^[a-zA-Z_][\w./-]*\s*:", RegexOptions.Compiled | RegexOptions.Multiline),
-            new Regex(@"^\t", RegexOptions.Compiled | RegexOptions.Multiline), // recipe tab
         };
 
         /// <summary>
