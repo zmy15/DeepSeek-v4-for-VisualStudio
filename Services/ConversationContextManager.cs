@@ -321,14 +321,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 };
 
                 // ── reasoning_content 回传规则 ──
-                if (entry.Role == "assistant" && !string.IsNullOrEmpty(entry.ReasoningContent))
+                if (entry.Role == "assistant")
                 {
                     if (entry.HasToolCalls)
                     {
-                        // 有工具调用 → 必须回传 reasoning_content
-                        apiMsg.ReasoningContent = entry.ReasoningContent;
+                        // 有工具调用 → 必须回传 reasoning_content（即使为空字符串也要包含字段，避免 API 报 400）
+                        apiMsg.ReasoningContent = entry.ReasoningContent ?? string.Empty;
                     }
-                    // 无工具调用 → 不回传 reasoning_content（API 会忽略）
+                    // 无工具调用 → 不回传 reasoning_content（API 会忽略），保持为 null
                 }
 
                 // ── 工具调用相关字段 ──
@@ -414,8 +414,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Content = entry.Content,
                 };
 
-                if (entry.Role == "assistant" && !string.IsNullOrEmpty(entry.ReasoningContent) && entry.HasToolCalls)
-                    apiMsg.ReasoningContent = entry.ReasoningContent;
+                if (entry.Role == "assistant" && entry.HasToolCalls)
+                    apiMsg.ReasoningContent = entry.ReasoningContent ?? string.Empty;
 
                 if (entry.Role == "assistant" && entry.ToolCalls != null && entry.ToolCalls.Count > 0)
                     apiMsg.ToolCalls = entry.ToolCalls;

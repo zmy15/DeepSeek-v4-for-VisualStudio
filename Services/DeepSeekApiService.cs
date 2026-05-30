@@ -133,6 +133,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 MaxTokens = maxTokens
             };
 
+            // Defensive check: DeepSeek API requires that assistant messages with tool_calls
+            // include the reasoning_content field. If missing, inject an empty string to
+            // avoid a 400 Bad Request from the server.
+            foreach (var msg in request.Messages)
+            {
+                if (msg.Role == "assistant" && msg.ToolCalls != null && msg.ToolCalls.Count > 0 && msg.ReasoningContent == null)
+                {
+                    Logger.Warn("[API] assistant message contains tool_calls but missing ReasoningContent — injecting empty string to avoid 400");
+                    msg.ReasoningContent = string.Empty;
+                }
+            }
+
             // ── 预序列化请求体，供重试时复用 ──
             var requestJson = JsonSerializer.Serialize(request, new JsonSerializerOptions
             {
@@ -167,8 +179,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
                 catch (HttpRequestException ex) when (sendAttempt < maxSendAttempts - 1)
                 {
-                    sendAttempt++;
                     int statusCode = (int)(response?.StatusCode ?? 0);
+
+                    // 4xx 客户端错误（除 429 限流外）不应重试——请求本身有问题，重试不会改变结果
+                    if (statusCode >= 400 && statusCode < 500 && statusCode != 429)
+                    {
+                        // 记录更详细的错误响应（截断到 1KB），便于定位请求字段问题
+                        string respSnippet = string.Empty;
+                        try
+                        {
+                            if (response?.Content != null)
+                            {
+                                var bodyBytes = await response.Content.ReadAsByteArrayAsync();
+                                respSnippet = Encoding.UTF8.GetString(bodyBytes);
+                                if (respSnippet.Length > 1024)
+                                    respSnippet = respSnippet.Substring(0, 1024) + "…(截断)";
+                            }
+                        }
+                        catch { }
+                        Logger.Error($"[API] HTTP {statusCode} 是客户端错误，放弃重试。响应: {respSnippet}");
+                        throw;
+                    }
+
+                    sendAttempt++;
                     string? responseBody = null;
                     try
                     {
@@ -313,6 +346,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Thinking = new ThinkingControl { Type = "disabled" },
                 ReasoningEffort = null,
             };
+
+            // Defensive check for non-streaming path as well
+            foreach (var msg in request.Messages)
+            {
+                if (msg.Role == "assistant" && msg.ToolCalls != null && msg.ToolCalls.Count > 0 && msg.ReasoningContent == null)
+                {
+                    Logger.Warn("[API] (CompleteAsync) assistant message contains tool_calls but missing ReasoningContent — injecting empty string to avoid 400");
+                    msg.ReasoningContent = string.Empty;
+                }
+            }
 
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, ChatEndpoint)
             {
@@ -464,6 +507,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 throw new ApiKeyInvalidException(
                     $"DeepSeek 服务器错误 (HTTP {statusCode})，请稍后重试。\n详情: {body}");
+            }
+
+            // 其他 4xx 客户端错误：记录正文（1KB 截断）并抛出明确异常，便于定位请求格式问题
+            if (statusCode >= 400 && statusCode < 500)
+            {
+                string snippet = body;
+                if (!string.IsNullOrEmpty(snippet) && snippet.Length > 1024)
+                    snippet = snippet.Substring(0, 1024) + "…(截断)";
+                Logger.Error($"[API] 深度搜索返回客户端错误 HTTP {statusCode}: {snippet}");
+                throw new InvalidOperationException($"DeepSeek API 返回 HTTP {statusCode}: {ExtractErrorMessage(body)}");
             }
         }
 

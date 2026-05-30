@@ -1272,14 +1272,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
         // ── 断点续传辅助方法 ──
 
         /// <summary>
-        /// 判断是否为暂态网络错误（可重试），排除认证错误。
+        /// 判断是否为暂态网络错误（可重试），排除客户端错误。
+        /// HTTP 4xx（除 429 限流外）是请求本身的问题，重试不会改变结果。
         /// </summary>
         private static bool IsTransientNetworkError(HttpRequestException ex)
         {
             string msg = ex.Message;
-            // 401/403 认证错误不应重试
-            if (msg.Contains("401") || msg.Contains("403")) return false;
-            // HTTP 5xx、连接重置、DNS 解析失败等可重试
+            // 所有 4xx 客户端错误不应重试（400 Bad Request, 401 Unauthorized, 402 Payment Required,
+            // 403 Forbidden, 404 Not Found, 405 Method Not Allowed, 409 Conflict, 422 Unprocessable Entity）
+            if (msg.Contains("400") || msg.Contains("401") || msg.Contains("402") ||
+                msg.Contains("403") || msg.Contains("404") || msg.Contains("405") ||
+                msg.Contains("409") || msg.Contains("422"))
+                return false;
+            // HTTP 5xx、连接重置、DNS 解析失败、超时等可重试
             return true;
         }
 

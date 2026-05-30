@@ -436,8 +436,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     catch (HttpRequestException ex) when (streamAttempt < maxStreamAttempts - 1)
                     {
                         string msg = ex.Message;
-                        // 401/403 认证错误不重试
-                        if (msg.Contains("401") || msg.Contains("403"))
+                        // 所有 4xx 客户端错误不重试（除 429 限流外）——请求本身有问题
+                        if (msg.Contains("400") || msg.Contains("401") || msg.Contains("402") ||
+                            msg.Contains("403") || msg.Contains("404") || msg.Contains("405") ||
+                            msg.Contains("409") || msg.Contains("422"))
                             throw;
 
                         streamAttempt++;
