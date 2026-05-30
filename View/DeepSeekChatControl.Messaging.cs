@@ -1378,6 +1378,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 预处理 OCR 工具参数：AI 可能传文件名而非 base64，自动转换。
+        /// 同时记录 OCR 调用参数格式提醒（input_data 必需，output_mode/file_type 可选）。
         /// </summary>
         private string SanitizeOcrToolArguments(string toolName, string argumentsJson)
         {
@@ -1386,11 +1387,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (!isOcrTool)
                 return argumentsJson;
 
+            // ── OCR 参数格式提醒 ──
+            Logger.Info($"[OCR] 📋 调用 OCR 工具 `{toolName}`，期望参数格式:\n" +
+                "  • input_data (必需): 文件路径、URL 或 Base64 字符串\n" +
+                "  • output_mode (可选, 默认 \"simple\"): \"simple\" | \"detailed\"\n" +
+                "  • file_type (可选): \"image\" | \"pdf\" | null（input_data 为 URL 时必需）");
+
             try
             {
                 var args = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(argumentsJson);
                 if (args == null || args.Count == 0)
+                {
+                    Logger.Warn($"[OCR] ⚠️ OCR 工具 `{toolName}` 未收到任何参数！请确保传入 input_data。");
                     return argumentsJson;
+                }
 
                 var imageParamNames = new[] { "input_data", "input", "data", "image", "image_base64", "base64", "image_data", "image_path", "file_path", "path", "file_url", "url", "image_url" };
                 string? imageKey = null;
@@ -1416,6 +1426,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (isProbablyBase64)
                     return argumentsJson;
+
+                // ── URL 检测：如果是 URL 且未提供 file_type，发出提醒 ──
+                bool isUrl = imageValue.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                          || imageValue.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+                if (isUrl)
+                {
+                    bool hasFileType = args.ContainsKey("file_type") || args.ContainsKey("type");
+                    if (!hasFileType)
+                    {
+                        Logger.Warn($"[OCR] ⚠️ input_data 为 URL 但未提供 file_type 参数！\n" +
+                            "  • 请补充 \"file_type\": \"image\" 或 \"file_type\": \"pdf\"\n" +
+                            $"  • 当前 URL: {imageValue.Substring(0, Math.Min(80, imageValue.Length))}...");
+                    }
+                }
 
                 if (File.Exists(imageValue))
                 {

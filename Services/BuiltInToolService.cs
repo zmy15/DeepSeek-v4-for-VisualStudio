@@ -312,24 +312,40 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 为 MCP 外部工具生成显示文本。
+        /// OCR 工具额外提示参数格式。
         /// </summary>
         private static string GetMcpToolCallDisplayText(string toolName, Dictionary<string, JsonElement> args)
         {
             string filePath = GetStringArg(args, "filePath") ?? GetStringArg(args, "path") ?? GetStringArg(args, "directory");
             string query = GetStringArg(args, "query") ?? GetStringArg(args, "pattern") ?? GetStringArg(args, "search");
             string url = GetStringArg(args, "url");
+            string inputData = GetStringArg(args, "input_data") ?? GetStringArg(args, "input") ?? GetStringArg(args, "image");
+
+            // ── OCR 工具：显示参数格式提示 ──
+            bool isOcrTool = toolName.IndexOf("ocr", StringComparison.OrdinalIgnoreCase) >= 0
+                          || toolName.IndexOf("recognize_text", StringComparison.OrdinalIgnoreCase) >= 0;
+            string ocrHint = "";
+            if (isOcrTool)
+            {
+                string paramSummary = !string.IsNullOrEmpty(inputData)
+                    ? (inputData.Length > 60 ? inputData.Substring(0, 60) + "…" : inputData)
+                    : "（未提供 input_data）";
+                ocrHint = $" | 📋 OCR 参数: input_data={paramSummary}";
+            }
 
             if (!string.IsNullOrEmpty(filePath))
             {
                 string fname = Path.GetFileName(filePath);
-                return $"🔧 调用 `{toolName}` → `{fname}`";
+                return $"🔧 调用 `{toolName}` → `{fname}`{ocrHint}";
             }
             if (!string.IsNullOrEmpty(url))
-                return $"🔧 调用 `{toolName}` → `{TruncateText(url, 50)}`";
+                return $"🔧 调用 `{toolName}` → `{TruncateText(url, 50)}`{ocrHint}";
             if (!string.IsNullOrEmpty(query))
-                return $"🔧 调用 `{toolName}` → `{TruncateText(query, 50)}`";
+                return $"🔧 调用 `{toolName}` → `{TruncateText(query, 50)}`{ocrHint}";
+            if (!string.IsNullOrEmpty(inputData))
+                return $"🔧 调用 `{toolName}` → `{TruncateText(inputData, 50)}`{ocrHint}";
 
-            return $"🔧 调用工具 `{toolName}`";
+            return $"🔧 调用工具 `{toolName}`{ocrHint}";
         }
 
         #endregion

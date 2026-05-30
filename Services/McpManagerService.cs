@@ -37,17 +37,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 不应暴露给 AI 模型的内部工具名模式列表。
-        /// 这些工具由 VS 扩展内部调用（如 OCR），AI 模型不需要也不应该直接调用它们，
-        /// 因为相关数据已通过其他方式（文件附件解析）注入到对话上下文中。
+        /// 注意：OCR 工具已开放给 AI 模型直接调用（通过 MCP 协议），
+        /// 不再过滤。AI 调用 OCR 时参数会自动预处理（文件路径→base64）。
         /// </summary>
         private static readonly string[] InternalOnlyToolPatterns =
         {
-            "ocr", "recognize_text", "paddle_ocr", "ocr_image", "image_to_text", "read_text"
+            // OCR 工具已开放，不再列入内部模式
         };
 
         /// <summary>
         /// 获取所有工具的 DeepSeek/OpenAI function calling 格式定义。
-        /// 自动过滤仅内部使用的工具（如 OCR），避免 AI 模型错误调用。
+        /// 自动过滤仅内部使用的工具，避免 AI 模型错误调用。
         /// </summary>
         public List<ToolDefinition> GetToolDefinitions()
         {
@@ -74,7 +74,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             foreach (var tool in tools)
             {
-                // ── 过滤内部工具：OCR 已由扩展在发送前自动处理，AI 无需调用 ──
+                // ── 过滤内部工具（当前列表为空，OCR 等工具已开放给 AI 调用）──
                 bool isInternalOnly = InternalOnlyToolPatterns.Any(
                     pattern => tool.Name.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0);
 

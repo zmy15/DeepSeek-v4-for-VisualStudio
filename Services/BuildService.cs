@@ -160,28 +160,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return LocalizationService.Instance["build.alreadyInProgress"];
                 }
 
-                // 启动构建（DTE 方式是同步阻塞的，用 Task.Run 包裹）
+                // 启动构建
                 bool buildSuccess = await Task.Run(() =>
                 {
-                    // ── 方案 A：ExecuteCommand（兼容 CMake/Open Folder）──
+                    // ── 方案 A：SolutionBuild.Build（等待构建完成，兼容 CMake/Open Folder）──
                     try
                     {
-                        dte.ExecuteCommand("Build.BuildSolution");
+                        solutionBuild.Build(true); // true = WaitForBuildToFinish
                         return solutionBuild.LastBuildInfo == 0; // 0 errors = success
                     }
-                    catch (Exception exCmd)
+                    catch (Exception exBuild)
                     {
-                        Logger.Warn($"[BuildService] DTE ExecuteCommand 异常: {exCmd.Message}");
+                        Logger.Warn($"[BuildService] DTE SolutionBuild.Build 异常: {exBuild.Message}");
 
-                        // ── 方案 B：SolutionBuild.Build 回退（传统 .sln 项目）──
+                        // ── 方案 B：ExecuteCommand 回退（部分项目类型不支持 Build 方法）──
                         try
                         {
-                            solutionBuild.Build(true); // true = WaitForBuildToFinish
+                            dte.ExecuteCommand("Build.BuildSolution");
+                            // ExecuteCommand 是异步的，必须等待构建实际完成
+                            if (!WaitForDteBuildCompletion(solutionBuild, TimeSpan.FromMinutes(5)))
+                            {
+                                Logger.Warn("[BuildService] ⚠️ DTE 构建等待超时");
+                                return false;
+                            }
                             return solutionBuild.LastBuildInfo == 0;
                         }
-                        catch (Exception exBuild)
+                        catch (Exception exCmd)
                         {
-                            Logger.Warn($"[BuildService] DTE SolutionBuild.Build 异常: {exBuild.Message}");
+                            Logger.Warn($"[BuildService] DTE ExecuteCommand 异常: {exCmd.Message}");
                             return false;
                         }
                     }
@@ -216,9 +222,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         #region Result Helpers
 
-        private static string BuildResultFromEvents(BuildEventsSink sink)
+        private static string? BuildResultFromEvents(BuildEventsSink sink)
         {
             sink.GetBuildResult(out int succeeded, out int failed, out int cancelled);
+
+            // ── 0 个项目被构建：CMake / Open Folder 项目可能不被 IVsSolutionBuildManager 支持 ──
+            if (succeeded == 0 && failed == 0 && cancelled == 0)
+            {
+                Logger.Info("[BuildService] ⚠️ IVsSolutionBuildManager 未构建任何项目（可能是 CMake/Open Folder），回退到 DTE");
+                return null!; // 返回 null 触发回退到 DTE
+            }
 
             if (failed == 0 && cancelled == 0)
             {
@@ -582,6 +595,47 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             return entry;
+        }
+
+        #endregion
+
+        #region DTE Build Wait Helper
+
+        /// <summary>
+        /// 等待 DTE 构建完成（ExecuteCommand 是异步的，必须轮询 BuildState）。
+        /// 超时返回 false。
+        /// </summary>
+        private static bool WaitForDteBuildCompletion(EnvDTE.SolutionBuild solutionBuild, TimeSpan timeout)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            const int pollIntervalMs = 500;
+
+            // ── 先等待构建开始（BuildState 变为 InProgress）──
+            while (solutionBuild.BuildState != EnvDTE.vsBuildState.vsBuildStateInProgress)
+            {
+                if (sw.Elapsed >= timeout)
+                {
+                    Logger.Warn("[BuildService] ⏱️ 等待 DTE 构建启动超时");
+                    return false;
+                }
+                System.Threading.Thread.Sleep(pollIntervalMs);
+            }
+
+            Logger.Info("[BuildService] DTE 构建已启动，等待完成...");
+
+            // ── 等待构建完成（BuildState 不再是 InProgress）──
+            while (solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress)
+            {
+                if (sw.Elapsed >= timeout)
+                {
+                    Logger.Warn("[BuildService] ⏱️ DTE 构建执行超时");
+                    return false;
+                }
+                System.Threading.Thread.Sleep(pollIntervalMs);
+            }
+
+            Logger.Info($"[BuildService] DTE 构建完成，耗时 {sw.Elapsed.TotalSeconds:F1}s, LastBuildInfo={solutionBuild.LastBuildInfo}");
+            return true;
         }
 
         #endregion
