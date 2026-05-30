@@ -313,9 +313,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     AiPrompts.AgentRoutingUserPrompt, messageForClassification);
 
                 var askAgent = EnsureAgent(AgentType.Ask);
-                string response = await askAgent.CallAiShortAsync(
-                    AiPrompts.AgentRoutingSystemPrompt,
-                    classificationPrompt, ct, maxTokens: 512);
+                string response;
+                try
+                {
+                    response = await askAgent.CallAiShortAsync(
+                        AiPrompts.AgentRoutingSystemPrompt,
+                        classificationPrompt, ct, maxTokens: 512);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Info($"[AgentDispatcher] AI 路由调用失败 ({ex.GetType().Name}: {ex.Message})，回退到启发式");
+                    return HeuristicRoute(userMessage);
+                }
 
                 string json = ExtractJsonFromText(response);
                 // 规范化 targetAgent 值：AI 可能返回小写/混合大小写（如 "ask"/"Ask"/"ASK"），
@@ -330,12 +339,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
                 catch (JsonException jex)
                 {
-                    Logger.Info($"[AgentDispatcher] JSON 反序列化失败: {jex.Message}，尝试文本回退解析");
+                    Logger.Info($"[AgentDispatcher] AI 路由 JSON 解析失败: {jex.Message}");
                     routing = FallbackParseRouting(response, json);
                 }
                 catch (FormatException fex)
                 {
-                    Logger.Info($"[AgentDispatcher] 格式异常: {fex.Message}，尝试文本回退解析");
+                    Logger.Info($"[AgentDispatcher] AI 路由格式异常: {fex.Message}");
                     routing = FallbackParseRouting(response, json);
                 }
 

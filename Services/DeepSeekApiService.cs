@@ -338,7 +338,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         cacheInfo = $"{chunk.Usage.PromptCacheHitTokens}|{chunk.Usage.PromptCacheMissTokens}|{chunk.Usage.PromptTokens}|{chunk.Usage.CompletionTokens}";
                     }
                 }
-                catch (JsonException) { continue; }
+                catch (Exception ex) when (ex is JsonException || ex is FormatException || ex is InvalidOperationException)
+                {
+                    Logger.Warn($"[API] 流式数据解析失败，跳过该 chunk: {ex.Message} (data={jsonData.Truncate(200)})");
+                    continue;
+                }
 
                 // ── 元数据（thinking/tool_call）到来前先刷出已聚合的内容 ──
                 bool hasMeta = !string.IsNullOrEmpty(reasoning) || !string.IsNullOrEmpty(toolCallJson);
