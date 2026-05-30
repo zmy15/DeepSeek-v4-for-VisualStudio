@@ -1261,15 +1261,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
         }
 
-        /// <summary>
-        /// 从 VS Task List 收集编译错误详情。
-        /// 委托给 BuildService.CollectBuildErrors() 统一实现。
-        /// </summary>
-        private static string CollectBuildErrors()
-        {
-            return BuildService.CollectBuildErrors();
-        }
-
         #endregion
 
         #region Step Classification & Prompt

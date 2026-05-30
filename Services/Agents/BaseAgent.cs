@@ -317,8 +317,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 循环检测状态 ──
             var callSignatureHistory = new List<string>();
             var toolCallHistory = new List<(int Round, string Summary)>();
+            var lastResultBySignature = new Dictionary<string, string>();  // 跟踪每次调用的结果
             int consecutiveErrorRounds = 0;
-            const int maxRepeatedSameCall = 3;
+            const int maxRepeatedSameCall = 5;    // 同一调用最多重复 5 次
             const int maxConsecutiveErrors = 5;
             const int safetyLimit = 200;
             bool loopDetected = false;
@@ -666,48 +667,83 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         roundSignatures.Add(sig);
                     }
 
-                    // 检测同一调用重复
+                    // 检测同一调用重复（带同结果判断：只有每次返回相同结果才终止）
                     foreach (var sig in roundSignatures)
                     {
                         int repeatCount = callSignatureHistory.Count(s => s == sig);
                         if (repeatCount >= maxRepeatedSameCall)
                         {
-                            loopDetected = true;
                             string toolName = sig.Split('|')[0];
-                            Logger.Warn($"[Agent:{Definition.Name}] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次");
 
-                            // ── 附加上次 AI 的上下文总结和最后一次工具调用结果摘要 ──
-                            var terminatedBuilder = new StringBuilder();
-
-                            // 1. AI 本轮文字回复
-                            terminatedBuilder.Append(contentBuilder);
-
-                            // 2. 历史工具调用总结（帮助用户理解 AI 做了什么）
-                            if (toolCallHistory.Count > 0)
-                            {
-                                terminatedBuilder.Append("\n\n---\n### 🔙 此前 AI 执行的操作\n");
-                                int startRound = toolCallHistory[0].Round;
-                                foreach (var (r, summary) in toolCallHistory)
-                                {
-                                    string prefix = r == round ? "🔄" : $"第{r - startRound + 1}轮";
-                                    terminatedBuilder.AppendLine($"- {prefix} {summary}");
-                                }
-                            }
-
-                            // 3. 最后一次工具调用结果
+                            // ── 同结果检测：找到本轮该签名对应的工具执行结果 ──
+                            string? currentResult = null;
                             for (int i = 0; i < toolResults.Length && i < toolCalls.Count; i++)
                             {
-                                string result = toolResults[i];
-                                if (!string.IsNullOrWhiteSpace(result))
-                                {
-                                    terminatedBuilder.Append($"\n\n### 📋 最后一次 `{toolCalls[i].Function.Name}` 结果\n\n{result.Truncate(3000)}");
-                                }
+                                string tcSig = toolCalls[i].Function.Name + "|" +
+                                    (toolCalls[i].Function.Arguments.Length > 200
+                                        ? toolCalls[i].Function.Arguments.Substring(0, 200)
+                                        : toolCalls[i].Function.Arguments);
+                                if (tcSig == sig) { currentResult = toolResults[i]; break; }
                             }
 
-                            terminatedBuilder.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次，已自动终止循环。请根据以上工具结果修复问题后重新请求。");
-                            contentBuilder.Clear();
-                            contentBuilder.Append(terminatedBuilder.ToString());
-                            break;
+                            // 检查与上次结果是否相同
+                            bool sameResult = currentResult != null
+                                && lastResultBySignature.TryGetValue(sig, out string? prevResult)
+                                && AreResultsSubstantiallySame(prevResult, currentResult);
+
+                            if (sameResult)
+                            {
+                                // 结果相同 → 真正的死循环，终止
+                                loopDetected = true;
+                                Logger.Warn($"[Agent:{Definition.Name}] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次且每次返回相同结果");
+
+                                var terminatedBuilder = new StringBuilder();
+                                terminatedBuilder.Append(contentBuilder);
+
+                                if (toolCallHistory.Count > 0)
+                                {
+                                    terminatedBuilder.Append("\n\n---\n### 🔙 此前 AI 执行的操作\n");
+                                    int startRound = toolCallHistory[0].Round;
+                                    foreach (var (r, summary) in toolCallHistory)
+                                    {
+                                        string prefix = r == round ? "🔄" : $"第{r - startRound + 1}轮";
+                                        terminatedBuilder.AppendLine($"- {prefix} {summary}");
+                                    }
+                                }
+
+                                for (int i = 0; i < toolResults.Length && i < toolCalls.Count; i++)
+                                {
+                                    string result = toolResults[i];
+                                    if (!string.IsNullOrWhiteSpace(result))
+                                        terminatedBuilder.Append($"\n\n### 📋 最后一次 `{toolCalls[i].Function.Name}` 结果\n\n{result.Truncate(3000)}");
+                                }
+
+                                terminatedBuilder.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次且每次返回相同结果，已自动终止循环。请根据以上工具结果修复问题后重新请求。");
+                                contentBuilder.Clear();
+                                contentBuilder.Append(terminatedBuilder.ToString());
+                                break;
+                            }
+                            else
+                            {
+                                // 结果不同 → 用户正在修复问题，重置该签名的计数并记录本次结果
+                                if (currentResult != null)
+                                    lastResultBySignature[sig] = currentResult;
+                                callSignatureHistory.RemoveAll(s => s == sig);
+                                Logger.Info($"[Agent:{Definition.Name}] 🔄 {toolName} 重复 {repeatCount} 次但结果不同，可能是用户在修复问题，继续执行");
+                            }
+                        }
+                        else
+                        {
+                            // 正常记录结果（用于后续比较）
+                            for (int i = 0; i < toolResults.Length && i < toolCalls.Count; i++)
+                            {
+                                string tcSig = toolCalls[i].Function.Name + "|" +
+                                    (toolCalls[i].Function.Arguments.Length > 200
+                                        ? toolCalls[i].Function.Arguments.Substring(0, 200)
+                                        : toolCalls[i].Function.Arguments);
+                                if (tcSig == sig && !string.IsNullOrWhiteSpace(toolResults[i]))
+                                    lastResultBySignature[sig] = toolResults[i];
+                            }
                         }
                     }
 
@@ -1893,6 +1929,71 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             if (string.IsNullOrEmpty(filePath)) return filePath;
             return filePath.Replace('/', '\\').Trim().TrimEnd('\\');
+        }
+
+        /// <summary>
+        /// 判断两次工具调用结果是否实质相同（用于循环检测）。
+        /// 对错误类工具（get_errors、build_solution）提取核心错误行比较，
+        /// 避免因时间戳等噪声导致误判。
+        /// </summary>
+        private static bool AreResultsSubstantiallySame(string prevResult, string currentResult)
+        {
+            if (string.IsNullOrEmpty(prevResult) && string.IsNullOrEmpty(currentResult))
+                return true;
+            if (string.IsNullOrEmpty(prevResult) || string.IsNullOrEmpty(currentResult))
+                return false;
+
+            // ── 快速路径：完全一致 ──
+            string a = prevResult.Trim();
+            string b = currentResult.Trim();
+            if (a == b) return true;
+
+            // ── 提取错误行（以 "error " 或 "错误" 开头的行）进行比较 ──
+            var prevErrors = ExtractErrorLines(a);
+            var currErrors = ExtractErrorLines(b);
+
+            if (prevErrors.Count == 0 && currErrors.Count == 0)
+            {
+                // 无错误行时，比较长度相似度（容忍 10% 差异）
+                int lenDiff = Math.Abs(a.Length - b.Length);
+                int maxLen = Math.Max(a.Length, b.Length);
+                return maxLen > 0 && (double)lenDiff / maxLen < 0.1;
+            }
+
+            if (prevErrors.Count != currErrors.Count)
+                return false;
+
+            // 逐行比较错误内容
+            for (int i = 0; i < prevErrors.Count; i++)
+            {
+                if (!string.Equals(prevErrors[i], currErrors[i], StringComparison.Ordinal))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 从工具结果中提取核心错误行（忽略时间戳、构建配置等可变前缀）。
+        /// </summary>
+        private static List<string> ExtractErrorLines(string result)
+        {
+            var errors = new List<string>();
+            foreach (var line in result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string trimmed = line.Trim();
+                // 匹配典型的编译错误行格式: "error CS1234:" 或 "错误 CS1234:" 或 "error :" 等
+                if (trimmed.Contains("error", StringComparison.OrdinalIgnoreCase)
+                    && !trimmed.StartsWith("0 Error", StringComparison.OrdinalIgnoreCase)
+                    && !trimmed.StartsWith("0 错误", StringComparison.OrdinalIgnoreCase)
+                    && !trimmed.Contains("0 Error", StringComparison.OrdinalIgnoreCase)
+                    && !trimmed.Contains("0 错误", StringComparison.OrdinalIgnoreCase))
+                {
+                    // 去掉行号前缀（如 "  (123,45): " 格式），保留核心错误描述
+                    errors.Add(trimmed);
+                }
+            }
+            return errors;
         }
 
         #endregion

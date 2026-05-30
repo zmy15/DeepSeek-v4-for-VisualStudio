@@ -1,5 +1,6 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
+using Microsoft.VisualStudio.Shell;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -137,6 +138,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             // ── 委托给 BuildService.CollectBuildErrors() ──
             try
             {
+                // ── 检查构建是否仍在进行中（避免返回过时/不完整的错误）──
+                string? buildStatus = CheckBuildInProgress();
+                if (buildStatus != null)
+                    return buildStatus;
+
                 string errors = BuildService.CollectBuildErrors();
 
                 if (!string.IsNullOrWhiteSpace(errors))
@@ -148,12 +154,52 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     return sb.ToString().TrimEnd();
                 }
 
-                return "🔧 编译错误检查: 未检测到编译错误。如果刚完成构建且预期有错误，请先调用 build_solution 触发编译。";
+                return "🔧 编译错误检查: 未检测到编译错误。\n\n" +
+                       "💡 说明：\n" +
+                       "- 如果刚通过 `build_solution` 触发了构建，请等待构建完成后再调用 `get_errors`。\n" +
+                       "- 如果构建已完成且确实无错误，则代码编译通过。";
             }
             catch (Exception ex)
             {
                 Logger.Warn($"[BuiltInTool] get_errors 异常: {ex.Message}");
                 return $"❌ 获取编译错误失败: {ex.Message}\n💡 建议使用 build_solution 工具触发编译并获取错误详情。";
+            }
+        }
+
+        /// <summary>
+        /// 检查 VS 中是否正在构建。如果正在构建，返回提示消息让 AI 等待；
+        /// 返回 null 表示没有构建在进行中。
+        /// </summary>
+        private static string? CheckBuildInProgress()
+        {
+            try
+            {
+                return ThreadHelper.JoinableTaskFactory.Run(async () =>
+                {
+                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                    var dte = (EnvDTE.DTE?)Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider
+                        .GetService(typeof(EnvDTE.DTE));
+                    if (dte == null) return null;
+
+                    var solutionBuild = dte.Solution?.SolutionBuild;
+                    if (solutionBuild == null) return null;
+
+                    if (solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress)
+                    {
+                        Logger.Info("[BuiltInTool] get_errors: 构建仍在进行中，提示 AI 等待");
+                        return "⏳ 构建仍在进行中，错误列表可能不完整。\n\n" +
+                               "请等待构建完成后再调用 `get_errors`。\n" +
+                               "💡 提示：CMake 项目构建通常需要 1-5 分钟，大型项目可能更长。";
+                    }
+
+                    return null;
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BuiltInTool] 检查构建状态异常: {ex.Message}");
+                return null; // 检查失败不影响正常流程
             }
         }
     }

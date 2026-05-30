@@ -537,10 +537,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // ── 循环检测状态 ──
                     var callSignatureHistory = new Queue<string>();          // O(1) 入队/出队
                     var callSignatureCount = new Dictionary<string, int>();  // O(1) 计数
+                    var lastResultBySignature = new Dictionary<string, string>(); // 跟踪每次调用结果
                     var toolCallHistory = new List<(int Round, string Summary)>();
                     int consecutiveErrorRounds = 0;                         // 连续错误轮次计数
                     const int maxHistorySize = 30;
-                    const int maxRepeatedSameCall = 3;
+                    const int maxRepeatedSameCall = 5;    // 同一调用最多重复 5 次
                     const int maxConsecutiveErrors = 5;             // 连续错误上限
                     const int safetyLimit = 200;                     // 绝对安全上限
                     bool loopDetected = false;
@@ -899,7 +900,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                             // ── 循环检测 ──
                             // 收集本轮所有工具调用的签名和结果用于检测
-                            var roundResults = new List<(string Signature, bool IsError)>();
+                            // 注：此处仅建签名，结果稍后在工具执行完成后回填
+                            var roundResults = new List<(string Signature, string Result)>();
                             foreach (var acc in toolCallAccumulator.Values)
                             {
                                 if (string.IsNullOrEmpty(acc.FunctionName)) continue;
@@ -927,50 +929,73 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     }
                                 }
 
-                                roundResults.Add((sig, false)); // will set error flag below
+                                roundResults.Add((sig, string.Empty)); // result 稍后回填
                             }
 
-                            // 检测同一调用重复（O(1) 查表，替代 O(n) 遍历）
-                            foreach (var (sig, _) in roundResults)
+                            // 检测同一调用重复（带同结果判断：只有每次返回相同结果才终止）
+                            // 先回填结果：按索引对应 recentToolFullResults
+                            for (int i = 0; i < roundResults.Count && i < recentToolFullResults.Count; i++)
+                            {
+                                roundResults[i] = (roundResults[i].Signature, recentToolFullResults[i].Result);
+                            }
+
+                            foreach (var (sig, currentResult) in roundResults)
                             {
                                 if (callSignatureCount.TryGetValue(sig, out int repeatCount)
                                     && repeatCount >= maxRepeatedSameCall)
                                 {
-                                    loopDetected = true;
                                     string toolName = sig.Split('|')[0];
-                                    Logger.Warn($"[MCP] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次");
 
-                                    // ── 附加上次 AI 的上下文总结和最后一次工具调用结果摘要 ──
-                                    var terminatedBuilder = new System.Text.StringBuilder();
+                                    // ── 同结果检测：比较本次与上次结果 ──
+                                    bool sameResult = !string.IsNullOrWhiteSpace(currentResult)
+                                        && lastResultBySignature.TryGetValue(sig, out string? prevResult)
+                                        && AreToolResultsSame(prevResult, currentResult);
 
-                                    // 1. AI 本轮文字回复
-                                    terminatedBuilder.Append(contentBuffer);
-
-                                    // 2. 历史工具调用总结
-                                    if (toolCallHistory.Count > 0)
+                                    if (sameResult)
                                     {
-                                        terminatedBuilder.Append("\n\n---\n### 🔙 此前 AI 执行的操作\n");
-                                        int startRound = toolCallHistory[0].Round;
-                                        foreach (var (r, summary) in toolCallHistory)
-                                        {
-                                            string prefix = r == round ? "🔄" : $"第{r - startRound + 1}轮";
-                                            terminatedBuilder.AppendLine($"- {prefix} {summary}");
-                                        }
-                                    }
+                                        // 结果相同 → 真正的死循环，终止
+                                        loopDetected = true;
+                                        Logger.Warn($"[MCP] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次且每次返回相同结果");
 
-                                    // 3. 最后一次工具调用结果
-                                    foreach (var (name, result) in recentToolFullResults)
+                                        var terminatedBuilder = new System.Text.StringBuilder();
+                                        terminatedBuilder.Append(contentBuffer);
+
+                                        if (toolCallHistory.Count > 0)
+                                        {
+                                            terminatedBuilder.Append("\n\n---\n### 🔙 此前 AI 执行的操作\n");
+                                            int startRound = toolCallHistory[0].Round;
+                                            foreach (var (r, summary) in toolCallHistory)
+                                            {
+                                                string prefix = r == round ? "🔄" : $"第{r - startRound + 1}轮";
+                                                terminatedBuilder.AppendLine($"- {prefix} {summary}");
+                                            }
+                                        }
+
+                                        foreach (var (name, result) in recentToolFullResults)
+                                        {
+                                            if (!string.IsNullOrWhiteSpace(result))
+                                                terminatedBuilder.Append($"\n\n### 📋 最后一次 `{name}` 结果\n\n{result.Truncate(3000)}");
+                                        }
+
+                                        terminatedBuilder.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次且每次返回相同结果，已自动终止循环。请根据以上工具结果修复问题后重新请求。");
+                                        contentBuffer.Clear();
+                                        contentBuffer.Append(terminatedBuilder.ToString());
+                                        break;
+                                    }
+                                    else
                                     {
-                                        if (!string.IsNullOrWhiteSpace(result))
-                                        {
-                                            terminatedBuilder.Append($"\n\n### 📋 最后一次 `{name}` 结果\n\n{result.Truncate(3000)}");
-                                        }
+                                        // 结果不同 → 用户正在修复问题，重置该签名的计数
+                                        if (!string.IsNullOrWhiteSpace(currentResult))
+                                            lastResultBySignature[sig] = currentResult;
+                                        callSignatureCount[sig] = 0; // 重置计数
+                                        Logger.Info($"[MCP] 🔄 {toolName} 重复 {repeatCount} 次但结果不同，可能是用户在修复问题，继续执行");
                                     }
-
-                                    terminatedBuilder.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次，已自动终止循环。请根据以上工具结果修复问题后重新请求。");
-                                    contentBuffer.Clear();
-                                    contentBuffer.Append(terminatedBuilder.ToString());
-                                    break;
+                                }
+                                else
+                                {
+                                    // 正常记录结果（用于后续比较）
+                                    if (!string.IsNullOrWhiteSpace(currentResult))
+                                        lastResultBySignature[sig] = currentResult;
                                 }
                             }
 
@@ -1662,6 +1687,68 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Warn($"[OCR-Sanitize] 参数预处理异常: {ex.Message}");
                 return argumentsJson;
             }
+        }
+
+        /// <summary>
+        /// 判断两次工具调用结果是否实质相同（用于循环检测）。
+        /// 对错误类工具（get_errors、build_solution）提取核心错误行比较，
+        /// 避免因时间戳等噪声导致误判。
+        /// </summary>
+        private static bool AreToolResultsSame(string prevResult, string currentResult)
+        {
+            if (string.IsNullOrEmpty(prevResult) && string.IsNullOrEmpty(currentResult))
+                return true;
+            if (string.IsNullOrEmpty(prevResult) || string.IsNullOrEmpty(currentResult))
+                return false;
+
+            // ── 快速路径：完全一致 ──
+            string a = prevResult.Trim();
+            string b = currentResult.Trim();
+            if (a == b) return true;
+
+            // ── 提取错误行进行比较 ──
+            var prevErrors = ExtractToolErrorLines(a);
+            var currErrors = ExtractToolErrorLines(b);
+
+            if (prevErrors.Count == 0 && currErrors.Count == 0)
+            {
+                // 无错误行时，比较长度相似度（容忍 10% 差异）
+                int lenDiff = Math.Abs(a.Length - b.Length);
+                int maxLen = Math.Max(a.Length, b.Length);
+                return maxLen > 0 && (double)lenDiff / maxLen < 0.1;
+            }
+
+            if (prevErrors.Count != currErrors.Count)
+                return false;
+
+            for (int i = 0; i < prevErrors.Count; i++)
+            {
+                if (!string.Equals(prevErrors[i], currErrors[i], StringComparison.Ordinal))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 从工具结果中提取核心错误行（忽略时间戳、构建配置等可变前缀）。
+        /// </summary>
+        private static List<string> ExtractToolErrorLines(string result)
+        {
+            var errors = new List<string>();
+            foreach (var line in result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string trimmed = line.Trim();
+                if (trimmed.Contains("error", StringComparison.OrdinalIgnoreCase)
+                    && !trimmed.StartsWith("0 Error", StringComparison.OrdinalIgnoreCase)
+                    && !trimmed.StartsWith("0 错误", StringComparison.OrdinalIgnoreCase)
+                    && !trimmed.Contains("0 Error", StringComparison.OrdinalIgnoreCase)
+                    && !trimmed.Contains("0 错误", StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.Add(trimmed);
+                }
+            }
+            return errors;
         }
 
         /// <summary>
