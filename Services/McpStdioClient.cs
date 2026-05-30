@@ -25,7 +25,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// 4. 发送 tools/list 获取工具列表
     /// 5. 保持连接，随时发送 tools/call
     /// </summary>
-    public class McpStdioClient : IDisposable
+    public class McpStdioClient : IMcpClient
     {
         private readonly McpServerConfig _config;
         private Process? _process;
@@ -39,6 +39,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public List<McpTool> Tools { get; private set; } = new();
         public bool IsConnected { get; private set; }
         public string ServerName => _config.Name;
+        public string Transport => "stdio";
 
         public McpStdioClient(McpServerConfig config)
         {
@@ -145,7 +146,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             progress?.Invoke(LocalizationService.Instance["mcp.handshaking"]);
             var initParams = new InitializeParams
             {
-                ProtocolVersion = "2024-11-05",
+                ProtocolVersion = "2025-11-25",
                 Capabilities = new ClientCapabilities
                 {
                     Roots = new CapabilityRoots { ListChanged = true }

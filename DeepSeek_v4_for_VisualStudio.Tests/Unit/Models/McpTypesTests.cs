@@ -99,7 +99,7 @@ public class McpTypesTests
     {
         var init = new InitializeParams();
 
-        init.ProtocolVersion.Should().Be("2024-11-05");
+        init.ProtocolVersion.Should().Be("2025-11-25");
         init.Capabilities.Should().NotBeNull();
         init.ClientInfo.Should().NotBeNull();
     }

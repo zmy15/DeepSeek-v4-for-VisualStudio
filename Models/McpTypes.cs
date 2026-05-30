@@ -8,8 +8,8 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 {
     // ========================================================================
     // MCP (Model Context Protocol) JSON-RPC 2.0 类型定义
-    // 协议版本: 2024-11-05
-    // 参考: https://spec.modelcontextprotocol.io/
+    // 协议版本: 2025-11-25 (无状态架构)
+    // 参考: https://modelcontextprotocol.io/specification/2025-11-25/
     // ========================================================================
 
     #region JSON-RPC 2.0 基础类型
@@ -92,7 +92,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
     public class InitializeParams
     {
         [JsonPropertyName("protocolVersion")]
-        public string ProtocolVersion { get; set; } = "2024-11-05";
+        public string ProtocolVersion { get; set; } = "2025-11-25";
 
         [JsonPropertyName("capabilities")]
         public ClientCapabilities Capabilities { get; set; } = new();
@@ -151,8 +151,17 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [JsonPropertyName("prompts")]
         public PromptsCapability? Prompts { get; set; }
 
-        [JsonPropertyName("logging")]
-        public object? Logging { get; set; }
+        [JsonPropertyName("tasks")]
+        public TasksCapability? Tasks { get; set; }
+    }
+
+    /// <summary>
+    /// 2025-11-25: 实验性异步任务能力
+    /// </summary>
+    public class TasksCapability
+    {
+        [JsonPropertyName("listChanged")]
+        public bool ListChanged { get; set; }
     }
 
     public class ToolsCapability
