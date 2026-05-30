@@ -104,9 +104,11 @@ namespace DeepSeek_v4_for_VisualStudio.Models
     public class ClientCapabilities
     {
         [JsonPropertyName("roots")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public CapabilityRoots? Roots { get; set; }
 
         [JsonPropertyName("sampling")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public object? Sampling { get; set; }
     }
 
