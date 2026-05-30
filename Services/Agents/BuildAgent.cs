@@ -183,6 +183,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private string BuildEnhancedUserMessage(string userMessage, AgentContext context)
         {
             var sb = new StringBuilder();
+
+            // ── 附加文件内容（用户通过 @file 或附件面板附加的文件）──
+            if (!string.IsNullOrEmpty(context.FileContext))
+            {
+                sb.AppendLine(context.FileContext);
+                sb.AppendLine();
+            }
+
             sb.AppendLine(userMessage);
 
             // ── 如果有活动计划，附加变更文件信息 ──
