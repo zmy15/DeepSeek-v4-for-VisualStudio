@@ -89,7 +89,7 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .task-close:hover{background:#c0392b;color:#fff;border-color:#c0392b;transform:scale(1.1)}
 .task-close.finished{background:#3C1A1A;color:#E07878;border-color:#6A3A3A}
 .task-close.finished:hover{background:#c0392b;color:#fff;border-color:#c0392b}
-.agent-task-panel-body{padding:10px 14px}
+.agent-task-panel-body{padding:10px 14px;max-height:30vh;overflow-y:auto}
 /* ── 终端命令审批卡片样式 ── */
 .terminal-approval-card{margin:12px 0;border:1px solid #5a4a2a;border-radius:10px;background:#1e1a12;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.3)}
 .terminal-approval-card-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#2a2218;border-bottom:1px solid #3a2e1a;font-size:13px;font-weight:600;color:#e0c870}
