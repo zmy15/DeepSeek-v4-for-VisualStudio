@@ -410,17 +410,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "plan", "方案", "策略", "选型" };
 
             // 代码修改类关键词
-            var editKeywords = new[] { "修改", "修复", "fix", "改", "添加功能", "实现",
-                "implement", "重构", "refactor", "优化", "optimize", "bug", "错误", "报错",
+            var editKeywords = new[] { "修改", "改", "添加功能", "实现",
+                "implement", "重构", "refactor", "优化", "optimize",
                 "写一个", "创建一个", "增加", "删除", "更新代码", "改代码", "帮我写",
                 "coding", "代码", "函数", "function", "class", "类", "接口", "interface",
-                "方法", "method", "出错了", "不工作", "报异常", "exception", "崩溃", "crash",
+                "方法", "method",
                 "改一下", "修改一下", "完善", "改进", "测试", "单元测试", "生成", "编写" };
 
             // 构建修复类关键词（优先级高于普通修改）
             var buildKeywords = new[] { "编译不过", "编译失败", "编译错误", "构建失败",
                 "build error", "build failed", "生成失败", "生成错误", "链接错误",
-                "link error", "无法编译", "编译不通过", "生成解决方案" };
+                "link error", "无法编译", "编译不通过", "生成解决方案",
+                "修复", "fix", "bug", "报错", "错误", "出错了", "不工作",
+                "报异常", "exception", "崩溃", "crash", "解决", "排查" };
 
             bool hasPlanKeyword = planKeywords.Any(k =>
                 userMessage.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
