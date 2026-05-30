@@ -76,7 +76,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             try
             {
                 Logger.Info($"[BuiltInTool] build_solution 开始 (workspaceRoot={workspaceRoot ?? "(null)"})");
-                string result = await _buildService.BuildAsync(workspaceRoot, CancellationToken.None);
+                // ── 异步启动构建：立即返回，不等待构建完成 ──
+                // 构建结果会输出到 VS 输出窗口和错误列表，Agent 随后通过 get_errors 获取
+                string result = await _buildService.StartBuildAsync(workspaceRoot);
                 Logger.Info($"[BuiltInTool] build_solution 完成: {(result.Length > 200 ? result.Substring(0, 200) + "..." : result)}");
                 return result;
             }

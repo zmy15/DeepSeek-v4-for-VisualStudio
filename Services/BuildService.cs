@@ -37,6 +37,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             Logger.Info($"[BuildService] 开始构建 (CMake={isCmakeProject}, workspace={workspaceDir ?? "(null)"})");
 
+            // ── CMake 项目：直接走 DTE ExecuteCommand 路径 ──
+            // IVsSolutionBuildManager 和 DTE SolutionBuild.Build 对 CMake/Open Folder
+            // 项目均不兼容（pSlnCfg 为 null 导致 E_POINTER / ArgumentNullException）。
+            if (isCmakeProject)
+            {
+                return await BuildWithExecuteCommandAsync(ct);
+            }
+
             // ── 方案1：IVsSolutionBuildManager（VS 2022 支持 .sln 和 CMake/Open Folder）──
             string? slnResult = await TryBuildWithSolutionManagerAsync(ct);
             if (slnResult != null)
@@ -51,7 +59,141 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             return LocalizationService.Instance["build.noBuildSystem"];
         }
 
+        /// <summary>
+        /// 异步启动构建 — 通过 DTE ExecuteCommand 触发构建后立即返回。
+        /// 不等待构建完成，构建结果会输出到 VS 输出窗口和错误列表。
+        /// 适用于 CMake/Open Folder 项目（IVsSolutionBuildManager 和 DTE SolutionBuild.Build 均不兼容）。
+        /// </summary>
+        public async Task<string> StartBuildAsync(string? solutionPath)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            string? workspaceDir = NormalizeToDirectory(solutionPath);
+            bool isCmakeProject = IsCmakeProject(workspaceDir);
+
+            Logger.Info($"[BuildService] 异步启动构建 (CMake={isCmakeProject}, workspace={workspaceDir ?? "(null)"})");
+
+            try
+            {
+                var dte = (EnvDTE.DTE?)ServiceProvider.GlobalProvider
+                    .GetService(typeof(EnvDTE.DTE));
+                if (dte == null)
+                {
+                    Logger.Warn("[BuildService] 无法获取 DTE，异步构建启动失败");
+                    return "❌ 无法连接到 Visual Studio DTE，请确认 VS 已打开解决方案/文件夹。";
+                }
+
+                if (dte.Solution == null || string.IsNullOrEmpty(dte.Solution.FullName))
+                {
+                    Logger.Warn("[BuildService] 未打开解决方案/文件夹，异步构建启动失败");
+                    return "❌ 当前未打开任何解决方案或文件夹，请先在 VS 中打开项目。";
+                }
+
+                // ── 检查是否已有构建在进行中 ──
+                var solutionBuild = dte.Solution?.SolutionBuild;
+                if (solutionBuild != null && solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress)
+                {
+                    Logger.Info("[BuildService] 构建已在后台运行中");
+                    return "🔨 构建已在后台运行中。请等待构建完成后使用 get_errors 检查编译错误。";
+                }
+
+                // ── 通过 ExecuteCommand 启动构建（兼容 CMake/MSBuild 等所有项目类型）──
+                Logger.Info("[BuildService] 通过 DTE ExecuteCommand 异步启动构建...");
+                dte.ExecuteCommand("Build.BuildSolution");
+
+                string projectType = isCmakeProject ? "CMake" : "MSBuild";
+                return $"🔨 构建已启动（{projectType} 项目）。\n\n" +
+                       $"构建正在后台运行，输出将显示在 VS 输出窗口和错误列表中。\n" +
+                       $"请在构建完成后使用 get_errors 工具检查编译错误。\n" +
+                       $"💡 提示：CMake 项目构建通常需要 1-5 分钟，大型项目可能更长。";
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BuildService] 异步构建启动异常: {ex.Message}");
+                return $"❌ 构建启动失败: {ex.Message}";
+            }
+        }
+
         #region Build Methods
+
+        /// <summary>
+        /// CMake/Open Folder 项目专用构建路径。
+        /// 跳过 IVsSolutionBuildManager 和 DTE SolutionBuild.Build（两者对 CMake 项目均不兼容），
+        /// 直接使用 DTE ExecuteCommand("Build.BuildSolution") 触发构建并等待完成。
+        /// </summary>
+        private static async Task<string> BuildWithExecuteCommandAsync(CancellationToken ct)
+        {
+            try
+            {
+                var dte = (EnvDTE.DTE?)ServiceProvider.GlobalProvider
+                    .GetService(typeof(EnvDTE.DTE));
+                if (dte == null)
+                {
+                    Logger.Warn("[BuildService] 无法获取 DTE");
+                    return LocalizationService.Instance["build.noBuildSystem"];
+                }
+
+                var solutionBuild = dte.Solution?.SolutionBuild;
+                if (solutionBuild == null)
+                {
+                    Logger.Warn("[BuildService] DTE.SolutionBuild 不可用");
+                    return LocalizationService.Instance["build.noBuildSystem"];
+                }
+
+                // ── 等待 DTE 就绪 ──
+                if (solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress)
+                {
+                    Logger.Info("[BuildService] 构建已在运行中，等待完成...");
+                    if (!WaitForDteBuildCompletion(solutionBuild, TimeSpan.FromMinutes(5)))
+                    {
+                        return LocalizationService.Instance["build.timeout"];
+                    }
+                    return BuildResultFromDte(solutionBuild);
+                }
+
+                // ── 启动构建 ──
+                Logger.Info("[BuildService] 正在通过 ExecuteCommand 构建解决方案 (CMake 项目)...");
+                dte.ExecuteCommand("Build.BuildSolution");
+
+                // ── 等待构建完成 ──
+                if (!WaitForDteBuildCompletion(solutionBuild, TimeSpan.FromMinutes(5)))
+                {
+                    Logger.Warn("[BuildService] ⚠️ 构建等待超时（5 分钟）");
+                    return LocalizationService.Instance["build.timeout"];
+                }
+
+                return BuildResultFromDte(solutionBuild);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BuildService] CMake 构建异常: {ex.Message}");
+                return string.Format(LocalizationService.Instance["build.dteFailed"], ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// 从 DTE SolutionBuild 状态构建结果摘要。
+        /// </summary>
+        private static string BuildResultFromDte(EnvDTE.SolutionBuild solutionBuild)
+        {
+            int lastBuildInfo = solutionBuild.LastBuildInfo;
+            if (lastBuildInfo == 0)
+            {
+                Logger.Info("[BuildService] ✅ 构建成功");
+                return LocalizationService.Instance["build.dteSuccess"];
+            }
+
+            string errors = CollectBuildErrors();
+            var result = new StringBuilder();
+            result.AppendLine(LocalizationService.Instance["build.completedWithErrors"]);
+            if (!string.IsNullOrEmpty(errors))
+            {
+                result.AppendLine();
+                result.AppendLine("## " + LocalizationService.Instance["build.errorDetails"]);
+                result.Append(errors);
+            }
+            return result.ToString();
+        }
 
         /// <summary>
         /// 使用 IVsSolutionBuildManager 构建。

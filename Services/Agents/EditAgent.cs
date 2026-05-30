@@ -673,15 +673,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         ? $"⚠️ **编辑后健全性检查发现可能的问题**: {sanityWarnings}\n" +
                           $"请在验证时重点检查这些文件的括号/圆括号是否匹配，必要时用 read_file 查看文件末尾附近。\n\n"
                         : "") +
-                    "请立即执行以下操作：\n" +
-                    "1. 第一步就调用 build_solution 工具编译验证\n" +
-                    "2. 如果编译失败且 build_solution 没有返回具体错误详情，调用 get_errors 获取错误列表\n" +
-                    "3. 根据错误信息，用 read_file 读取报错文件的相关行，用 replace_string_in_file 直接修复\n" +
-                    "4. 修复后重新调用 build_solution 验证，直到编译通过\n\n" +
+                    "请立即执行以下操作（分两轮进行）：\n" +
+                    "**第 1 轮**：只调用 build_solution 工具触发编译（build_solution 是异步的，会立即返回\"构建已启动\"）\n" +
+                    "**第 2 轮**：收到 build_solution 回复后，调用 get_errors（不带参数）获取编译错误\n" +
+                    "  - 根据错误信息，用 read_file 读取报错文件的相关行，用 replace_string_in_file 直接修复\n" +
+                    "  - 修复后重新调用 build_solution 验证\n\n" +
                     "⚠️ 重要规则：\n" +
+                    "- **不要在同一轮中同时调用 build_solution 和 get_errors**\n" +
                     "- **始终使用 build_solution 工具进行编译**，不要尝试在终端中运行 cl.exe、msbuild、dotnet build 等命令\n" +
                     "- build_solution 已内置 VS 编译环境，终端中这些工具可能不在 PATH 中而失败\n" +
-                    "- 如果 build_solution 返回的错误信息不完整，用 get_errors 补充获取\n" +
+                    "- get_errors 默认不带参数即可收集所有编译错误（从 VS 错误列表和输出窗口获取）\n" +
                     "- 最多尝试修复 3 次，但如果修复后出现的错误与之前不同（新错误），则不计入次数限制，重新计数\n\n" +
                     "如果项目不支持构建（如纯脚本项目），请直接说明并跳过验证。";
 

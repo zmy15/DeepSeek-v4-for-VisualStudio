@@ -11,12 +11,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     public interface IBuildService
     {
         /// <summary>
-        /// 执行解决方案构建。
+        /// 执行解决方案构建（同步等待完成）。
         /// </summary>
         /// <param name="solutionPath">解决方案路径或工作区根目录（.sln 文件、CMakeLists.txt 所在目录等）</param>
         /// <param name="ct">取消令牌</param>
         /// <returns>构建结果摘要（成功/失败 + 错误详情）</returns>
         Task<string> BuildAsync(string? solutionPath, CancellationToken ct);
+
+        /// <summary>
+        /// 异步启动构建（立即返回，不等待构建完成）。
+        /// 构建结果会输出到 VS 输出窗口和错误列表，可通过 get_errors 获取。
+        /// 适用于 CMake/Open Folder 项目（传统 SDK 构建 API 不兼容）。
+        /// </summary>
+        /// <param name="solutionPath">解决方案路径或工作区根目录</param>
+        /// <returns>启动状态消息</returns>
+        Task<string> StartBuildAsync(string? solutionPath);
 
         /// <summary>
         /// 获取错误列表中用户当前选中的错误项信息。
