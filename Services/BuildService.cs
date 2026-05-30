@@ -32,20 +32,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 解析工作区根目录 ──
             string? workspaceDir = NormalizeToDirectory(solutionPath);
 
-            // ── 检测是否为 CMake / Open Folder 项目（用于日志和回退策略）──
+            // ── 检测是否为 CMake / Open Folder 项目（用于日志）──
             bool isCmakeProject = IsCmakeProject(workspaceDir);
 
             Logger.Info($"[BuildService] 开始构建 (CMake={isCmakeProject}, workspace={workspaceDir ?? "(null)"})");
 
-            // ── CMake 项目：直接走 DTE ExecuteCommand 路径 ──
-            // IVsSolutionBuildManager 和 DTE SolutionBuild.Build 对 CMake/Open Folder
-            // 项目均不兼容（pSlnCfg 为 null 导致 E_POINTER / ArgumentNullException）。
-            if (isCmakeProject)
-            {
-                return await BuildWithExecuteCommandAsync(ct);
-            }
-
             // ── 方案1：IVsSolutionBuildManager（VS 2022 支持 .sln 和 CMake/Open Folder）──
+            // dwDefQueryResults 已修正为 VSSBQR_OUTOFDATE_QUERY_YES，
+            // SBF_OPERATION_FORCE_UPDATE 确保过期项目也被构建。
             string? slnResult = await TryBuildWithSolutionManagerAsync(ct);
             if (slnResult != null)
                 return slnResult; // 成功启动或明确失败
@@ -211,7 +205,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return null; // 回退
             }
 
-            // 检查构建管理器是否正忙
+            // ── 检查构建管理器是否正忙 ──
             buildManager.QueryBuildManagerBusy(out int isBusy);
             if (isBusy != 0)
             {
@@ -230,15 +224,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 Logger.Info("[BuildService] 正在构建解决方案 (IVsSolutionBuildManager)…");
 
+                // ── 修正参数：dwDefQueryResults 必须为有效枚举值，0 会导致构建取消 ──
+                // SBF_OPERATION_FORCE_UPDATE: 强制更新过期项目
+                // SBF_OPERATION_BUILD: 执行构建操作
+                // VSSBQR_OUTOFDATE_QUERY_YES: 对过期项目执行构建
+                // fSuppressUI = 0: 允许显示 UI（错误列表等）
                 int hr = buildManager.StartSimpleUpdateSolutionConfiguration(
-                    (uint)VSSOLNBUILDUPDATEFLAGS.SBF_OPERATION_BUILD,
-                    0, 0);
+                    (uint)(VSSOLNBUILDUPDATEFLAGS.SBF_OPERATION_FORCE_UPDATE |
+                           VSSOLNBUILDUPDATEFLAGS.SBF_OPERATION_BUILD),
+                    (uint)VSSOLNBUILDQUERYRESULTS.VSSBQR_OUTOFDATE_QUERY_YES,
+                    0);
 
-                if (hr < 0)
+                if (ErrorHandler.Failed(hr))
                 {
-                    Logger.Warn($"[BuildService] StartSimpleUpdateSolutionConfiguration 失败: 0x{hr:X8}");
+                    Logger.Warn($"[BuildService] StartSimpleUpdateSolutionConfiguration 失败: HRESULT=0x{hr:X8} ({GetHResultDescription(hr)})");
                     return null; // 回退到 DTE 方式
                 }
+
+                Logger.Info($"[BuildService] StartSimpleUpdateSolutionConfiguration 成功 (HRESULT=0x{hr:X8})，等待构建完成...");
 
                 // 等待构建完成（最长 5 分钟）
                 bool completed = await buildEventsSink.WaitForCompletionAsync(ct, TimeSpan.FromMinutes(5));
@@ -259,6 +262,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
                 buildEventsSink.Dispose();
             }
+        }
+
+        /// <summary>
+        /// 获取常见 HRESULT 的可读描述，辅助诊断。
+        /// </summary>
+        private static string GetHResultDescription(int hr)
+        {
+            return (uint)hr switch
+            {
+                0x80004003u => "E_POINTER（空指针/无效参数）",
+                0x80004005u => "E_FAIL（一般失败）",
+                0x8007000Eu => "E_OUTOFMEMORY（内存不足）",
+                0x80004001u => "E_NOTIMPL（未实现）",
+                _ => "未知错误"
+            };
         }
 
         /// <summary>
@@ -833,16 +851,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         #region BuildEventsSink
 
         /// <summary>
-        /// 构建事件接收器，实现 IVsUpdateSolutionEvents 以监听构建开始/完成/取消。
+        /// 构建事件接收器，实现 IVsUpdateSolutionEvents2 以监听构建开始/完成/取消/项目配置。
+        /// 所有回调方法必须快速返回，避免阻塞事件流。
         /// </summary>
-        private sealed class BuildEventsSink : IVsUpdateSolutionEvents, IDisposable
+        private sealed class BuildEventsSink : IVsUpdateSolutionEvents2, IDisposable
         {
             private readonly TaskCompletionSource<bool> _tcs = new();
             private CancellationTokenRegistration _ctRegistration;
             private int _succeeded;
             private int _failed;
             private int _cancelled;
+            private int _projectCount;
+            private int _projectSucceeded;
+            private int _projectFailed;
             private bool _disposed;
+            private readonly System.Diagnostics.Stopwatch _sw = System.Diagnostics.Stopwatch.StartNew();
 
             public async Task<bool> WaitForCompletionAsync(CancellationToken ct, TimeSpan timeout)
             {
@@ -870,11 +893,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 cancelled = _cancelled;
             }
 
-            public int UpdateSolution_Begin(ref int pfCancelUpdate) { pfCancelUpdate = 0; return VSConstants.S_OK; }
-            public int UpdateSolution_StartUpdate(ref int pfCancelUpdate) { pfCancelUpdate = 0; return VSConstants.S_OK; }
+            // ═══════════════════════════════════════════════════════════════
+            // IVsUpdateSolutionEvents
+            // ═══════════════════════════════════════════════════════════════
+
+            public int UpdateSolution_Begin(ref int pfCancelUpdate)
+            {
+                Logger.Info($"[BuildEvents] 🔨 UpdateSolution_Begin (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                pfCancelUpdate = 0;
+                return VSConstants.S_OK;
+            }
+
+            public int UpdateSolution_StartUpdate(ref int pfCancelUpdate)
+            {
+                Logger.Info($"[BuildEvents] 🔨 UpdateSolution_StartUpdate (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                pfCancelUpdate = 0;
+                return VSConstants.S_OK;
+            }
 
             public int UpdateSolution_Done(int fSucceeded, int fModified, int fCancelCommand)
             {
+                Logger.Info($"[BuildEvents] 🏁 UpdateSolution_Done: Succeeded={fSucceeded}, Modified={fModified}, Cancelled={fCancelCommand}, Projects={_projectCount} (ok={_projectSucceeded}, fail={_projectFailed}), Elapsed={_sw.Elapsed.TotalSeconds:F1}s");
                 if (fCancelCommand != 0) _cancelled = 1;
                 else if (fSucceeded != 0) _succeeded = 1;
                 else _failed = 1;
@@ -885,16 +924,99 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             public int UpdateSolution_StartUpdateProjectCfg(
                 ref int pfCancel, IVsHierarchy pHierProj, IVsCfg pCfgProj,
                 IVsCfg pCfgSln, uint dwProjectCfgOfInterest, uint dwCopyFlags, int fCancel)
-                => VSConstants.S_OK;
+            {
+                Interlocked.Increment(ref _projectCount);
+                Logger.Info($"[BuildEvents] 📦 StartUpdateProjectCfg #{_projectCount} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                return VSConstants.S_OK;
+            }
 
             public int UpdateSolution_Cancel()
             {
+                Logger.Warn($"[BuildEvents] ⚠️ UpdateSolution_Cancel (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
                 _cancelled = 1;
                 _tcs.TrySetResult(true);
                 return VSConstants.S_OK;
             }
 
-            public int OnActiveProjectCfgChange(IVsHierarchy pHierarchy) => VSConstants.S_OK;
+            public int OnActiveProjectCfgChange(IVsHierarchy pHierarchy)
+            {
+                Logger.Info($"[BuildEvents] 🔄 OnActiveProjectCfgChange (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                return VSConstants.S_OK;
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // IVsUpdateSolutionEvents2 — 增强事件（VS 2010+）
+            // ═══════════════════════════════════════════════════════════════
+
+            public int UpdateSolution_Begin2(ref int pfCancelUpdate)
+            {
+                Logger.Info($"[BuildEvents] 🔨 UpdateSolution_Begin2 (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                pfCancelUpdate = 0;
+                return VSConstants.S_OK;
+            }
+
+            public int UpdateSolution_StartUpdate2(ref int pfCancelUpdate)
+            {
+                Logger.Info($"[BuildEvents] 🔨 UpdateSolution_StartUpdate2 (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                pfCancelUpdate = 0;
+                return VSConstants.S_OK;
+            }
+
+            public int UpdateSolution_Done2(int fSucceeded, int fModified, int fCancelCommand, string? pszUpdatedProjects)
+            {
+                Logger.Info($"[BuildEvents] 🏁 UpdateSolution_Done2: Succeeded={fSucceeded}, Modified={fModified}, Cancelled={fCancelCommand}, UpdatedProjects={pszUpdatedProjects ?? "(none)"}, Elapsed={_sw.Elapsed.TotalSeconds:F1}s");
+                // Done2 在 Done 之前触发，不重复设置 _tcs
+                return VSConstants.S_OK;
+            }
+
+            public int UpdateSolution_StartUpdateProjectCfg2(
+                ref int pfCancel, IVsHierarchy pHierProj, IVsCfg pCfgProj,
+                IVsCfg pCfgSln, uint dwProjectCfgOfInterest, uint dwCopyFlags, int fCancel)
+            {
+                Logger.Info($"[BuildEvents] 📦 StartUpdateProjectCfg2 #{_projectCount} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                return VSConstants.S_OK;
+            }
+
+            public int UpdateSolution_ProjectUpdateDone(
+                int fSucceeded, int fModified, int fCancelCommand, string? pszProject)
+            {
+                if (fSucceeded != 0)
+                    Interlocked.Increment(ref _projectSucceeded);
+                else if (fCancelCommand == 0)
+                    Interlocked.Increment(ref _projectFailed);
+                Logger.Info($"[BuildEvents] 📦 ProjectUpdateDone: Succeeded={fSucceeded}, Project={pszProject ?? "(unknown)"}, Accumulated(ok={_projectSucceeded}, fail={_projectFailed})");
+                return VSConstants.S_OK;
+            }
+
+            public int OnActiveProjectCfgChange2(IVsHierarchy pHierarchy, string? pszActiveConfig)
+            {
+                Logger.Info($"[BuildEvents] 🔄 OnActiveProjectCfgChange2: Config={pszActiveConfig ?? "(none)"}");
+                return VSConstants.S_OK;
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // IVsUpdateSolutionEvents2 — 项目配置级事件（VS 2010+）
+            // ═══════════════════════════════════════════════════════════════
+
+            public int UpdateProjectCfg_Begin(
+                IVsHierarchy pHierProj, IVsCfg pCfgProj, IVsCfg pCfgSln,
+                uint dwAction, ref int pfCancel)
+            {
+                Logger.Info($"[BuildEvents] 📦 UpdateProjectCfg_Begin: Action={dwAction} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                return VSConstants.S_OK;
+            }
+
+            public int UpdateProjectCfg_Done(
+                IVsHierarchy pHierProj, IVsCfg pCfgProj, IVsCfg pCfgSln,
+                uint dwAction, int fSuccess, int fCancel)
+            {
+                Logger.Info($"[BuildEvents] 📦 UpdateProjectCfg_Done: Action={dwAction}, Success={fSuccess}, Cancel={fCancel} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                return VSConstants.S_OK;
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // IDisposable
+            // ═══════════════════════════════════════════════════════════════
 
             public void Dispose()
             {
