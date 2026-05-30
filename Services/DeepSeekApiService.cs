@@ -168,21 +168,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     msg.ReasoningContent = string.Empty;
                 }
 
-                // ── 规则 4：防止连续相同 role（DeepSeek API 要求交替）──
-                if (lastRole != null && msg.Role == lastRole)
+                // ── 规则 4：防止连续相同 role（DeepSeek API 要求 user/assistant 交替）──
+                // tool 消息连续出现是合法的（多个工具调用结果），不检查
+                if (lastRole != null && msg.Role == lastRole
+                    && (msg.Role == "user" || msg.Role == "assistant"))
                 {
-                    // tool 消息连续出现是合法的（多个工具调用结果），只检查 user/assistant
-                    if (msg.Role == "user" || msg.Role == "assistant")
-                    {
-                        Logger.Warn($"[API] 移除连续的 {msg.Role} 消息以防止 400");
-                        removedCount++;
-                        continue;
-                    }
+                    Logger.Warn($"[API] 移除连续的 {msg.Role} 消息以防止 400");
+                    removedCount++;
+                    continue;
                 }
 
                 cleanedMessages.Add(msg);
-                if (msg.Role != "tool")
-                    lastRole = msg.Role;
+                lastRole = msg.Role;
             }
 
             if (removedCount > 0)

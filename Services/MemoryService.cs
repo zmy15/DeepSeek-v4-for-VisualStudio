@@ -127,6 +127,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return await Task.Run(() => ReadFile(resolved, scope, path, startLine, endLine));
             }
 
+            // ── 如果是作用域根目录且不存在 → 返回空目录列表（首次使用时目录尚未创建）──
+            if (string.IsNullOrEmpty(path) || resolved.Equals(
+                GetScopeDir(scope, sessionId, solutionPath), StringComparison.OrdinalIgnoreCase))
+            {
+                var scopeDir = GetScopeDir(scope, sessionId, solutionPath);
+                return ListDirectory(scopeDir, scope, path);
+            }
+
             throw new FileNotFoundException($"记忆路径不存在: '{path}' (作用域: {scope})");
         }
 
@@ -361,6 +369,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private static MemoryViewResult ListDirectory(string resolvedDir, MemoryScope scope, string relativePath)
         {
             var entries = new List<MemoryEntry>();
+
+            // ── 目录不存在时返回空列表（首次使用该作用域时目录尚未创建）──
+            if (!Directory.Exists(resolvedDir))
+            {
+                return new MemoryViewResult
+                {
+                    Path = string.IsNullOrEmpty(relativePath) ? "/" : relativePath,
+                    IsDirectoryListing = true,
+                    Entries = entries,
+                };
+            }
 
             // 列出目录
             foreach (var dir in Directory.GetDirectories(resolvedDir))
