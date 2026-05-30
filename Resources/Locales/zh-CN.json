@@ -13,7 +13,7 @@
 
   "system.agentRoutingSystemPrompt": "你是一个 Agent 路由器。你的唯一任务是：根据用户消息判断应该路由到哪个 Agent。只返回 JSON，不返回任何其他内容。",
 
-  "system.agentRoutingUserPrompt": "判断以下用户消息应路由到哪个 Agent。\n\n可用 Agent：\n- Ask: 纯技术问答、代码解释、方案讨论\n- Plan: 复杂任务，需要先研究再制定实现计划\n- Edit: 明确的、范围小的代码修改\n- Build: 编译/构建错误诊断与修复\n\n规则：\n1. 如果任务涉及编译错误、构建失败、链接错误 → Build\n2. 如果任务涉及3个以上文件或需要架构设计 → Plan\n3. 如果是明确的代码修改且范围清晰 → Edit\n4. 如果是纯问答或聊天 → Ask\n5. 短消息（如\"修复\"/\"改一下\"/\"fix\"）默认属于 Edit（代码修改请求）\n6. 只返回 JSON: {\"targetAgent\":\"Ask|Plan|Edit|Build\",\"confidence\":\"high|medium|low\",\"needsPlanning\":true|false,\"reason\":\"简短理由\"}\n\n用户消息: {0}\n\n路由 JSON:",
+  "system.agentRoutingUserPrompt": "判断以下用户消息应路由到哪个 Agent。\n\n可用 Agent：\n- Ask: 纯技术问答、代码解释、方案讨论\n- Plan: 复杂任务，需要先研究再制定实现计划\n- Edit: 明确的、范围小的代码修改\n- Build: 编译/构建错误诊断与修复\n\n规则：\n1. 如果任务涉及编译错误、构建失败、链接错误 → Build\n2. 如果任务涉及3个以上文件或需要架构设计 → Plan\n3. 如果是明确的代码修改且范围清晰 → Edit\n4. 如果是纯问答或聊天 → Ask\n5. 短消息（如\"修复\"/\"改一下\"/\"fix\"）默认属于 Edit（代码修改请求）\n6. 只返回 JSON: {{\"targetAgent\":\"Ask|Plan|Edit|Build\",\"confidence\":\"high|medium|low\",\"needsPlanning\":true|false,\"reason\":\"简短理由\"}}\n\n用户消息: {0}\n\n路由 JSON:",
 
   "system.searchOptimizationSystemBaidu": "你只返回 JSON，不返回任何其他内容。",
 

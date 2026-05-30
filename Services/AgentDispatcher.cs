@@ -309,8 +309,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     messageForClassification = $"上文对话摘要:\n{conversationContext}\n\n当前用户消息: {userMessage}";
                 }
 
-                string classificationPrompt = string.Format(
-                    AiPrompts.AgentRoutingUserPrompt, messageForClassification);
+                string classificationPrompt = AiPrompts.AgentRoutingUserPrompt
+                    .Replace("{0}", messageForClassification);
 
                 var askAgent = EnsureAgent(AgentType.Ask);
                 string response;

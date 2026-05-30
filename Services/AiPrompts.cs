@@ -180,7 +180,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         public static string BuildAgentRoutingPrompt(string userMessage)
         {
-            return string.Format(AgentRoutingUserPrompt, userMessage);
+            // 使用 Replace 代替 string.Format 以避免模板中的 JSON 大括号被误解析为格式项
+            return AgentRoutingUserPrompt.Replace("{0}", userMessage);
         }
 
         #endregion
