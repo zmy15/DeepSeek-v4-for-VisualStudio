@@ -596,10 +596,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
         }
 
+        private enum ListenerResult { Success, Retryable, Fatal }
+
         /// <summary>
         /// GET SSE 后台监听主循环。
-        /// 持续运行直到被取消，连接断开时自动重连（带 Last-Event-ID 续传）。
-        /// 连续失败 3 次后自动停止，避免对不支持 GET SSE 的服务器无限重试。
+        /// 连续 3 次 Retryable 失败后自动停止。
         /// </summary>
         private async Task RunListenerLoopAsync(string url, CancellationToken cancellationToken)
         {
@@ -608,18 +609,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             while (!cancellationToken.IsCancellationRequested && !_disposed)
             {
+                ListenerResult result;
                 try
                 {
-                    bool shouldRetry = await RunSingleListenerConnectionAsync(url, cancellationToken)
+                    result = await RunSingleListenerConnectionAsync(url, cancellationToken)
                         .ConfigureAwait(false);
-
-                    if (!shouldRetry)
-                    {
-                        Logger.Info("[MCP HTTP] GET SSE 服务器不支持，永久停止监听");
-                        break;
-                    }
-
-                    consecutiveFailures = 0; // 成功完成，重置计数
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -628,13 +622,28 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 catch (Exception ex)
                 {
                     consecutiveFailures++;
-                    Logger.Info($"[MCP HTTP] GET SSE 监听异常 ({consecutiveFailures}/{maxFailures}，3秒后重试): {ex.Message}");
+                    Logger.Info($"[MCP HTTP] GET SSE 监听异常 ({consecutiveFailures}/{maxFailures}): {ex.Message}");
+                    result = ListenerResult.Retryable;
+                }
 
-                    if (consecutiveFailures >= maxFailures)
-                    {
-                        Logger.Info("[MCP HTTP] GET SSE 连续失败次数过多，停止监听");
+                switch (result)
+                {
+                    case ListenerResult.Success:
+                        consecutiveFailures = 0;
                         break;
-                    }
+                    case ListenerResult.Retryable:
+                        consecutiveFailures++;
+                        Logger.Info($"[MCP HTTP] GET SSE 临时失败 ({consecutiveFailures}/{maxFailures}，3秒后重试)");
+                        break;
+                    case ListenerResult.Fatal:
+                        Logger.Info("[MCP HTTP] GET SSE 服务器不支持，永久停止监听");
+                        return;
+                }
+
+                if (consecutiveFailures >= maxFailures)
+                {
+                    Logger.Info("[MCP HTTP] GET SSE 连续失败次数过多，停止监听");
+                    return;
                 }
 
                 try
@@ -651,10 +660,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// 单次 GET SSE 连接：打开流 → 读取事件 → 分发处理。
+        /// 单次 GET SSE 连接。
         /// </summary>
-        /// <returns>true 表示可重试，false 表示服务器不支持应永久停止</returns>
-        private async Task<bool> RunSingleListenerConnectionAsync(string url, CancellationToken cancellationToken)
+        private async Task<ListenerResult> RunSingleListenerConnectionAsync(string url, CancellationToken cancellationToken)
         {
             Logger.Info($"[MCP HTTP] GET SSE 监听连接: {url}" +
                 (string.IsNullOrEmpty(_lastEventId) ? "" : $" (Last-Event-ID: {_lastEventId})"));
@@ -665,16 +673,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             getRequest.Headers.Add("MCP-Protocol-Version", _negotiatedProtocolVersion);
 
             if (!string.IsNullOrEmpty(_sessionId))
-            {
                 getRequest.Headers.Add("Mcp-Session-Id", _sessionId);
-            }
 
             if (!string.IsNullOrEmpty(_lastEventId))
-            {
                 getRequest.Headers.Add("Last-Event-ID", _lastEventId);
-            }
 
-            // GET SSE 连接探测超时 15 秒（服务器不支持时会快速超时而非挂起 30 分钟）
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromSeconds(15));
 
@@ -687,27 +690,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             catch (OperationCanceledException)
             {
-                Logger.Info("[MCP HTTP] GET SSE 连接超时（可重试）");
-                return true;
+                Logger.Info("[MCP HTTP] GET SSE 连接超时");
+                return ListenerResult.Retryable;
             }
             catch (HttpRequestException ex)
             {
                 Logger.Info($"[MCP HTTP] GET SSE 连接失败: {ex.Message}");
-                return true;
+                return ListenerResult.Retryable;
             }
 
-            // 服务器明确不支持 GET SSE → 405
             if (response.StatusCode == System.Net.HttpStatusCode.MethodNotAllowed)
             {
                 Logger.Info("[MCP HTTP] 服务器不支持 GET SSE 流 (HTTP 405)");
                 StopListening();
-                return false;
+                return ListenerResult.Fatal;
             }
 
             if (!response.IsSuccessStatusCode)
             {
                 Logger.Info($"[MCP HTTP] GET SSE 响应异常: HTTP {(int)response.StatusCode}");
-                return true;
+                return ListenerResult.Retryable;
             }
 
             var contentType = response.Content.Headers.ContentType?.MediaType ?? "";
@@ -715,14 +717,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 Logger.Info($"[MCP HTTP] GET SSE 响应非 SSE 格式: {contentType}，停止监听");
                 StopListening();
-                return false;
+                return ListenerResult.Fatal;
             }
 
-            // 流式读取 SSE 事件（长连接不受 15 秒限制）
             using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
             await ReadListenerSseStreamAsync(stream, cancellationToken).ConfigureAwait(false);
 
-            return true;
+            return ListenerResult.Success;
         }
 
         /// <summary>
