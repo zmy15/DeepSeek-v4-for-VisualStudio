@@ -316,6 +316,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // ── 循环检测状态 ──
             var callSignatureHistory = new List<string>();
+            var toolCallHistory = new List<(int Round, string Summary)>();
             int consecutiveErrorRounds = 0;
             const int maxRepeatedSameCall = 3;
             const int maxConsecutiveErrors = 5;
@@ -610,6 +611,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         onToolCall?.Invoke(summary);
                     }
 
+                    // ── 收集本轮工具调用摘要到历史（用于循环终止时的上下文总结）──
+                    foreach (var tc in toolCalls)
+                    {
+                        string summary = BuiltInToolService.GetToolCallDisplayText(tc.Function.Name, tc.Function.Arguments);
+                        toolCallHistory.Add((round, summary));
+                    }
+                    // 保留最近 20 条记录防止内存增长
+                    while (toolCallHistory.Count > 20)
+                        toolCallHistory.RemoveAt(0);
+
                     // ── 添加 assistant 消息（含工具调用）──
                     messages.Add(new ChatApiMessage
                     {
@@ -664,7 +675,38 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             loopDetected = true;
                             string toolName = sig.Split('|')[0];
                             Logger.Warn($"[Agent:{Definition.Name}] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次");
-                            contentBuilder.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次，已自动终止循环。");
+
+                            // ── 附加上次 AI 的上下文总结和最后一次工具调用结果摘要 ──
+                            var terminatedBuilder = new StringBuilder();
+
+                            // 1. AI 本轮文字回复
+                            terminatedBuilder.Append(contentBuilder);
+
+                            // 2. 历史工具调用总结（帮助用户理解 AI 做了什么）
+                            if (toolCallHistory.Count > 0)
+                            {
+                                terminatedBuilder.Append("\n\n---\n### 🔙 此前 AI 执行的操作\n");
+                                int startRound = toolCallHistory[0].Round;
+                                foreach (var (r, summary) in toolCallHistory)
+                                {
+                                    string prefix = r == round ? "🔄" : $"第{r - startRound + 1}轮";
+                                    terminatedBuilder.AppendLine($"- {prefix} {summary}");
+                                }
+                            }
+
+                            // 3. 最后一次工具调用结果
+                            for (int i = 0; i < toolResults.Length && i < toolCalls.Count; i++)
+                            {
+                                string result = toolResults[i];
+                                if (!string.IsNullOrWhiteSpace(result))
+                                {
+                                    terminatedBuilder.Append($"\n\n### 📋 最后一次 `{toolCalls[i].Function.Name}` 结果\n\n{result.Truncate(3000)}");
+                                }
+                            }
+
+                            terminatedBuilder.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次，已自动终止循环。请根据以上工具结果修复问题后重新请求。");
+                            contentBuilder.Clear();
+                            contentBuilder.Append(terminatedBuilder.ToString());
                             break;
                         }
                     }
@@ -693,7 +735,38 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         {
                             loopDetected = true;
                             Logger.Warn($"[Agent:{Definition.Name}] 🔄 连续 {consecutiveErrorRounds} 轮工具调用全部返回错误，强制结束");
-                            contentBuilder.Append($"\n\n> ⚠️ 连续 {consecutiveErrorRounds} 轮工具调用均失败，已自动终止。");
+
+                            // ── 附加上次 AI 的上下文总结和最后一次工具调用结果摘要 ──
+                            var terminatedBuilder = new StringBuilder();
+
+                            // 1. AI 本轮文字回复
+                            terminatedBuilder.Append(contentBuilder);
+
+                            // 2. 历史工具调用总结
+                            if (toolCallHistory.Count > 0)
+                            {
+                                terminatedBuilder.Append("\n\n---\n### 🔙 此前 AI 执行的操作\n");
+                                int startRound = toolCallHistory[0].Round;
+                                foreach (var (r, summary) in toolCallHistory)
+                                {
+                                    string prefix = r == round ? "🔄" : $"第{r - startRound + 1}轮";
+                                    terminatedBuilder.AppendLine($"- {prefix} {summary}");
+                                }
+                            }
+
+                            // 3. 最后一次工具调用结果
+                            for (int i = 0; i < toolResults.Length && i < toolCalls.Count; i++)
+                            {
+                                string result = toolResults[i];
+                                if (!string.IsNullOrWhiteSpace(result))
+                                {
+                                    terminatedBuilder.Append($"\n\n### 📋 最后一次 `{toolCalls[i].Function.Name}` 结果\n\n{result.Truncate(3000)}");
+                                }
+                            }
+
+                            terminatedBuilder.Append($"\n\n> ⚠️ 连续 {consecutiveErrorRounds} 轮工具调用均失败，已自动终止。");
+                            contentBuilder.Clear();
+                            contentBuilder.Append(terminatedBuilder.ToString());
                         }
                     }
 

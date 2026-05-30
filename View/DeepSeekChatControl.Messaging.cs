@@ -207,7 +207,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 多 Agent 路由
                 if (_agentDispatcher != null && !string.IsNullOrEmpty(userText) && !userText.StartsWith("/"))
                 {
-                    var routing = explicitRoute ?? await _agentDispatcher.RouteAsync(userText);
+                    // ── 构建对话上下文摘要，帮助路由 AI 理解"进行修复"等短消息的指代 ──
+                    string? conversationContext = BuildRoutingContext(userText, fileContext, parseResults);
+                    var routing = explicitRoute ?? await _agentDispatcher.RouteAsync(userText, conversationContext);
 
                     // ── 上下文感知意图覆盖：当存在待处理计划时的特殊路由 ──
                     routing = OverrideRoutingForPlanContext(userText, routing);
@@ -535,6 +537,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // ── 循环检测状态 ──
                     var callSignatureHistory = new Queue<string>();          // O(1) 入队/出队
                     var callSignatureCount = new Dictionary<string, int>();  // O(1) 计数
+                    var toolCallHistory = new List<(int Round, string Summary)>();
                     int consecutiveErrorRounds = 0;                         // 连续错误轮次计数
                     const int maxHistorySize = 30;
                     const int maxRepeatedSameCall = 3;
@@ -761,6 +764,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 toolCallLines.Add($"- {displayText} ⏳");
                             }
 
+                            // ── 收集本轮工具调用摘要到历史 ──
+                            foreach (var acc in toolCallAccumulator.Values)
+                            {
+                                if (string.IsNullOrEmpty(acc.FunctionName)) continue;
+                                string displayText = BuiltInToolService.GetToolCallDisplayText(
+                                    acc.FunctionName!, acc.ArgumentsBuilder.ToString());
+                                toolCallHistory.Add((round, displayText));
+                            }
+                            while (toolCallHistory.Count > 20)
+                                toolCallHistory.RemoveAt(0);
+
                             string toolCallSummary = "🔧 **" + LocalizationService.Instance["status.callingToolsHtml"].Replace("🔧 ", "") + "**\n"
                                 + string.Join("\n", toolCallLines) + "\n";
                             assistantMsg.Content = contentBuffer.Length > 0
@@ -783,6 +797,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                             // ── 执行工具并收集结果摘要 ──
                             var toolResultSummaries = new List<string>();
+                            var recentToolFullResults = new List<(string Name, string Result)>();
                             foreach (var acc in toolCallAccumulator.Values)
                             {
                                 if (string.IsNullOrEmpty(acc.FunctionName)) continue;
@@ -858,6 +873,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 // ── 收集结果摘要 ──
                                 string resultSummary = BuiltInToolService.GetToolResultSummary(acc.FunctionName!, toolResult);
                                 toolResultSummaries.Add(resultSummary);
+                                recentToolFullResults.Add((acc.FunctionName!, toolResult));
                             }
 
                             // ── 构建完成后的工具调用结果展示 ──
@@ -923,7 +939,37 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     loopDetected = true;
                                     string toolName = sig.Split('|')[0];
                                     Logger.Warn($"[MCP] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次");
-                                    contentBuffer.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次，已自动终止循环。");
+
+                                    // ── 附加上次 AI 的上下文总结和最后一次工具调用结果摘要 ──
+                                    var terminatedBuilder = new System.Text.StringBuilder();
+
+                                    // 1. AI 本轮文字回复
+                                    terminatedBuilder.Append(contentBuffer);
+
+                                    // 2. 历史工具调用总结
+                                    if (toolCallHistory.Count > 0)
+                                    {
+                                        terminatedBuilder.Append("\n\n---\n### 🔙 此前 AI 执行的操作\n");
+                                        int startRound = toolCallHistory[0].Round;
+                                        foreach (var (r, summary) in toolCallHistory)
+                                        {
+                                            string prefix = r == round ? "🔄" : $"第{r - startRound + 1}轮";
+                                            terminatedBuilder.AppendLine($"- {prefix} {summary}");
+                                        }
+                                    }
+
+                                    // 3. 最后一次工具调用结果
+                                    foreach (var (name, result) in recentToolFullResults)
+                                    {
+                                        if (!string.IsNullOrWhiteSpace(result))
+                                        {
+                                            terminatedBuilder.Append($"\n\n### 📋 最后一次 `{name}` 结果\n\n{result.Truncate(3000)}");
+                                        }
+                                    }
+
+                                    terminatedBuilder.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次，已自动终止循环。请根据以上工具结果修复问题后重新请求。");
+                                    contentBuffer.Clear();
+                                    contentBuffer.Append(terminatedBuilder.ToString());
                                     break;
                                 }
                             }
@@ -955,7 +1001,37 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 {
                                     loopDetected = true;
                                     Logger.Warn($"[MCP] 🔄 连续 {consecutiveErrorRounds} 轮工具调用全部返回错误，强制结束");
-                                    contentBuffer.Append($"\n\n> ⚠️ 连续 {consecutiveErrorRounds} 轮工具调用均失败，已自动终止。请检查工作区路径是否正确。");
+
+                                    // ── 附加上次 AI 的上下文总结和最后一次工具调用结果摘要 ──
+                                    var terminatedBuilder = new System.Text.StringBuilder();
+
+                                    // 1. AI 本轮文字回复
+                                    terminatedBuilder.Append(contentBuffer);
+
+                                    // 2. 历史工具调用总结
+                                    if (toolCallHistory.Count > 0)
+                                    {
+                                        terminatedBuilder.Append("\n\n---\n### 🔙 此前 AI 执行的操作\n");
+                                        int startRound = toolCallHistory[0].Round;
+                                        foreach (var (r, summary) in toolCallHistory)
+                                        {
+                                            string prefix = r == round ? "🔄" : $"第{r - startRound + 1}轮";
+                                            terminatedBuilder.AppendLine($"- {prefix} {summary}");
+                                        }
+                                    }
+
+                                    // 3. 最后一次工具调用结果
+                                    foreach (var (name, result) in recentToolFullResults)
+                                    {
+                                        if (!string.IsNullOrWhiteSpace(result))
+                                        {
+                                            terminatedBuilder.Append($"\n\n### 📋 最后一次 `{name}` 结果\n\n{result.Truncate(3000)}");
+                                        }
+                                    }
+
+                                    terminatedBuilder.Append($"\n\n> ⚠️ 连续 {consecutiveErrorRounds} 轮工具调用均失败，已自动终止。请检查工作区路径是否正确。");
+                                    contentBuffer.Clear();
+                                    contentBuffer.Append(terminatedBuilder.ToString());
                                 }
                             }
 
@@ -1081,6 +1157,73 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
         }
 #pragma warning restore VSTHRD100
+
+        /// <summary>
+        /// 构建路由上下文摘要，帮助 AI 理解短消息（如"进行修复"）的指代。
+        /// 包含：最近几轮对话摘要 + 用户附加的文件内容摘要。
+        /// </summary>
+        private string? BuildRoutingContext(string userText, string? fileContext, List<FileParseResult>? parseResults)
+        {
+            // 如果用户消息已经很长（≥50字），不需要附加上下文
+            if (!string.IsNullOrEmpty(userText) && userText.Length >= 50)
+                return null;
+
+            var sb = new StringBuilder();
+
+            // ── 1. 最近对话历史摘要（最多最近 5 轮）──
+            try
+            {
+                var history = _contextManager?.GetConversationHistory();
+                if (history != null && history.Count > 0)
+                {
+                    // 只取最近的角色交替消息（user/assistant），最多 5 对
+                    var recentMessages = history
+                        .Where(m => m.Role == "user" || m.Role == "assistant")
+                        .Reverse()
+                        .Take(10)
+                        .Reverse()
+                        .ToList();
+
+                    if (recentMessages.Count > 0)
+                    {
+                        sb.AppendLine("最近对话:");
+                        foreach (var msg in recentMessages)
+                        {
+                            string role = msg.Role == "user" ? "用户" : "AI";
+                            string content = (msg.Content ?? "").Truncate(120);
+                            if (!string.IsNullOrWhiteSpace(content))
+                                sb.AppendLine($"- {role}: {content}");
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // ── 2. 附加文件信息 ──
+            if (parseResults != null && parseResults.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("用户附加了以下文件:");
+                foreach (var pr in parseResults)
+                {
+                    if (pr.FileName != null)
+                    {
+                        string snippet = (pr.Content ?? "").Truncate(200);
+                        sb.AppendLine($"- {pr.FileName}");
+                        if (!string.IsNullOrWhiteSpace(snippet))
+                            sb.AppendLine($"  内容片段: {snippet}");
+                    }
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(fileContext))
+            {
+                sb.AppendLine();
+                sb.AppendLine($"用户附加了文件上下文: {fileContext.Truncate(300)}");
+            }
+
+            string result = sb.ToString().Trim();
+            return result.Length > 0 ? result : null;
+        }
 
         /// <summary>
         /// 构建发送给 API 的消息列表，注入系统提示词、技能上下文、RAG 检索结果、搜索上下文。

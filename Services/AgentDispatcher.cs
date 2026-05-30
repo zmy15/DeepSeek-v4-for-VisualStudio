@@ -288,7 +288,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 分析用户意图并返回路由结果。
         /// 优先使用 AI 分类，失败时回退到启发式规则。
         /// </summary>
-        public async Task<AgentRoutingResult> RouteAsync(string userMessage, CancellationToken ct = default)
+        /// <param name="userMessage">用户消息文本</param>
+        /// <param name="conversationContext">可选的对话上下文摘要，帮助 AI 理解用户在指代什么（如"进行修复"后的上文）</param>
+        /// <param name="ct">取消令牌</param>
+        public async Task<AgentRoutingResult> RouteAsync(string userMessage, string? conversationContext = null, CancellationToken ct = default)
         {
             // ── 用户显式指定 Agent ──
             if (userMessage.StartsWith("@"))
@@ -299,8 +302,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── AI 分类 ──
             try
             {
+                // 构建分类提示：如果有对话上下文，附加到用户消息中帮助 AI 理解指代
+                string messageForClassification = userMessage;
+                if (!string.IsNullOrWhiteSpace(conversationContext))
+                {
+                    messageForClassification = $"上文对话摘要:\n{conversationContext}\n\n当前用户消息: {userMessage}";
+                }
+
                 string classificationPrompt = string.Format(
-                    AiPrompts.AgentRoutingUserPrompt, userMessage);
+                    AiPrompts.AgentRoutingUserPrompt, messageForClassification);
 
                 var askAgent = EnsureAgent(AgentType.Ask);
                 string response = await askAgent.CallAiShortAsync(
@@ -318,6 +328,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     Logger.Info($"[AgentDispatcher] AI 路由: → {routing.TargetAgent} "
                         + $"(置信度: {routing.Confidence}, 需要规划: {routing.NeedsPlanning})");
+
+                    // ── 低置信度补正：AI 对短消息/缺乏上下文的消息可能误判为 Ask ──
+                    // 用启发式规则做二次校验，避免"进行修复"/"帮我改一下"被路由到问答 Agent
+                    if (string.Equals(routing.Confidence, "low", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var heuristic = HeuristicRoute(userMessage);
+                        // 只有启发式结果与 AI 不同，且启发式结果更具体（非 Ask）时才覆盖
+                        if (heuristic.TargetAgent != AgentType.Ask
+                            && heuristic.TargetAgent != routing.TargetAgent)
+                        {
+                            Logger.Info($"[AgentDispatcher] 🔄 低置信度补正: AI→{routing.TargetAgent}, "
+                                + $"启发式→{heuristic.TargetAgent}, 采用启发式结果");
+                            return heuristic;
+                        }
+                    }
+
                     return routing;
                 }
             }
@@ -462,7 +488,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             AgentRoutingResult? routingOverride = null)
         {
             // ── 步骤 1: 路由 ──
-            var routing = routingOverride ?? await RouteAsync(userMessage, context.CancellationToken);
+            var routing = routingOverride ?? await RouteAsync(userMessage, ct: context.CancellationToken);
             ActiveAgentType = routing.TargetAgent;
 
             // ── 注入 ContextManager 到 AgentContext（供 Agent 内部构建上下文感知消息）──
@@ -622,7 +648,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public async Task<AgentIntent> AnalyzeIntentAsync(string userMessage, CancellationToken ct = default)
         {
-            var routing = await RouteAsync(userMessage, ct);
+            var routing = await RouteAsync(userMessage, ct: ct);
 
             return routing.TargetAgent switch
             {
