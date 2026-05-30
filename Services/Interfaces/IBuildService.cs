@@ -19,15 +19,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         Task<string> BuildAsync(string? solutionPath, CancellationToken ct);
 
         /// <summary>
-        /// 异步启动构建（立即返回，不等待构建完成）。
-        /// 构建结果会输出到 VS 输出窗口和错误列表，可通过 get_errors 获取。
-        /// 适用于 CMake/Open Folder 项目（传统 SDK 构建 API 不兼容）。
-        /// </summary>
-        /// <param name="solutionPath">解决方案路径或工作区根目录</param>
-        /// <returns>启动状态消息</returns>
-        Task<string> StartBuildAsync(string? solutionPath);
-
-        /// <summary>
         /// 获取错误列表中用户当前选中的错误项信息。
         /// 通过 IVsTaskList2 (SVsErrorList) 接口获取 VS Error List 窗口中用户高亮的条目。
         /// </summary>
@@ -37,13 +28,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 如果没有选中任何项，返回空列表。
         /// </returns>
         Task<List<ErrorListItem>> GetSelectedErrorsAsync(CancellationToken ct);
-
-        /// <summary>
-        /// 检查最近是否启动了构建（即使 VS BuildState 尚未更新为 InProgress）。
-        /// get_errors 工具用此方法避免在构建刚启动时返回"无错误"的误判。
-        /// </summary>
-        /// <returns>true 表示最近 10 秒内启动了构建</returns>
-        bool WasBuildRecentlyStarted();
     }
 
     /// <summary>
