@@ -29,6 +29,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public string Method { get; set; } = string.Empty;
 
         [JsonPropertyName("params")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public System.Text.Json.JsonElement? Params { get; set; }
     }
 
@@ -79,6 +80,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public string Method { get; set; } = string.Empty;
 
         [JsonPropertyName("params")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public System.Text.Json.JsonElement? Params { get; set; }
     }
 
