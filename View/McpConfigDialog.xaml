@@ -290,10 +290,38 @@
                                             <TextBlock Grid.Column="0" Text="Transport:" Foreground="#888888"
                                                        FontSize="12" VerticalAlignment="Center" Margin="0,0,4,0"/>
                                             <ComboBox Grid.Column="1"
-                                                      SelectedItem="{Binding Transport, UpdateSourceTrigger=PropertyChanged}"
+                                                      SelectedValue="{Binding Transport, UpdateSourceTrigger=PropertyChanged}"
+                                                      SelectedValuePath="Content"
                                                       FontSize="12" Width="80"
                                                       Background="#3C3C3C" Foreground="#6A9955"
                                                       BorderBrush="#555555">
+                                                <ComboBox.Resources>
+                                                    <Style TargetType="ComboBoxItem">
+                                                        <Setter Property="Background" Value="#2D2D2D"/>
+                                                        <Setter Property="Foreground" Value="#D4D4D4"/>
+                                                        <Setter Property="Template">
+                                                            <Setter.Value>
+                                                                <ControlTemplate TargetType="ComboBoxItem">
+                                                                    <Border Background="{TemplateBinding Background}"
+                                                                            Padding="6,3">
+                                                                        <ContentPresenter/>
+                                                                    </Border>
+                                                                    <ControlTemplate.Triggers>
+                                                                        <Trigger Property="IsHighlighted" Value="True">
+                                                                            <Setter Property="Background" Value="#264F78"/>
+                                                                        </Trigger>
+                                                                        <Trigger Property="IsSelected" Value="True">
+                                                                            <Setter Property="Background" Value="#264F78"/>
+                                                                        </Trigger>
+                                                                    </ControlTemplate.Triggers>
+                                                                </ControlTemplate>
+                                                            </Setter.Value>
+                                                        </Setter>
+                                                    </Style>
+                                                    <Style TargetType="Popup">
+                                                        <Setter Property="AllowsTransparency" Value="True"/>
+                                                    </Style>
+                                                </ComboBox.Resources>
                                                 <ComboBoxItem Content="stdio"/>
                                                 <ComboBoxItem Content="http"/>
                                             </ComboBox>
