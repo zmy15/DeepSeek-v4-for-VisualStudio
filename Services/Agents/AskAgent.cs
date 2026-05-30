@@ -144,18 +144,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     Content = Definition.SystemPrompt
                 });
 
-                // 添加会话历史（最近 10 轮）
+                // 添加会话历史（最近 10 轮），保留完整消息结构
                 if (context.ConversationHistory.Count > 0)
                 {
                     int historyStart = Math.Max(0, context.ConversationHistory.Count - 20);
                     for (int i = historyStart; i < context.ConversationHistory.Count; i++)
                     {
                         var histMsg = context.ConversationHistory[i];
-                        // 无工具调用的 assistant 消息不带 reasoning_content（API 会忽略）
                         var apiMsg = new ChatApiMessage
                         {
                             Role = histMsg.Role,
                             Content = histMsg.Content,
+                            // ── 保留工具调用相关字段，避免 API 400 ──
+                            ToolCalls = histMsg.ToolCalls,
+                            ToolCallId = histMsg.ToolCallId,
+                            Name = histMsg.Name,
+                            ReasoningContent = histMsg.ReasoningContent,
                         };
                         messages.Add(apiMsg);
                     }

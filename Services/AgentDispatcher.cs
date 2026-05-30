@@ -321,8 +321,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // 规范化 targetAgent 值：AI 可能返回小写/混合大小写（如 "ask"/"Ask"/"ASK"），
                 // 统一转换为 PascalCase 以确保 JsonStringEnumConverter 能正常反序列化
                 json = NormalizeAgentTypeInJson(json);
-                var routing = JsonSerializer.Deserialize<AgentRoutingResult>(json,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                AgentRoutingResult? routing = null;
+                try
+                {
+                    routing = JsonSerializer.Deserialize<AgentRoutingResult>(json,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                }
+                catch (JsonException jex)
+                {
+                    Logger.Info($"[AgentDispatcher] JSON 反序列化失败: {jex.Message}，尝试文本回退解析");
+                    routing = FallbackParseRouting(response, json);
+                }
+                catch (FormatException fex)
+                {
+                    Logger.Info($"[AgentDispatcher] 格式异常: {fex.Message}，尝试文本回退解析");
+                    routing = FallbackParseRouting(response, json);
+                }
 
                 if (routing != null && Enum.IsDefined(typeof(AgentType), routing.TargetAgent))
                 {
@@ -875,6 +890,65 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         #endregion
 
         #region Helpers
+
+        /// <summary>
+        /// JSON 反序列化失败时的回退解析：从 AI 原始响应文本中提取 Agent 类型。
+        /// 使用正则匹配 targetAgent 值 + 关键词检测作为双重保险。
+        /// </summary>
+        private static AgentRoutingResult? FallbackParseRouting(string rawResponse, string extractedJson)
+        {
+            // ── 策略 1：从提取的 JSON 中用简单正则提取 targetAgent ──
+            var agentMatch = System.Text.RegularExpressions.Regex.Match(
+                extractedJson,
+                @"""targetAgent""\s*:\s*""(\w+)""",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (agentMatch.Success)
+            {
+                string agentName = agentMatch.Groups[1].Value;
+                AgentType? parsed = ParseAgentType(agentName);
+                if (parsed.HasValue)
+                {
+                    return new AgentRoutingResult
+                    {
+                        TargetAgent = parsed.Value,
+                        Confidence = "low",
+                        Reason = "文本回退解析（targetAgent 正则匹配）"
+                    };
+                }
+            }
+
+            // ── 策略 2：从原始 AI 响应中关键词检测 ──
+            string lower = rawResponse.ToLowerInvariant();
+            if (lower.Contains("\"edit\"") || lower.Contains("edit agent") || lower.Contains("代码修改"))
+                return new AgentRoutingResult { TargetAgent = AgentType.Edit, Confidence = "low", Reason = "文本回退解析（关键词: edit）" };
+            if (lower.Contains("\"plan\"") || lower.Contains("plan agent") || lower.Contains("规划"))
+                return new AgentRoutingResult { TargetAgent = AgentType.Plan, Confidence = "low", Reason = "文本回退解析（关键词: plan）" };
+            if (lower.Contains("\"explore\"") || lower.Contains("explore agent") || lower.Contains("探索"))
+                return new AgentRoutingResult { TargetAgent = AgentType.Explore, Confidence = "low", Reason = "文本回退解析（关键词: explore）" };
+            if (lower.Contains("\"build\"") || lower.Contains("build agent") || lower.Contains("构建") || lower.Contains("编译"))
+                return new AgentRoutingResult { TargetAgent = AgentType.Build, Confidence = "low", Reason = "文本回退解析（关键词: build）" };
+
+            // ── 策略 3：返回 null 让调用方回退到启发式 ──
+            Logger.Info("[AgentDispatcher] 回退解析失败，返回 null 以触发启发式路由");
+            return null;
+        }
+
+        /// <summary>
+        /// 将字符串解析为 AgentType（不区分大小写）。
+        /// </summary>
+        private static AgentType? ParseAgentType(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return null;
+            return name.ToLowerInvariant() switch
+            {
+                "ask" => AgentType.Ask,
+                "plan" => AgentType.Plan,
+                "edit" => AgentType.Edit,
+                "explore" => AgentType.Explore,
+                "build" => AgentType.Build,
+                _ => null
+            };
+        }
 
         /// <summary>
         /// 从文本中提取 JSON 对象（可能被 markdown 代码块、额外文本包裹）。
