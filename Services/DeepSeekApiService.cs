@@ -133,16 +133,62 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 MaxTokens = maxTokens
             };
 
-            // Defensive check: DeepSeek API requires that assistant messages with tool_calls
-            // include the reasoning_content field. If missing, inject an empty string to
-            // avoid a 400 Bad Request from the server.
+            // ── 消息清理：防止无效消息导致 HTTP 400 ──
+            // DeepSeek API 对消息格式有严格要求：
+            // 1. tool 消息必须有 tool_call_id
+            // 2. assistant 消息有 tool_calls 时可以没有 content，但不能既无 content 又无 tool_calls
+            // 3. 不能有连续的相同 role 消息（user-user, assistant-assistant）
+            var cleanedMessages = new List<ChatApiMessage>();
+            string? lastRole = null;
+            int removedCount = 0;
             foreach (var msg in request.Messages)
             {
+                // ── 规则 1：tool 消息必须有 tool_call_id ──
+                if (msg.Role == "tool" && string.IsNullOrEmpty(msg.ToolCallId))
+                {
+                    Logger.Warn($"[API] 移除无效 tool 消息：缺少 tool_call_id (content={msg.Content?.Truncate(80)})");
+                    removedCount++;
+                    continue;
+                }
+
+                // ── 规则 2：assistant 消息既无 content 又无 tool_calls → 移除 ──
+                if (msg.Role == "assistant"
+                    && string.IsNullOrEmpty(msg.Content)
+                    && (msg.ToolCalls == null || msg.ToolCalls.Count == 0))
+                {
+                    Logger.Warn($"[API] 移除无效 assistant 消息：无 content 且无 tool_calls");
+                    removedCount++;
+                    continue;
+                }
+
+                // ── 规则 3：assistant 消息有 tool_calls 但缺少 reasoning_content → 补全 ──
                 if (msg.Role == "assistant" && msg.ToolCalls != null && msg.ToolCalls.Count > 0 && msg.ReasoningContent == null)
                 {
-                    Logger.Warn("[API] assistant message contains tool_calls but missing ReasoningContent — injecting empty string to avoid 400");
+                    Logger.Warn("[API] assistant 消息包含 tool_calls 但缺少 ReasoningContent — 注入空字符串以避免 400");
                     msg.ReasoningContent = string.Empty;
                 }
+
+                // ── 规则 4：防止连续相同 role（DeepSeek API 要求交替）──
+                if (lastRole != null && msg.Role == lastRole)
+                {
+                    // tool 消息连续出现是合法的（多个工具调用结果），只检查 user/assistant
+                    if (msg.Role == "user" || msg.Role == "assistant")
+                    {
+                        Logger.Warn($"[API] 移除连续的 {msg.Role} 消息以防止 400");
+                        removedCount++;
+                        continue;
+                    }
+                }
+
+                cleanedMessages.Add(msg);
+                if (msg.Role != "tool")
+                    lastRole = msg.Role;
+            }
+
+            if (removedCount > 0)
+            {
+                Logger.Warn($"[API] 消息清理完成：移除了 {removedCount} 条无效消息，剩余 {cleanedMessages.Count} 条");
+                request.Messages = cleanedMessages;
             }
 
             // ── 预序列化请求体，供重试时复用 ──
