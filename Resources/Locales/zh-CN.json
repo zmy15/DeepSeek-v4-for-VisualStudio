@@ -461,6 +461,7 @@
   "file.filter.allFiles": "所有文件",
 
   "mcp.startingProcess": "启动进程 {0}...",
+  "mcp.connecting": "正在连接 {0}...",
   "mcp.toolError": "错误: {0}",
   "mcp.emptyResponse": "空响应",
   "mcp.processStatusExited": "已退出 (code={0})",

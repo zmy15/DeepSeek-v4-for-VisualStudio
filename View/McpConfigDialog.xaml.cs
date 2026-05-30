@@ -97,6 +97,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Command = src.Command,
                 Args = src.Args,
                 Transport = src.Transport,
+                Url = src.Url,
                 Enabled = src.Enabled,
                 Env = src.Env != null ? new Dictionary<string, string>(src.Env) : null,
             };
@@ -154,6 +155,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Command = src.Command,
                 Args = src.Args,
                 Transport = src.Transport,
+                Url = src.Url,
                 Enabled = src.Enabled,
                 Env = envDict.Count > 0 ? envDict : null,
                 Environment = string.Empty, // 清空扁平格式，统一用 Env 字典
@@ -195,6 +197,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         existing.Command = server.Command;
                         existing.Args = server.Args;
                         existing.Transport = server.Transport;
+                        existing.Url = server.Url;
                         // 合并 env：将新解析的 Env 也显示到 Environment 文本框
                         existing.Env = server.Env;
                         existing.Environment = CloneForDisplay(server).Environment;
@@ -261,7 +264,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-                using var client = new McpStdioClient(config);
+
+                // 根据传输类型选择客户端
+                bool isHttp = config.Transport?.ToLowerInvariant() == "http";
+                using var client = isHttp
+                    ? (IMcpClient)new McpHttpClient(config)
+                    : new McpStdioClient(config);
 
                 // 进度回调（ConnectAsync 在后台线程执行，用 Dispatcher 桥接 UI 更新）
                 Action<string> progress = msg =>
@@ -327,12 +335,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             catch (Exception ex)
             {
+                bool isHttp = config.Transport?.ToLowerInvariant() == "http";
+                string errorHint = isHttp
+                    ? $"• 服务器地址是否正确（当前: {config.Url}）\n• 网络连接是否正常\n• 服务器是否在线"
+                    : $"• 命令是否正确（当前: {config.Command}）\n• 是否已安装所需运行时\n• 网络/Token 是否有效";
+
                 TestProgressBar.IsIndeterminate = false;
                 TestStatusText.Text = $"❌ {config.Name} 连接失败:\n{ex.Message}\n\n" +
-                                      $"请检查:\n" +
-                                      $"• 命令是否正确（当前: {config.Command}）\n" +
-                                      $"• 是否已安装所需运行时\n" +
-                                      $"• 网络/Token 是否有效";
+                                      $"请检查:\n{errorHint}";
                 TestStatusText.Foreground = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(0xF4, 0x87, 0x71));
                 btn.Content = "❌";

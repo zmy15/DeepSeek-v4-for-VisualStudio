@@ -17,7 +17,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// </summary>
     public class McpManagerService : IMcpManagerService
     {
-        private readonly List<McpStdioClient> _clients = new();
+        private readonly List<IMcpClient> _clients = new();
         private readonly object _lock = new();
         private bool _isInitialized;
 
@@ -116,7 +116,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 根据工具名查找所属的 MCP 客户端
         /// </summary>
-        private McpStdioClient? FindClient(string toolName)
+        private IMcpClient? FindClient(string toolName)
         {
             lock (_lock)
             {
@@ -138,10 +138,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 try
                 {
-                    var client = new McpStdioClient(config);
+                    IMcpClient client = config.Transport?.ToLowerInvariant() == "http"
+                        ? new McpHttpClient(config)
+                        : new McpStdioClient(config);
+
                     await client.ConnectAsync(cancellationToken);
                     lock (_lock) { _clients.Add(client); }
-                    Logger.Info($"[MCP] 服务器 '{config.Name}' 连接成功, {client.Tools.Count} 个工具");
+                    Logger.Info($"[MCP] 服务器 '{config.Name}' ({client.Transport}) 连接成功, {client.Tools.Count} 个工具");
                 }
                 catch (Exception ex)
                 {

@@ -197,6 +197,7 @@
                                             <RowDefinition Height="Auto"/>
                                             <RowDefinition Height="Auto"/>
                                             <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>
@@ -250,8 +251,22 @@
                                                      FontSize="12" FontFamily="Consolas"/>
                                         </Grid>
 
-                                        <!-- 环境变量 -->
+                                        <!-- URL（HTTP 传输） -->
                                         <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Margin="20,0,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" x:Name="UrlLabel" Text="URL:" Foreground="#888888"
+                                                       FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <TextBox Grid.Column="1"
+                                                     Text="{Binding Url, UpdateSourceTrigger=PropertyChanged}"
+                                                     FontSize="12" FontFamily="Consolas"
+                                                     ToolTip="HTTP MCP server URL (e.g. https://mcp.example.com/mcp)"/>
+                                        </Grid>
+
+                                        <!-- 环境变量 -->
+                                        <Grid Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Margin="20,0,0,4">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto"/>
                                                 <ColumnDefinition Width="*"/>
@@ -264,13 +279,25 @@
                                                      ToolTip="Format: KEY1=VALUE1;KEY2=VALUE2"/>
                                         </Grid>
 
-                                        <!-- 状态信息 -->
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
-                                                   Foreground="#569CD6" FontSize="11"
-                                                   Margin="20,2,0,0">
-                                            <Run Text="Transport:"/>
-                                            <Run Text="{Binding Transport, Mode=OneWay}" Foreground="#6A9955"/>
-                                        </TextBlock>
+                                        <!-- 传输类型 + 状态信息 -->
+                                        <Grid Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3"
+                                              Margin="20,2,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Transport:" Foreground="#888888"
+                                                       FontSize="12" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                            <ComboBox Grid.Column="1"
+                                                      SelectedItem="{Binding Transport, UpdateSourceTrigger=PropertyChanged}"
+                                                      FontSize="12" Width="80"
+                                                      Background="#3C3C3C" Foreground="#6A9955"
+                                                      BorderBrush="#555555">
+                                                <ComboBoxItem Content="stdio"/>
+                                                <ComboBoxItem Content="http"/>
+                                            </ComboBox>
+                                        </Grid>
                                     </Grid>
                                 </Border>
                             </DataTemplate>

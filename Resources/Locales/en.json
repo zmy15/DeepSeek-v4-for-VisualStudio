@@ -463,6 +463,7 @@
   "file.filter.allFiles": "All Files",
 
   "mcp.startingProcess": "Starting process {0}...",
+  "mcp.connecting": "Connecting to {0}...",
   "mcp.toolError": "Error: {0}",
   "mcp.emptyResponse": "Empty response",
   "mcp.processStatusExited": "Exited (code={0})",
