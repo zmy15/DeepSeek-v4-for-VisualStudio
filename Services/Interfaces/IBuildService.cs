@@ -37,6 +37,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 如果没有选中任何项，返回空列表。
         /// </returns>
         Task<List<ErrorListItem>> GetSelectedErrorsAsync(CancellationToken ct);
+
+        /// <summary>
+        /// 检查最近是否启动了构建（即使 VS BuildState 尚未更新为 InProgress）。
+        /// get_errors 工具用此方法避免在构建刚启动时返回"无错误"的误判。
+        /// </summary>
+        /// <returns>true 表示最近 10 秒内启动了构建</returns>
+        bool WasBuildRecentlyStarted();
     }
 
     /// <summary>

@@ -23,6 +23,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     public class BuildService : IBuildService
     {
         /// <summary>
+        /// 最近一次异步构建的启动时间（UTC）。
+        /// 供 get_errors 使用，检测构建是否刚启动（BuildState 可能尚未更新）。
+        /// </summary>
+        private DateTime? _lastBuildStartUtc;
+
+        /// <summary>
+        /// 构建启动后，BuildState 更新为 InProgress 的最小等待窗口。
+        /// </summary>
+        private static readonly TimeSpan BuildStartWindow = TimeSpan.FromSeconds(10);
+
+        /// <summary>
+        /// 检查最近是否启动了构建（即使 BuildState 尚未反映）。
+        /// </summary>
+        public bool WasBuildRecentlyStarted()
+        {
+            if (!_lastBuildStartUtc.HasValue) return false;
+            return (DateTime.UtcNow - _lastBuildStartUtc.Value) < BuildStartWindow;
+        }
+
+        /// <summary>
         /// 执行解决方案构建。自动检测项目类型并选择合适的构建方式。
         /// </summary>
         public async Task<string> BuildAsync(string? solutionPath, CancellationToken ct)
@@ -93,6 +113,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 // ── 通过 ExecuteCommand 启动构建（兼容 CMake/MSBuild 等所有项目类型）──
                 Logger.Info("[BuildService] 通过 DTE ExecuteCommand 异步启动构建...");
+                _lastBuildStartUtc = DateTime.UtcNow;  // 记录启动时间，供 get_errors 检测
                 dte.ExecuteCommand("Build.BuildSolution");
 
                 string projectType = isCmakeProject ? "CMake" : "MSBuild";

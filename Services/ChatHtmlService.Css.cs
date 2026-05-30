@@ -65,7 +65,7 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .msg-action-btn.retry-btn{font-size:14px;padding:6px 16px;margin-top:8px;border:1px solid #555;border-radius:6px}
 .msg-action-btn.handoff-btn{opacity:1 !important}
 .msg-wrapper:hover .msg-action-btn{opacity:1}.msg-action-btn:hover{background:#3c3c3c;color:#e0e0e0}.msg-action-btn.retry-btn:hover{color:#4fc1ff;border-color:#4fc1ff;background:#2a3a4a}.msg-action-btn.edit-btn:hover{color:#f48771}
-.inline-edit-area{margin:4px 0}.inline-edit-area textarea{width:100%;min-height:80px;background:#1e1e1e;color:#d4d4d4;border:1px solid #4fc1ff;border-radius:6px;padding:8px 12px;font-size:13px;font-family:inherit;resize:vertical}
+.inline-edit-area{margin:4px 0}.inline-edit-area textarea{box-sizing:border-box;width:100%;min-height:80px;background:#1e1e1e;color:#d4d4d4;border:1px solid #4fc1ff;border-radius:6px;padding:8px 12px;font-size:13px;font-family:inherit;resize:vertical}
 .edit-actions{display:flex;gap:8px;margin-top:6px}.inline-edit-btn-save{background:#0e639c;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px}
 .inline-edit-btn-save:hover{background:#1177bb}.inline-edit-btn-cancel{background:#3c3c3c;color:#ccc;border:1px solid #555;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}.streaming-cursor{display:inline-block;width:1px;height:14px;background:#4fc1ff;margin-left:2px;animation:blink 1s infinite;vertical-align:text-bottom}
