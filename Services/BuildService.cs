@@ -425,7 +425,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         #region Error Collection
 
         /// <summary>
-        /// 从 VS Task List 收集编译错误详情。
+        /// 从 VS Error List 收集编译错误详情。
         /// 按文件分组，每个错误包含文件名、行号、错误描述。
         /// 公开为 internal static，供 BuiltInToolService.get_errors 复用。
         /// </summary>
@@ -435,9 +435,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             try
             {
-                // ── 方案一：IVsTaskList（VS SDK Interop 原生接口）──
+                // ── 方案一：SVsErrorList → IVsTaskList（VS SDK Interop 原生接口）──
+                // 关键：必须使用 SVsErrorList（错误列表），而非 SVsTaskList（任务列表）！
+                // 根据 MSDN："The SVsErrorList service also provides IVsTaskList."
+                // SVsTaskList 返回的是用户任务列表（// TODO 等），不包含编译错误。
+                // 编译错误由构建系统注册到 SVsErrorList 中。
+                // 详见：https://learn.microsoft.com/dotnet/api/microsoft.visualstudio.shell.interop.ivserrorlist
                 var taskList = (IVsTaskList?)ServiceProvider.GlobalProvider
-                    .GetService(typeof(SVsTaskList));
+                    .GetService(typeof(SVsErrorList));
                 if (taskList != null)
                 {
                     taskList.EnumTaskItems(out IVsEnumTaskItems? enumTasks);
@@ -505,7 +510,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                         if (errorsByFile.Count > 0)
                         {
-                            Logger.Info($"[BuildService] IVsTaskList 收集到 {errorsByFile.Sum(k => k.Value.Count)} 个编译错误，分布在 {errorsByFile.Count} 个文件");
+                            Logger.Info($"[BuildService] SVsErrorList 收集到 {errorsByFile.Sum(k => k.Value.Count)} 个编译错误，分布在 {errorsByFile.Count} 个文件");
                             foreach (var kvp in errorsByFile)
                             {
                                 sb.AppendLine($"### {kvp.Key}");
@@ -517,9 +522,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         }
                         else
                         {
-                            Logger.Info("[BuildService] IVsTaskList 中未找到编译错误条目，回退到 Output Window");
+                            Logger.Info("[BuildService] SVsErrorList 中未找到编译错误条目，回退到 Output Window");
                         }
                     }
+                }
+                else
+                {
+                    Logger.Info("[BuildService] SVsErrorList 服务不可用（SVsErrorList 未实现 IVsTaskList），回退到 Output Window");
                 }
 
                 // ── 方案二：DTE Output Window 回退 ──
