@@ -11,7 +11,7 @@
 [![.NET](https://img.shields.io/badge/.NET%20Framework-4.7.2-blueviolet)]()
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-V4-green)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)]()
-[![Version](https://img.shields.io/badge/version-1.1.5-blue)]()
+[![Version](https://img.shields.io/badge/version-1.1.6-blue)]()
 
 [English](README_EN.md)
 
