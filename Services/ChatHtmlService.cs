@@ -527,20 +527,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             return $@"
 (function(){{
-    var msgBody=document.getElementById('msg-body-{messageIndex}');
+    // ── 以编辑按钮为锚点定位，不依赖全局 msg-body-{{messageIndex}} ID ──
+    // 避免增量更新或 DOM 状态不一致时命中其他气泡（如 AI 回复气泡）
+    var editBtn=document.getElementById('edit-btn-{messageIndex}');
+    if(!editBtn)return;
+    editBtn.style.display='none';
+
+    // 在同一 msg-bubble 内查找 msg-content
+    var msgBubble=editBtn.closest('.msg-bubble');
+    if(!msgBubble)return;
+    var msgBody=msgBubble.querySelector('.msg-content');
     if(!msgBody)return;
 
-    // 隐藏原有的编辑按钮
-    var editBtn=document.getElementById('edit-btn-{messageIndex}');
-    if(editBtn)editBtn.style.display='none';
-
     // 移除已有的内联编辑区
-    var existing=document.getElementById('inline-edit-{messageIndex}');
+    var existing=msgBubble.querySelector('.inline-edit-area');
     if(existing)existing.remove();
 
     // 创建内联编辑区
     var editArea=document.createElement('div');
-    editArea.id='inline-edit-{messageIndex}';
     editArea.className='inline-edit-area';
 
     var ta=document.createElement('textarea');
@@ -603,11 +607,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             return $@"
 (function(){{
-    var msgBody=document.getElementById('msg-body-{messageIndex}');
+    // ── 以编辑按钮为锚点定位，不依赖全局 msg-body-{{messageIndex}} ID ──
+    var editBtn=document.getElementById('edit-btn-{messageIndex}');
+    if(!editBtn)return;
+
+    var msgBubble=editBtn.closest('.msg-bubble');
+    if(!msgBubble)return;
+    var msgBody=msgBubble.querySelector('.msg-content');
     if(!msgBody)return;
 
     // 移除内联编辑区
-    var editArea=document.getElementById('inline-edit-{messageIndex}');
+    var editArea=msgBubble.querySelector('.inline-edit-area');
     if(editArea)editArea.remove();
 
     // 恢复原始正文
@@ -616,8 +626,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     msgBody.innerHTML=html;
 
     // 恢复编辑按钮
-    var editBtn=document.getElementById('edit-btn-{messageIndex}');
-    if(editBtn)editBtn.style.display='';
+    editBtn.style.display='';
 }})();";
         }
 
