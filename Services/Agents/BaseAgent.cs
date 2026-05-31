@@ -1053,6 +1053,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 return "❌ VisualStudio_askQuestions: 缺少 questions 参数";
             }
 
+            // ── 越权文件访问检查：AI 访问项目外路径需要用户审批 ──
+            if (BuiltInTools != null && IsFileAccessingTool(toolName))
+            {
+                string? targetPath = ExtractAnyPathFromToolArgs(toolName, argumentsJson);
+                if (!string.IsNullOrWhiteSpace(targetPath)
+                    && !string.IsNullOrWhiteSpace(workspaceRoot)
+                    && IsPathOutsideWorkspace(targetPath, workspaceRoot))
+                {
+                    string operation = GetToolOperationName(toolName);
+                    string fileName = System.IO.Path.GetFileName(targetPath.TrimEnd('/', '\\'));
+                    string displayName = string.IsNullOrEmpty(fileName) ? targetPath : fileName;
+                    bool approved = await RequestPermissionAsync(
+                        $"确认{operation}项目外路径: {displayName}",
+                        $"AI 正在尝试{operation}当前项目之外的路径：\n\n`{targetPath}`\n\n⚠️ 该路径不在当前工作区 `{workspaceRoot}` 内。",
+                        "file_access_outside_workspace",
+                        "",
+                        $"AI 请求{operation}项目外部路径 `{targetPath}` 以完成任务");
+                    if (!approved)
+                    {
+                        AddLog("WARN", $"❌ 用户拒绝了项目外路径访问: {targetPath}");
+                        return $"⏭️ 用户取消了项目外路径{operation}: {targetPath}";
+                    }
+                    AddLog("INFO", $"✅ 用户已批准项目外路径访问: {targetPath}");
+                }
+            }
+
             // ── 修改项目文件（.vcxproj/.csproj/.slnx 等）需要用户确认 ──
             if (BuiltInTools != null && IsFileModifyingTool(toolName))
             {
@@ -1290,6 +1316,115 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 or "multi_replace_string_in_file"
                 or "create_file"
                 or "apply_patch";
+        }
+
+        /// <summary>
+        /// 判断工具是否为文件访问类工具（读/写/搜索/列表，涉及文件路径）。
+        /// 用于越权检测——AI 访问项目外路径时需用户审批。
+        /// </summary>
+        private static bool IsFileAccessingTool(string toolName)
+        {
+            return toolName is "read_file"
+                or "list_dir"
+                or "create_file"
+                or "delete_file"
+                or "replace_string_in_file"
+                or "multi_replace_string_in_file"
+                or "create_directory"
+                or "file_search"
+                or "grep_search"
+                or "apply_patch";
+        }
+
+        /// <summary>
+        /// 获取工具操作的中文名称（用于审批提示）。
+        /// </summary>
+        private static string GetToolOperationName(string toolName)
+        {
+            return toolName switch
+            {
+                "read_file" => "读取",
+                "list_dir" => "列出目录",
+                "create_file" => "创建文件",
+                "delete_file" => "删除文件",
+                "replace_string_in_file" => "修改",
+                "multi_replace_string_in_file" => "批量修改",
+                "create_directory" => "创建目录",
+                "file_search" => "搜索文件",
+                "grep_search" => "搜索内容",
+                "apply_patch" => "应用补丁到",
+                _ => "访问"
+            };
+        }
+
+        /// <summary>
+        /// 判断目标路径是否在工作区之外。
+        /// 支持绝对路径和相对路径判断。
+        /// </summary>
+        private static bool IsPathOutsideWorkspace(string targetPath, string workspaceRoot)
+        {
+            if (string.IsNullOrWhiteSpace(targetPath) || string.IsNullOrWhiteSpace(workspaceRoot))
+                return false;
+
+            // ── 规范化路径 ──
+            string normalizedTarget = targetPath.Replace('/', '\\').Trim();
+            string normalizedRoot = workspaceRoot.Replace('/', '\\').Trim().TrimEnd('\\') + '\\';
+
+            // ── 绝对路径：直接比较前缀 ──
+            if (System.IO.Path.IsPathRooted(normalizedTarget))
+            {
+                string fullTarget = System.IO.Path.GetFullPath(normalizedTarget).TrimEnd('\\') + '\\';
+                string fullRoot = System.IO.Path.GetFullPath(normalizedRoot).TrimEnd('\\') + '\\';
+                return !fullTarget.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase);
+            }
+
+            // ── 相对路径：以 ../ 或 ..\ 开头视为项目外 ──
+            if (normalizedTarget.StartsWith(".."))
+                return true;
+
+            // ── 纯相对路径（如 "src/file.cs"）：视为项目内 ──
+            return false;
+        }
+
+        /// <summary>
+        /// 从各种工具参数中提取文件/目录路径。
+        /// 比 ExtractFilePathFromToolArgs 更通用，覆盖 file_search/grep_search 的 includePattern 等。
+        /// </summary>
+        private static string? ExtractAnyPathFromToolArgs(string toolName, string argumentsJson)
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(argumentsJson);
+                var root = doc.RootElement;
+
+                // ── 通用 filePath 参数 ──
+                if (root.TryGetProperty("filePath", out var fpProp))
+                    return fpProp.GetString();
+
+                // ── list_dir / create_directory 的 path/dirPath ──
+                if (root.TryGetProperty("path", out var pProp))
+                    return pProp.GetString();
+                if (root.TryGetProperty("dirPath", out var dpProp))
+                    return dpProp.GetString();
+
+                // ── file_search / grep_search 的 includePattern（可能是绝对路径）──
+                if (root.TryGetProperty("includePattern", out var ipProp))
+                {
+                    string pattern = ipProp.GetString() ?? string.Empty;
+                    // 如果 pattern 是绝对路径（如 "F:\\project\\src\\**"），提取目录部分
+                    if (System.IO.Path.IsPathRooted(pattern))
+                    {
+                        // 去掉 glob 通配符部分，取目录
+                        int globIdx = pattern.IndexOfAny(new[] { '*', '?' });
+                        string dirPart = globIdx >= 0 ? pattern.Substring(0, globIdx) : pattern;
+                        string? dir = System.IO.Path.GetDirectoryName(dirPart.TrimEnd('/', '\\'));
+                        return dir ?? dirPart;
+                    }
+                    return null; // 相对 pattern，不检查
+                }
+            }
+            catch { }
+            return null;
         }
 
         /// <summary>

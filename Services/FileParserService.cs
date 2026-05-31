@@ -252,6 +252,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 string lang = GetLanguageFromExtension(r.FileExtension);
                 sb.AppendLine($"📄 {r.FileName}");
+                if (!string.IsNullOrEmpty(r.FilePath))
+                {
+                    sb.AppendLine($"📍 路径: {r.FilePath}");
+                }
 
                 if (r.Truncated && !string.IsNullOrEmpty(r.TruncationNote))
                 {
