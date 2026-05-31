@@ -1434,7 +1434,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             var plan = JsonSerializer.Deserialize<AgentTaskPlan>(
                                 msg.PlanJson,
                                 new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-                            if (plan != null && plan.Steps.Count > 0)
+                            if (plan != null && plan.Steps.Count > 0 && !plan.IsCompleted)
                             {
                                 _agentDispatcher.ActivePlan = plan;
                                 context.ActivePlan = plan;
@@ -1690,14 +1690,56 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _agentDispatcher.FileChangeNotified -= OnAgentFileChangeNotified;
                 }
 
-                _pendingHandoff = null; // 消费后清空
+                _pendingHandoff = null; // 消费后清空原始 Handoff（Plan→Edit）
 
-                // ── 清除消息中的 HandoffJson，避免会话切换后重复显示按钮 ──
+                // ── AutoSend 链式处理：EditAgent 返回的 Handoff（如 Edit→Build、Edit→Ask）
+                //    需要自动跟进执行。RunAgentWorkflowAsync 有同样的逻辑处理 Plan→Edit 链，
+                //    此处补充 Handoff 场景下的多层 AutoSend 链。 ──
+                while (agentResult.Handoff != null && agentResult.Handoff.AutoSend)
+                {
+                    var nextHandoff = agentResult.Handoff;
+                    Logger.Info($"[AgentHandoff] AutoSend 链式跟进: → {nextHandoff.TargetAgent} ({nextHandoff.Label})");
+
+                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentSwitched"], nextHandoff.TargetAgent);
+
+                    await TaskScheduler.Default;
+
+                    _agentDispatcher.PlanUpdated += OnAgentDispatcherPlanUpdated;
+                    _agentDispatcher.LogEntryAdded += OnAgentLogEntryAdded;
+                    _agentDispatcher.FileChangeNotified += OnAgentFileChangeNotified;
+                    try
+                    {
+                        agentResult = await _agentDispatcher.ExecuteHandoffAsync(nextHandoff, context);
+                    }
+                    finally
+                    {
+                        _agentDispatcher.PlanUpdated -= OnAgentDispatcherPlanUpdated;
+                        _agentDispatcher.LogEntryAdded -= OnAgentLogEntryAdded;
+                        _agentDispatcher.FileChangeNotified -= OnAgentFileChangeNotified;
+                    }
+                }
+
+                // ── 链式处理完毕后，如有非自动 Handoff，保存供 UI 按钮触发 ──
+                if (agentResult.Handoff != null && agentResult.Handoff.ShowContinueOn)
+                {
+                    _pendingHandoff = agentResult.Handoff;
+                }
+
+                // ── 清除所有消息中的 HandoffJson，避免后续消息误触发 Plan 上下文覆盖 ──
+                // 此前仅清除 _agentStreamingMsgIndex（当前 Edit 响应消息），但 HandoffJson
+                // 实际保存在 Plan Agent 的原始响应消息上。Edit Handoff 消费后必须清除全部
+                // 残留的 HandoffJson，否则下一轮对话中 TryRestorePendingHandoffFromMessages()
+                // 会重新恢复旧的 Handoff 并触发 OverrideRoutingForPlanContext 覆盖路由，
+                // 导致 Plan 面板再次出现。
                 lock (_lock)
                 {
-                    if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count)
+                    foreach (var msg in _messages)
                     {
-                        _messages[_agentStreamingMsgIndex].HandoffJson = null;
+                        if (!string.IsNullOrEmpty(msg.HandoffJson))
+                        {
+                            msg.HandoffJson = null;
+                        }
                     }
                 }
 

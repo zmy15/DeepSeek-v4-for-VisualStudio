@@ -217,6 +217,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
             }
 
+            // ── 防重守卫：如果计划已完成，跳过重复执行 ──
+            if (plan.IsCompleted)
+            {
+                AddLog("INFO", "[EditAgent] 计划已完成，跳过重复执行");
+                return;
+            }
+
             try
             {
                 for (int i = 0; i < plan.Steps.Count; i++)
@@ -228,6 +235,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
 
                     var step = plan.Steps[i];
+
+                    // ── 跳过已完成的步骤（防止计划被恢复后重复执行）──
+                    if (step.Status is AgentStepStatus.Completed or AgentStepStatus.Skipped)
+                    {
+                        AddLog("INFO", $"[EditAgent] 步骤 {step.Index} ({step.Title}) 已完成，跳过");
+                        continue;
+                    }
+
                     plan.CurrentStepIndex = i + 1;
                     step.Status = AgentStepStatus.InProgress;
                     NotifyPlanUpdated();
@@ -401,6 +416,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
                 step.AiResponse = buildResult;
                 step.ResultSummary = buildResult;
+
+                // ── 记录构建结果到日志，使 HasBuildWarningsInLogs() 能检测到步骤级构建失败 ──
+                if (buildResult.Contains("❌") || buildResult.Contains("error CS") || buildResult.Contains("error C")
+                    || buildResult.Contains("Build FAILED") || buildResult.Contains("0 succeeded"))
+                {
+                    string oneLine = buildResult.Split(new[] { '\r', '\n' },
+                        StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? buildResult;
+                    AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.editFinalBuildWarn"], oneLine));
+                }
+                else
+                {
+                    string oneLine = buildResult.Split(new[] { '\r', '\n' },
+                        StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? buildResult;
+                    AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editFinalBuildOk"], oneLine));
+                }
             }
             else if (isCodeStep)
             {
