@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -85,9 +86,47 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             if (string.IsNullOrEmpty(filePath))
                 return Task.FromResult("❌ read_file: 缺少 filePath 参数");
 
-            // ── 缓存命中 ──
+            // ── 缓存命中 ── 比较磁盘文件是否已变更 ──
             if (_fileReadCache.TryGetValue(filePath, out string? cached))
-                return Task.FromResult($"📄 [缓存] 文件: {filePath}\n\n{cached}");
+            {
+                // 检查磁盘文件是否已被修改（外部变更、或缓存失效未覆盖的场景）
+                bool fileChanged = false;
+                try
+                {
+                    if (File.Exists(filePath))
+                    {
+                        string currentContent = File.ReadAllText(filePath);
+                        if (currentContent != cached)
+                        {
+                            fileChanged = true;
+                            // 更新缓存为最新内容
+                            _fileReadCache.TryUpdate(filePath, currentContent, cached);
+                            cached = currentContent;
+                        }
+                    }
+                    else
+                    {
+                        // 文件已被删除，清除缓存
+                        _fileReadCache.TryRemove(filePath, out _);
+                        return Task.FromResult($"❌ 文件不存在: {filePath}");
+                    }
+                }
+                catch { /* 读取失败时不阻塞，返回缓存摘要 */ }
+
+                if (!fileChanged)
+                {
+                    // 文件未变更 → 返回极简摘要，严禁重复消费 token
+                    int cachedLineCount = cached.Count(c => c == '\n') + 1;
+                    int cachedCharCount = cached.Length;
+                    return Task.FromResult(
+                        $"⚡ [已缓存，请勿重复读取] 文件 `{Path.GetFileName(filePath)}`（{cachedLineCount} 行，{cachedCharCount} 字符）已在之前的 read_file 调用中完整读取。" +
+                        $"\n\n💡 你已拥有此文件的全部内容，请直接基于已有内容进行分析，**无需再次调用 read_file** 读取此文件。");
+                }
+
+                // 文件已变更 → 允许重读，返回完整最新内容
+                return Task.FromResult(
+                    $"🔄 [文件已变更，重新读取] 文件 `{Path.GetFileName(filePath)}` 自上次读取后已被修改，以下是最新内容：\n\n📄 文件: {filePath}\n\n{cached}");
+            }
 
             if (!File.Exists(filePath))
             {

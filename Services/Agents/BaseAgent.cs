@@ -29,7 +29,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         protected const string CommonSystemPromptPrefixCore =
             "你是 DeepSeek v4 for Visual Studio——一个集成在 VS Code 中的 AI 编程助手。\n" +
-            "你可以使用工具来读取文件、搜索代码库、获取网页内容、运行终端命令等。\n";
+            "你可以使用工具来读取文件、搜索代码库、获取网页内容、运行终端命令等。\n" +
+            "\n" +
+            "## 🚫 文件读取规则（严格遵守，否则浪费大量 token）\n" +
+            "- 如果 read_file 返回「已缓存，请勿重复读取」或 [缓存] 标记，说明该文件已在之前的对话轮次中完整读取过。\n" +
+            "  你已拥有该文件的全部内容。**绝对禁止**再次对同一文件调用 read_file。\n" +
+            "- 重复读取同一文件是最常见的 token 浪费原因。每次违规重复读取会消耗数千 token 而没有新信息。\n" +
+            "- 如果你需要确认某个已读文件中的细节，直接引用之前 read_file 返回的内容即可，无需重新读取。\n";
 
         /// <summary>
         /// 获取带语言指令的完整公共前缀（每次调用时根据当前语言动态拼接）。
