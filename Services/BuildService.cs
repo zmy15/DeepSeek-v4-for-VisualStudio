@@ -91,19 +91,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress)
                 {
                     Logger.Info("[BuildService] 构建已在运行中，等待完成...");
-                    if (!WaitForDteBuildCompletion(solutionBuild, TimeSpan.FromMinutes(5)))
-                    {
+                    // 等待在后台线程，避免阻塞 UI
+                    bool completed = await Task.Run(() =>
+                        WaitForDteBuildCompletion(solutionBuild, TimeSpan.FromMinutes(5)), ct);
+                    if (!completed)
                         return LocalizationService.Instance["build.timeout"];
-                    }
                     return BuildResultFromDte(solutionBuild);
                 }
 
-                // ── 启动构建 ──
+                // ── 启动构建（必须在 UI 线程）──
                 Logger.Info("[BuildService] 正在通过 ExecuteCommand 构建解决方案 (CMake 项目)...");
                 dte.ExecuteCommand("Build.BuildSolution");
 
-                // ── 等待构建完成 ──
-                if (!WaitForDteBuildCompletion(solutionBuild, TimeSpan.FromMinutes(5)))
+                // ── 等待构建完成（切换到后台线程，避免阻塞 UI）──
+                bool buildCompleted = await Task.Run(() =>
+                    WaitForDteBuildCompletion(solutionBuild, TimeSpan.FromMinutes(5)), ct);
+
+                if (!buildCompleted)
                 {
                     Logger.Warn("[BuildService] ⚠️ 构建等待超时（5 分钟）");
                     return LocalizationService.Instance["build.timeout"];
