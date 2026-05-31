@@ -637,11 +637,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         ToolCalls = toolCalls
                     });
 
-                    // ── 并行执行工具调用（带超时保护）──
-                    const int toolTimeoutSeconds = 60;
+                    // ── 并行执行工具调用（带超时保护，长时工具使用更长超时）──
                     var toolTasks = toolCalls.Select(tc =>
-                        ExecuteToolWithTimeoutAsync(tc, workspaceRoot, ct, TimeSpan.FromSeconds(toolTimeoutSeconds)))
-                        .ToList();
+                    {
+                        var timeout = GetToolTimeout(tc.Function.Name);
+                        return ExecuteToolWithTimeoutAsync(tc, workspaceRoot, ct, timeout);
+                    }).ToList();
                     var toolResults = await Task.WhenAll(toolTasks).ConfigureAwait(false);
 
                     for (int i = 0; i < toolCalls.Count; i++)
@@ -1429,6 +1430,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 判断工具是否需要用户交互（需要等待用户响应，不应设超时）。
+        /// <summary>
+        /// 判断工具是否需要用户交互（不设工具层超时）。
+        /// 构建类工具也在此列，因为其执行时间不可预测，超时由 BuildService 内部自行管理。
         /// </summary>
         private static bool IsInteractiveTool(string toolName)
         {
@@ -1438,7 +1442,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 or "replace_string_in_file"
                 or "multi_replace_string_in_file"
                 or "create_file"
-                or "apply_patch";
+                or "apply_patch"
+                or "build_solution"          // 构建时间不可预测，由 BuildService 内部控制超时
+                or "create_and_run_task";    // 自定义任务同理
+        }
+
+        /// <summary>
+        /// 根据工具类型返回合适的超时时间（仅对非交互式、非构建类工具生效）。
+        /// 交互式工具和构建类工具由 IsInteractiveTool 直接跳过超时。
+        /// </summary>
+        private static TimeSpan GetToolTimeout(string toolName)
+        {
+            return toolName switch
+            {
+                _ => TimeSpan.FromSeconds(60),  // 默认 60 秒
+            };
         }
 
         /// <summary>
