@@ -793,26 +793,38 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 等待 DTE 构建完成（ExecuteCommand 是异步的，必须轮询 BuildState）。
         /// 超时返回 false。
+        /// 
+        /// 注意：CMake/Open Folder 项目的构建可能同步完成，或 BuildState 瞬间从
+        /// NotStarted→Done 跳过 InProgress（项目已是最新时）。因此第一阶段等待
+        /// "离开 NotStarted"而非"等于 InProgress"，避免死循环。
         /// </summary>
         private static bool WaitForDteBuildCompletion(EnvDTE.SolutionBuild solutionBuild, TimeSpan timeout)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             const int pollIntervalMs = 500;
 
-            // ── 先等待构建开始（BuildState 变为 InProgress）──
-            while (solutionBuild.BuildState != EnvDTE.vsBuildState.vsBuildStateInProgress)
+            // ── 阶段 1：等待构建离开 NotStarted 状态 ──
+            // 不要求一定进入 InProgress——构建可能瞬间完成直接进入 Done
+            while (solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateNotStarted)
             {
                 if (sw.Elapsed >= timeout)
                 {
-                    Logger.Warn("[BuildService] ⏱️ 等待 DTE 构建启动超时");
+                    Logger.Warn("[BuildService] ⏱️ 等待 DTE 构建启动超时（BuildState 始终为 NotStarted）");
                     return false;
                 }
                 System.Threading.Thread.Sleep(pollIntervalMs);
             }
 
+            // ── 阶段 2：如果构建已直接完成（跳过了 InProgress），立即返回 ──
+            if (solutionBuild.BuildState != EnvDTE.vsBuildState.vsBuildStateInProgress)
+            {
+                Logger.Info($"[BuildService] DTE 构建已完成（可能在轮询前就已结束），耗时 {sw.Elapsed.TotalSeconds:F1}s, LastBuildInfo={solutionBuild.LastBuildInfo}");
+                return true;
+            }
+
             Logger.Info("[BuildService] DTE 构建已启动，等待完成...");
 
-            // ── 等待构建完成（BuildState 不再是 InProgress）──
+            // ── 阶段 3：等待构建离开 InProgress 状态（正常完成）──
             while (solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress)
             {
                 if (sw.Elapsed >= timeout)
