@@ -143,6 +143,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
+            // ── 清空上次执行的日志，防止 HasBuildWarningsInLogs() 被旧日志误导 ──
+            _logs.Clear();
+
             var result = new AgentResult
             {
                 AgentType = AgentType.Edit,

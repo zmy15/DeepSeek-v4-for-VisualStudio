@@ -37,7 +37,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             Logger.Info($"[BuildService] 开始构建 (CMake={isCmakeProject}, workspace={workspaceDir ?? "(null)"})");
 
-            // ── 方案1：IVsSolutionBuildManager（VS 2022 支持 .sln 和 CMake/Open Folder）──
+            // ── CMake / Open Folder 项目：直接走 ExecuteCommand 专用路径 ──
+            // IVsSolutionBuildManager 和 DTE SolutionBuild.Build 对 CMake 项目不兼容，
+            // 会分别产生 E_POINTER 和 "pSlnCfg 为 null" 的虚假 WARN 日志。
+            if (isCmakeProject)
+            {
+                return await BuildWithExecuteCommandAsync(ct);
+            }
+
+            // ── 方案1：IVsSolutionBuildManager（VS 2022 支持 .sln 项目）──
             // dwDefQueryResults 已修正为 VSSBQR_OUTOFDATE_QUERY_YES，
             // SBF_OPERATION_FORCE_UPDATE 确保过期项目也被构建。
             string? slnResult = await TryBuildWithSolutionManagerAsync(ct);
@@ -182,6 +190,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 if (ErrorHandler.Failed(hr))
                 {
+                    // ── API 调用失败但构建事件可能已触发（CMake 项目常见）──
+                    // 检查事件是否已收到构建完成通知，若是则直接返回事件结果
+                    if (buildEventsSink.HasCompleted)
+                    {
+                        Logger.Info($"[BuildService] StartSimpleUpdateSolutionConfiguration 返回 0x{hr:X8}，但构建事件已完成，使用事件结果");
+                        return BuildResultFromEvents(buildEventsSink);
+                    }
+
                     Logger.Warn($"[BuildService] StartSimpleUpdateSolutionConfiguration 失败: HRESULT=0x{hr:X8} ({GetHResultDescription(hr)})");
                     return null; // 回退到 DTE 方式
                 }
@@ -874,7 +890,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             private int _projectSucceeded;
             private int _projectFailed;
             private bool _disposed;
+            private bool _completed;
             private readonly System.Diagnostics.Stopwatch _sw = System.Diagnostics.Stopwatch.StartNew();
+
+            /// <summary>
+            /// 构建事件是否已收到完成通知（UpdateSolution_Done 已触发）。
+            /// 用于 API 调用返回错误但构建实际已完成的场景（CMake 项目常见）。
+            /// </summary>
+            public bool HasCompleted => Volatile.Read(ref _completed);
 
             public async Task<bool> WaitForCompletionAsync(CancellationToken ct, TimeSpan timeout)
             {
@@ -922,6 +945,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             public int UpdateSolution_Done(int fSucceeded, int fModified, int fCancelCommand)
             {
+                Volatile.Write(ref _completed, true);
                 Logger.Info($"[BuildEvents] 🏁 UpdateSolution_Done: Succeeded={fSucceeded}, Modified={fModified}, Cancelled={fCancelCommand}, Projects={_projectCount} (ok={_projectSucceeded}, fail={_projectFailed}), Elapsed={_sw.Elapsed.TotalSeconds:F1}s");
                 if (fCancelCommand != 0) _cancelled = 1;
                 else if (fSucceeded != 0) _succeeded = 1;

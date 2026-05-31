@@ -106,6 +106,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
+            // ── 清空上次执行的日志，防止旧日志干扰判断 ──
+            _logs.Clear();
+
             var L = LocalizationService.Instance;
             AddLog("INFO", string.Format(L["agent.log.buildStarted"], userMessage.Truncate(100)));
 
@@ -153,6 +156,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 else
                 {
                     AddLog("INFO", L["agent.log.buildPassed"]);
+                }
+
+                // ── 携带计划上下文，链回 Ask Agent 生成最终变更总结 ──
+                if (context.ActivePlan != null && context.ActivePlan.IsCompleted
+                    && context.ActivePlan.ChangedFiles.Count > 0)
+                {
+                    result.Plan = context.ActivePlan;
+                    result.FileChanges = context.ActivePlan.ChangedFiles;
+                    result.Handoff = new AgentHandoff
+                    {
+                        Label = L["agent.edit.handoffAskLabel"],
+                        TargetAgent = AgentType.Ask,
+                        Prompt = L["agent.edit.handoffAskPrompt"],
+                        AutoSend = true,
+                        ShowContinueOn = false,
+                    };
                 }
 
                 result.Logs.AddRange(_logs);
