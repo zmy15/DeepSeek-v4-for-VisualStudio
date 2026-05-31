@@ -2785,14 +2785,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             _pendingEditMsgIndex = -1;
 
-            // 移除内联编辑区 UI
+            // 移除内联编辑区 UI（以编辑按钮为锚点，与 BuildInlineEditJs 保持一致）
             try
             {
                 if (ChatWebView.CoreWebView2 != null)
                 {
                     await ChatWebView.CoreWebView2.ExecuteScriptAsync(
-                        $"var el=document.getElementById('inline-edit-{userMsgIndex}');if(el)el.remove();" +
-                        $"var eb=document.getElementById('edit-btn-{userMsgIndex}');if(eb)eb.style.display='';");
+                        $"(function(){{" +
+                        $"var eb=document.getElementById('edit-btn-{userMsgIndex}');if(!eb)return;" +
+                        $"var bubble=eb.closest('.msg-bubble');if(!bubble)return;" +
+                        $"var editArea=bubble.querySelector('.inline-edit-area');if(editArea)editArea.remove();" +
+                        $"eb.style.display='';" +
+                        $"}})();");
                 }
             }
             catch { }
