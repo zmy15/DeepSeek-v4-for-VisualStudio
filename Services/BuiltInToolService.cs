@@ -25,7 +25,53 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private readonly IMemoryService? _memoryService;
 
         // ── 文件读取缓存：同一会话内相同路径只从磁盘读取一次 ──
-        private readonly ConcurrentDictionary<string, string> _fileReadCache = new(StringComparer.OrdinalIgnoreCase);
+        // 缓存条目包含内容 + 上次读取轮次，支持基于轮数的缓存过期
+        private readonly ConcurrentDictionary<string, FileReadCacheEntry> _fileReadCache = new(StringComparer.OrdinalIgnoreCase);
+
+        private int _currentRound;
+        private int _roundThreshold = 5;
+
+        /// <summary>
+        /// 当前 API 请求的轮次号（由 Agent 工具循环设置）。
+        /// 0 表示不在工具循环中，此时缓存永不过期（仅磁盘变更触发重读）。
+        /// 设置时会自动同步到 ReadFileTool 实例。
+        /// </summary>
+        public int CurrentRound
+        {
+            get => _currentRound;
+            set
+            {
+                _currentRound = value;
+                SyncRoundToReadFileTool();
+            }
+        }
+
+        /// <summary>
+        /// 文件读取缓存的轮数阈值。当 CurrentRound - LastReadRound >= 此值时，
+        /// 即使文件内容未变更也允许 AI 重新读取文件以刷新上下文。
+        /// 默认 5 轮。设置时会自动同步到 ReadFileTool 实例。
+        /// </summary>
+        public int RoundThreshold
+        {
+            get => _roundThreshold;
+            set
+            {
+                _roundThreshold = value;
+                SyncRoundToReadFileTool();
+            }
+        }
+
+        /// <summary>
+        /// 将 CurrentRound 和 RoundThreshold 同步到 ReadFileTool 实例。
+        /// </summary>
+        private void SyncRoundToReadFileTool()
+        {
+            if (_tools.TryGetValue("read_file", out var tool) && tool is ReadFileTool rft)
+            {
+                rft.CurrentRound = _currentRound;
+                rft.RoundThreshold = _roundThreshold;
+            }
+        }
 
         // ── 工具注册表 ──
         private readonly Dictionary<string, BuiltInToolBase> _tools = new(StringComparer.OrdinalIgnoreCase);
@@ -104,11 +150,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         #region Cache Management
 
         /// <summary>
-        /// 获取文件读取缓存的快照（用于 Agent 步骤间上下文传递）。
+        /// 获取文件读取缓存的快照（仅内容，用于 Agent 步骤间上下文传递）。
         /// </summary>
         public Dictionary<string, string> GetFileReadCacheSnapshot()
         {
-            return new Dictionary<string, string>(_fileReadCache, StringComparer.OrdinalIgnoreCase);
+            var snapshot = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in _fileReadCache)
+                snapshot[kvp.Key] = kvp.Value.Content;
+            return snapshot;
         }
 
         /// <summary>
@@ -140,7 +189,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             return new BuiltInToolBase[]
             {
                 new ListDirTool(),
-                new ReadFileTool(new ConcurrentDictionary<string, string>()),
+                new ReadFileTool(new ConcurrentDictionary<string, FileReadCacheEntry>()),
                 new FileSearchTool(),
                 new GrepSearchTool(),
                 new GetErrorsTool(),

@@ -16,9 +16,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public class ReadFileTool : BuiltInToolBase
     {
-        private readonly ConcurrentDictionary<string, string> _fileReadCache;
+        private readonly ConcurrentDictionary<string, FileReadCacheEntry> _fileReadCache;
 
-        public ReadFileTool(ConcurrentDictionary<string, string> fileReadCache)
+        /// <summary>
+        /// 当前 API 请求轮次号（由 BuiltInToolService 同步设置）。
+        /// </summary>
+        public int CurrentRound { get; set; }
+
+        /// <summary>
+        /// 缓存轮数阈值：经过此轮数后允许重新读取文件。
+        /// </summary>
+        public int RoundThreshold { get; set; } = 10;
+
+        public ReadFileTool(ConcurrentDictionary<string, FileReadCacheEntry> fileReadCache)
         {
             _fileReadCache = fileReadCache ?? throw new ArgumentNullException(nameof(fileReadCache));
         }
@@ -87,9 +97,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 return Task.FromResult("❌ read_file: 缺少 filePath 参数");
 
             // ── 缓存命中 ── 比较磁盘文件是否已变更 ──
-            if (_fileReadCache.TryGetValue(filePath, out string? cached))
+            if (_fileReadCache.TryGetValue(filePath, out FileReadCacheEntry cachedEntry))
             {
-                // 检查磁盘文件是否已被修改（外部变更、或缓存失效未覆盖的场景）
+                string cached = cachedEntry.Content;
+                int lastRound = cachedEntry.LastReadRound;
                 bool fileChanged = false;
                 try
                 {
@@ -99,8 +110,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         if (currentContent != cached)
                         {
                             fileChanged = true;
-                            // 更新缓存为最新内容
-                            _fileReadCache.TryUpdate(filePath, currentContent, cached);
+                            // 更新缓存为最新内容，保持原轮次不变
+                            _fileReadCache.TryUpdate(filePath,
+                                new FileReadCacheEntry { Content = currentContent, LastReadRound = lastRound },
+                                cachedEntry);
                             cached = currentContent;
                         }
                     }
@@ -115,15 +128,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 if (!fileChanged)
                 {
-                    // 文件未变更 → 返回极简摘要，严禁重复消费 token
-                    int cachedLineCount = cached.Count(c => c == '\n') + 1;
-                    int cachedCharCount = cached.Length;
+                    // ── 轮数阈值检查：经过足够轮数后允许重新读取 ──
+                    int roundsSinceLastRead = CurrentRound > 0 && lastRound > 0
+                        ? CurrentRound - lastRound
+                        : 0;
+                    if (RoundThreshold > 0 && roundsSinceLastRead >= RoundThreshold)
+                    {
+                        // 轮数已达标 → 允许重新读取，更新轮次
+                        _fileReadCache.TryUpdate(filePath,
+                            new FileReadCacheEntry { Content = cached, LastReadRound = CurrentRound },
+                            cachedEntry);
+                        int cachedLineCount = cached.Count(c => c == '\n') + 1;
+                        return Task.FromResult(
+                            $"🔄 [轮数过期，允许重读] 文件 `{Path.GetFileName(filePath)}` 上次读取距今 {roundsSinceLastRead} 轮（阈值: {RoundThreshold} 轮），以下是最新内容：\n\n📄 文件: {filePath}\n\n{cached}");
+                    }
+
+                    // 文件未变更且轮数未达标 → 返回极简摘要，严禁重复消费 token
+                    int cachedLineCount2 = cached.Count(c => c == '\n') + 1;
+                    int cachedCharCount2 = cached.Length;
+                    string roundHint = CurrentRound > 0 && lastRound > 0
+                        ? $"  (距今 {roundsSinceLastRead} 轮，还需 {RoundThreshold - roundsSinceLastRead} 轮后可重读)"
+                        : "";
                     return Task.FromResult(
-                        $"⚡ [已缓存，请勿重复读取] 文件 `{Path.GetFileName(filePath)}`（{cachedLineCount} 行，{cachedCharCount} 字符）已在之前的 read_file 调用中完整读取。" +
+                        $"⚡ [已缓存，请勿重复读取] 文件 `{Path.GetFileName(filePath)}`（{cachedLineCount2} 行，{cachedCharCount2} 字符）已在之前的 read_file 调用中完整读取。{roundHint}" +
                         $"\n\n💡 你已拥有此文件的全部内容，请直接基于已有内容进行分析，**无需再次调用 read_file** 读取此文件。");
                 }
 
-                // 文件已变更 → 允许重读，返回完整最新内容
+                // 文件已变更 → 允许重读，返回完整最新内容，更新轮次
+                _fileReadCache.TryUpdate(filePath,
+                    new FileReadCacheEntry { Content = cached, LastReadRound = CurrentRound },
+                    cachedEntry);
                 return Task.FromResult(
                     $"🔄 [文件已变更，重新读取] 文件 `{Path.GetFileName(filePath)}` 自上次读取后已被修改，以下是最新内容：\n\n📄 文件: {filePath}\n\n{cached}");
             }
@@ -174,7 +208,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 string result = resultBuilder.ToString().TrimEnd();
                 string rawContent = sb.ToString().TrimEnd();
-                _fileReadCache.TryAdd(filePath, rawContent);
+                _fileReadCache.TryAdd(filePath,
+                    new FileReadCacheEntry { Content = rawContent, LastReadRound = CurrentRound });
 
                 return Task.FromResult(result);
             }

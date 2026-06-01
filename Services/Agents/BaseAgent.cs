@@ -342,6 +342,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     break;
                 }
 
+                // ── 同步当前轮次到文件读取缓存，用于轮数过期策略 ──
+                if (BuiltInTools != null)
+                    BuiltInTools.CurrentRound = round;
+
                 toolCallAccumulator.Clear();
                 reasoningBuilder.Clear();
                 contentBuilder.Clear();
@@ -823,6 +827,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // ── 汇总累计 Cache 统计（日志）──
             LogTotalCacheHitRate(round);
+
+            // ── 重置轮次，避免后续非循环调用受残留轮次影响 ──
+            if (BuiltInTools != null)
+                BuiltInTools.CurrentRound = 0;
 
             return contentBuilder.ToString().Trim();
         }
