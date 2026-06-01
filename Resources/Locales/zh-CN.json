@@ -213,7 +213,7 @@
   "build.cmake.success": "✅ CMake 构建成功（命令行）",
   "build.cmake.failedWithCode": "❌ CMake 构建失败（退出码: {0}）",
   "build.cmake.failed": "⚠️ CMake 命令行构建失败: {0}",
-  "build.cmake.notFound": "⚠️ 未找到 CMake 可执行文件，且 VS 内置 CMake 集成亦不可用。\n\n请通过以下方式安装 CMake：\n1. Visual Studio Installer → 修改 → 勾选"使用 C++ 的桌面开发"中的"C++ CMake tools for Windows"\n2. 或从 https://cmake.org/download/ 下载独立安装包",
+  "build.cmake.notFound": "⚠️ 未找到 CMake 可执行文件，且 VS 内置 CMake 集成亦不可用。\n\n请通过以下方式安装 CMake：\n1. Visual Studio Installer → 修改 → 勾选使用 C++ 的桌面开发中的C++ CMake tools for Windows\n2. 或从 https://cmake.org/download/ 下载独立安装包",
   "build.cmake.noBuildDir": "⚠️ 未找到 CMake 构建目录。请先运行 cmake 配置步骤（如 `cmake -B build`）生成构建目录。",
   "build.cmake.launchFailed": "⚠️ 无法启动 CMake 构建进程。",
   "build.cmake.outputTail": "构建输出末尾",

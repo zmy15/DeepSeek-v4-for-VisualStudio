@@ -264,23 +264,46 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 从 JSON 文件加载字符串资源。
+        /// 如果文件不存在，尝试从嵌入资源加载（默认语言）。
         /// </summary>
         private void LoadJsonFile(string languageCode, bool isFallback, bool optional = false)
         {
+            string? json = null;
             string filePath = GetResourceFilePath(languageCode);
             if (!File.Exists(filePath))
             {
-                if (!optional && !isFallback)
+                // ── 回退：尝试从嵌入资源加载默认语言 ──
+                if (isFallback && string.Equals(languageCode, DefaultLanguage, StringComparison.OrdinalIgnoreCase))
+                {
+                    json = LoadFromEmbeddedResource(languageCode);
+                }
+
+                if (json == null)
+                {
+                    if (!optional && !isFallback)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[I18n] Warning: Resource file not found: {filePath}");
+                    }
+                    return;
+                }
+            }
+            else
+            {
+                try
+                {
+                    json = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
+                }
+                catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine(
-                        $"[I18n] Warning: Resource file not found: {filePath}");
+                        $"[I18n] Error reading {filePath}: {ex.Message}");
+                    return;
                 }
-                return;
             }
 
             try
             {
-                string json = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
                 var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
 
                 if (dict != null)
@@ -302,6 +325,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[I18n] Error loading {filePath}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 从嵌入资源加载语言 JSON（用于文件系统不可用时的回退，如 CI/测试环境）。
+        /// </summary>
+        private static string? LoadFromEmbeddedResource(string languageCode)
+        {
+            try
+            {
+                var assembly = typeof(LocalizationService).Assembly;
+                // 嵌入资源名称: <RootNamespace>.Resources.Locales.<languageCode>.json
+                string resourceName = $"{assembly.GetName().Name}.Resources.Locales.{languageCode}.json";
+                using var stream = assembly.GetManifestResourceStream(resourceName);
+                if (stream == null)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[I18n] Embedded resource not found: {resourceName}");
+                    return null;
+                }
+                using var reader = new StreamReader(stream, System.Text.Encoding.UTF8);
+                return reader.ReadToEnd();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[I18n] Error loading embedded resource: {ex.Message}");
+                return null;
             }
         }
 
