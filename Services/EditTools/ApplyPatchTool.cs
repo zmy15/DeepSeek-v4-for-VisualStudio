@@ -371,6 +371,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 return result;
             }
 
+            // ── 填充 AppliedEdits（每个成功匹配的 chunk 计为 1 个编辑点）──
+            // 之前 ApplySinglePatch 从未填充此列表，导致日志中始终显示 "0 个编辑点"
+            foreach (var (chunk, contextLines) in chunks)
+            {
+                result.AppliedEdits.Add(new TextEditOperation
+                {
+                    StartLine = chunk.OrigIndex,
+                    StartColumn = 0,
+                    EndLine = chunk.OrigIndex + chunk.DelLines.Count,
+                    EndColumn = 0,
+                    NewText = string.Join("\n", chunk.InsLines),
+                    MatchedText = contextLines.Length > 0
+                        ? string.Join("\n", contextLines.Take(3)) + (contextLines.Length > 3 ? "..." : "")
+                        : string.Empty,
+                    MatchLevelUsed = MatchLevel.Exact,
+                });
+            }
+
             // ── 阶段 3：文件重建 ──
             string reconstructed = ReconstructFile(fileLines, chunks.Select(c => c.chunk).ToList());
             result.FinalContent = EditStringMatcher.NormalizeToCrLf(reconstructed);
