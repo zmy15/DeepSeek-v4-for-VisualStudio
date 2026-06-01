@@ -156,7 +156,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             var snapshot = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var kvp in _fileReadCache)
-                snapshot[kvp.Key] = kvp.Value.Content;
+                snapshot[kvp.Key] = kvp.Value.FullContent;
             return snapshot;
         }
 

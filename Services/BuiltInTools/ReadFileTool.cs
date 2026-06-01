@@ -96,72 +96,111 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             if (string.IsNullOrEmpty(filePath))
                 return Task.FromResult("❌ read_file: 缺少 filePath 参数");
 
-            // ── 缓存命中 ── 比较磁盘文件是否已变更 ──
+            int reqStartLine = GetIntArg(args, "startLine", 1);
+            int reqEndLine = GetIntArg(args, "endLine", int.MaxValue);
+
+            // ── 缓存命中 ──
             if (_fileReadCache.TryGetValue(filePath, out FileReadCacheEntry cachedEntry))
             {
-                string cached = cachedEntry.Content;
+                string cachedFull = cachedEntry.FullContent;
                 int lastRound = cachedEntry.LastReadRound;
                 bool fileChanged = false;
+
                 try
                 {
                     if (File.Exists(filePath))
                     {
                         string currentContent = File.ReadAllText(filePath);
-                        if (currentContent != cached)
+                        if (currentContent != cachedFull)
                         {
                             fileChanged = true;
-                            // 更新缓存为最新内容，保持原轮次不变
+                            // 文件已变更 → 更新 FullContent，清空已读范围
                             _fileReadCache.TryUpdate(filePath,
-                                new FileReadCacheEntry { Content = currentContent, LastReadRound = lastRound },
+                                new FileReadCacheEntry
+                                {
+                                    FullContent = currentContent,
+                                    ReadRanges = null,
+                                    LastReadRound = lastRound
+                                },
                                 cachedEntry);
-                            cached = currentContent;
+                            cachedFull = currentContent;
                         }
                     }
                     else
                     {
-                        // 文件已被删除，清除缓存
                         _fileReadCache.TryRemove(filePath, out _);
                         return Task.FromResult($"❌ 文件不存在: {filePath}");
                     }
                 }
-                catch { /* 读取失败时不阻塞，返回缓存摘要 */ }
+                catch { /* 读取失败时不阻塞，使用缓存内容 */ }
 
                 if (!fileChanged)
                 {
-                    // ── 轮数阈值检查：经过足够轮数后允许重新读取 ──
+                    // ── 轮数阈值检查：过期后清空已读范围，允许重新读取 ──
                     int roundsSinceLastRead = CurrentRound > 0 && lastRound > 0
                         ? CurrentRound - lastRound
                         : 0;
                     if (RoundThreshold > 0 && roundsSinceLastRead >= RoundThreshold)
                     {
-                        // 轮数已达标 → 允许重新读取，更新轮次
+                        // 轮数过期 → 清空已读范围，允许重读
+                        int totalLines = cachedFull.Count(c => c == '\n') + 1;
+                        int actualEnd = Math.Min(reqEndLine, totalLines);
+                        string freshContent = FormatLinesFromFullContent(cachedFull, reqStartLine, actualEnd);
                         _fileReadCache.TryUpdate(filePath,
-                            new FileReadCacheEntry { Content = cached, LastReadRound = CurrentRound },
+                            new FileReadCacheEntry
+                            {
+                                FullContent = cachedFull,
+                                ReadRanges = new List<(int, int)> { (reqStartLine, actualEnd) },
+                                LastReadRound = CurrentRound
+                            },
                             cachedEntry);
-                        int cachedLineCount = cached.Count(c => c == '\n') + 1;
                         return Task.FromResult(
-                            $"🔄 [轮数过期，允许重读] 文件 `{Path.GetFileName(filePath)}` 上次读取距今 {roundsSinceLastRead} 轮（阈值: {RoundThreshold} 轮），以下是最新内容：\n\n📄 文件: {filePath}\n\n{cached}");
+                            $"🔄 [轮数过期，允许重读] 文件 `{Path.GetFileName(filePath)}` 上次读取距今 {roundsSinceLastRead} 轮（阈值: {RoundThreshold} 轮）：\n\n📄 文件: {filePath} (共 {totalLines} 行，显示 {reqStartLine}-{actualEnd})\n\n{freshContent}");
                     }
 
-                    // 文件未变更且轮数未达标 → 返回极简摘要，严禁重复消费 token
-                    int cachedLineCount2 = cached.Count(c => c == '\n') + 1;
-                    int cachedCharCount2 = cached.Length;
-                    string roundHint = CurrentRound > 0 && lastRound > 0
-                        ? $"  (距今 {roundsSinceLastRead} 轮，还需 {RoundThreshold - roundsSinceLastRead} 轮后可重读)"
-                        : "";
+                    // ── 行范围覆盖检查 ──
+                    int cachedTotalLines = cachedFull.Count(c => c == '\n') + 1;
+                    int reqActualEnd = Math.Min(reqEndLine, cachedTotalLines);
+                    if (cachedEntry.IsRangeCovered(reqStartLine, reqActualEnd))
+                    {
+                        // 请求范围已被之前读取覆盖 → 拦截重复读取
+                        int cachedLineCount = cachedTotalLines;
+                        int cachedCharCount = cachedFull.Length;
+                        string roundHint = CurrentRound > 0 && lastRound > 0
+                            ? $"  (距今 {roundsSinceLastRead} 轮，还需 {RoundThreshold - roundsSinceLastRead} 轮后可重读)"
+                            : "";
+                        return Task.FromResult(
+                            $"⚡ [已缓存，请勿重复读取] 文件 `{Path.GetFileName(filePath)}`（{cachedLineCount} 行，{cachedCharCount} 字符）的第 {reqStartLine}-{reqActualEnd} 行已在之前的 read_file 调用中读取过。{roundHint}" +
+                            $"\n\n💡 你已拥有此文件的全部内容，请直接基于已有内容进行分析，**无需再次调用 read_file** 读取此文件。");
+                    }
+
+                    // 请求范围未被覆盖 → 从缓存中提取新范围，更新已读范围
+                    string rangedContent = FormatLinesFromFullContent(cachedFull, reqStartLine, reqActualEnd);
+                    var updatedEntry = cachedEntry;
+                    updatedEntry.AddRange(reqStartLine, reqActualEnd);
+                    updatedEntry.LastReadRound = CurrentRound;
+                    _fileReadCache.TryUpdate(filePath, updatedEntry, cachedEntry);
                     return Task.FromResult(
-                        $"⚡ [已缓存，请勿重复读取] 文件 `{Path.GetFileName(filePath)}`（{cachedLineCount2} 行，{cachedCharCount2} 字符）已在之前的 read_file 调用中完整读取。{roundHint}" +
-                        $"\n\n💡 你已拥有此文件的全部内容，请直接基于已有内容进行分析，**无需再次调用 read_file** 读取此文件。");
+                        $"📄 文件: {filePath} (共 {cachedTotalLines} 行，显示 {reqStartLine}-{reqActualEnd})\n\n{rangedContent}");
                 }
 
-                // 文件已变更 → 允许重读，返回完整最新内容，更新轮次
+                // 文件已变更 → 返回完整最新内容（已读范围已清空，重新开始追踪）
+                int changedTotalLines = cachedFull.Count(c => c == '\n') + 1;
+                int changedActualEnd = Math.Min(reqEndLine, changedTotalLines);
+                string changedContent = FormatLinesFromFullContent(cachedFull, reqStartLine, changedActualEnd);
                 _fileReadCache.TryUpdate(filePath,
-                    new FileReadCacheEntry { Content = cached, LastReadRound = CurrentRound },
+                    new FileReadCacheEntry
+                    {
+                        FullContent = cachedFull,
+                        ReadRanges = new List<(int, int)> { (reqStartLine, changedActualEnd) },
+                        LastReadRound = CurrentRound
+                    },
                     cachedEntry);
                 return Task.FromResult(
-                    $"🔄 [文件已变更，重新读取] 文件 `{Path.GetFileName(filePath)}` 自上次读取后已被修改，以下是最新内容：\n\n📄 文件: {filePath}\n\n{cached}");
+                    $"🔄 [文件已变更，重新读取] 文件 `{Path.GetFileName(filePath)}` 自上次读取后已被修改：\n\n📄 文件: {filePath} (共 {changedTotalLines} 行，显示 {reqStartLine}-{changedActualEnd})\n\n{changedContent}");
             }
 
+            // ── 首次读取（缓存未命中）──
             if (!File.Exists(filePath))
             {
                 string wsHint = !string.IsNullOrEmpty(workspaceRoot) && Directory.Exists(workspaceRoot)
@@ -174,42 +213,39 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             try
             {
                 const int maxLinesToRead = 100000;
-                int startLine = GetIntArg(args, "startLine", 1);
-                int endLine = GetIntArg(args, "endLine", int.MaxValue);
 
-                int totalLines = 0;
-                var sb = new StringBuilder();
-                bool truncated = false;
+                // 读取完整文件内容用于缓存
+                string fullContent = File.ReadAllText(filePath);
+                int totalLines = fullContent.Count(c => c == '\n') + 1;
+                bool truncated = totalLines > maxLinesToRead;
 
-                foreach (var line in File.ReadLines(filePath))
-                {
-                    totalLines++;
-                    if (totalLines > maxLinesToRead)
-                    {
-                        truncated = true;
-                        break;
-                    }
-                    if (totalLines >= startLine && totalLines <= endLine)
-                    {
-                        sb.AppendLine($"{totalLines}: {line}");
-                    }
-                }
-
-                int actualEnd = Math.Min(endLine, totalLines);
+                int actualEnd = Math.Min(reqEndLine, totalLines);
                 if (truncated)
                     actualEnd = Math.Min(actualEnd, maxLinesToRead);
 
+                // 提取请求行范围（带行号前缀）
+                string rangedContent = FormatLinesFromFullContent(fullContent, reqStartLine, actualEnd);
+
                 var resultBuilder = new StringBuilder();
-                resultBuilder.AppendLine($"📄 文件: {filePath} (共 {totalLines} 行，显示 {startLine}-{actualEnd})");
+                resultBuilder.AppendLine($"📄 文件: {filePath} (共 {totalLines} 行，显示 {reqStartLine}-{actualEnd})");
                 if (truncated)
-                    resultBuilder.AppendLine($"> ⚠️ 文件过大（>{maxLinesToRead}行），仅读取了前 {maxLinesToRead} 行");
+                    resultBuilder.AppendLine($"> ⚠️ 文件过大（>{maxLinesToRead}行），仅缓存了前 {maxLinesToRead} 行");
                 resultBuilder.AppendLine();
-                resultBuilder.Append(sb);
+                resultBuilder.Append(rangedContent);
 
                 string result = resultBuilder.ToString().TrimEnd();
-                string rawContent = sb.ToString().TrimEnd();
+
+                // 缓存：存储完整文件内容（截断后）+ 已读范围
+                string contentToCache = truncated
+                    ? string.Join("\n", File.ReadLines(filePath).Take(maxLinesToRead))
+                    : fullContent;
                 _fileReadCache.TryAdd(filePath,
-                    new FileReadCacheEntry { Content = rawContent, LastReadRound = CurrentRound });
+                    new FileReadCacheEntry
+                    {
+                        FullContent = contentToCache,
+                        ReadRanges = new List<(int, int)> { (reqStartLine, actualEnd) },
+                        LastReadRound = CurrentRound
+                    });
 
                 return Task.FromResult(result);
             }
@@ -217,6 +253,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             {
                 return Task.FromResult($"❌ 读取文件失败: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 从完整文件内容中提取指定行范围，并添加行号前缀。
+        /// </summary>
+        private static string FormatLinesFromFullContent(string fullContent, int startLine, int endLine)
+        {
+            var lines = fullContent.Split('\n');
+            var sb = new StringBuilder();
+            int maxLine = Math.Min(endLine, lines.Length);
+            for (int i = startLine - 1; i < maxLine; i++)
+            {
+                // 去掉 \r 尾巴
+                string line = lines[i].TrimEnd('\r');
+                sb.AppendLine($"{i + 1}: {line}");
+            }
+            return sb.ToString().TrimEnd();
         }
     }
 }
