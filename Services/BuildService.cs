@@ -106,21 +106,50 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return await BuildCmakeViaDteFallbackAsync(ct);
             }
 
+            // ── 3.5 查找 vcvars64.bat 以初始化 MSVC 编译器环境 ──
+            // 直接调用 cmake --build 时，cl.exe 缺少 INCLUDE/LIB 等环境变量，
+            // 导致找不到 <cstdint> 等标准头文件。通过 vcvars 初始化环境解决。
+            string? vcvarsPath = FindVcvarsBat();
+
             string args = $"--build \"{buildDir}\" --config {config}";
-            Logger.Info($"[BuildService] 执行: {cmakePath} {args}");
+            Logger.Info($"[BuildService] 执行: {cmakePath} {args}" + (vcvarsPath != null ? $" (通过 vcvars: {vcvarsPath})" : ""));
 
             try
             {
-                var psi = new ProcessStartInfo
+                ProcessStartInfo psi;
+
+                if (vcvarsPath != null)
                 {
-                    FileName = cmakePath,
-                    Arguments = args,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WorkingDirectory = workspaceDir,
-                };
+                    // ── 方案 A：通过 cmd.exe /c 先初始化 MSVC 环境再构建 ──
+                    // 使用 `call vcvars64.bat >nul 2>&1 && cmake --build ...`
+                    // 这样 cmake 继承 vcvars 设置的环境变量（INCLUDE、LIB、PATH 等）
+                    string cmdArgs = $"/c \"call \"{vcvarsPath}\" >nul 2>&1 && \"{cmakePath}\" {args}\"";
+                    psi = new ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = cmdArgs,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        WorkingDirectory = workspaceDir,
+                    };
+                }
+                else
+                {
+                    // ── 方案 B：未找到 vcvars，直接调用 cmake（可能失败）──
+                    Logger.Warn("[BuildService] 未找到 vcvars64.bat，直接调用 cmake（可能缺少 MSVC 环境）");
+                    psi = new ProcessStartInfo
+                    {
+                        FileName = cmakePath,
+                        Arguments = args,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        WorkingDirectory = workspaceDir,
+                    };
+                }
 
                 using var process = Process.Start(psi);
                 if (process == null)
@@ -1160,6 +1189,92 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             catch { }
 
+            return null;
+        }
+
+        /// <summary>
+        /// 查找 MSVC 环境初始化脚本 vcvars64.bat。
+        /// 用于在命令行 CMake 构建前初始化编译器环境（INCLUDE、LIB、PATH 等），
+        /// 解决直接调用 cmake --build 时找不到标准头文件的问题。
+        /// </summary>
+        private static string? FindVcvarsBat()
+        {
+            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string vsRootBase = Path.Combine(programFiles, "Microsoft Visual Studio");
+            string[] vsVersions = { "2026", "2022", "2019" };
+
+            foreach (var vsVersion in vsVersions)
+            {
+                string vsRoot = Path.Combine(vsRootBase, vsVersion);
+                if (!Directory.Exists(vsRoot)) continue;
+
+                try
+                {
+                    foreach (string editionDir in Directory.GetDirectories(vsRoot))
+                    {
+                        string vcvarsPath = Path.Combine(editionDir, "VC", "Auxiliary", "Build", "vcvars64.bat");
+                        if (File.Exists(vcvarsPath))
+                        {
+                            Logger.Info($"[BuildService] 找到 VS {vsVersion} vcvars64.bat: {vcvarsPath}");
+                            return vcvarsPath;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // ── vswhere 回退 ──
+            string? vswherePath = FindVsWhere();
+            if (!string.IsNullOrEmpty(vswherePath))
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = vswherePath,
+                        Arguments = "-latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                    };
+
+                    using var process = Process.Start(psi);
+                    if (process != null)
+                    {
+                        process.WaitForExit(5000);
+                        string installPath = process.StandardOutput.ReadToEnd().Trim();
+                        if (!string.IsNullOrEmpty(installPath))
+                        {
+                            string vcvarsPath = Path.Combine(installPath, "VC", "Auxiliary", "Build", "vcvars64.bat");
+                            if (File.Exists(vcvarsPath))
+                            {
+                                Logger.Info($"[BuildService] 通过 vswhere 找到 vcvars64.bat: {vcvarsPath}");
+                                return vcvarsPath;
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        private static string? FindVsWhere()
+        {
+            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string[] candidatePaths =
+            {
+                Path.Combine(programFiles, "Microsoft Visual Studio", "Installer", "vswhere.exe"),
+                Path.Combine(programFiles, "Microsoft Visual Studio", "2022", "Installer", "vswhere.exe"),
+                Path.Combine(programFiles, "Microsoft Visual Studio", "2019", "Installer", "vswhere.exe"),
+            };
+
+            foreach (var path in candidatePaths)
+            {
+                if (File.Exists(path)) return path;
+            }
             return null;
         }
 
