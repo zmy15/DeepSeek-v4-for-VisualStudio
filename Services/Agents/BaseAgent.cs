@@ -281,7 +281,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // ── 在用户消息之前注入额外的 system 消息 ──
             // 用户消息始终在最后，所以插入位置是 Count - 1
-            if (extraSystemMessages.Count > 0)
+            if (extraSystemMessages != null && extraSystemMessages.Count > 0)
             {
                 messages.InsertRange(messages.Count - 1, extraSystemMessages);
             }
