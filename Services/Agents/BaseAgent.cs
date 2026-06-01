@@ -213,10 +213,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         /// <param name="systemPrompt">Agent 的系统提示词</param>
         /// <param name="userPrompt">当前的用户消息/步骤描述</param>
-        /// <param name="maxRecentTurns">注入对话历史的最近轮次数（0 = 不注入）</param>
+        /// <param name="maxRecentTurns">注入对话历史的最近轮次数（0 = 不注入，默认不限制）</param>
         /// <returns>按缓存优化顺序排列的消息列表</returns>
         protected List<ChatApiMessage> BuildContextAwareMessages(
-            string systemPrompt, string userPrompt, int maxRecentTurns = 5)
+            string systemPrompt, string userPrompt, int maxRecentTurns = int.MaxValue)
         {
             var messages = new List<ChatApiMessage>();
 
@@ -275,7 +275,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             string systemPrompt,
             string userPrompt,
             List<ChatApiMessage> extraSystemMessages,
-            int maxRecentTurns = 5)
+            int maxRecentTurns = int.MaxValue)
         {
             var messages = BuildContextAwareMessages(systemPrompt, userPrompt, maxRecentTurns);
 
