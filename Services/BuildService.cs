@@ -4,9 +4,11 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -17,7 +19,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// 
     /// 支持：
     /// - MSBuild .sln 项目（通过 IVsSolutionBuildManager）
-    /// - CMake / Open Folder 项目（回退到 DTE.SolutionBuild）
+    /// - CMake / Open Folder 项目（通过命令行 cmake --build）
     /// - 构建错误收集（Task List + Output Window）
     /// </summary>
     public class BuildService : IBuildService
@@ -37,12 +39,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             Logger.Info($"[BuildService] 开始构建 (CMake={isCmakeProject}, workspace={workspaceDir ?? "(null)"})");
 
-            // ── CMake / Open Folder 项目：直接走 ExecuteCommand 专用路径 ──
+            // ── CMake / Open Folder 项目：使用命令行 cmake --build ──
             // IVsSolutionBuildManager 和 DTE SolutionBuild.Build 对 CMake 项目不兼容，
             // 会分别产生 E_POINTER 和 "pSlnCfg 为 null" 的虚假 WARN 日志。
+            // 改用命令行 cmake --build 直接构建，更可靠且能获取完整编译输出。
             if (isCmakeProject)
             {
-                return await BuildWithExecuteCommandAsync(ct);
+                if (workspaceDir == null)
+                {
+                    Logger.Warn("[BuildService] CMake 项目未检测到工作区目录");
+                    return LocalizationService.Instance["build.noBuildSystem"];
+                }
+                return await BuildCmakeWithCommandLineAsync(workspaceDir, ct);
             }
 
             // ── 方案1：IVsSolutionBuildManager（VS 2022 支持 .sln 项目）──
@@ -65,71 +73,101 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// CMake/Open Folder 项目专用构建路径。
-        /// 跳过 IVsSolutionBuildManager.StartSimpleUpdateSolutionConfiguration 和
-        /// DTE SolutionBuild.Build（两者对 CMake 项目均不兼容），直接使用
-        /// DTE ExecuteCommand("Build.BuildSolution") 触发构建。
+        /// 优先使用命令行 cmake --build 直接构建（更可靠，能获取完整编译输出）；
+        /// 若未找到 cmake 可执行文件，则回退到 DTE ExecuteCommand（依赖 VS 内置 CMake 集成）。
         /// 
-        /// 等待策略（UI 线程安全）：
-        /// 1. 优先：通过 IVsUpdateSolutionEvents（BuildEventsSink）事件驱动等待
-        /// 2. 回退：UI 线程异步轮询 DTE SolutionBuild.BuildState
-        /// 
-        /// 所有 COM 对象（DTE、SolutionBuild）的访问均在 UI 线程执行，
-        /// 杜绝 Task.Run 后台线程跨 STA COM 调用。
+        /// 命令行构建流程：
+        /// 1. 从 CMakePresets.json 或默认路径查找构建目录
+        /// 2. 执行 cmake --build &lt;buildDir&gt; --config &lt;config&gt;
+        /// 3. 捕获 stdout/stderr 并解析错误行
+        /// 4. 返回结构化构建结果
         /// </summary>
-        private static async Task<string> BuildWithExecuteCommandAsync(CancellationToken ct)
+        private static async Task<string> BuildCmakeWithCommandLineAsync(
+            string workspaceDir, CancellationToken ct)
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
-            EnvDTE.DTE? dte = null;
+            Logger.Info($"[BuildService] CMake 命令行构建, workspace={workspaceDir}");
+
+            // ── 1. 查找构建目录 ──
+            string? buildDir = FindCmakeBuildDirectory(workspaceDir);
+            if (string.IsNullOrEmpty(buildDir) || !Directory.Exists(buildDir))
+            {
+                Logger.Warn($"[BuildService] 未找到 CMake 构建目录: {buildDir ?? "(null)"}");
+                return LocalizationService.Instance["build.cmake.noBuildDir"];
+            }
+
+            // ── 2. 确定构建配置 ──
+            string config = FindCmakeBuildConfig(workspaceDir);
+
+            // ── 3. 查找 cmake 可执行文件；找不到则回退到 DTE ──
+            string? cmakePath = FindCmakeExecutable();
+            if (string.IsNullOrEmpty(cmakePath))
+            {
+                Logger.Warn("[BuildService] 未找到 cmake 可执行文件，回退到 DTE ExecuteCommand");
+                return await BuildCmakeViaDteFallbackAsync(ct);
+            }
+
+            string args = $"--build \"{buildDir}\" --config {config}";
+            Logger.Info($"[BuildService] 执行: {cmakePath} {args}");
 
             try
             {
-                dte = (EnvDTE.DTE?)ServiceProvider.GlobalProvider
-                    .GetService(typeof(EnvDTE.DTE));
-                if (dte == null)
+                var psi = new ProcessStartInfo
                 {
-                    Logger.Warn("[BuildService] 无法获取 DTE");
-                    return LocalizationService.Instance["build.noBuildSystem"];
+                    FileName = cmakePath,
+                    Arguments = args,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = workspaceDir,
+                };
+
+                using var process = Process.Start(psi);
+                if (process == null)
+                {
+                    Logger.Warn("[BuildService] 无法启动 cmake 进程");
+                    return LocalizationService.Instance["build.cmake.launchFailed"];
                 }
 
-                var solutionBuild = dte.Solution?.SolutionBuild;
-                if (solutionBuild == null)
+                // ── 异步读取输出（避免死锁）──
+                var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                var stderrTask = process.StandardError.ReadToEndAsync();
+
+                // ── 等待进程完成（带超时）──
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromMinutes(5));
+
+                await Task.Run(() =>
                 {
-                    Logger.Warn("[BuildService] DTE.SolutionBuild 不可用");
-                    return LocalizationService.Instance["build.noBuildSystem"];
-                }
+                    process.WaitForExit();
+                }, cts.Token);
 
-                bool alreadyBuilding = solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress;
+                string stdout = await stdoutTask;
+                string stderr = await stderrTask;
 
-                // ── 先订阅构建事件（必须在 ExecuteCommand 之前），再触发/等待构建 ──
-                bool buildCompleted = await TriggerAndWaitForBuildViaEventsAsync(
-                    dte, solutionBuild, needStart: !alreadyBuilding, ct, TimeSpan.FromMinutes(5));
+                int exitCode = process.ExitCode;
+                Logger.Info($"[BuildService] cmake 退出码: {exitCode}");
 
-                if (!buildCompleted)
-                {
-                    Logger.Warn("[BuildService] ⚠️ 构建等待超时（5 分钟）");
-                    return LocalizationService.Instance["build.timeout"];
-                }
-
-                return BuildResultFromDte(solutionBuild);
+                // ── 4. 格式化结果 ──
+                return FormatCmakeBuildResult(exitCode, stdout, stderr);
             }
             catch (OperationCanceledException)
             {
-                Logger.Info("[BuildService] 构建已被取消");
-                try { dte?.ExecuteCommand("Build.Cancel"); } catch { }
+                Logger.Info("[BuildService] CMake 构建已被取消");
                 return LocalizationService.Instance["build.cancelled"];
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[BuildService] CMake 构建异常: {ex.Message}");
-                return string.Format(LocalizationService.Instance["build.dteFailed"], ex.Message);
+                Logger.Warn($"[BuildService] CMake 命令行构建异常: {ex.Message}");
+                return string.Format(LocalizationService.Instance["build.cmake.failed"], ex.Message);
             }
         }
 
         /// <summary>
         /// 事件驱动的构建触发 + 等待。
-        /// 先通过 IVsUpdateSolutionEvents 订阅构建完成事件，再按需触发构建，
-        /// 最后异步等待完成。回退到 UI 线程轮询（如 IVsSolutionBuildManager 不可用）。
-        /// 所有 COM 访问均保证在 UI 线程。
+        /// 先按需触发构建（仅一次），再通过 IVsUpdateSolutionEvents 事件驱动等待
+        /// （.sln 项目快速响应），超时后回退到 UI 线程轮询 BuildState
+        /// （CMake 项目兼容）。所有 COM 访问均保证在 UI 线程。
         /// </summary>
         /// <param name="needStart">true=调用 ExecuteCommand 触发构建；false=构建已在运行，仅等待</param>
         private static async Task<bool> TriggerAndWaitForBuildViaEventsAsync(
@@ -139,7 +177,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             CancellationToken ct,
             TimeSpan timeout)
         {
-            // ── 策略 1：事件驱动（通过 IVsUpdateSolutionEvents）──
+            // ── 启动构建（仅一次，在事件订阅之前）──
+            if (needStart)
+            {
+                Logger.Info("[BuildService] 正在通过 ExecuteCommand 构建解决方案 (CMake 项目)...");
+                dte.ExecuteCommand("Build.BuildSolution");
+            }
+            else
+            {
+                Logger.Info("[BuildService] 构建已在运行中，等待完成...");
+            }
+
+            // ── 策略 1：事件驱动（IVsUpdateSolutionEvents，适用于 .sln 项目）──
             var buildManager = (IVsSolutionBuildManager?)ServiceProvider.GlobalProvider
                 .GetService(typeof(SVsSolutionBuildManager));
 
@@ -149,18 +198,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 buildManager.AdviseUpdateSolutionEvents(sink, out uint cookie);
                 try
                 {
-                    if (needStart)
-                    {
-                        Logger.Info("[BuildService] 正在通过 ExecuteCommand 构建解决方案 (CMake 项目)...");
-                        dte.ExecuteCommand("Build.BuildSolution");
-                    }
-                    else
-                    {
-                        Logger.Info("[BuildService] 构建已在运行中，通过事件等待完成...");
-                    }
+                    // 事件检测用较短超时（30s）：.sln 项目事件通常秒级触发；
+                    // CMake 项目不触发 IVsUpdateSolutionEvents，30s 后回退轮询
+                    var eventTimeout = TimeSpan.FromSeconds(30);
+                    if (eventTimeout > timeout) eventTimeout = timeout;
 
-                    // 直接返回事件等待结果（true=完成，false=超时），不回退到轮询
-                    return await sink.WaitForCompletionAsync(ct, timeout);
+                    bool completed = await sink.WaitForCompletionAsync(ct, eventTimeout);
+                    if (completed) return true;
+
+                    Logger.Info("[BuildService] 事件未在 30s 内触发（可能是 CMake 项目），回退到轮询...");
                 }
                 finally
                 {
@@ -169,12 +215,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             }
 
-            // ── 策略 2：UI 线程异步轮询（仅当 IVsSolutionBuildManager 不可用时回退）──
-            if (needStart)
-            {
-                Logger.Info("[BuildService] 正在通过 ExecuteCommand 构建解决方案 (CMake 项目, 轮询回退)...");
-                dte.ExecuteCommand("Build.BuildSolution");
-            }
+            // ── 策略 2：UI 线程异步轮询 BuildState（CMake 兼容）──
+            // 注意：构建已在上方启动，此处只轮询等待，不重复 ExecuteCommand
             return await PollDteBuildCompletionAsync(solutionBuild, ct, timeout);
         }
 
@@ -884,6 +926,358 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 Logger.Warn("[BuildService] DTE 构建等待超时或取消");
                 return false;
+            }
+        }
+
+        #endregion
+
+        #region CMake CLI Build Helpers
+
+        /// <summary>
+        /// 查找 CMake 构建目录。
+        /// 优先级：
+        /// 1. CMakePresets.json 中 configurePresets[0].binaryDir
+        /// 2. 默认目录 out/build/&lt;config&gt;（VS 默认）
+        /// 3. 默认目录 build/&lt;config&gt;（CLI 默认）
+        /// </summary>
+        private static string? FindCmakeBuildDirectory(string workspaceDir)
+        {
+            // ── 方案1：从 CMakePresets.json 读取 ──
+            string presetsPath = Path.Combine(workspaceDir, "CMakePresets.json");
+            if (File.Exists(presetsPath))
+            {
+                string? fromPreset = ParseCmakePresetsBinaryDir(presetsPath, workspaceDir);
+                if (!string.IsNullOrEmpty(fromPreset) && Directory.Exists(fromPreset))
+                {
+                    Logger.Info($"[BuildService] 从 CMakePresets.json 获取构建目录: {fromPreset}");
+                    return fromPreset;
+                }
+            }
+
+            // ── 方案2：检查常用默认目录 ──
+            string[] candidateDirs =
+            {
+                Path.Combine(workspaceDir, "out", "build"),
+                Path.Combine(workspaceDir, "build"),
+            };
+
+            // 在候选目录下查找包含 CMakeCache.txt 的子目录
+            foreach (var candidate in candidateDirs)
+            {
+                if (!Directory.Exists(candidate)) continue;
+
+                // 先尝试 candidate 自身
+                if (File.Exists(Path.Combine(candidate, "CMakeCache.txt")))
+                    return candidate;
+
+                // 再尝试子目录（如 out/build/x64-Debug）
+                try
+                {
+                    foreach (var subDir in Directory.GetDirectories(candidate))
+                    {
+                        if (File.Exists(Path.Combine(subDir, "CMakeCache.txt")))
+                            return subDir;
+                    }
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 从 CMakePresets.json 解析 binaryDir。
+        /// 支持 ${sourceDir} 和 ${presetName} 宏展开。
+        /// </summary>
+        private static string? ParseCmakePresetsBinaryDir(string presetsPath, string workspaceDir)
+        {
+            try
+            {
+                string jsonText = File.ReadAllText(presetsPath);
+                using var doc = JsonDocument.Parse(jsonText);
+                var root = doc.RootElement;
+
+                // 优先读取 configurePresets
+                if (root.TryGetProperty("configurePresets", out var configurePresets)
+                    && configurePresets.ValueKind == JsonValueKind.Array
+                    && configurePresets.GetArrayLength() > 0)
+                {
+                    var firstPreset = configurePresets[0];
+                    if (firstPreset.TryGetProperty("binaryDir", out var binaryDirProp)
+                        && binaryDirProp.ValueKind == JsonValueKind.String)
+                    {
+                        string binaryDir = binaryDirProp.GetString() ?? string.Empty;
+                        string presetName = string.Empty;
+                        if (firstPreset.TryGetProperty("name", out var nameProp))
+                            presetName = nameProp.GetString() ?? string.Empty;
+
+                        // 展开宏：${sourceDir} → workspaceDir, ${presetName} → presetName
+                        binaryDir = binaryDir
+                            .Replace("${sourceDir}", workspaceDir)
+                            .Replace("${presetName}", presetName);
+
+                        // 处理相对路径
+                        if (!Path.IsPathRooted(binaryDir))
+                            binaryDir = Path.GetFullPath(Path.Combine(workspaceDir, binaryDir));
+
+                        return binaryDir;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BuildService] 解析 CMakePresets.json 失败: {ex.Message}");
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 确定 CMake 构建配置（Debug / Release 等）。
+        /// 从 CMakePresets.json 的 buildPresets 读取，或从 CMakeCache.txt 解析，
+        /// 默认返回 Debug。
+        /// </summary>
+        private static string FindCmakeBuildConfig(string workspaceDir)
+        {
+            // ── 从 CMakePresets.json 读取 buildPresets[0].configuration ──
+            string presetsPath = Path.Combine(workspaceDir, "CMakePresets.json");
+            if (File.Exists(presetsPath))
+            {
+                try
+                {
+                    string jsonText = File.ReadAllText(presetsPath);
+                    using var doc = JsonDocument.Parse(jsonText);
+                    var root = doc.RootElement;
+
+                    if (root.TryGetProperty("buildPresets", out var buildPresets)
+                        && buildPresets.ValueKind == JsonValueKind.Array
+                        && buildPresets.GetArrayLength() > 0)
+                    {
+                        var firstBuildPreset = buildPresets[0];
+                        if (firstBuildPreset.TryGetProperty("configuration", out var configProp)
+                            && configProp.ValueKind == JsonValueKind.String)
+                        {
+                            string config = configProp.GetString() ?? "Debug";
+                            Logger.Info($"[BuildService] 从 CMakePresets.json 获取构建配置: {config}");
+                            return config;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // ── 默认 Debug ──
+            return "Debug";
+        }
+
+        /// <summary>
+        /// 查找 cmake 可执行文件路径。
+        /// 优先级：
+        /// 1. PATH 环境变量中的 cmake
+        /// 2. VS 2026 自带的 CMake（C++ CMake tools 组件）
+        /// 3. VS 2022 自带的 CMake（C++ CMake tools 组件）
+        /// 4. 常见独立安装路径
+        /// </summary>
+        private static string? FindCmakeExecutable()
+        {
+            // ── 1. 尝试 PATH 中的 cmake ──
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "cmake",
+                    Arguments = "--version",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+
+                using var process = Process.Start(psi);
+                if (process != null)
+                {
+                    process.WaitForExit(2000);
+                    if (process.ExitCode == 0)
+                        return "cmake";
+                }
+            }
+            catch
+            {
+                // cmake 不在 PATH 中
+            }
+
+            // ── 2. 查找 VS 2026 自带 CMake ──
+            string? vsCmake = FindVsBundledCmake("2026");
+            if (vsCmake != null) return vsCmake;
+
+            // ── 3. 查找 VS 2022 自带 CMake ──
+            vsCmake = FindVsBundledCmake("2022");
+            if (vsCmake != null) return vsCmake;
+
+            // ── 4. 检查常见独立安装路径 ──
+            string[] commonPaths =
+            {
+                @"C:\Program Files\CMake\bin\cmake.exe",
+                @"C:\Program Files (x86)\CMake\bin\cmake.exe"
+            };
+
+            foreach (var path in commonPaths)
+            {
+                if (File.Exists(path))
+                    return path;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 在 Visual Studio 安装目录中查找自带 CMake。
+        /// VS 自带 CMake 路径模式：
+        ///   <VS_ROOT>\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe
+        /// </summary>
+        private static string? FindVsBundledCmake(string vsVersion)
+        {
+            string vsRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Microsoft Visual Studio", vsVersion);
+
+            if (!Directory.Exists(vsRoot))
+                return null;
+
+            // ── 遍历所有 Edition（Community / Professional / Enterprise 等）──
+            try
+            {
+                foreach (string editionDir in Directory.GetDirectories(vsRoot))
+                {
+                    string cmakePath = Path.Combine(editionDir,
+                        "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "CMake", "bin", "cmake.exe");
+                    if (File.Exists(cmakePath))
+                    {
+                        Logger.Info($"[BuildService] 找到 VS {vsVersion} 自带 CMake: {cmakePath}");
+                        return cmakePath;
+                    }
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 将 cmake --build 的输出格式化为结构化构建结果。
+        /// </summary>
+        private static string FormatCmakeBuildResult(int exitCode, string stdout, string stderr)
+        {
+            var sb = new StringBuilder();
+
+            if (exitCode == 0)
+            {
+                sb.AppendLine(LocalizationService.Instance["build.cmake.success"]);
+            }
+            else
+            {
+                sb.AppendLine(string.Format(
+                    LocalizationService.Instance["build.cmake.failedWithCode"], exitCode));
+            }
+
+            // ── 提取错误/警告行 ──
+            string combined = stdout + "\n" + stderr;
+            var errorLines = combined
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Where(line =>
+                    line.Contains("error", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("warning", StringComparison.OrdinalIgnoreCase))
+                .Take(50)
+                .Select(line => line.Trim())
+                .ToList();
+
+            if (errorLines.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("### " + LocalizationService.Instance["build.errorDetails"]);
+                foreach (var line in errorLines)
+                    sb.AppendLine($"- {line}");
+            }
+            else if (exitCode != 0)
+            {
+                // 没有明显的错误行时，显示最后部分输出
+                var allLines = combined
+                    .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                var tailLines = allLines
+                    .Skip(Math.Max(0, allLines.Length - 20))
+                    .Select(line => line.Trim())
+                    .ToList();
+
+                if (tailLines.Count > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("### " + LocalizationService.Instance["build.cmake.outputTail"]);
+                    foreach (var line in tailLines)
+                        sb.AppendLine($"- {line}");
+                }
+            }
+
+            string result = sb.ToString().TrimEnd();
+            Logger.Info($"[BuildService] CMake 构建结果: {result.Truncate(500)}");
+            return result;
+        }
+
+        /// <summary>
+        /// CMake DTE 回退构建路径。
+        /// 当命令行 cmake 不可用时，通过 DTE ExecuteCommand("Build.BuildSolution")
+        /// 使用 VS 内置的 CMake 集成进行构建。
+        /// 
+        /// 等待策略（UI 线程安全）：
+        /// 1. 优先：通过 IVsUpdateSolutionEvents（BuildEventsSink）事件驱动等待
+        /// 2. 回退：UI 线程异步轮询 DTE SolutionBuild.BuildState
+        /// </summary>
+        private static async Task<string> BuildCmakeViaDteFallbackAsync(CancellationToken ct)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
+            EnvDTE.DTE? dte = null;
+
+            try
+            {
+                dte = (EnvDTE.DTE?)ServiceProvider.GlobalProvider
+                    .GetService(typeof(EnvDTE.DTE));
+                if (dte == null)
+                {
+                    Logger.Warn("[BuildService] DTE 回退：无法获取 DTE");
+                    return LocalizationService.Instance["build.cmake.notFound"];
+                }
+
+                var solutionBuild = dte.Solution?.SolutionBuild;
+                if (solutionBuild == null)
+                {
+                    Logger.Warn("[BuildService] DTE 回退：SolutionBuild 不可用");
+                    return LocalizationService.Instance["build.cmake.notFound"];
+                }
+
+                Logger.Info("[BuildService] DTE 回退：通过 ExecuteCommand 构建 (CMake)…");
+
+                bool alreadyBuilding = solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress;
+
+                bool buildCompleted = await TriggerAndWaitForBuildViaEventsAsync(
+                    dte, solutionBuild, needStart: !alreadyBuilding, ct, TimeSpan.FromMinutes(5));
+
+                if (!buildCompleted)
+                {
+                    Logger.Warn("[BuildService] DTE 回退：构建等待超时（5 分钟）");
+                    return LocalizationService.Instance["build.timeout"];
+                }
+
+                return BuildResultFromDte(solutionBuild);
+            }
+            catch (OperationCanceledException)
+            {
+                Logger.Info("[BuildService] DTE 回退：构建已被取消");
+                try { dte?.ExecuteCommand("Build.Cancel"); } catch { }
+                return LocalizationService.Instance["build.cancelled"];
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BuildService] DTE 回退构建异常: {ex.Message}");
+                return string.Format(LocalizationService.Instance["build.dteFailed"], ex.Message);
             }
         }
 

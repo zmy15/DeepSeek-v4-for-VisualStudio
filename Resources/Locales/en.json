@@ -210,6 +210,13 @@
   "build.projectsFailed": "⚠️ Build completed, {0} project(s) failed",
   "build.unknownFile": "(unknown file)",
   "build.errorAtLine": "- **Line {0}**: {1}",
+  "build.cmake.success": "✅ CMake build succeeded (command-line)",
+  "build.cmake.failedWithCode": "❌ CMake build failed (exit code: {0})",
+  "build.cmake.failed": "⚠️ CMake command-line build failed: {0}",
+  "build.cmake.notFound": "⚠️ CMake executable not found, and VS built-in CMake integration is also unavailable.\n\nPlease install CMake via one of the following:\n1. Visual Studio Installer → Modify → check \"C++ CMake tools for Windows\" under \"Desktop development with C++\"\n2. Or download standalone installer from https://cmake.org/download/",
+  "build.cmake.noBuildDir": "⚠️ CMake build directory not found. Please run cmake configuration first (e.g., `cmake -B build`) to generate the build directory.",
+  "build.cmake.launchFailed": "⚠️ Failed to launch CMake build process.",
+  "build.cmake.outputTail": "Build output tail",
 
   "═════════════════════════════": "═══ Agent Messages ═══",
 
