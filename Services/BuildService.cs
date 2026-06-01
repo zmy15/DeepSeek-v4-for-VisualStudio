@@ -7,7 +7,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -25,89 +24,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// </summary>
     public class BuildService : IBuildService
     {
-        // ── VS Setup Configuration API COM 接口定义 ──
-        // 参考: https://docs.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.setup.configuration
-
-        [ComImport, Guid("42843719-DB3F-49F8-8F54-01AC9B37B2A7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface ISetupConfiguration2
-        {
-            // ISetupConfiguration
-            [return: MarshalAs(UnmanagedType.Interface)]
-            ISetupInstance EnumInstances(int dwFlags);
-            [return: MarshalAs(UnmanagedType.Interface)]
-            ISetupInstance GetInstanceForCurrentProcess();
-            [return: MarshalAs(UnmanagedType.Interface)]
-            ISetupInstance GetInstanceForPath([MarshalAs(UnmanagedType.LPWStr)] string path);
-            // ISetupConfiguration2
-            [return: MarshalAs(UnmanagedType.Interface)]
-            ISetupInstance2 EnumAllInstances();
-        }
-
-        [ComImport, Guid("6380BCFF-41D3-4B2E-8B2E-BF8A6810C848"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface ISetupInstance
-        {
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetInstanceId();
-            [return: MarshalAs(UnmanagedType.Struct)]
-            System.Runtime.InteropServices.ComTypes.FILETIME GetInstallDate();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetInstallationName();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetInstallationPath();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetInstallationVersion();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetDisplayName([MarshalAs(UnmanagedType.U4)] int lcid = 0);
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetDescription([MarshalAs(UnmanagedType.U4)] int lcid = 0);
-            void ResolvePath([MarshalAs(UnmanagedType.LPWStr)] string pwzRelativePath, [MarshalAs(UnmanagedType.BStr)] out string pbstrAbsolutePath);
-        }
-
-        [ComImport, Guid("89143C9A-05AF-49B0-B717-72E218A2185C"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface ISetupInstance2
-        {
-            // ISetupInstance
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetInstanceId();
-            [return: MarshalAs(UnmanagedType.Struct)]
-            System.Runtime.InteropServices.ComTypes.FILETIME GetInstallDate();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetInstallationName();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetInstallationPath();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetInstallationVersion();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetDisplayName([MarshalAs(UnmanagedType.U4)] int lcid = 0);
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetDescription([MarshalAs(UnmanagedType.U4)] int lcid = 0);
-            void ResolvePath([MarshalAs(UnmanagedType.LPWStr)] string pwzRelativePath, [MarshalAs(UnmanagedType.BStr)] out string pbstrAbsolutePath);
-            // ISetupInstance2
-            [return: MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_UNKNOWN)]
-            ISetupPackageReference[] GetPackages();
-            // ... 省略不用的方法
-        }
-
-        [ComImport, Guid("6380BCFF-41D3-4B2E-8B2E-BF8A6810C848"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface ISetupPackageReference
-        {
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetId();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetVersion();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetChip();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetLanguage();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetBranch();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetType();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetUniqueId();
-            [return: MarshalAs(UnmanagedType.BStr)]
-            string GetIsExtension();
-        }
         /// <summary>
         /// 执行解决方案构建。自动检测项目类型并选择合适的构建方式。
         /// </summary>
@@ -1252,35 +1168,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 获取 Visual Studio 安装路径（统一入口）。
-        /// 使用官方 Setup Configuration API（VS 2017+，支持任意安装位置）。
-        /// 参考: https://docs.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.setup.configuration
+        /// 通过 SVsShell 服务获取当前 VS 实例的安装根目录。
+        /// 必须在 UI 线程调用。
         /// </summary>
         private static string? GetVisualStudioInstallPath()
         {
             try
             {
-                // CLSID_SetupConfiguration: {177F0C4A-1CD3-4DE7-A32C-71DBBB9FA36D}
-                Type? setupConfigType = Type.GetTypeFromCLSID(
-                    new Guid("177F0C4A-1CD3-4DE7-A32C-71DBBB9FA36D"));
-                if (setupConfigType == null) return null;
+                // ── UI 线程守卫 ──
+                ThreadHelper.ThrowIfNotOnUIThread();
 
-                var config = (ISetupConfiguration2?)Activator.CreateInstance(setupConfigType);
-                if (config == null) return null;
-
-                // GetInstanceForCurrentProcess — 获取当前 devenv.exe 所属的 VS 实例
-                var instance = (ISetupInstance2?)config.GetInstanceForCurrentProcess();
-                if (instance == null) return null;
-
-                string path = instance.GetInstallationPath();
-                if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+                if (ServiceProvider.GlobalProvider.GetService(typeof(SVsShell)) is IVsShell vsShell)
                 {
-                    Logger.Info($"[BuildService] Setup Configuration API 获取 VS 安装路径: {path}");
-                    return path;
+                    if (ErrorHandler.Succeeded(vsShell.GetProperty(
+                        (int)__VSSPROPID.VSSPROPID_InstallDirectory, out object installDirObj)))
+                    {
+                        string path = (installDirObj as string) ?? installDirObj.ToString();
+                        if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+                        {
+                            // 末尾可能带 \，统一 TrimEnd
+                            path = path.TrimEnd('\\');
+                            Logger.Info($"[BuildService] SVsShell 获取 VS 安装路径: {path}");
+                            return path;
+                        }
+                    }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[BuildService] Setup Configuration API 失败: {ex.Message}");
+                Logger.Warn($"[BuildService] SVsShell 获取 VS 安装路径失败: {ex.Message}");
             }
 
             return null;
