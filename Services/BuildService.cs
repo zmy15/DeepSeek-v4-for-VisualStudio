@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -24,6 +25,89 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// </summary>
     public class BuildService : IBuildService
     {
+        // ── VS Setup Configuration API COM 接口定义 ──
+        // 参考: https://docs.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.setup.configuration
+
+        [ComImport, Guid("42843719-DB3F-49F8-8F54-01AC9B37B2A7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ISetupConfiguration2
+        {
+            // ISetupConfiguration
+            [return: MarshalAs(UnmanagedType.Interface)]
+            ISetupInstance EnumInstances(int dwFlags);
+            [return: MarshalAs(UnmanagedType.Interface)]
+            ISetupInstance GetInstanceForCurrentProcess();
+            [return: MarshalAs(UnmanagedType.Interface)]
+            ISetupInstance GetInstanceForPath([MarshalAs(UnmanagedType.LPWStr)] string path);
+            // ISetupConfiguration2
+            [return: MarshalAs(UnmanagedType.Interface)]
+            ISetupInstance2 EnumAllInstances();
+        }
+
+        [ComImport, Guid("6380BCFF-41D3-4B2E-8B2E-BF8A6810C848"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ISetupInstance
+        {
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetInstanceId();
+            [return: MarshalAs(UnmanagedType.Struct)]
+            System.Runtime.InteropServices.ComTypes.FILETIME GetInstallDate();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetInstallationName();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetInstallationPath();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetInstallationVersion();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetDisplayName([MarshalAs(UnmanagedType.U4)] int lcid = 0);
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetDescription([MarshalAs(UnmanagedType.U4)] int lcid = 0);
+            void ResolvePath([MarshalAs(UnmanagedType.LPWStr)] string pwzRelativePath, [MarshalAs(UnmanagedType.BStr)] out string pbstrAbsolutePath);
+        }
+
+        [ComImport, Guid("89143C9A-05AF-49B0-B717-72E218A2185C"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ISetupInstance2
+        {
+            // ISetupInstance
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetInstanceId();
+            [return: MarshalAs(UnmanagedType.Struct)]
+            System.Runtime.InteropServices.ComTypes.FILETIME GetInstallDate();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetInstallationName();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetInstallationPath();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetInstallationVersion();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetDisplayName([MarshalAs(UnmanagedType.U4)] int lcid = 0);
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetDescription([MarshalAs(UnmanagedType.U4)] int lcid = 0);
+            void ResolvePath([MarshalAs(UnmanagedType.LPWStr)] string pwzRelativePath, [MarshalAs(UnmanagedType.BStr)] out string pbstrAbsolutePath);
+            // ISetupInstance2
+            [return: MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_UNKNOWN)]
+            ISetupPackageReference[] GetPackages();
+            // ... 省略不用的方法
+        }
+
+        [ComImport, Guid("6380BCFF-41D3-4B2E-8B2E-BF8A6810C848"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ISetupPackageReference
+        {
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetId();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetVersion();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetChip();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetLanguage();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetBranch();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetType();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetUniqueId();
+            [return: MarshalAs(UnmanagedType.BStr)]
+            string GetIsExtension();
+        }
         /// <summary>
         /// 执行解决方案构建。自动检测项目类型并选择合适的构建方式。
         /// </summary>
@@ -1103,9 +1187,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 查找 cmake 可执行文件路径。
         /// 优先级：
         /// 1. PATH 环境变量中的 cmake
-        /// 2. VS 2026 自带的 CMake（C++ CMake tools 组件）
-        /// 3. VS 2022 自带的 CMake（C++ CMake tools 组件）
-        /// 4. 常见独立安装路径
+        /// 2. VS 自带的 CMake（通过统一 VS 路径发现）
+        /// 3. vswhere 查询 VS 安装目录下的 CMake
+        /// 4. 常见安装路径（使用环境变量，不硬编码盘符）
         /// </summary>
         private static string? FindCmakeExecutable()
         {
@@ -1135,19 +1219,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // cmake 不在 PATH 中
             }
 
-            // ── 2. 查找 VS 2026 自带 CMake ──
-            string? vsCmake = FindVsBundledCmake("2026");
-            if (vsCmake != null) return vsCmake;
+            // ── 2. 通过统一 VS 安装路径发现 CMake ──
+            string? vsPath = GetVisualStudioInstallPath();
+            if (vsPath != null)
+            {
+                string cmakePath = Path.Combine(vsPath,
+                    "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "CMake", "bin", "cmake.exe");
+                if (File.Exists(cmakePath))
+                {
+                    Logger.Info($"[BuildService] 找到 VS 自带 CMake: {cmakePath}");
+                    return cmakePath;
+                }
+            }
 
-            // ── 3. 查找 VS 2022 自带 CMake ──
-            vsCmake = FindVsBundledCmake("2022");
-            if (vsCmake != null) return vsCmake;
-
-            // ── 4. 检查常见独立安装路径 ──
+            // ── 3. 常见安装路径（使用环境变量，支持任意盘符）──
+            string progFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string progFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
             string[] commonPaths =
             {
-                @"C:\Program Files\CMake\bin\cmake.exe",
-                @"C:\Program Files (x86)\CMake\bin\cmake.exe"
+                Path.Combine(progFiles, "CMake", "bin", "cmake.exe"),
+                Path.Combine(progFilesX86, "CMake", "bin", "cmake.exe"),
             };
 
             foreach (var path in commonPaths)
@@ -1160,34 +1251,37 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// 在 Visual Studio 安装目录中查找自带 CMake。
-        /// VS 自带 CMake 路径模式：
-        ///   <VS_ROOT>\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe
+        /// 获取 Visual Studio 安装路径（统一入口）。
+        /// 使用官方 Setup Configuration API（VS 2017+，支持任意安装位置）。
+        /// 参考: https://docs.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.setup.configuration
         /// </summary>
-        private static string? FindVsBundledCmake(string vsVersion)
+        private static string? GetVisualStudioInstallPath()
         {
-            string vsRoot = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "Microsoft Visual Studio", vsVersion);
-
-            if (!Directory.Exists(vsRoot))
-                return null;
-
-            // ── 遍历所有 Edition（Community / Professional / Enterprise 等）──
             try
             {
-                foreach (string editionDir in Directory.GetDirectories(vsRoot))
+                // CLSID_SetupConfiguration: {177F0C4A-1CD3-4DE7-A32C-71DBBB9FA36D}
+                Type? setupConfigType = Type.GetTypeFromCLSID(
+                    new Guid("177F0C4A-1CD3-4DE7-A32C-71DBBB9FA36D"));
+                if (setupConfigType == null) return null;
+
+                var config = (ISetupConfiguration2?)Activator.CreateInstance(setupConfigType);
+                if (config == null) return null;
+
+                // GetInstanceForCurrentProcess — 获取当前 devenv.exe 所属的 VS 实例
+                var instance = (ISetupInstance2?)config.GetInstanceForCurrentProcess();
+                if (instance == null) return null;
+
+                string path = instance.GetInstallationPath();
+                if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
                 {
-                    string cmakePath = Path.Combine(editionDir,
-                        "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "CMake", "bin", "cmake.exe");
-                    if (File.Exists(cmakePath))
-                    {
-                        Logger.Info($"[BuildService] 找到 VS {vsVersion} 自带 CMake: {cmakePath}");
-                        return cmakePath;
-                    }
+                    Logger.Info($"[BuildService] Setup Configuration API 获取 VS 安装路径: {path}");
+                    return path;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BuildService] Setup Configuration API 失败: {ex.Message}");
+            }
 
             return null;
         }
@@ -1199,82 +1293,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         private static string? FindVcvarsBat()
         {
-            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            string vsRootBase = Path.Combine(programFiles, "Microsoft Visual Studio");
-            string[] vsVersions = { "2026", "2022", "2019" };
-
-            foreach (var vsVersion in vsVersions)
+            string? vsPath = GetVisualStudioInstallPath();
+            if (vsPath != null)
             {
-                string vsRoot = Path.Combine(vsRootBase, vsVersion);
-                if (!Directory.Exists(vsRoot)) continue;
-
-                try
+                string vcvarsPath = Path.Combine(vsPath, "VC", "Auxiliary", "Build", "vcvars64.bat");
+                if (File.Exists(vcvarsPath))
                 {
-                    foreach (string editionDir in Directory.GetDirectories(vsRoot))
-                    {
-                        string vcvarsPath = Path.Combine(editionDir, "VC", "Auxiliary", "Build", "vcvars64.bat");
-                        if (File.Exists(vcvarsPath))
-                        {
-                            Logger.Info($"[BuildService] 找到 VS {vsVersion} vcvars64.bat: {vcvarsPath}");
-                            return vcvarsPath;
-                        }
-                    }
+                    Logger.Info($"[BuildService] 找到 vcvars64.bat: {vcvarsPath}");
+                    return vcvarsPath;
                 }
-                catch { }
             }
 
-            // ── vswhere 回退 ──
-            string? vswherePath = FindVsWhere();
-            if (!string.IsNullOrEmpty(vswherePath))
-            {
-                try
-                {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = vswherePath,
-                        Arguments = "-latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath",
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                    };
-
-                    using var process = Process.Start(psi);
-                    if (process != null)
-                    {
-                        process.WaitForExit(5000);
-                        string installPath = process.StandardOutput.ReadToEnd().Trim();
-                        if (!string.IsNullOrEmpty(installPath))
-                        {
-                            string vcvarsPath = Path.Combine(installPath, "VC", "Auxiliary", "Build", "vcvars64.bat");
-                            if (File.Exists(vcvarsPath))
-                            {
-                                Logger.Info($"[BuildService] 通过 vswhere 找到 vcvars64.bat: {vcvarsPath}");
-                                return vcvarsPath;
-                            }
-                        }
-                    }
-                }
-                catch { }
-            }
-
-            return null;
-        }
-
-        private static string? FindVsWhere()
-        {
-            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            string[] candidatePaths =
-            {
-                Path.Combine(programFiles, "Microsoft Visual Studio", "Installer", "vswhere.exe"),
-                Path.Combine(programFiles, "Microsoft Visual Studio", "2022", "Installer", "vswhere.exe"),
-                Path.Combine(programFiles, "Microsoft Visual Studio", "2019", "Installer", "vswhere.exe"),
-            };
-
-            foreach (var path in candidatePaths)
-            {
-                if (File.Exists(path)) return path;
-            }
             return null;
         }
 
