@@ -100,8 +100,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     string subDir = cleanPattern.Substring(0, lastSlash);
                     filePattern = cleanPattern.Substring(lastSlash + 1);
                     string candidateDir = Path.Combine(searchRoot, subDir);
-                    if (Directory.Exists(candidateDir))
-                        searchDir = candidateDir;
+                    // ── 防止 Path.Combine 因绝对路径越权：如 F:\outside 会直接返回自身 ──
+                    string resolvedDir = Path.GetFullPath(candidateDir);
+                    string resolvedRoot = Path.GetFullPath(searchRoot);
+                    if (resolvedDir.StartsWith(resolvedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                        || resolvedDir.Equals(resolvedRoot, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (Directory.Exists(resolvedDir))
+                            searchDir = resolvedDir;
+                    }
+                    // 否则保持 searchRoot，不越权
                 }
 
                 if (string.IsNullOrEmpty(filePattern))

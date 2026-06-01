@@ -82,6 +82,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _isGenerating = true;
             }
 
+            // ── 🚀 立即更新 UI：清空输入框、禁用按钮，让用户看到即时反馈 ──
+            InputTextBox.Text = string.Empty;
+            UpdateButtonsState();
+
             // 斜杠命令处理
             string? skillInstructions = null;
             if (!string.IsNullOrEmpty(userText) && userText.StartsWith("/"))
@@ -89,72 +93,99 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 skillInstructions = await ResolveSlashCommandAsync(userText);
                 if (skillInstructions == null)
                 {
-                    InputTextBox.Text = string.Empty;
                     lock (_lock) { _isGenerating = false; }
+                    UpdateButtonsState();
                     return;
                 }
-                }
+            }
 
-                if (string.IsNullOrEmpty(userText) && !hasAttachments)
+            if (string.IsNullOrEmpty(userText) && !hasAttachments)
+            {
+                lock (_lock) { _isGenerating = false; }
+                UpdateButtonsState();
+                return;
+            }
+
+            // 校验 API 密钥
+            if (_options == null || string.IsNullOrEmpty(_options.ApiKey))
+            {
+                var warningMsg = new ChatMessage
                 {
-                    lock (_lock) { _isGenerating = false; }
-                    return;
-                }
+                    Role = "assistant",
+                    Content = ApiKeyMissingMessage,
+                    Timestamp = DateTime.Now,
+                    IsRendered = true,
+                };
+                _messages.Add(warningMsg);
+                AddMessagesHtml("assistant", ApiKeyMissingMessage);
+                UpdateBrowser();
+                StatusLabel.Text = LocalizationService.Instance["status.apiKeyMissing"];
+                lock (_lock) { _isGenerating = false; }
+                UpdateButtonsState();
+                return;
+            }
 
-                // 校验 API 密钥
-                if (_options == null || string.IsNullOrEmpty(_options.ApiKey))
-                {
-                    var warningMsg = new ChatMessage
-                    {
-                        Role = "assistant",
-                        Content = ApiKeyMissingMessage,
-                        Timestamp = DateTime.Now,
-                        IsRendered = true,
-                    };
-                    _messages.Add(warningMsg);
-                    AddMessagesHtml("assistant", ApiKeyMissingMessage);
-                    UpdateBrowser();
-                    StatusLabel.Text = LocalizationService.Instance["status.apiKeyMissing"];
-                    lock (_lock) { _isGenerating = false; }
-                    return;
-                }
+            InitializeApiService();
+            if (_apiService == null)
+            {
+                lock (_lock) { _isGenerating = false; }
+                UpdateButtonsState();
+                return;
+            }
 
-                InitializeApiService();
-                if (_apiService == null)
-                {
-                    lock (_lock) { _isGenerating = false; }
-                    return;
-                }
+            InitializeContextServices();
 
-                InitializeContextServices();
+            // 解析上传的文件
+            string fileContext = string.Empty;
+            List<string> attachedFileNames = new();
+            List<FileParseResult> parseResults = new();
 
-                // 解析上传的文件
-                string fileContext = string.Empty;
-                List<string> attachedFileNames = new();
-                List<FileParseResult> parseResults = new();
+            if (_attachedFilePaths.Count > 0)
+            {
+                StatusLabel.Text = LocalizationService.Instance["status.parsingFile"];
+                parseResults = await FileParserService.ParseFilesAsync(_attachedFilePaths);
+                attachedFileNames = parseResults.Where(r => r.Success).Select(r => r.FileName).ToList();
+                fileContext = FileParserService.FormatParseResultsForContext(parseResults);
+                if (!string.IsNullOrEmpty(fileContext))
+                    Logger.Info($"文件解析完成: {attachedFileNames.Count} 个文件");
+            }
 
-                if (_attachedFilePaths.Count > 0)
-                {
-                    StatusLabel.Text = LocalizationService.Instance["status.parsingFile"];
-                    parseResults = await FileParserService.ParseFilesAsync(_attachedFilePaths);
-                    attachedFileNames = parseResults.Where(r => r.Success).Select(r => r.FileName).ToList();
-                    fileContext = FileParserService.FormatParseResultsForContext(parseResults);
-                    if (!string.IsNullOrEmpty(fileContext))
-                        Logger.Info($"文件解析完成: {attachedFileNames.Count} 个文件");
-                }
+            // 构建用户消息内容
+            string userDisplayContent = userText ?? string.Empty;
+            if (string.IsNullOrEmpty(userDisplayContent) && attachedFileNames.Count > 0)
+                userDisplayContent = $"[已上传 {attachedFileNames.Count} 个文件]";
 
-                // 构建用户消息内容
-                string userDisplayContent = userText ?? string.Empty;
-                if (string.IsNullOrEmpty(userDisplayContent) && attachedFileNames.Count > 0)
-                    userDisplayContent = $"[已上传 {attachedFileNames.Count} 个文件]";
+            string fullUserContent;
+            if (!string.IsNullOrEmpty(fileContext) && !string.IsNullOrEmpty(userText))
+                fullUserContent = fileContext + "\n" + userText;
+            else if (!string.IsNullOrEmpty(fileContext))
+                fullUserContent = fileContext + "\n请分析以上文件内容。";
+            else
+                fullUserContent = userText ?? string.Empty;
 
-                string fullUserContent;
-                if (!string.IsNullOrEmpty(fileContext) && !string.IsNullOrEmpty(userText))
-                    fullUserContent = fileContext + "\n" + userText;
-                else if (!string.IsNullOrEmpty(fileContext))
-                    fullUserContent = fileContext + "\n请分析以上文件内容。";
-                else
-                    fullUserContent = userText ?? string.Empty;
+            // ── 🚀 立即显示用户消息气泡（在路由/技能调用之前）──
+            var earlyUserMsg = new ChatMessage
+            {
+                Role = "user",
+                Content = userDisplayContent,
+                AttachedFileNames = attachedFileNames,
+                AttachedFiles = parseResults,
+                Timestamp = DateTime.Now,
+            };
+            int earlyUserMsgIndex;
+            lock (_lock)
+            {
+                var tree = EnsureTree();
+                tree.AddChildMessage(earlyUserMsg);
+                SyncMessagesFromTree();
+                _contextManager.AddUserMessage(fullUserContent);
+                earlyUserMsgIndex = _messages.Count - 1;
+            }
+            AddMessagesHtml("user", userDisplayContent, null, parseResults, earlyUserMsgIndex);
+            UpdateBrowser();
+            ClearAttachedFiles();
+            AutoTitleSession();
+            // 注意：InputTextBox 和 UpdateButtonsState 已在上方立即执行
 
                 // ── URL 采用模型驱动的工具调用模式处理 ──
                 // URL 作为纯文本原样发送给 LLM，由 LLM 自行决定是否调用 fetch_webpage 工具抓取。
@@ -181,8 +212,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         if (skillResult == null)
                         {
                             // 内置命令已直接执行（help/create-skill/refresh-skills），无需继续
-                            InputTextBox.Text = string.Empty;
                             lock (_lock) { _isGenerating = false; }
+                            UpdateButtonsState();
                             return;
                         }
                         if (!string.IsNullOrEmpty(skillResult))
@@ -196,8 +227,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     if (string.IsNullOrWhiteSpace(agentRoutedUserText))
                     {
                         StatusLabel.Text = string.Format(LocalizationService.Instance["status.switchedAgent"], explicitRoute.TargetAgent);
-                        InputTextBox.Text = string.Empty;
                         lock (_lock) { _isGenerating = false; }
+                        UpdateButtonsState();
                         return;
                     }
                     Logger.Info($"[AgentDispatcher] @agent 显式路由: → {explicitRoute.TargetAgent}, 消息: \"{agentRoutedUserText}\""
@@ -219,22 +250,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     if (needsAgent)
                     {
-                        var agentUserMsg = new ChatMessage
-                        {
-                            Role = "user",
-                            Content = userDisplayContent,
-                            AttachedFileNames = attachedFileNames,
-                            AttachedFiles = parseResults,
-                            Timestamp = DateTime.Now,
-                            AgentType = routing.TargetAgent, // 记录 Agent 类型，用于编辑/重试时判断是否分支
-                        };
+                        // ── 更新用户消息的 Agent 类型（用于编辑/重试时判断是否分支）──
                         lock (_lock)
                         {
-                            // ── 树状结构 ──
-                            var tree = EnsureTree();
-                            tree.AddChildMessage(agentUserMsg);
-                            SyncMessagesFromTree();
-                            _contextManager.AddUserMessage(fullUserContent);
+                            if (_messages.Count > 0)
+                                _messages[_messages.Count - 1].AgentType = routing.TargetAgent;
 
                             // ── @agent /skill 组合：注入技能指令到 Agent 上下文 ──
                             if (!string.IsNullOrEmpty(agentSkillInstructions))
@@ -244,12 +264,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                         }
                         int capturedUserMsgIndex = _messages.Count - 1;
-                        AddMessagesHtml("user", userDisplayContent, null, parseResults, capturedUserMsgIndex);
-                        UpdateBrowser();
-                        ClearAttachedFiles();
-                        AutoTitleSession();
-                        InputTextBox.Text = string.Empty;
-                        UpdateButtonsState();
 
                         var capturedUserText = agentRoutedUserText;
                         var capturedFileContext = fileContext;
@@ -282,8 +296,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                 }
 
-                InputTextBox.Text = string.Empty;
-
                 // ── @agent 清洁：只清除 API 内容中的 @agent 前缀，保留气泡显示 ──
                 if (explicitRoute != null && !string.IsNullOrEmpty(agentRoutedUserText))
                 {
@@ -295,6 +307,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     // userDisplayContent 保留原始 @agent 前缀，使对话气泡正常显示 @
                     Logger.Info($"[AgentDispatcher] @agent API 内容已清洁，气泡保留 @: \"{userDisplayContent}\"");
+                }
+
+                // ── 更新用户消息的 @agent 显式路由标记 ──
+                if (explicitRoute != null)
+                {
+                    lock (_lock)
+                    {
+                        if (_messages.Count > 0)
+                            _messages[_messages.Count - 1].AgentType = explicitRoute.TargetAgent;
+                    }
                 }
 
                 // 技能路由
@@ -314,54 +336,34 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     isAutoMatched = skillInstructions != null;
                 }
 
-                // 添加用户消息
-                var userMsg = new ChatMessage
+                // ── 注入技能指令到上下文 ──
+                if (!string.IsNullOrEmpty(skillInstructions))
                 {
-                    Role = "user",
-                    Content = userDisplayContent,
-                    AttachedFileNames = attachedFileNames,
-                    AttachedFiles = parseResults,
-                    Timestamp = DateTime.Now,
-                    AgentType = explicitRoute?.TargetAgent, // 保留 @agent 显式路由，供重试使用
-                };
-                lock (_lock)
-                {
-                    // ── 树状结构：通过 Tree 添加用户消息 ──
-                    var tree = EnsureTree();
-                    tree.AddChildMessage(userMsg);
-                    SyncMessagesFromTree();
-
-                    if (!string.IsNullOrEmpty(skillInstructions))
+                    lock (_lock)
                     {
                         _contextManager.AddCustomMessage("system", skillInstructions);
-
-                        if (isSlashCommand)
-                        {
-                            // 区分纯 /skill 和 @agent /skill 组合
-                            string slashText = !string.IsNullOrEmpty(agentSkillInstructions) && !string.IsNullOrEmpty(agentRoutedUserText)
-                                ? agentRoutedUserText  // @agent /skill 组合：从 agentRoutedUserText 提取技能名
-                                : userText!;            // 纯 /skill 命令
-
-                            var calledSkillName = slashText.Substring(1).Split(' ')[0];
-                            var skillDef = SkillService.Instance.FindSkill(calledSkillName, _skillDiscoveryResult);
-                            string source = !string.IsNullOrEmpty(agentSkillInstructions)
-                                ? $"@agent /skill 组合 (Agent 上下文)"
-                                : $"斜杠命令 (来源: {skillDef?.Source.ToString() ?? "N/A"})";
-                            Logger.Info($"[Skill] 技能指令已注入: \"{calledSkillName}\" ({source}, 长度: {skillInstructions.Length})");
-                        }
-                        else if (isAutoMatched)
-                            Logger.Info($"[Skill] 技能指令已注入 (AI 自动匹配, 长度: {skillInstructions.Length})");
-                        else
-                            Logger.Info($"[Skill] 技能指令已注入 (长度: {skillInstructions.Length})");
                     }
 
-                    _contextManager.AddUserMessage(fullUserContent);
+                    if (isSlashCommand)
+                    {
+                        string slashText = !string.IsNullOrEmpty(agentSkillInstructions) && !string.IsNullOrEmpty(agentRoutedUserText)
+                            ? agentRoutedUserText
+                            : userText!;
+
+                        var calledSkillName = slashText.Substring(1).Split(' ')[0];
+                        var skillDef = SkillService.Instance.FindSkill(calledSkillName, _skillDiscoveryResult);
+                        string source = !string.IsNullOrEmpty(agentSkillInstructions)
+                            ? $"@agent /skill 组合 (Agent 上下文)"
+                            : $"斜杠命令 (来源: {skillDef?.Source.ToString() ?? "N/A"})";
+                        Logger.Info($"[Skill] 技能指令已注入: \"{calledSkillName}\" ({source}, 长度: {skillInstructions.Length})");
+                    }
+                    else if (isAutoMatched)
+                        Logger.Info($"[Skill] 技能指令已注入 (AI 自动匹配, 长度: {skillInstructions.Length})");
+                    else
+                        Logger.Info($"[Skill] 技能指令已注入 (长度: {skillInstructions.Length})");
                 }
 
-                int userMsgIndex = _messages.Count - 1;  // 捕获用户消息索引（用于 AddMessagesHtml）
-
-                ClearAttachedFiles();
-                AutoTitleSession();
+                int userMsgIndex = earlyUserMsgIndex;  // 使用早期 UI 更新中的索引
 
                 // 创建助手消息占位
                 var assistantMsg = new ChatMessage
@@ -391,7 +393,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
                 _currentStreamingMsgIndex = assistantMsgIndex;
 
-                AddMessagesHtml("user", userDisplayContent, null, parseResults, userMsgIndex);
+                // UI 已在早期更新中添加了用户气泡，此处只需添加助手占位
                 AddMessagesHtml("assistant", string.Empty);
                 UpdateBrowser();
 

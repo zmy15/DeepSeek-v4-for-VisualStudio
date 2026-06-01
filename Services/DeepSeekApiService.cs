@@ -137,10 +137,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // DeepSeek API 对消息格式有严格要求：
             // 1. tool 消息必须有 tool_call_id
             // 2. assistant 消息有 tool_calls 时可以没有 content，但不能既无 content 又无 tool_calls
-            // 3. 不能有连续的相同 role 消息（user-user, assistant-assistant）
+            // 3. 不能有连续的相同 role 消息（user-user, assistant-assistant）→ 合并而非丢弃
             var cleanedMessages = new List<ChatApiMessage>();
             string? lastRole = null;
             int removedCount = 0;
+            int mergedCount = 0;
             foreach (var msg in request.Messages)
             {
                 // ── 规则 1：tool 消息必须有 tool_call_id ──
@@ -170,21 +171,51 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 // ── 规则 4：防止连续相同 role（DeepSeek API 要求 user/assistant 交替）──
                 // tool 消息连续出现是合法的（多个工具调用结果），不检查
+                // 对于连续 user 或 assistant 消息，合并内容而非丢弃
                 if (lastRole != null && msg.Role == lastRole
                     && (msg.Role == "user" || msg.Role == "assistant"))
                 {
-                    Logger.Warn($"[API] 移除连续的 {msg.Role} 消息以防止 400");
-                    removedCount++;
-                    continue;
+                    if (cleanedMessages.Count > 0)
+                    {
+                        var lastMsg = cleanedMessages[cleanedMessages.Count - 1];
+                        string existingContent = lastMsg.Content ?? string.Empty;
+                        string newContent = msg.Content ?? string.Empty;
+
+                        if (!string.IsNullOrWhiteSpace(newContent))
+                        {
+                            // ── 合并内容：用分隔线连接 ──
+                            lastMsg.Content = string.IsNullOrWhiteSpace(existingContent)
+                                ? newContent
+                                : existingContent + "\n\n---\n\n" + newContent;
+                            Logger.Warn($"[API] 合并连续的 {msg.Role} 消息（内容已拼接，防止数据丢失）");
+                        }
+                        else
+                        {
+                            Logger.Warn($"[API] 跳过连续的空 {msg.Role} 消息");
+                        }
+
+                        // 如果后者有 reasoning_content，保留后者
+                        if (!string.IsNullOrWhiteSpace(msg.ReasoningContent))
+                            lastMsg.ReasoningContent = msg.ReasoningContent;
+                        // 如果后者有 tool_calls，保留后者
+                        if (msg.ToolCalls != null && msg.ToolCalls.Count > 0)
+                            lastMsg.ToolCalls = msg.ToolCalls;
+
+                        mergedCount++;
+                        continue;
+                    }
                 }
 
                 cleanedMessages.Add(msg);
                 lastRole = msg.Role;
             }
 
-            if (removedCount > 0)
+            if (removedCount > 0 || mergedCount > 0)
             {
-                Logger.Warn($"[API] 消息清理完成：移除了 {removedCount} 条无效消息，剩余 {cleanedMessages.Count} 条");
+                var parts = new List<string>();
+                if (removedCount > 0) parts.Add($"移除了 {removedCount} 条无效消息");
+                if (mergedCount > 0) parts.Add($"合并了 {mergedCount} 条连续消息");
+                Logger.Warn($"[API] 消息清理完成：{string.Join("，", parts)}，剩余 {cleanedMessages.Count} 条");
                 request.Messages = cleanedMessages;
             }
 

@@ -1065,6 +1065,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     string operation = GetToolOperationName(toolName);
                     string fileName = System.IO.Path.GetFileName(targetPath.TrimEnd('/', '\\'));
                     string displayName = string.IsNullOrEmpty(fileName) ? targetPath : fileName;
+
                     bool approved = await RequestPermissionAsync(
                         $"确认{operation}项目外路径: {displayName}",
                         $"AI 正在尝试{operation}当前项目之外的路径：\n\n`{targetPath}`\n\n⚠️ 该路径不在当前工作区 `{workspaceRoot}` 内。",
@@ -1074,7 +1075,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (!approved)
                     {
                         AddLog("WARN", $"❌ 用户拒绝了项目外路径访问: {targetPath}");
-                        return $"⏭️ 用户取消了项目外路径{operation}: {targetPath}";
+                        return $"⛔ 用户拒绝了项目外路径{operation}: {targetPath}\n\n"
+                            + $"⚠️ 重要提醒：用户已明确拒绝访问此项目外路径。\n"
+                            + $"请绝对不要再尝试访问 `{targetPath}` 或其父目录下的任何文件。\n"
+                            + $"请基于当前工作区 `{workspaceRoot}` 内的文件完成任务。";
                     }
                     AddLog("INFO", $"✅ 用户已批准项目外路径访问: {targetPath}");
                 }
@@ -1422,6 +1426,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         return dir ?? dirPart;
                     }
                     return null; // 相对 pattern，不检查
+                }
+
+                // ── file_search 的 query 参数也可能是绝对 glob 路径 ──
+                // 例如 query="F:\\outside\\**\\*.cs"，Path.Combine 会因绝对路径直接跳转到项目外
+                if (toolName == "file_search" && root.TryGetProperty("query", out var qProp))
+                {
+                    string query = qProp.GetString() ?? string.Empty;
+                    if (System.IO.Path.IsPathRooted(query))
+                    {
+                        int globIdx = query.IndexOfAny(new[] { '*', '?' });
+                        string dirPart = globIdx >= 0 ? query.Substring(0, globIdx) : query;
+                        string? dir = System.IO.Path.GetDirectoryName(dirPart.TrimEnd('/', '\\'));
+                        return dir ?? dirPart;
+                    }
                 }
             }
             catch { }
