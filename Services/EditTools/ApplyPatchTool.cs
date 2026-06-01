@@ -321,16 +321,53 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             for (int ci = 0; ci < chunks.Count; ci++)
             {
                 var (chunk, contextLines) = chunks[ci];
-                if (contextLines.Length == 0) continue;
+                var hunkMarkers = patch.Hunks[ci].ContextMarkers;
+
+                // ── 处理空上下文（全部为 + 行，无实际上下文）──
+                if (contextLines.Length == 0)
+                {
+                    // 回退到 @@ 标记定位
+                    int markerMatch = EditStringMatcher.MatchContextViaMarkers(
+                        fileLines, hunkMarkers, searchStartLine);
+                    if (markerMatch >= 0)
+                    {
+                        // 插入到标记行之后（+1），因为标记行本身不应被覆盖
+                        chunk.OrigIndex += markerMatch + 1;
+                        searchStartLine = markerMatch + 1;
+                    }
+                    else
+                    {
+                        // 既无上下文也无标记 → 无法定位
+                        failedHunks.Add(patch.Hunks[ci]);
+                    }
+                    continue;
+                }
 
                 int matchedLine = EditStringMatcher.MatchContextInFileLines(
                     fileLines, contextLines, searchStartLine, out MatchLevel level);
+
+                // ── @@ 标记校验：上下文匹配成功后，验证标记是否在匹配位置附近 ──
+                // 防止因上下文过于通用而在错误位置匹配（如多个 struct 有相同字段）
+                if (matchedLine >= 0 && hunkMarkers.Count > 0)
+                {
+                    if (!IsMarkerNearPosition(fileLines, hunkMarkers, matchedLine, contextLines.Length))
+                    {
+                        // 标记不在附近 → 搜索下一个上下文匹配位置
+                        int nextMatch = EditStringMatcher.MatchContextInFileLines(
+                            fileLines, contextLines, matchedLine + 1, out level);
+                        if (nextMatch >= 0)
+                        {
+                            matchedLine = nextMatch;
+                        }
+                        // 下一个匹配也不满足标记约束 → 保留原匹配（允许标记不精确）
+                    }
+                }
 
                 if (matchedLine < 0)
                 {
                     // Fallback: @@ 标记定位
                     matchedLine = EditStringMatcher.MatchContextViaMarkers(
-                        fileLines, patch.Hunks[ci].ContextMarkers, searchStartLine);
+                        fileLines, hunkMarkers, searchStartLine);
                 }
 
                 if (matchedLine < 0)
@@ -338,6 +375,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     // 从文件开头回退搜索
                     matchedLine = EditStringMatcher.MatchContextInFileLines(
                         fileLines, contextLines, 0, out level);
+
+                    // @@ 标记校验（回退搜索也要验证）
+                    if (matchedLine >= 0 && hunkMarkers.Count > 0)
+                    {
+                        if (!IsMarkerNearPosition(fileLines, hunkMarkers, matchedLine, contextLines.Length))
+                        {
+                            int nextMatch = EditStringMatcher.MatchContextInFileLines(
+                                fileLines, contextLines, matchedLine + 1, out level);
+                            if (nextMatch >= 0) matchedLine = nextMatch;
+                        }
+                    }
                 }
 
                 if (matchedLine < 0 && patch.Hunks[ci].IsEof)
@@ -477,6 +525,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 "end" or "endif" or "fi" or "done" or "esac" => true,
                 _ => trimmed.Length <= 2 && (trimmed == ")" || trimmed == "}" || trimmed == "]"),
             };
+        }
+
+        /// <summary>
+        /// 检查 @@ 标记文本是否出现在匹配位置附近（±MarkerSearchWindow 行内）。
+        /// 用于验证上下文匹配结果是否与标记一致，防止在错误位置匹配。
+        /// </summary>
+        private static bool IsMarkerNearPosition(
+            string[] fileLines, List<string> contextMarkers,
+            int matchedLine, int contextLength, int searchWindow = 10)
+        {
+            if (contextMarkers == null || contextMarkers.Count == 0) return true; // 无标记 → 不校验
+
+            int windowStart = Math.Max(0, matchedLine - searchWindow);
+            int windowEnd = Math.Min(fileLines.Length, matchedLine + contextLength + searchWindow);
+
+            foreach (var marker in contextMarkers)
+            {
+                if (string.IsNullOrEmpty(marker)) continue;
+                string normalized = EditStringMatcher.NormalizeUnicode(marker);
+                for (int i = windowStart; i < windowEnd; i++)
+                {
+                    if (EditStringMatcher.NormalizeUnicode(fileLines[i])
+                        .Contains(normalized, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
         }
 
         /// <summary>
