@@ -504,13 +504,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         Role = "user",
                         Content = "⚠️ 上次输出格式不正确，未检测到有效的编辑操作。\n\n"
-                            + "请使用以下格式之一重新输出代码变更：\n\n"
+                            + "**请先判断**：你是否认为已经完成了所有必要的代码变更？\n\n"
+                            + "👉 如果**没有要更改的了**，请直接**输出空的**（不输出任何内容），"
+                            + "系统会认为该步骤已完成，无需进一步修改。\n\n"
+                            + "👉 如果**仍有代码需要修改**，请使用以下格式之一重新输出代码变更：\n\n"
                             + "1. apply_patch（首选）: *** Begin Patch / *** End Patch\n"
                             + "2. insert_edit_into_file: ```insert_edit_into_file:路径\\n...existing code...\n"
                             + "3. create_file: ```file:路径\\n完整内容\n\n"
                             + "**重要**：你已经在前面读取过相关文件的内容（见上方工具调用结果），"
                             + "无需重复读取任何文件。请直接基于已读取的内容输出编辑操作。"
-                            + "不要添加任何额外解释，只输出编辑块。"
+                            + "不要添加任何额外解释，只输出编辑块（或留空表示无需修改）。"
                     });
                 }
 
@@ -528,6 +531,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     });
 
                 retryOutputs.Add(result);
+
+                // ── 检测 AI 是否明确表示没有要更改的内容 ──
+                if (IsNoChangesResponse(result))
+                {
+                    AddLog("INFO", "[EditAgent] AI 返回空/无更改响应，跳过本步骤的编辑执行");
+                    result = string.Empty; // 统一置空，后续流程据此跳过编辑
+                    break;
+                }
 
                 // ── 检测编辑格式并解析 ──
                 bool hasValidEdit = HasAnyValidEditFormat(result);
@@ -559,6 +570,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             else
             {
                 step.AiResponse = retryOutputs.FirstOrDefault() ?? "";
+            }
+
+            // ── AI 明确表示没有要更改的内容 → 跳过编辑执行 ──
+            if (string.IsNullOrWhiteSpace(result))
+            {
+                step.ResultSummary = "✅ 无需修改（AI 确认没有要更改的内容）";
+                TerminalWindowHelper.SuppressDiffPreview = false;
+                AddLog("INFO", "[EditAgent] 跳过编辑：AI 返回空响应，确认无需更改");
+                return;
             }
 
             // ── 检测编辑操作类型 ──
@@ -1228,6 +1248,59 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 检测 AI 输出是否包含任何有效的编辑格式。
         /// </summary>
+        /// <summary>
+        /// 检测 AI 是否明确表示没有需要更改的内容（空响应、或明确说明无需修改）。
+        /// 用于格式重试循环中，让 AI 可以选择"输出空"来表示该步骤已无变更。
+        /// </summary>
+        private static bool IsNoChangesResponse(string aiResult)
+        {
+            if (string.IsNullOrWhiteSpace(aiResult)) return true;
+
+            // 去除 DSML/XML 标签后再判断
+            string clean = System.Text.RegularExpressions.Regex.Replace(aiResult,
+                @"<\|DSML\|[^>]*>.*?</\|DSML\|>", string.Empty,
+                System.Text.RegularExpressions.RegexOptions.Singleline);
+
+            // 去掉 markdown 代码块内容（可能包含示例代码被误判）
+            clean = System.Text.RegularExpressions.Regex.Replace(clean,
+                @"```[\s\S]*?```", string.Empty);
+
+            // 去掉思考标签
+            clean = System.Text.RegularExpressions.Regex.Replace(clean,
+                @"</?think>", string.Empty);
+
+            // 去掉 think 标签内容（DeepSeek 推理块）
+            clean = System.Text.RegularExpressions.Regex.Replace(clean,
+                @"\s*think\s*", string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (string.IsNullOrWhiteSpace(clean)) return true;
+
+            // 检测常见的"无需修改"短语（中英文）
+            var noChangesPatterns = new[]
+            {
+                @"^[。.！!]*\s*$",                             // 只有标点符号
+                @"不需要修改|无需修改|没有需要更改|无变更|已完成",
+                @"无需.*(?:修改|更改|变更|编辑)",
+                @"已经.*(?:完成|好了|修改好)",
+                @"all\s+changes?\s+(?:are\s+)?done",
+                @"no\s+(?:further\s+)?changes?\s+(?:needed|required)",
+                @"nothing\s+to\s+(?:change|modify|edit)",
+            };
+
+            foreach (var pattern in noChangesPatterns)
+            {
+                if (System.Text.RegularExpressions.Regex.IsMatch(clean, pattern,
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    // 确保不是长篇响应中误匹配（如讨论"无需修改"但实际有编辑块）
+                    if (clean.Trim().Length < 200)
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
         private bool HasAnyValidEditFormat(string aiResult)
         {
             if (string.IsNullOrWhiteSpace(aiResult)) return false;
