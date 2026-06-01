@@ -1188,6 +1188,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         {
                             // 末尾可能带 \，统一 TrimEnd
                             path = path.TrimEnd('\\');
+
+                            // VSSPROPID_InstallDirectory 返回的是 <VS>\Common7\IDE，
+                            // 而上层逻辑（FindVcvarsBat / FindCmakeExecutable）需要 VS 根目录。
+                            // 上溯两级：IDE → Common7 → VS Root
+                            string? ideDir = path;
+                            if (ideDir.EndsWith("IDE", StringComparison.OrdinalIgnoreCase))
+                            {
+                                string? common7Dir = Path.GetDirectoryName(ideDir);
+                                if (common7Dir != null)
+                                {
+                                    string? vsRoot = Path.GetDirectoryName(common7Dir);
+                                    if (vsRoot != null && Directory.Exists(vsRoot))
+                                        path = vsRoot;
+                                }
+                            }
+
                             Logger.Info($"[BuildService] SVsShell 获取 VS 安装路径: {path}");
                             return path;
                         }
