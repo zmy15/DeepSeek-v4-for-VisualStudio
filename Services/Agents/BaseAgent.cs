@@ -151,12 +151,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 调用 AI 进行长回答（用于代码生成、分析等）。
         /// </summary>
-        protected async Task<string> CallAiLongAsync(string systemPrompt, string userPrompt, CancellationToken ct, int maxTokens = 4096)
+        protected async Task<string> CallAiLongAsync(string systemPrompt, string userPrompt, CancellationToken ct, int maxTokens = 4096, double? temperature = null)
         {
             var messages = BuildContextAwareMessages(systemPrompt, userPrompt);
 
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, temperature: temperature))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -170,18 +170,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// extraSystemMessages 插入在历史与用户消息之间，保持 messages[0] 稳定可缓存。
         /// </summary>
         /// <param name="toolChoice">工具调用策略。Plan Agent Design 阶段应传 "none" 以禁用工具调用，避免 DSML 泄露。</param>
+        /// <param name="temperature">采样温度。Plan Agent Design 阶段应传 0.0 以确保 JSON 输出确定性。</param>
         protected async Task<string> CallAiLongAsync(
             string systemPrompt,
             string userPrompt,
             List<ChatApiMessage> extraSystemMessages,
             CancellationToken ct,
             int maxTokens = 4096,
-            string? toolChoice = null)
+            string? toolChoice = null,
+            double? temperature = null)
         {
             var messages = BuildContextAwareMessages(systemPrompt, userPrompt, extraSystemMessages);
 
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, toolChoice))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, toolChoice, temperature))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -1294,7 +1296,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "file_search", "grep_search", "list_dir", "read_file",
                 "semantic_search", "fetch_webpage", "run_in_terminal",
                 "create_file", "replace_string_in_file", "edit_notebook_file",
-                "create_directory"
+                "create_directory", "run_notebook_cell", "install_python_packages",
+                "runSubagent", "runTests", "mcp_\\w+", "github_\\w+",
+                // DeepSeek V4 DSML wrapper tags
+                "response", "result", "output", "answer"
             };
 
             string result = text;
@@ -1332,20 +1337,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 移除残留的独立开标签/闭标签（标准 XML）──
             result = System.Text.RegularExpressions.Regex.Replace(
                 result,
-                @"</?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|VisualStudio_askQuestions|runSubagent|tool_result)[^>]*>",
+                @"</?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|VisualStudio_askQuestions|runSubagent|tool_result|response|result|output|answer)[^>]*>",
                 "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
             // ── 移除残留的独立开标签/闭标签（管道分隔格式）──
             result = System.Text.RegularExpressions.Regex.Replace(
                 result,
-                @"</?<|\|\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|VisualStudio_askQuestions|runSubagent|tool_result)[^>]*>",
+                @"</?<|\|\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|VisualStudio_askQuestions|runSubagent|tool_result|response|result|output|answer)[^>]*>",
                 "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             // 更精确的管道分隔残留标签
             result = System.Text.RegularExpressions.Regex.Replace(
                 result,
-                @"<\|?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter)[^>]*\|?>",
+                @"<\|?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|response|result|output|answer)[^>]*\|?>",
                 "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
@@ -1359,6 +1364,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             result = System.Text.RegularExpressions.Regex.Replace(
                 result,
                 @"<\|?\s*(?:response|thinking|analysis|reasoning|plan|reflection)[^>]*\|?>",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // ── 额外清理：移除 DSML 属性格式的标签残留 ──
+            // 例如: name="tool_name" 或 type="function" 孤立属性
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result,
+                @"\b(?:name|type|arguments|function)\s*=\s*""[^""]*""",
                 "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
@@ -1651,7 +1664,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 支持标准 XML <tag> 和 DeepSeek 管道分隔 <|tag|> 两种格式
             string cleaned = System.Text.RegularExpressions.Regex.Replace(
                 text,
-                @"</?(?:\|?\s*)?(?:thinking|analysis|reasoning|plan|reflection|DSML|function_calls?|tool_calls?)(?:\s*\|?)?[^>]*>",
+                @"</?(?:\|?\s*)?(?:thinking|analysis|reasoning|plan|reflection|response|result|output|DSML|function_calls?|tool_calls?)(?:\s*\|?)?[^>]*>",
                 "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             // 额外处理管道分隔格式的残留

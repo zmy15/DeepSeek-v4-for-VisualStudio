@@ -670,6 +670,8 @@
   "plan.creation.instructions": "## 指令",
   "plan.creation.instruction1": "根据以上信息和代码库研究发现（已在 system 消息中提供），创建一个详细的实现计划。",
   "plan.creation.instruction2": "计划应是逐步的、可执行的，包含验证步骤。",
+  "plan.creation.instruction3": "⚠️ 严格禁止调用任何工具。你已被设置为 tool_choice=none，没有任何工具可用。不要尝试生成工具调用。",
+  "plan.creation.instruction4": "⚠️ 严格禁止输出任何非 JSON 内容。不要输出 markdown 标题、表格、代码块标记、分析文字、或任何解释。只输出纯 JSON。",
   "plan.creation.jsonFormat": "输出 JSON 格式:",
   "plan.creation.outputJson": "请输出计划 JSON:",
   "plan.creation.jsonOnlyHint": "**重要：只输出 JSON 对象，不要包含任何 markdown 分析、表格、前言或总结。直接以 { 开头。**",

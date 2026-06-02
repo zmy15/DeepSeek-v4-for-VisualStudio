@@ -115,7 +115,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             List<ToolDefinition>? tools = null,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
             int? maxTokens = null,
-            string? toolChoice = null)
+            string? toolChoice = null,
+            double? temperature = null)
         {
             // toolChoice 优先级: 显式传入 > 有 tools 时 auto > null(不发送)
             string? effectiveToolChoice = toolChoice
@@ -130,7 +131,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 ReasoningEffort = _thinkingEnabled ? _reasoningEffort : null,
                 Tools = tools,
                 ToolChoice = effectiveToolChoice,
-                MaxTokens = maxTokens
+                MaxTokens = maxTokens,
+                Temperature = temperature
             };
 
             // ── 消息清理：防止无效消息导致 HTTP 400 ──

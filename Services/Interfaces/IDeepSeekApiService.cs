@@ -43,12 +43,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>流式聊天调用</summary>
         /// <param name="toolChoice">工具调用策略: "auto"(默认), "none"(禁用), "required"(强制). null 表示仅在有 tools 时启用 auto</param>
+        /// <param name="temperature">采样温度 (0.0 ~ 2.0)。null 表示不设置（使用 API 默认值）</param>
         IAsyncEnumerable<string> ChatStreamAsync(
             IEnumerable<ChatApiMessage> messages,
             List<ToolDefinition>? tools = null,
             CancellationToken cancellationToken = default,
             int? maxTokens = null,
-            string? toolChoice = null);
+            string? toolChoice = null,
+            double? temperature = null);
 
         /// <summary>非流式完整调用</summary>
         Task<string> CompleteAsync(

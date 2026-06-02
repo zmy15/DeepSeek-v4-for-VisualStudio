@@ -462,16 +462,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     Role = "user",
                     Content = $"用户任务: {userMessage}\n\n" +
                               "请按以下流程与用户对齐需求：\n\n" +
-                              "1. **简要展示你的规划内容**：用几句话概括：\n" +
-                              "   - 你对任务的理解是什么\n" +
-                              "   - 你打算采用的技术方案/实现思路\n" +
-                              "   - 大概需要修改哪些文件或模块\n" +
-                              "   - 预计分几个步骤完成\n\n" +
-                              "2. **向用户提问**：使用 VisualStudio_askQuestions 工具问用户：\n" +
+                              "1. **向用户提问**：使用 VisualStudio_askQuestions 工具问用户：\n" +
                               "   - 核心问题是「你认为这个规划有什么问题吗？有什么需要调整的地方？」\n" +
                               "   - 让用户有机会指出你遗漏或理解错误的地方\n" +
                               "   - 如果用户提出反馈，吸收后可以继续确认或追问\n\n" +
-                              "3. 当用户认可规划方向后，回复 DONE 结束对齐阶段。"
+                              "2. ⚠️ **重要规则**：当用户认可规划方向后，你必须**只回复 DONE 这一个词**。\n" +
+                              "   不要输出任何分析、总结、markdown、JSON 或其他文本。\n" +
+                              "   不要调用任何其他工具。只回复 DONE（全部大写）。"
                 });
 
                 // ── 使用 onContent 回调实时捕获 AI 生成的规划概要 ──
@@ -514,7 +511,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 当 toolChoice=none 时，DeepSeek V4 仍可能在 content 中输出工具调用意图的 XML 片段。
         /// 此方法移除所有已知的 DSML 标签及其内容，保留纯文本/JSON。
         /// </summary>
-        private static string StripDsmlContent(string text)
+        private new static string StripDsmlContent(string text)
         {
             return BaseAgent.StripDsmlContent(text);
         }
@@ -556,7 +553,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             AddLog("INFO", L["agent.log.planGeneratingJson"]);
             string json = await CallAiLongAsync(
                 Definition.SystemPrompt, planPrompt, extraSystemMessages, ct,
-                maxTokens: 8192, toolChoice: "none");
+                maxTokens: 8192, toolChoice: "none", temperature: 0.0);
             AddLog("INFO", L["agent.log.planJsonReceived"]);
 
             // ── 诊断：记录原始响应用于调试 JSON 解析失败 ──
@@ -581,11 +578,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     string retryResponse = await CallAiLongAsync(
                         Definition.SystemPrompt,
-                        "请**仅**输出 JSON 格式的计划，不要包含任何 markdown 分析、表格或注释。直接输出 JSON 对象，以 { 开头。",
+                        "⚠️ 严格指令：你只能输出 JSON 对象。不要调用任何工具（你无法调用工具）。" +
+                        "不要输出任何 markdown、分析文字、代码块标记、XML标签或解释。直接以 { 字符开始，输出纯 JSON。违反此规则将导致系统故障。",
                         null,  // 不传发现上下文到重试，减少干扰
                         ct,
                         maxTokens: 4096,
-                        toolChoice: "none");
+                        toolChoice: "none",
+                        temperature: 0.0);
 
                     retryResponse = StripDsmlContent(retryResponse);
                     retryResponse = ExtractJsonFromMarkdown(retryResponse);
@@ -688,6 +687,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine(SB["plan.creation.instructions"]);
             sb.AppendLine(SB["plan.creation.instruction1"]);
             sb.AppendLine(SB["plan.creation.instruction2"]);
+            sb.AppendLine();
+            sb.AppendLine(SB["plan.creation.instruction3"]);
+            sb.AppendLine(SB["plan.creation.instruction4"]);
             sb.AppendLine();
             sb.AppendLine(SB["plan.creation.jsonFormat"]);
             sb.AppendLine("{");

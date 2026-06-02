@@ -41,7 +41,14 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ToolChoice { get; set; } // "auto" | "none" | "required" | { "type": "function", "function": { "name": "..." } }
 
-        // 注意: 思考模式下 temperature/top_p 等参数不生效，此处省略
+        /// <summary>
+        /// 采样温度 (0.0 ~ 2.0)。0.0 为确定性输出，适合需要 JSON 格式的场景。
+        /// 注意: 思考模式 (thinking=enabled) 下 temperature 参数不生效。
+        /// Plan Agent 设计阶段应设置 temperature=0 以确保 JSON 输出稳定。
+        /// </summary>
+        [JsonPropertyName("temperature")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? Temperature { get; set; }
     }
 
     public class ThinkingControl

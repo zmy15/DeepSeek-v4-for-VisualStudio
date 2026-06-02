@@ -671,6 +671,8 @@
   "plan.creation.instructions": "## Instructions",
   "plan.creation.instruction1": "Based on the above information and codebase research findings (provided in system messages), create a detailed implementation plan.",
   "plan.creation.instruction2": "The plan should be step-by-step, executable, and include verification steps.",
+  "plan.creation.instruction3": "⚠️ You are STRICTLY FORBIDDEN from calling any tools. tool_choice is set to none — no tools are available to you. Do not attempt to generate tool calls.",
+  "plan.creation.instruction4": "⚠️ You are STRICTLY FORBIDDEN from outputting anything other than JSON. Do NOT output markdown headers, tables, code fences, analysis text, or any explanations. Output ONLY raw JSON.",
   "plan.creation.jsonFormat": "Output JSON format:",
   "plan.creation.outputJson": "Please output the plan JSON:",
   "plan.creation.jsonOnlyHint": "**IMPORTANT: Output ONLY the JSON object. Do NOT include any markdown analysis, tables, preamble, or summary. Start directly with {.**",
