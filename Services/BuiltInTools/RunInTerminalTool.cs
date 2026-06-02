@@ -36,7 +36,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         properties = new
                         {
                             command = new { type = "string", description = "要执行的 shell 命令" },
-                            explanation = new { type = "string", description = "命令用途的简短说明" },
+                            explanation = new { type = "string", description = "命令用途的简短说明（这条命令做什么）" },
+                            purpose = new { type = "string", description = "操作目的——为什么要执行此命令，要达成什么目标（如：验证编译是否通过、检查文件是否存在）" },
                             mode = new
                             {
                                 type = "string",

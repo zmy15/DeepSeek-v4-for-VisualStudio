@@ -59,9 +59,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (msg.Role == "user")
                 {
                     AppendUserMessageHtml(sb, msg.Content ?? string.Empty, msg.AttachedFiles, i);
-                    // ── 编辑产生的分支导航（在用户气泡下方）──
-                    if (msg.SiblingCount > 1)
-                        sb.Append(BuildBranchNavHtml(msg, i));
+                    // ── 分支导航（始终在用户气泡正下方）──
+                    // 场景1：编辑用户消息产生分支 → 用户消息的 SiblingCount > 1
+                    // 场景2：重试助手回复产生分支 → 下一个助手消息的 SiblingCount > 1
+                    AppendBranchNavForUserMessage(sb, messages, i);
                 }
                 else if (msg.Role == "assistant")
                 {
@@ -781,7 +782,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 ? $"<button id='retry-btn-{idx}' class='msg-action-btn retry-btn' onclick='window.__retryMessage({idx})' title='{L["chat.html.retryButtonTitle"]}'>↻</button>"
                 : "";
 
-            string branchNavHtml = BuildBranchNavHtml(msg, idx);
+            // ── 分支导航统一放在用户气泡下方，不在此处渲染 ──
 
             // Copilot Chat 风格：左对齐，AI 标签
             sb.Append($"<div id='msg-{idx}' class='msg-wrapper ai'>");
@@ -792,9 +793,37 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             sb.Append($"<div class='msg-content' id='msg-body-{idx}'>{bodyHtml}</div>");
             sb.Append(streamingCursor);
             sb.Append(retryBtnHtml);
-            sb.Append(branchNavHtml);
             sb.Append("</div>");
             sb.Append("</div>");
+        }
+
+        /// <summary>
+        /// 在用户消息气泡正下方追加分支导航 HTML。
+        /// 统一处理两种分叉场景：
+        /// - 编辑分叉（ForkReason="edit"）：当前用户消息有兄弟节点
+        /// - 重试分叉（ForkReason="retry"）：下一个助手消息有兄弟节点
+        /// </summary>
+        private static void AppendBranchNavForUserMessage(StringBuilder sb, IReadOnlyList<ChatMessage> messages, int userMsgIndex)
+        {
+            var userMsg = messages[userMsgIndex];
+
+            // ── 场景1：编辑分叉 ── 用户消息自身有兄弟
+            if (userMsg.SiblingCount > 1)
+            {
+                sb.Append(BuildBranchNavHtml(userMsg, userMsgIndex));
+                return;
+            }
+
+            // ── 场景2：重试分叉 ── 下一个消息是助手且有兄弟（重试产生）
+            int nextIdx = userMsgIndex + 1;
+            if (nextIdx < messages.Count)
+            {
+                var nextMsg = messages[nextIdx];
+                if (nextMsg.Role == "assistant" && nextMsg.SiblingCount > 1)
+                {
+                    sb.Append(BuildBranchNavHtml(nextMsg, nextIdx));
+                }
+            }
         }
 
         /// <summary>
@@ -1251,10 +1280,14 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             string escapedExplanation = EscapeJsString(explanation);
 
             // ── 目的说明 ──
+            // Purpose 优先；如果为空则用 explanation（FilePaths[0]）作为 fallback
+            string displayPurpose = !string.IsNullOrWhiteSpace(request.Purpose)
+                ? request.Purpose
+                : (!string.IsNullOrWhiteSpace(explanation) ? explanation : string.Empty);
             string purposeHtml = "";
-            if (!string.IsNullOrWhiteSpace(request.Purpose))
+            if (!string.IsNullOrWhiteSpace(displayPurpose))
             {
-                purposeHtml = "<div class=\"terminal-purpose\">🎯 目的：" + EscapeHtml(request.Purpose) + "</div>";
+                purposeHtml = "<div class=\"terminal-purpose\">🎯 目的：" + EscapeHtml(displayPurpose) + "</div>";
             }
 
             string cardInnerHtml =

@@ -1000,6 +1000,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         explanation = explProp.GetString() ?? string.Empty;
                     if (doc.RootElement.TryGetProperty("purpose", out var purProp))
                         purpose = purProp.GetString() ?? string.Empty;
+                    // goal 是 DeepSeek 模型原生使用的参数名，作为 purpose 的 fallback
+                    if (string.IsNullOrWhiteSpace(purpose) && doc.RootElement.TryGetProperty("goal", out var goalProp))
+                        purpose = goalProp.GetString() ?? string.Empty;
                 }
                 catch { }
 
