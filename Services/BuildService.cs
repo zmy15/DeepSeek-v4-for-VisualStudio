@@ -1171,7 +1171,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 通过 SVsShell 服务获取当前 VS 实例的安装根目录。
         /// 必须在 UI 线程调用。
         /// </summary>
-        private static string? GetVisualStudioInstallPath()
+        internal static string? GetVisualStudioInstallPath()
         {
             try
             {
@@ -1222,8 +1222,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 查找 MSVC 环境初始化脚本 vcvars64.bat。
         /// 用于在命令行 CMake 构建前初始化编译器环境（INCLUDE、LIB、PATH 等），
         /// 解决直接调用 cmake --build 时找不到标准头文件的问题。
+        /// 必须在 UI 线程调用。
         /// </summary>
-        private static string? FindVcvarsBat()
+        internal static string? FindVcvarsBat()
         {
             string? vsPath = GetVisualStudioInstallPath();
             if (vsPath != null)

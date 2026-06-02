@@ -1,5 +1,7 @@
 using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
+using Microsoft.VisualStudio.Shell;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -88,27 +90,67 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             // ── Unix 风格命令检测与修正（安全网：即使 AI prompt 已要求 PowerShell，仍有概率输出 Unix 命令）──
             string? unixWarning = DetectUnixStyleCommand(command);
+
+            // ── cmake --build 自动包装 vcvars64.bat ──
+            // build_solution 内部用 cmd /c "call vcvars64.bat >nul 2>&1 && cmake --build ..." 初始化 MSVC 环境。
+            // AI 通过 run_in_terminal 直接调 cmake --build 时缺少该环境 → 找不到 <cstdint> 等标准头文件。
+            // 此处自动检测并注入 vcvars 初始化，确保终端 cmake --build 与 build_solution 行为一致。
+            bool isCmakeBuild = command.IndexOf("cmake --build", StringComparison.OrdinalIgnoreCase) >= 0;
+            string? vcvarsPath = null;
+            string? vcvarsWarning = null;
+            if (isCmakeBuild)
+            {
+                // ── 复用 BuildService.FindVcvarsBat()（需要 UI 线程访问 SVsShell）──
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                vcvarsPath = BuildService.FindVcvarsBat();
+                if (vcvarsPath == null)
+                    vcvarsWarning = "⚠️ 未找到 vcvars64.bat，cmake --build 可能因缺少 MSVC 环境而失败。建议使用 build_solution 工具。\n\n";
+            }
+
             command = NormalizeUnixToPowerShell(command);
 
             // 如果命令被修正过，构建警告前缀（附加到输出开头提醒 AI 下次注意）
-            string warningPrefix = unixWarning != null
-                ? unixWarning + "\n修正后的命令: " + command + "\n\n"
-                : string.Empty;
+            string warningPrefix = "";
+            if (unixWarning != null)
+                warningPrefix = unixWarning + "\n修正后的命令: " + command + "\n\n";
+            if (vcvarsWarning != null)
+                warningPrefix += vcvarsWarning;
 
             bool isAsync = string.Equals(mode, "async", StringComparison.OrdinalIgnoreCase);
 
             try
             {
-                var psi = new ProcessStartInfo
+                ProcessStartInfo psi;
+
+                // ── cmake --build 专用路径：通过 cmd.exe + vcvars64.bat 初始化 MSVC 环境 ──
+                // 与 BuildService.BuildCmakeWithCommandLineAsync 行为对齐
+                if (isCmakeBuild && vcvarsPath != null)
                 {
-                    FileName = "powershell.exe",
-                    Arguments = $"-NoProfile -Command \"{command}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WorkingDirectory = Directory.GetCurrentDirectory(),
-                };
+                    string cmdArgs = $"/c \"call \"{vcvarsPath}\" >nul 2>&1 && {command}\"";
+                    psi = new ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = cmdArgs,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        WorkingDirectory = workspaceRoot ?? Directory.GetCurrentDirectory(),
+                    };
+                }
+                else
+                {
+                    psi = new ProcessStartInfo
+                    {
+                        FileName = "powershell.exe",
+                        Arguments = $"-NoProfile -Command \"{command}\"",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        WorkingDirectory = Directory.GetCurrentDirectory(),
+                    };
+                }
 
                 var process = Process.Start(psi);
                 if (process == null)
@@ -227,8 +269,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 normalized.Contains(" g++ ", StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            if (normalized.Contains("cmake --build", StringComparison.OrdinalIgnoreCase) ||
-                normalized.StartsWith("make ", StringComparison.OrdinalIgnoreCase) ||
+            // ⚠️ cmake --build 不拦截：build_solution 对 CMake 项目底层用的就是 cmake --build，
+            // 且 build_solution 不支持 --target 参数，拦截会导致 AI 无法构建测试目标等非默认 target。
+            // 其余原生构建工具（make/ninja）仍拦截，引导使用 build_solution。
+            if (normalized.StartsWith("make ", StringComparison.OrdinalIgnoreCase) ||
                 normalized.StartsWith("ninja", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains(" make ", StringComparison.OrdinalIgnoreCase))
                 return true;
