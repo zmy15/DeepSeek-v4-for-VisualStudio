@@ -51,7 +51,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "常用命令对照：`ls`→`Get-ChildItem`、`cat`→`Get-Content`、`rm`→`Remove-Item`、\n" +
             "`cp`→`Copy-Item`、`mv`→`Move-Item`、`mkdir`→`New-Item -ItemType Directory`、\n" +
             "`touch`→`New-Item`、`which`→`Get-Command`、`find`→`Get-ChildItem -Recurse`\n" +
-            "⚠️ 如果确实需要运行 Unix 风格脚本，请使用 `wsl` 或 `bash` 前缀明确说明。\n";
+            "⚠️ 如果确实需要运行 Unix 风格脚本，请使用 `wsl` 或 `bash` 前缀明确说明。\n" +
+            "\n" +
+            "## 🔄 Agent Handoff 规则（避免重复探索，节省 token）\n" +
+            "- 如果你是接手前一 Agent 工作的 Handoff 场景（消息中包含 🔄 Handoff 提示）：\n" +
+            "  **优先从对话历史中获取已有文件内容**，不要重新探索。\n" +
+            "- 对话历史（上方消息）中已包含前一 Agent 的 read_file、list_dir、file_search 等工具调用结果，\n" +
+            "  这些都是有效的文件上下文，直接引用即可，**无需重复读取相同文件**。\n" +
+            "- 只有当你确实需要的文件**在对话历史中不存在**时，才调用探索工具（read_file / list_dir / file_search）。\n" +
+            "- 探索工具只在真正必要时使用——不要「为了探索而探索」。\n";
 
         /// <summary>
         /// 获取带语言指令的完整公共前缀（每次调用时根据当前语言动态拼接）。
