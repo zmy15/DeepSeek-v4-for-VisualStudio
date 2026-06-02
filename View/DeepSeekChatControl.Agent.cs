@@ -1434,7 +1434,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             var plan = JsonSerializer.Deserialize<AgentTaskPlan>(
                                 msg.PlanJson,
                                 new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-                            if (plan != null && plan.Steps.Count > 0 && !plan.IsCompleted)
+                            if (plan != null && plan.Steps.Count > 0 && !plan.IsCompleted && !plan.IsCancelled)
                             {
                                 _agentDispatcher.ActivePlan = plan;
                                 context.ActivePlan = plan;
@@ -1732,6 +1732,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 残留的 HandoffJson，否则下一轮对话中 TryRestorePendingHandoffFromMessages()
                 // 会重新恢复旧的 Handoff 并触发 OverrideRoutingForPlanContext 覆盖路由，
                 // 导致 Plan 面板再次出现。
+                //
+                // 同时清除同一 PlanId 的旧 PlanJson（PlanAgent 原始响应的未完成版本），
+                // 防止 RestoreActivePlanIfNeeded 在后续 @edit 调用时恢复已执行完毕的计划。
+                string? completedPlanId = agentResult.Plan?.PlanId;
                 lock (_lock)
                 {
                     foreach (var msg in _messages)
@@ -1739,6 +1743,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         if (!string.IsNullOrEmpty(msg.HandoffJson))
                         {
                             msg.HandoffJson = null;
+                        }
+
+                        // 清除与已完成计划同 PlanId 的旧 PlanJson（IsCompleted=false 的残留版本）
+                        if (!string.IsNullOrEmpty(completedPlanId) && !string.IsNullOrEmpty(msg.PlanJson))
+                        {
+                            try
+                            {
+                                var oldPlan = JsonSerializer.Deserialize<AgentTaskPlan>(
+                                    msg.PlanJson,
+                                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                                if (oldPlan != null && oldPlan.PlanId == completedPlanId && !oldPlan.IsCompleted)
+                                {
+                                    msg.PlanJson = null;
+                                    Logger.Info($"[AgentHandoff] 清除残留的旧 PlanJson: PlanId={completedPlanId}");
+                                }
+                            }
+                            catch { }
                         }
                     }
                 }
@@ -1857,6 +1878,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private void DismissTaskPanel(string planId)
         {
+            int clearedCount = 0;
             lock (_lock)
             {
                 var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -1871,9 +1893,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         if (plan != null && plan.PlanId == planId)
                         {
                             msg.PlanJson = null;
-                            _createdPlanIds.Remove(planId);
-                            Logger.Info($"[Panel] 任务面板已关闭并清除持久化数据: PlanId={planId}");
-                            return;
+                            clearedCount++;
                         }
                     }
                     catch (Exception ex)
@@ -1881,8 +1901,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         Logger.Warn($"[Panel] DismissTaskPanel 反序列化 PlanJson 失败: {ex.Message}");
                     }
                 }
+                if (clearedCount > 0)
+                    _createdPlanIds.Remove(planId);
             }
-            Logger.Info($"[Panel] DismissTaskPanel: 未找到 PlanId={planId} 的消息");
+            if (clearedCount > 0)
+                Logger.Info($"[Panel] 任务面板已关闭并清除持久化数据: PlanId={planId}, 清除 {clearedCount} 条");
+            else
+                Logger.Info($"[Panel] DismissTaskPanel: 未找到 PlanId={planId} 的消息");
         }
 
         /// <summary>
