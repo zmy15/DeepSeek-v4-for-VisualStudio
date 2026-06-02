@@ -42,21 +42,14 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .search-results-card .search-result-title{color:#6cafd9;font-size:12px;font-weight:600;display:block}
 .search-results-card .search-result-url{color:#608b4e;font-size:10px;display:block;word-break:break-all}
 .search-results-card .search-result-snippet{color:#a0a0a0;font-size:11px;line-height:1.4}
-.agent-plan{margin:8px 0;border:1px solid #3a5a3a;border-radius:8px;background:#1a2e1a;padding:10px 14px}
-.agent-plan-header{display:flex;align-items:center;gap:12px}.agent-plan-title{color:#7ec87e;font-size:12px;font-weight:600}
-.agent-plan-progress{display:flex;align-items:center;gap:8px;flex:1}.step-counter{color:#aaa;font-size:11px}
-.agent-plan-progress-bar{flex:1;height:4px;background:#333;border-radius:2px}
-.agent-plan-progress-bar-fill{height:100%;background:#4ec9b0;border-radius:2px;transition:width .3s}
-.agent-step-node{display:flex;gap:8px;margin:6px 0}.agent-step-bullet-wrap{display:flex;flex-direction:column;align-items:center;width:20px;flex-shrink:0}
-.agent-step-bullet{width:16px;height:16px;border-radius:50%;font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:bold}
+.agent-plan{margin:4px 0}
+.agent-step-node{display:flex;gap:6px;margin:3px 0}.agent-step-bullet-wrap{display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0}
+.agent-step-bullet{width:12px;height:12px;border-radius:50%;font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:bold}
 .agent-step-bullet.completed{background:#4ec9b0;color:#1e1e1e}.agent-step-bullet.in-progress{background:#e0c060;color:#1e1e1e;animation:pulse 1.5s infinite}
 .agent-step-bullet.failed{background:#f48771;color:#1e1e1e}.agent-step-bullet.pending{background:#333;color:#aaa}
-.agent-step-line{width:2px;flex:1;background:#333;min-height:12px;margin:2px 0}.agent-step-line.done{background:#4ec9b0}.agent-step-line.active{background:#e0c060}
-.agent-step-content{flex:1;min-width:0}.agent-step-title{font-size:12px;color:#ccc}.agent-step-title-row{display:flex;align-items:center;gap:6px}
-.agent-step-tag{font-size:9px;padding:1px 5px;border-radius:3px}.agent-step-tag.code{background:#264f78;color:#9cdcfe}
-.agent-step-tag.build{background:#5a3a00;color:#e0c060}.agent-step-tag.analyze{background:#3a5a3a;color:#7ec87e}
-.agent-step-summary{font-size:11px;color:#888;margin-top:2px}
-.agent-step-detail-toggle{display:inline-block;font-size:10px;cursor:pointer;color:#555;margin-left:4px;user-select:none;transition:transform .2s,color .15s}.agent-step-detail-toggle:hover{color:#9cdcfe}.agent-step-detail-toggle.expanded{transform:rotate(90deg)}.agent-step-detail{display:none;font-size:11px;color:#777;margin-top:4px;padding:6px 8px;background:#1a1e24;border-radius:4px;border-left:2px solid #3a4a5a;line-height:1.5;white-space:pre-wrap;word-break:break-word}.agent-step-detail.expanded{display:block}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.agent-step-line{width:2px;flex:1;background:#333;min-height:8px;margin:1px 0}.agent-step-line.done{background:#4ec9b0}.agent-step-line.active{background:#e0c060}
+.agent-step-content{flex:1;min-width:0}.agent-step-title{font-size:11px;color:#ccc}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 .cache-stat-card{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#2a2a2a;border:1px solid #3c3c3c;border-radius:6px;margin:10px 0;font-size:11px}
 .cache-icon{font-size:14px}.cache-rate{font-weight:700;font-size:12px}.cache-rate.high{color:#6cd96c}.cache-rate.medium{color:#e0c060}.cache-rate.low{color:#f48771}
 .cache-bar-wrap{flex:1;height:4px;background:#333;border-radius:2px}.cache-bar-fill{height:100%;border-radius:2px}
@@ -80,16 +73,16 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .tool-call-section code{background:#2a3a4a;color:#7eb8e0;font-size:11px}
 .tool-call-section strong{color:#d0d8e0}
 .tool-call-result{color:#8a8;font-size:11px;margin-left:4px}
-.agent-task-panel{position:sticky;bottom:0;z-index:10;margin:12px 0 0 0;border:1px solid #3a4a5a;border-radius:10px 10px 0 0;background:#1a1e2a;overflow:hidden;box-shadow:0 -2px 12px rgba(0,0,0,.4)}
+.agent-task-panel{position:sticky;bottom:0;z-index:10;margin:8px 0 0 0;border:1px solid #3a4a5a;border-radius:6px 6px 0 0;background:#1a1e2a;overflow:hidden;box-shadow:0 -2px 12px rgba(0,0,0,.4)}
 .agent-task-panel.collapsed .agent-task-panel-body{display:none}
-.agent-task-panel-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#222a3a;cursor:pointer;user-select:none;border-bottom:1px solid #2a3a4a}
+.agent-task-panel-header{display:flex;align-items:center;gap:6px;padding:6px 10px;background:#222a3a;cursor:pointer;user-select:none;border-bottom:1px solid #2a3a4a}
 .agent-task-panel-header:hover{background:#263040}
-.task-icon{font-size:15px}.task-title{color:#b0c8e0;font-size:13px;font-weight:600;flex:1}.task-progress{color:#7ea8c8;font-size:11px}
-.task-close{background:transparent;border:1px solid #4a5a6a;color:#8a9ab0;cursor:pointer;font-size:14px;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+.task-icon{font-size:12px}.task-title{color:#b0c8e0;font-size:11px;font-weight:600;flex:1}.task-progress{color:#7ea8c8;font-size:10px}
+.task-close{background:transparent;border:1px solid #4a5a6a;color:#8a9ab0;cursor:pointer;font-size:11px;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
 .task-close:hover{background:#c0392b;color:#fff;border-color:#c0392b;transform:scale(1.1)}
 .task-close.finished{background:#3C1A1A;color:#E07878;border-color:#6A3A3A}
 .task-close.finished:hover{background:#c0392b;color:#fff;border-color:#c0392b}
-.agent-task-panel-body{padding:10px 14px;max-height:30vh;overflow-y:auto}
+.agent-task-panel-body{padding:6px 10px;max-height:24vh;overflow-y:auto}
 /* ── 终端命令审批卡片样式 ── */
 .terminal-approval-card{margin:12px 0;border:1px solid #5a4a2a;border-radius:10px;background:#1e1a12;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.3)}
 .terminal-approval-card-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#2a2218;border-bottom:1px solid #3a2e1a;font-size:13px;font-weight:600;color:#e0c870}
