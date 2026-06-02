@@ -489,10 +489,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 // 将 AI 在提问前生成的规划概要合并到结果中
                 string planSummary = alignmentContent.ToString().Trim();
-                if (!string.IsNullOrWhiteSpace(planSummary))
-                {
-                    AddLog("INFO", $"[Plan] 对齐阶段规划概要: {planSummary.Truncate(200)}");
-                }
 
                 AddLog("INFO", $"[Plan] 对齐阶段完成 ({alignmentResult.Truncate(200)})");
                 return planSummary;
