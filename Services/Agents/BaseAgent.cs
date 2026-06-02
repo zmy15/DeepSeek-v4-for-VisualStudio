@@ -36,7 +36,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "  你已拥有该行范围的内容，**绝对禁止**用相同行范围再次调用 read_file。\n" +
             "- 但如果需要读取同一文件的**不同行范围**（之前未读过的范围），可以放心调用 read_file，系统会自动放行。\n" +
             "- 重复读取相同内容是最常见的 token 浪费原因。每次违规重复读取会消耗数千 token 而没有新信息。\n" +
-            "- 如果你需要确认某个已读文件中的细节，直接引用之前 read_file 返回的内容即可，无需重新读取。\n";
+            "- 如果你需要确认某个已读文件中的细节，直接引用之前 read_file 返回的内容即可，无需重新读取。\n" +
+            "\n" +
+            "## 🖥️ 终端命令规则（严格遵守，否则命令无法执行）\n" +
+            "当前系统运行在 **Windows** 上，所有 `run_in_terminal` 命令**必须使用 Windows PowerShell 语法**。\n" +
+            "**绝对禁止**输出 Unix/Linux 风格的命令，它们无法在 Windows 上执行：\n" +
+            "- ❌ 禁止使用 `&&` 连接命令 → ✅ 使用 `;`（分号）\n" +
+            "- ❌ 禁止使用 `export VAR=value` → ✅ 使用 `$env:VAR = \"value\"`\n" +
+            "- ❌ 禁止使用 `grep`、`cat`、`rm -rf`、`ls -la`、`chmod`、`sed` 等 Unix 命令\n" +
+            "  → ✅ 使用 `Select-String`、`Get-Content`、`Remove-Item -Recurse -Force`、`Get-ChildItem -Force` 等 PowerShell cmdlet\n" +
+            "- ❌ 禁止使用 `./script.sh` → ✅ 使用 `.\\script.ps1`\n" +
+            "- ❌ 禁止使用 `/` 作为路径分隔符 → ✅ 使用 `\\`（Windows 反斜杠）\n" +
+            "- ❌ 禁止使用 `mkdir -p` → ✅ 使用 `New-Item -ItemType Directory -Force`\n" +
+            "常用命令对照：`ls`→`Get-ChildItem`、`cat`→`Get-Content`、`rm`→`Remove-Item`、\n" +
+            "`cp`→`Copy-Item`、`mv`→`Move-Item`、`mkdir`→`New-Item -ItemType Directory`、\n" +
+            "`touch`→`New-Item`、`which`→`Get-Command`、`find`→`Get-ChildItem -Recurse`\n" +
+            "⚠️ 如果确实需要运行 Unix 风格脚本，请使用 `wsl` 或 `bash` 前缀明确说明。\n";
 
         /// <summary>
         /// 获取带语言指令的完整公共前缀（每次调用时根据当前语言动态拼接）。
