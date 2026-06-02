@@ -520,52 +520,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         private static string StripDsmlContent(string text)
         {
-            if (string.IsNullOrWhiteSpace(text)) return text;
-
-            // ── 移除完整的 DSML/工具调用 XML 块（含嵌套内容）──
-            // 匹配 DSML, function_calls, tool_calls, invoke, parameter 等标签
-            string[] blockTags = {
-                "DSML", "function_calls?", "tool_calls?", "invoke", "parameter",
-                "VisualStudio_askQuestions", "runSubagent", "tool_result",
-                "file_search", "grep_search", "list_dir", "read_file",
-                "semantic_search", "fetch_webpage", "run_in_terminal",
-                "create_file", "replace_string_in_file", "edit_notebook_file",
-                "create_directory"
-            };
-
-            string result = text;
-            foreach (var tag in blockTags)
-            {
-                // 移除自闭合标签
-                result = System.Text.RegularExpressions.Regex.Replace(
-                    result,
-                    @"<\s*" + tag + @"(\s+[^>]*)?\s*/\s*>",
-                    "",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
-
-                // 移除配对标签及其内容
-                result = System.Text.RegularExpressions.Regex.Replace(
-                    result,
-                    @"<\s*" + tag + @"(\s+[^>]*)?\s*>.*?</\s*" + tag + @"\s*>",
-                    "",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
-            }
-
-            // ── 移除残留的独立开标签/闭标签 ──
-            result = System.Text.RegularExpressions.Regex.Replace(
-                result,
-                @"</?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|VisualStudio_askQuestions|runSubagent|tool_result)[^>]*>",
-                "",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-            // ── 移除 <｜end▁of▁thinking｜>  and  thinking 伪标签 ──
-            result = System.Text.RegularExpressions.Regex.Replace(
-                result,
-                @"</?\s*(?:response|thinking|analysis|reasoning|plan|reflection)[^>]*>",
-                "",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-            return result.Trim();
+            return BaseAgent.StripDsmlContent(text);
         }
 
         /// <summary>

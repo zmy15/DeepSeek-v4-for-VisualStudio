@@ -1284,6 +1284,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             if (string.IsNullOrWhiteSpace(text)) return text;
 
+            // ── 移除完整的 DSML/工具调用 XML 块（含嵌套内容）──
+            // 支持两种格式：
+            //   1. 标准 XML: <tagname>...</tagname>
+            //   2. DeepSeek V4 管道分隔: <|tagname|>...</|tagname|>
             string[] blockTags = {
                 "DSML", "function_calls?", "tool_calls?", "invoke", "parameter",
                 "VisualStudio_askQuestions", "runSubagent", "tool_result",
@@ -1296,20 +1300,66 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             string result = text;
             foreach (var tag in blockTags)
             {
-                result = System.Text.RegularExpressions.Regex.Replace(result,
-                    @"<\s*" + tag + @"(\s+[^>]*)?\s*/\s*>", "",
+                // ── 格式1：标准 XML 自闭合标签 <tag ... /> ──
+                result = System.Text.RegularExpressions.Regex.Replace(
+                    result,
+                    @"<\s*" + tag + @"(\s+[^>]*)?\s*/\s*>",
+                    "",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
-                result = System.Text.RegularExpressions.Regex.Replace(result,
-                    @"<\s*" + tag + @"(\s+[^>]*)?\s*>.*?</\s*" + tag + @"\s*>", "",
+
+                // ── 格式1：标准 XML 配对标签 <tag>...</tag> ──
+                result = System.Text.RegularExpressions.Regex.Replace(
+                    result,
+                    @"<\s*" + tag + @"(\s+[^>]*)?\s*>.*?</\s*" + tag + @"\s*>",
+                    "",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                // ── 格式2：管道分隔自闭合标签 <|tag| ... /> ──
+                result = System.Text.RegularExpressions.Regex.Replace(
+                    result,
+                    @"<\|\s*" + tag + @"\s*\|(\s+[^>]*)?\s*/\s*>",
+                    "",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                // ── 格式2：管道分隔配对标签 <|tag|>...</|tag|> ──
+                result = System.Text.RegularExpressions.Regex.Replace(
+                    result,
+                    @"<\|\s*" + tag + @"\s*\|(\s+[^>]*)?\s*>.*?</\|\s*" + tag + @"\s*\|?\s*>",
+                    "",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
             }
 
-            result = System.Text.RegularExpressions.Regex.Replace(result,
-                @"</?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|VisualStudio_askQuestions|runSubagent|tool_result)[^>]*>", "",
+            // ── 移除残留的独立开标签/闭标签（标准 XML）──
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result,
+                @"</?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|VisualStudio_askQuestions|runSubagent|tool_result)[^>]*>",
+                "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-            result = System.Text.RegularExpressions.Regex.Replace(result,
-                @"</?\s*(?:response|thinking|analysis|reasoning|plan|reflection)[^>]*>", "",
+            // ── 移除残留的独立开标签/闭标签（管道分隔格式）──
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result,
+                @"</?<|\|\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter|VisualStudio_askQuestions|runSubagent|tool_result)[^>]*>",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // 更精确的管道分隔残留标签
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result,
+                @"<\|?\s*(?:DSML|function_calls?|tool_calls?|invoke|parameter)[^>]*\|?>",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // ── 移除  response / thinking / analysis / reasoning / plan / reflection 伪标签 ──
+            // 支持标准XML和管道分隔两种格式
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result,
+                @"</?\s*(?:response|thinking|analysis|reasoning|plan|reflection)[^>]*>",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result,
+                @"<\|?\s*(?:response|thinking|analysis|reasoning|plan|reflection)[^>]*\|?>",
+                "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
             return result.Trim();
@@ -1598,13 +1648,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (string.IsNullOrWhiteSpace(text)) return "{}";
 
             // ── 剥离 XML 风格的标签（DeepSeek V4 可能将推理/工具调用泄露到 content 字段）──
-            // thinking/analysis/reasoning/plan/reflection: 推理过程标签
-            // DSML/function_call/function_calls/tool_call/tool_calls: 工具调用意图标签（tools=null 时泄露）
+            // 支持标准 XML <tag> 和 DeepSeek 管道分隔 <|tag|> 两种格式
             string cleaned = System.Text.RegularExpressions.Regex.Replace(
                 text,
-                @"</?(?:thinking|analysis|reasoning|plan|reflection|DSML|function_calls?|tool_calls?)[^>]*>",
+                @"</?(?:\|?\s*)?(?:thinking|analysis|reasoning|plan|reflection|DSML|function_calls?|tool_calls?)(?:\s*\|?)?[^>]*>",
                 "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // 额外处理管道分隔格式的残留
+            cleaned = System.Text.RegularExpressions.Regex.Replace(
+                cleaned,
+                @"<\|?\s*(?:invoke|parameter|read_file|file_search|grep_search|list_dir|run_in_terminal|create_file|replace_string_in_file|runSubagent)[^>]*\|?>",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
 
             int jsonStart = cleaned.IndexOf('{');
             int jsonEnd = cleaned.LastIndexOf('}');
