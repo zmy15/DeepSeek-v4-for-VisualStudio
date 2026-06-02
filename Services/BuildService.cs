@@ -475,7 +475,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             fullResult.AppendLine(string.Format(LocalizationService.Instance["build.projectsFailed"], failed));
             fullResult.Append(FormatBuildErrorResult());
             string resultStr = fullResult.ToString();
-            Logger.Info($"[BuildService] {resultStr.Truncate(500)}");
+            Logger.Info($"[BuildService] MSBuild 构建失败, {failed} 个项目失败, 输出长度={resultStr.Length}");
             return resultStr;
         }
 
@@ -1277,7 +1277,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             string result = sb.ToString().TrimEnd();
-            Logger.Info($"[BuildService] CMake 构建结果: {result.Truncate(500)}");
+            // 只输出一行摘要日志，避免与 BuiltInTool/Agent 层的日志重复
+            Logger.Info(exitCode == 0
+                ? $"[BuildService] CMake 构建成功, 退出码=0, 输出长度={result.Length}"
+                : $"[BuildService] CMake 构建失败, 退出码={exitCode}, 错误行数={errorLines.Count}");
             return result;
         }
 

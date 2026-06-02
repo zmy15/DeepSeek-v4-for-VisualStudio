@@ -2,6 +2,7 @@ using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -81,7 +82,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 // 此处作为外层兜底，同时使取消操作可被外部令牌触发。
                 using var buildCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
                 string result = await _buildService.BuildAsync(workspaceRoot, buildCts.Token);
-                Logger.Info($"[BuiltInTool] build_solution 完成: {(result.Length > 200 ? result.Substring(0, 200) + "..." : result)}");
+                // 只输出一行摘要：构建成功/失败 + 结果长度（完整结果由 Agent 层日志输出）
+                string oneLine = result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+                Logger.Info($"[BuiltInTool] build_solution 完成: {oneLine.Truncate(120)}");
                 return result;
             }
             catch (OperationCanceledException)
