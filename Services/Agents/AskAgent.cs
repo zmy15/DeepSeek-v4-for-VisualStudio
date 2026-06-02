@@ -309,47 +309,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine();
             }
 
-            // ── 步骤执行详情 ──
-            if (plan.Steps.Count > 0)
-            {
-                sb.AppendLine($"### {L["edit.summary.stepDetails"]}");
-                sb.AppendLine();
-                foreach (var step in plan.Steps)
-                {
-                    string statusIcon = step.Status == AgentStepStatus.Completed ? "✅"
-                        : step.Status == AgentStepStatus.Failed ? "❌"
-                        : step.Status == AgentStepStatus.Skipped ? "⏭️"
-                        : "🔄";
-                    sb.AppendLine($"- {statusIcon} **步骤 {step.Index}**: {step.Title}");
-                    if (!string.IsNullOrEmpty(step.ResultSummary))
-                        sb.AppendLine($"  - 结果: {step.ResultSummary}");
-
-                    // ── 包含验证结果：如果步骤的 AiResponse 中有验证章节，提取关键信息 ──
-                    if (!string.IsNullOrEmpty(step.AiResponse))
-                    {
-                        string aiResp = step.AiResponse!;
-                        int verifyIdx = aiResp.IndexOf("## 验证");
-                        if (verifyIdx >= 0)
-                        {
-                            string verifySection = aiResp.Substring(verifyIdx);
-                            // 截取前 500 字符作为摘要
-                            if (verifySection.Length > 500)
-                                verifySection = verifySection.Substring(0, 500) + "\n\n...(已截断，完整日志见执行过程)";
-                            // ── 使用 Markdown 块引用格式（非 HTML，兼容 DisableHtml 渲染管线）──
-                            sb.AppendLine();
-                            sb.AppendLine($"> 🔍 **验证详情**");
-                            sb.AppendLine(">");
-                            foreach (var line in verifySection.Split('\n'))
-                            {
-                                sb.AppendLine($"> {line}");
-                            }
-                            sb.AppendLine();
-                        }
-                    }
-                }
-                sb.AppendLine();
-            }
-
             if (plan.ChangedFiles.Count > 0)
             {
                 // ── 按文件路径合并相同文件的多条变更记录 ──
