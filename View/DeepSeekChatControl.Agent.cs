@@ -126,6 +126,82 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 恢复系统级上下文（system prompt / memory / skill / RAG）。
+        /// 在 RebuildContextFromTree() 后调用，因为 Clear() 会清空这些字段。
+        /// 确保 Agent（Plan/Edit/Explore）在编辑/重试后仍能获取完整的系统上下文。
+        /// </summary>
+        private async Task RestoreSystemContextAsync()
+        {
+            try
+            {
+                // ── 惰性解析：确保 _solutionPath 已就绪 ──
+                if (_solutionPath == null)
+                {
+                    await ResolveSolutionPathAsync();
+                }
+
+                // ── 系统提示词 ──
+                string systemPrompt = _options?.SystemPrompt ?? string.Empty;
+                if (_agentDispatcher != null)
+                {
+                    string askAgentPrompt = _agentDispatcher.AskAgent.Definition.SystemPrompt;
+                    if (!string.IsNullOrWhiteSpace(askAgentPrompt))
+                        systemPrompt = string.IsNullOrWhiteSpace(systemPrompt) ? askAgentPrompt : systemPrompt + "\n\n" + askAgentPrompt;
+                    systemPrompt += "\n\n" + AiPrompts.MultiAgentSystemPromptFragment;
+                }
+
+                string workspaceRoot = _solutionPath ?? string.Empty;
+                if (!string.IsNullOrEmpty(workspaceRoot))
+                {
+                    try
+                    {
+                        if (File.Exists(workspaceRoot) && Path.GetExtension(workspaceRoot).StartsWith(".sln", StringComparison.OrdinalIgnoreCase))
+                            workspaceRoot = Path.GetDirectoryName(workspaceRoot) ?? workspaceRoot;
+                    }
+                    catch { }
+                    string wsInfo = $"\n\n## 工作区信息\n当前工作区根目录: `{workspaceRoot}`\n所有文件操作请使用此目录下的 Windows 绝对路径。";
+                    systemPrompt += wsInfo;
+                }
+
+                _contextManager.SetSystemPrompt(string.IsNullOrWhiteSpace(systemPrompt) ? null : systemPrompt);
+
+                // ── Skill 上下文 ──
+                try
+                {
+                    if (_skillDiscoveryResult == null)
+                        _skillDiscoveryResult = await SkillService.Instance.DiscoverSkillsAsync(_solutionPath);
+                    string skillContext = SkillService.Instance.GenerateSkillsDiscoveryContext(_skillDiscoveryResult);
+                    _contextManager.SetSkillContext(string.IsNullOrWhiteSpace(skillContext) ? null : skillContext);
+                }
+                catch (Exception ex) { Logger.Warn($"[Skill] RestoreSystemContext 失败: {ex.Message}"); }
+
+                // ── 记忆上下文 ──
+                try
+                {
+                    if (_memoryService != null)
+                    {
+                        string userMemory = _memoryService.GetMemoryContext(MemoryScope.User);
+                        string repoMemory = _memoryService.GetMemoryContext(MemoryScope.Repo, solutionPath: _solutionPath);
+                        var memoryContext = new StringBuilder();
+                        if (!string.IsNullOrWhiteSpace(userMemory))
+                            memoryContext.AppendLine(userMemory);
+                        if (!string.IsNullOrWhiteSpace(repoMemory))
+                            memoryContext.AppendLine(repoMemory);
+                        string combined = memoryContext.ToString().Trim();
+                        _contextManager.SetMemoryContext(string.IsNullOrWhiteSpace(combined) ? null : combined);
+                    }
+                }
+                catch (Exception ex) { Logger.Warn($"[Memory] RestoreSystemContext 失败: {ex.Message}"); }
+
+                Logger.Info("[SystemContext] 系统级上下文已恢复 (systemPrompt + skill + memory)");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[SystemContext] RestoreSystemContextAsync 异常: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Agent 工作流主入口：分解任务 → 显示步骤计划 → 逐步执行 → 显示变更摘要。
         /// 注意：此方法在后台线程中调用，访问 UI 前必须切换到主线程。
         /// </summary>
@@ -2191,6 +2267,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 RebuildFromTree();
                 RebuildContextFromTree();
 
+                // ── 恢复系统级上下文（Clear() 会清空 system prompt / memory / skill）──
+                await RestoreSystemContextAsync();
+
                 // ── 重新发送用户消息生成新的助手回复 ──
                 ChatMessage? userMsg = null;
                 int newUserMsgIndex = -1;
@@ -2347,6 +2426,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 RebuildFromTree();
                 RebuildContextFromTree();
 
+                // ── 恢复系统级上下文（Clear() 会清空 system prompt / memory / skill）──
+                await RestoreSystemContextAsync();
+
                 // ── 重新发送 ──
                 int newUserMsgIndex = -1;
                 ChatMessage? newUserMsg = null;
@@ -2392,6 +2474,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // ── 同步消息列表并重建上下文 ──
                 RebuildFromTree();
                 RebuildContextFromTree();
+
+                // ── 恢复系统级上下文（Clear() 会清空 system prompt / memory / skill）──
+                await RestoreSystemContextAsync();
 
                 // ── 更新浏览器 ──
                 UpdateBrowser();

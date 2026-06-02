@@ -284,6 +284,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     RebuildContextFromTree();
                 }
 
+                // ── 恢复系统级上下文（RestoreFullContext/Clear 会清空 system prompt / memory / skill）──
+                await RestoreSystemContextAsync();
+
                 // ── 若无对话消息（新会话/空会话），补上欢迎语 ──
                 bool hasMessages;
                 lock (_lock) { hasMessages = _messages.Count > 0; }

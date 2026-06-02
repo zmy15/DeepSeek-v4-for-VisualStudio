@@ -162,9 +162,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         msg.Content ?? string.Empty,
                         msg.AttachedFiles.Count > 0 ? msg.AttachedFiles : null,
                         i));
-                    // ── 编辑产生的分支导航（在用户气泡下方）──
+                    // ── 分支导航（始终在用户气泡正下方）──
+                    // 场景1：编辑用户消息产生分支 → 用户消息的 SiblingCount > 1
+                    // 场景2：重试助手回复产生分支 → 下一个助手消息的 SiblingCount > 1
                     if (msg.SiblingCount > 1)
+                    {
                         _messagesHtml.Append(ChatHtmlService.BuildBranchNavHtml(msg, i));
+                    }
+                    else
+                    {
+                        int nextIdx = i + 1;
+                        if (nextIdx < _messages.Count)
+                        {
+                            var nextMsg = _messages[nextIdx];
+                            if (nextMsg.Role == "assistant" && nextMsg.SiblingCount > 1)
+                                _messagesHtml.Append(ChatHtmlService.BuildBranchNavHtml(nextMsg, nextIdx));
+                        }
+                    }
                 }
                 else
                 {

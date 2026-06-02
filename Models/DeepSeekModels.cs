@@ -401,9 +401,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>
         /// 分叉原因："edit"（编辑用户消息产生）或 "retry"（重试助手回复产生）。
-        /// 决定 <> 导航按钮放在用户气泡下还是 AI 气泡下：
-        /// - "edit" → 用户气泡下方（分叉点在用户消息）
-        /// - "retry" → AI气泡下方（分叉点在助手消息）
+        /// 分支导航按钮（◀ 分支 X/Y ▶）始终渲染在用户气泡正下方。
         /// </summary>
         [DataMember]
         public string? ForkReason { get; set; }
