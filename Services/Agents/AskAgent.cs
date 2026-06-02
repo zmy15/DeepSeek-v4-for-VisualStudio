@@ -228,8 +228,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 result.Plan = plan;
                 result.FileChanges = plan.ChangedFiles;
 
-                // ── 生成 AI 文字总结 ──
-                string aiSummary = await GenerateChangeSummaryAsync(plan, context.CancellationToken);
+                // ── 生成 AI 文字总结（允许读取文件以提供更准确的摘要）──
+                string aiSummary = await GenerateChangeSummaryAsync(plan, context);
 
                 // ── 构建最终 Markdown 总结 ──
                 result.Content = BuildSummaryMarkdown(plan, aiSummary);
@@ -391,9 +391,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 生成 AI 文字总结，概括本次代码变更的内容和目的。
         /// 包含变更统计、受影响文件、每步操作概述，提供给 AI 生成更详细的摘要。
         /// </summary>
-        private async Task<string> GenerateChangeSummaryAsync(AgentTaskPlan plan, CancellationToken ct)
+        private async Task<string> GenerateChangeSummaryAsync(AgentTaskPlan plan, AgentContext context)
         {
             if (plan.ChangedFiles.Count == 0) return string.Empty;
+            var ct = context.CancellationToken;
 
             try
             {
@@ -442,17 +443,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // 语言跟随：根据当前语言选择摘要输出语言
                 bool isEnglish = !string.Equals(LocalizationService.Instance.CurrentLanguage, "zh-CN", StringComparison.OrdinalIgnoreCase);
                 string langInstruction = isEnglish
-                    ? "Please output a detailed change summary in English (be thorough, covering what was changed, why, the approach taken, and any notable details):"
-                    : "请用中文输出详细的变更摘要（尽量详细，包含改了什么、为什么改、改法思路、技术细节等）：";
+                    ? "Please output a detailed change summary in English (be thorough, covering what was changed, why, the approach taken, and any notable details). You may use read_file to review the final state of changed files before writing the summary."
+                    : "请用中文输出详细的变更摘要（尽量详细，包含改了什么、为什么改、改法思路、技术细节等）。你可以使用 read_file 查看变更后文件的最终状态，以确保摘要准确。";
                 summaryPrompt.AppendLine(langInstruction);
 
+                // ── 构建消息（带工具循环）──
                 string shortSystemPrompt = isEnglish
-                    ? "You only output a code change summary in English, nothing else."
-                    : "你只输出中文代码变更摘要，不输出任何其他内容。";
+                    ? "You are a code change summary writer. You may read files to verify changes, then output only the summary."
+                    : "你是代码变更总结写手。你可以读取文件以验证变更内容，然后只输出总结。";
 
-                string result = await CallAiShortAsync(
-                    shortSystemPrompt,
-                    summaryPrompt.ToString(), ct, maxTokens: 4096);
+                var messages = new List<ChatApiMessage>
+                {
+                    new ChatApiMessage { Role = "system", Content = shortSystemPrompt },
+                    new ChatApiMessage { Role = "user", Content = summaryPrompt.ToString() }
+                };
+
+                string workspaceRoot = GetWorkspaceRoot(context);
+
+                string result = await CallAiWithToolLoopAsync(
+                    messages,
+                    workspaceRoot,
+                    ct,
+                    maxTokens: 4096,
+                    maxToolRounds: 3,
+                    toolWhitelist: new List<string>(AskTools));
 
                 // ── 安全剥离：防止 AI 意外输出工具调用标记或思考过程 ──
                 result = StripToolCallMarkers(result);
@@ -468,12 +482,28 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 剥离 AI 输出中意外包含的工具调用标记和思考过程文本。
         /// 当 toolChoice="none" 时 AI 仍可能输出工具调用意图文本。
+        /// 处理 DSML invoke/parameter、管道分隔 tool_calls、以及中文思考前缀。
         /// </summary>
         private static string StripToolCallMarkers(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return text;
 
-            // 移除 <|tool_calls|>...</|tool_calls|>  XML 片段
+            // 移除 <invoke name="...">...</invoke> DSML 格式工具调用块
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"<\s*invoke\s+name=""[^""]+""[^>]*>.*?</\s*invoke\s*>",
+                string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // 移除 <parameter name="...">...</parameter> 残留片段
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"<\s*parameter\s+name=""[^""]+""[^>]*>.*?</\s*parameter\s*>",
+                string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // 移除残留的 invoke/parameter 开/闭标签
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"</?\s*(?:invoke|parameter)\s*[^>]*>",
+                string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // 移除 <|tool_calls|>...</|tool_calls|> XML 片段
             text = System.Text.RegularExpressions.Regex.Replace(
                 text, @"<\|[^>]*tool_calls?[^>]*\|>.*?</\|[^>]*tool_calls?[^>]*\|>",
                 string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -485,7 +515,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // 移除思考前缀（"让我先查看..."等，AI 思考但没有真正调用工具）
             text = System.Text.RegularExpressions.Regex.Replace(
-                text, @"^(让我先查看|让我检查|我需要先|我先用|让我读取|我需要读取).*?[。\n]",
+                text, @"^(让我(先)?查看|让我检查|我需要先|我先用|让我读取|我需要读取).*?[。\n]",
                 string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline);
 
             return text.Trim();

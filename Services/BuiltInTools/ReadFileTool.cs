@@ -137,9 +137,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 if (!fileChanged)
                 {
                     // ── 轮数阈值检查：过期后清空已读范围，允许重新读取 ──
-                    int roundsSinceLastRead = CurrentRound > 0 && lastRound > 0
-                        ? CurrentRound - lastRound
-                        : 0;
+                    // 如果 lastRound > CurrentRound，说明轮次计数器已重置（新会话），
+                    // 缓存条目来自旧会话，应视为过期并立即允许重读
+                    int roundsSinceLastRead;
+                    bool staleCache = CurrentRound > 0 && lastRound > 0 && lastRound > CurrentRound;
+                    if (CurrentRound > 0 && lastRound > 0 && lastRound <= CurrentRound)
+                        roundsSinceLastRead = CurrentRound - lastRound;
+                    else if (staleCache)
+                        roundsSinceLastRead = int.MaxValue; // 旧会话缓存，强制过期
+                    else
+                        roundsSinceLastRead = 0;
                     if (RoundThreshold > 0 && roundsSinceLastRead >= RoundThreshold)
                     {
                         // 轮数过期 → 清空已读范围，允许重读
@@ -154,8 +161,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                                 LastReadRound = CurrentRound
                             },
                             cachedEntry);
+                        string expireReason = staleCache
+                            ? "会话已重置，缓存过期"
+                            : $"轮数过期（距今 {roundsSinceLastRead} 轮，阈值: {RoundThreshold} 轮）";
                         return Task.FromResult(
-                            $"🔄 [轮数过期，允许重读] 文件 `{Path.GetFileName(filePath)}` 上次读取距今 {roundsSinceLastRead} 轮（阈值: {RoundThreshold} 轮）：\n\n📄 文件: {filePath} (共 {totalLines} 行，显示 {reqStartLine}-{actualEnd})\n\n{freshContent}");
+                            $"🔄 [{expireReason}，允许重读] 文件 `{Path.GetFileName(filePath)}`：\n\n📄 文件: {filePath} (共 {totalLines} 行，显示 {reqStartLine}-{actualEnd})\n\n{freshContent}");
                     }
 
                     // ── 行范围覆盖检查 ──
@@ -166,8 +176,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         // 请求范围已被之前读取覆盖 → 拦截重复读取
                         int cachedLineCount = cachedTotalLines;
                         int cachedCharCount = cachedFull.Length;
-                        string roundHint = CurrentRound > 0 && lastRound > 0
-                            ? $"  (距今 {roundsSinceLastRead} 轮，还需 {RoundThreshold - roundsSinceLastRead} 轮后可重读)"
+                        string roundHint = CurrentRound > 0 && lastRound > 0 && lastRound <= CurrentRound
+                            ? $"  (距今 {roundsSinceLastRead} 轮，还需 {Math.Max(0, RoundThreshold - roundsSinceLastRead)} 轮后可重读)"
                             : "";
                         return Task.FromResult(
                             $"⚡ [已缓存，请勿重复读取] 文件 `{Path.GetFileName(filePath)}`（{cachedLineCount} 行，{cachedCharCount} 字符）的第 {reqStartLine}-{reqActualEnd} 行已在之前的 read_file 调用中读取过。{roundHint}" +
