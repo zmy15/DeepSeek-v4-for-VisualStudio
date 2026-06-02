@@ -683,6 +683,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     sanityWarnings = string.Join("; ", warnings);
                     AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.braceParenMismatch"], sanityWarnings));
+
+                    // ── 注入 step.AiResponse 确保警告即使跳过验证阶段也不会丢失 ──
+                    step.AiResponse = (step.AiResponse ?? "") +
+                        $"\n\n## ⚠️ 编辑后健全性检查 — 括号不匹配\n\n{sanityWarnings}\n\n" +
+                        "请在后续步骤中用 read_file 检查这些文件，修复括号/圆括号不匹配问题。";
                 }
             }
 

@@ -291,8 +291,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     var plan = agentResult.Plan;
 
-                    // ── 更新任务面板为完成状态 ──
-                    if (plan.Steps.Count > 0)
+                    // ── 更新任务面板为完成状态（仅当步骤已实际执行过）──
+                    bool anyStepExecuted = plan.Steps.Any(s => s.Status != AgentStepStatus.Pending);
+                    if (plan.Steps.Count > 0 && anyStepExecuted)
                     {
                         try
                         {
