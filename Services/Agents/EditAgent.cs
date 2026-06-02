@@ -2387,6 +2387,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 与简单关键词匹配不同，此方法会排除 AI 自然语言中的否定表述
         /// <summary>
         /// 检查执行日志中是否有编译警告或失败信号。
+        /// 仅匹配明确的构建失败标记（错误代码、构建摘要行），避免
+        /// 因日志中包含 "build"/"Build"/"❌" 等通用词而产生误判。
         /// 用于判断是否应建议 Handoff 到 Build Agent。
         /// </summary>
         private bool HasBuildWarningsInLogs()
@@ -2396,13 +2398,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (log.Level == "WARN" || log.Level == "ERROR")
                 {
                     string msg = log.Message ?? string.Empty;
-                    if (msg.Contains("编译") || msg.Contains("构建") || msg.Contains("build")
-                        || msg.Contains("Build") || msg.Contains("⚠️ 最终编译")
-                        || msg.Contains("error CS") || msg.Contains("error C")
-                        || msg.Contains("❌"))
-                    {
+
+                    // ── 明确的构建/编译失败标记 ──
+                    if (msg.Contains("❌ 构建失败") || msg.Contains("❌ 编译失败")
+                        || msg.Contains("❌ build") || msg.Contains("❌ Build"))
                         return true;
-                    }
+
+                    // ── 编译器/MSBuild 错误代码 ──
+                    if (System.Text.RegularExpressions.Regex.IsMatch(msg,
+                        @"\berror\s+(CS|C|LNK|MSB|BC|FS|TS|RUST)\d+\b",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                        return true;
+
+                    // ── MSBuild 摘要失败模式 ──
+                    if (msg.Contains("Build FAILED"))
+                        return true;
+
+                    // ── 本地化构建失败关键词（精确匹配，避免 "build" 误判）──
+                    if (msg.Contains("构建失败") || msg.Contains("编译失败")
+                        || msg.Contains("build failed"))
+                        return true;
+
+                    // ── 最终编译验证的警告日志 ──
+                    if (msg.Contains("⚠️ 最终编译"))
+                        return true;
                 }
             }
             return false;

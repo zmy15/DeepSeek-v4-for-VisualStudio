@@ -1224,11 +1224,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 return true;
 
-            // ── 策略3：MSBuild 摘要失败模式 ──
+            // ── 策略3：MSBuild 摘要失败模式（Singleline 支持跨行匹配）──
             if (aiResponse.Contains("Build FAILED")
                 || System.Text.RegularExpressions.Regex.IsMatch(aiResponse,
                     @"\b0\s+succeeded.*\b[1-9]\d*\s+failed\b",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                    | System.Text.RegularExpressions.RegexOptions.Singleline))
                 return true;
 
             // ── 策略4：关键词匹配（排除误报）──

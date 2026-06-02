@@ -166,24 +166,37 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 cts.CancelAfter(TimeSpan.FromMinutes(5));
 
-                await Task.Run(() =>
+                try
                 {
-                    process.WaitForExit();
-                }, cts.Token);
+                    await Task.Run(() =>
+                    {
+                        process.WaitForExit();
+                    }, cts.Token);
 
-                string stdout = await stdoutTask;
-                string stderr = await stderrTask;
+                    string stdout = await stdoutTask;
+                    string stderr = await stderrTask;
 
-                int exitCode = process.ExitCode;
-                Logger.Info($"[BuildService] cmake 退出码: {exitCode}");
+                    int exitCode = process.ExitCode;
+                    Logger.Info($"[BuildService] cmake 退出码: {exitCode}");
 
-                // ── 4. 格式化结果 ──
-                return FormatCmakeBuildResult(exitCode, stdout, stderr);
-            }
-            catch (OperationCanceledException)
-            {
-                Logger.Info("[BuildService] CMake 构建已被取消");
-                return LocalizationService.Instance["build.cancelled"];
+                    // ── 4. 格式化结果 ──
+                    return FormatCmakeBuildResult(exitCode, stdout, stderr);
+                }
+                catch (OperationCanceledException)
+                {
+                    // ── 超时/取消：强制终止进程，防止孤儿进程泄漏 ──
+                    Logger.Info("[BuildService] CMake 构建超时/取消，正在终止进程...");
+                    try
+                    {
+                        // KillProcessTree: 先杀父进程，再通过 taskkill /T 清理残留子进程树
+                        KillProcessTree(process);
+                    }
+                    catch (Exception killEx)
+                    {
+                        Logger.Warn($"[BuildService] 终止进程失败: {killEx.Message}");
+                    }
+                    return LocalizationService.Instance["build.cancelled"];
+                }
             }
             catch (Exception ex)
             {
@@ -403,49 +416,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return LocalizationService.Instance["build.alreadyInProgress"];
                 }
 
-                // 启动构建
-                bool buildSuccess = false;
-
-                // ── 方案 A：SolutionBuild.Build（同步等待，必须后台线程执行避免阻塞 UI）──
-                bool? resultA = null;
-                try
+                // ── 事件驱动构建 + 等待（UI 线程安全）──
+                // 避免 Task.Run 中访问 DTE COM 对象导致的跨线程异常。
+                // ExecuteCommand + IVsUpdateSolutionEvents 方式全程在 UI 线程完成。
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
+                bool buildCompleted = await TriggerAndWaitForBuildViaEventsAsync(
+                    dte, solutionBuild, needStart: true, ct, TimeSpan.FromMinutes(5));
+                if (!buildCompleted)
                 {
-                    resultA = await Task.Run(() =>
-                    {
-                        solutionBuild.Build(true); // true = WaitForBuildToFinish
-                        return (bool?)(solutionBuild.LastBuildInfo == 0);
-                    }, ct);
+                    Logger.Warn("[BuildService] ⚠️ DTE 构建等待超时");
+                    return LocalizationService.Instance["build.timeout"];
                 }
-                catch (Exception exBuild)
-                {
-                    Logger.Warn($"[BuildService] DTE SolutionBuild.Build 异常: {exBuild.Message}");
-                }
-
-                if (resultA.HasValue)
-                {
-                    buildSuccess = resultA.Value;
-                }
-                else
-                {
-                    // ── 方案 B：ExecuteCommand + 事件驱动/轮询等待（UI 线程安全）──
-                    try
-                    {
-                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
-                        bool completed = await TriggerAndWaitForBuildViaEventsAsync(
-                            dte, solutionBuild, needStart: true, ct, TimeSpan.FromMinutes(5));
-                        if (!completed)
-                        {
-                            Logger.Warn("[BuildService] ⚠️ DTE 构建等待超时");
-                            return LocalizationService.Instance["build.timeout"];
-                        }
-                        buildSuccess = solutionBuild.LastBuildInfo == 0;
-                    }
-                    catch (Exception exCmd)
-                    {
-                        Logger.Warn($"[BuildService] DTE ExecuteCommand 异常: {exCmd.Message}");
-                        return string.Format(LocalizationService.Instance["build.dteFailed"], exCmd.Message);
-                    }
-                }
+                bool buildSuccess = solutionBuild.LastBuildInfo == 0;
 
                 if (buildSuccess)
                 {
@@ -1358,6 +1340,45 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
         }
 
+        /// <summary>
+        /// 终止进程及其子进程树。兼容 .NET Framework 4.7.2（不支持 Process.Kill(entireProcessTree)）。
+        /// 先尝试 Kill 主进程，再通过 taskkill /T 确保子进程树完全清理。
+        /// </summary>
+        private static void KillProcessTree(Process process)
+        {
+            int pid = process.Id;
+            try
+            {
+                // 先尝试直接 Kill 主进程
+                if (!process.HasExited)
+                    process.Kill();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BuildService] Kill 主进程 (PID={pid}) 失败: {ex.Message}");
+            }
+
+            // 通过 taskkill /T 清理残留的子进程树（cmd.exe → cmake.exe → cl.exe 等）
+            try
+            {
+                var killPsi = new ProcessStartInfo
+                {
+                    FileName = "taskkill",
+                    Arguments = $"/T /F /PID {pid}",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                using var killer = Process.Start(killPsi);
+                killer?.WaitForExit(5000);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BuildService] taskkill /T (PID={pid}) 失败: {ex.Message}");
+            }
+        }
+
         #endregion
 
         #region Project Detection
@@ -1379,8 +1400,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 if (!hasCmakeFile) return false;
 
-                // 确认没有 .sln 文件（纯 CMake 项目）
-                bool hasSln = Directory.GetFiles(workspaceDir, "*.sln", SearchOption.TopDirectoryOnly).Length > 0;
+                // 确认没有 .sln 文件（纯 CMake 项目）。递归搜索子目录，避免遗漏如 src/ 下的解决方案文件。
+                bool hasSln = Directory.GetFiles(workspaceDir, "*.sln", SearchOption.AllDirectories).Length > 0;
                 return !hasSln;
             }
             catch
@@ -1442,8 +1463,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     var completedTask = await Task.WhenAny(_tcs.Task, Task.Delay(timeout, ct)).ConfigureAwait(false);
                     if (completedTask == _tcs.Task)
                     {
-                        await completedTask.ConfigureAwait(false);
-                        return true;
+                        // 使用 TCS 的实际 bool 返回值，而非硬编码 true。
+                        // TrySetResult(true)=构建成功, TrySetResult(false)=提前清理, TrySetCanceled()=外部取消
+                        return await _tcs.Task.ConfigureAwait(false);
                     }
                     return false;
                 }
