@@ -626,9 +626,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 🔄 Handoff 上下文提示：避免重复探索 ──
             // 前一 Agent 已经探索并读取过项目文件，文件内容在对话历史中可见。
             // 接收 Agent 应优先从对话历史获取上下文，而非重新探索相同文件。
-            sb.AppendLine("> 🔄 **Handoff 提示**: 你正在接手前一 Agent 的工作。项目文件已在之前的对话中被探索和读取，" +
-                "文件内容可从对话历史（上方消息）中的 read_file / list_dir 工具结果获取。" +
-                "**不要重复读取或探索**已有内容的文件，直接基于对话历史中的上下文开始工作。");
+            sb.AppendLine(AiPrompts.HandoffContextPrompt);
             sb.AppendLine();
 
             if (ActivePlan != null)

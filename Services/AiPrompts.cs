@@ -128,7 +128,112 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public static string AgentRoutingUserPrompt => L["system.agentRoutingUserPrompt"];
 
         #endregion
+        #region Code Completion Prompts
 
+        /// <summary>
+        /// 代码补全 — 系统提示词。
+        /// </summary>
+        public static string CodeCompletionSystemPrompt => L["system.codeCompletionSystemPrompt"];
+
+        /// <summary>
+        /// 代码补全 — 用户提示词（有光标位置）。
+        /// {0} = 光标前的代码
+        /// {1} = 光标后的代码
+        /// </summary>
+        public static string CodeCompletionUserPromptWithCursor => L["system.codeCompletionUserPromptWithCursor"];
+
+        /// <summary>
+        /// 代码补全 — 用户提示词（追加模式，无光标位置）。
+        /// {0} = 上下文代码
+        /// </summary>
+        public static string CodeCompletionUserPromptAppend => L["system.codeCompletionUserPromptAppend"];
+
+        #endregion
+
+        #region Explore Agent Prompts
+
+        /// <summary>
+        /// 搜索关键词专家 — 系统提示词。
+        /// </summary>
+        public static string SearchKeywordsExpertSystemPrompt => L["system.searchKeywordsExpertSystemPrompt"];
+
+        /// <summary>
+        /// Explore Agent 搜索指令 — 注入到探索任务的末尾，指导 AI 如何系统性地搜索代码库。
+        /// </summary>
+        public static string ExploreAgentInstructions => L["system.exploreAgentInstructions"];
+
+        #endregion
+
+        #region Change Summary Prompts
+
+        /// <summary>
+        /// 代码变更总结 — 系统提示词（根据当前语言自动切换中英文）。
+        /// </summary>
+        public static string ChangeSummarySystemPrompt => L["system.changeSummarySystemPrompt"];
+
+        /// <summary>
+        /// 代码变更总结 — 用户指令（根据当前语言自动切换中英文）。
+        /// </summary>
+        public static string ChangeSummaryUserInstruction => L["system.changeSummaryUserInstruction"];
+
+        #endregion
+
+        #region Plan Agent Prompts
+
+        /// <summary>
+        /// Plan Agent 对齐检查 — 用户提示词模板。
+        /// {0} = 用户消息
+        /// {1} = 代码库发现上下文
+        /// </summary>
+        public static string PlanAlignmentCheckPrompt => L["system.planAlignmentCheckPrompt"];
+
+        /// <summary>
+        /// Plan Agent 对齐阶段 — 用户提示词模板。
+        /// {0} = 用户消息
+        /// </summary>
+        public static string PlanAlignmentUserPrompt => L["system.planAlignmentUserPrompt"];
+
+        #endregion
+
+        #region Edit Agent Prompts
+
+        /// <summary>
+        /// Edit Agent 格式恢复提示 — 在上次输出格式不正确时追加。
+        /// </summary>
+        public static string EditFormatRecoveryPrompt => L["system.editFormatRecoveryPrompt"];
+
+        /// <summary>
+        /// Edit Agent 步骤提示词前缀。
+        /// {0} = 计划标题
+        /// </summary>
+        public static string EditStepPromptPrefix => L["system.editStepPromptPrefix"];
+
+        #endregion
+
+        #region Handoff & Context Prompts
+
+        /// <summary>
+        /// Handoff 上下文提示 — 告知接手 Agent 优先从对话历史获取上下文。
+        /// </summary>
+        public static string HandoffContextPrompt => L["system.handoffContextPrompt"];
+
+        /// <summary>
+        /// 上下文压缩提示词模板。
+        /// {0} = 被压缩的对话内容
+        /// </summary>
+        public static string CompressionPromptTemplate => L["system.compressionPromptTemplate"];
+
+        #endregion
+
+        #region Common System Prompt Prefix
+
+        /// <summary>
+        /// 所有 Agent 共享的 System Prompt 前缀核心（不含语言指令）。
+        /// 放在 messages[0]，确保跨 Agent 切换时 DeepSeek Prefix Cache 仍能命中。
+        /// </summary>
+        public static string CommonSystemPromptPrefixCore => L["system.agent.commonSystemPromptPrefixCore"];
+
+        #endregion
         #region Helper Methods
 
         /// <summary>

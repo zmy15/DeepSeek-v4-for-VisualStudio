@@ -731,7 +731,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     new Models.ChatApiMessage
                     {
                         Role = "system",
-                        Content = "你是一个代码补全助手。只返回要补全的代码片段，不要解释，不要Markdown标记。直接返回纯代码。补全要简洁、准确、符合上下文。"
+                        Content = AiPrompts.CodeCompletionSystemPrompt
                     },
                     new Models.ChatApiMessage
                     {
@@ -780,11 +780,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 string before = contextCode.Substring(0, cursorPosition);
                 string after = contextCode.Substring(cursorPosition);
-                prompt = $"根据上下文补全光标处的代码。\n\n```\n{before}<CURSOR>{after}\n```\n\n只返回 <CURSOR> 位置应插入的代码。";
+                prompt = string.Format(AiPrompts.CodeCompletionUserPromptWithCursor, before, after);
             }
             else
             {
-                prompt = $"根据上下文补全代码。\n\n```\n{contextCode}\n```\n\n只返回要追加的代码片段。";
+                prompt = string.Format(AiPrompts.CodeCompletionUserPromptAppend, contextCode);
             }
             Logger.Info($"[CodeSuggestion] 构建提示词, 长度={prompt.Length}");
             return prompt;

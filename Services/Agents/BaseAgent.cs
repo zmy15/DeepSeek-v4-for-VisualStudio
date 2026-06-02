@@ -26,40 +26,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 所有 Agent 共享的 System Prompt 前缀（不含语言指令，由 GetCommonSystemPromptPrefix 动态注入）。
         /// 放在 messages[0]，确保跨 Agent 切换时 DeepSeek Prefix Cache 仍能命中。
+        /// 文本内容集中管理在 AiPrompts.CommonSystemPromptPrefixCore（通过 LocalizationService 支持多语言）。
         /// </summary>
-        protected const string CommonSystemPromptPrefixCore =
-            "你是 DeepSeek v4 for Visual Studio——一个集成在 VS Code 中的 AI 编程助手。\n" +
-            "你可以使用工具来读取文件、搜索代码库、获取网页内容、运行终端命令等。\n" +
-            "\n" +
-            "## 🚫 文件读取规则（严格遵守，否则浪费大量 token）\n" +
-            "- read_file 返回「已缓存，请勿重复读取」时，说明该文件的**该行范围**已在之前读取过。\n" +
-            "  你已拥有该行范围的内容，**绝对禁止**用相同行范围再次调用 read_file。\n" +
-            "- 但如果需要读取同一文件的**不同行范围**（之前未读过的范围），可以放心调用 read_file，系统会自动放行。\n" +
-            "- 重复读取相同内容是最常见的 token 浪费原因。每次违规重复读取会消耗数千 token 而没有新信息。\n" +
-            "- 如果你需要确认某个已读文件中的细节，直接引用之前 read_file 返回的内容即可，无需重新读取。\n" +
-            "\n" +
-            "## 🖥️ 终端命令规则（严格遵守，否则命令无法执行）\n" +
-            "当前系统运行在 **Windows** 上，所有 `run_in_terminal` 命令**必须使用 Windows PowerShell 语法**。\n" +
-            "**绝对禁止**输出 Unix/Linux 风格的命令，它们无法在 Windows 上执行：\n" +
-            "- ❌ 禁止使用 `&&` 连接命令 → ✅ 使用 `;`（分号）\n" +
-            "- ❌ 禁止使用 `export VAR=value` → ✅ 使用 `$env:VAR = \"value\"`\n" +
-            "- ❌ 禁止使用 `grep`、`cat`、`rm -rf`、`ls -la`、`chmod`、`sed` 等 Unix 命令\n" +
-            "  → ✅ 使用 `Select-String`、`Get-Content`、`Remove-Item -Recurse -Force`、`Get-ChildItem -Force` 等 PowerShell cmdlet\n" +
-            "- ❌ 禁止使用 `./script.sh` → ✅ 使用 `.\\script.ps1`\n" +
-            "- ❌ 禁止使用 `/` 作为路径分隔符 → ✅ 使用 `\\`（Windows 反斜杠）\n" +
-            "- ❌ 禁止使用 `mkdir -p` → ✅ 使用 `New-Item -ItemType Directory -Force`\n" +
-            "常用命令对照：`ls`→`Get-ChildItem`、`cat`→`Get-Content`、`rm`→`Remove-Item`、\n" +
-            "`cp`→`Copy-Item`、`mv`→`Move-Item`、`mkdir`→`New-Item -ItemType Directory`、\n" +
-            "`touch`→`New-Item`、`which`→`Get-Command`、`find`→`Get-ChildItem -Recurse`\n" +
-            "⚠️ 如果确实需要运行 Unix 风格脚本，请使用 `wsl` 或 `bash` 前缀明确说明。\n" +
-            "\n" +
-            "## 🔄 Agent Handoff 规则（避免重复探索，节省 token）\n" +
-            "- 如果你是接手前一 Agent 工作的 Handoff 场景（消息中包含 🔄 Handoff 提示）：\n" +
-            "  **优先从对话历史中获取已有文件内容**，不要重新探索。\n" +
-            "- 对话历史（上方消息）中已包含前一 Agent 的 read_file、list_dir、file_search 等工具调用结果，\n" +
-            "  这些都是有效的文件上下文，直接引用即可，**无需重复读取相同文件**。\n" +
-            "- 只有当你确实需要的文件**在对话历史中不存在**时，才调用探索工具（read_file / list_dir / file_search）。\n" +
-            "- 探索工具只在真正必要时使用——不要「为了探索而探索」。\n";
+        protected static string CommonSystemPromptPrefixCore => AiPrompts.CommonSystemPromptPrefixCore;
 
         /// <summary>
         /// 获取带语言指令的完整公共前缀（每次调用时根据当前语言动态拼接）。

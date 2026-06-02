@@ -407,11 +407,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             try
             {
-                string checkPrompt =
-                    $"用户任务: {userMessage}\n\n" +
-                    $"代码库研究发现:\n{discoveryContext}\n\n" +
-                    "基于以上信息，在制定实现计划之前，你是否需要向用户提问澄清需求？\n" +
-                    "只回复 YES 或 NO。";
+                string checkPrompt = string.Format(AiPrompts.PlanAlignmentCheckPrompt, userMessage, discoveryContext);
 
                 string response = await CallAiShortAsync(
                     Definition.SystemPrompt, checkPrompt, context.CancellationToken, maxTokens: 16);
@@ -460,15 +456,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 messages.Add(new ChatApiMessage
                 {
                     Role = "user",
-                    Content = $"用户任务: {userMessage}\n\n" +
-                              "请按以下流程与用户对齐需求：\n\n" +
-                              "1. **向用户提问**：使用 VisualStudio_askQuestions 工具问用户：\n" +
-                              "   - 核心问题是「你认为这个规划有什么问题吗？有什么需要调整的地方？」\n" +
-                              "   - 让用户有机会指出你遗漏或理解错误的地方\n" +
-                              "   - 如果用户提出反馈，吸收后可以继续确认或追问\n\n" +
-                              "2. ⚠️ **重要规则**：当用户认可规划方向后，你必须**只回复 DONE 这一个词**。\n" +
-                              "   不要输出任何分析、总结、markdown、JSON 或其他文本。\n" +
-                              "   不要调用任何其他工具。只回复 DONE（全部大写）。"
+                    Content = string.Format(AiPrompts.PlanAlignmentUserPrompt, userMessage)
                 });
 
                 // ── 使用 onContent 回调实时捕获 AI 生成的规划概要 ──

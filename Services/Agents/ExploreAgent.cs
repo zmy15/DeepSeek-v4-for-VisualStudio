@@ -355,14 +355,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine();
             }
 
-            sb.AppendLine("## 搜索指令（必须严格遵守）");
-            sb.AppendLine("1. **必须使用工具**：先 list_dir 了解目录，再 file_search/grep_search 找文件，最后 read_file 读代码");
-            sb.AppendLine("2. 至少使用 3-5 个工具调用进行充分探索，读取关键源文件的实际内容");
-            sb.AppendLine("3. 基于实际读取的文件内容报告发现，不要凭猜测回答");
-            sb.AppendLine("4. 识别可作为实现模板的类似已有功能");
-            sb.AppendLine("5. 指出潜在的依赖关系和注意事项");
-            sb.AppendLine();
-            sb.AppendLine("请开始探索并输出你的发现。");
+            sb.AppendLine(AiPrompts.ExploreAgentInstructions);
 
             return sb.ToString();
         }
@@ -605,7 +598,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 userPrompt.AppendLine();
                 userPrompt.AppendLine("关键词:");
 
-                string systemPrompt = "你是一个代码库搜索专家。你的唯一任务是根据用户查询生成精准的代码搜索关键词。只返回关键词列表，每行一个。";
+                string systemPrompt = AiPrompts.SearchKeywordsExpertSystemPrompt;
 
                 string aiResponse = await CallAiShortAsync(systemPrompt, userPrompt.ToString(), ct, maxTokens: 256);
 

@@ -400,16 +400,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 summaryPrompt.AppendLine();
 
                 // 语言跟随：根据当前语言选择摘要输出语言
-                bool isEnglish = !string.Equals(LocalizationService.Instance.CurrentLanguage, "zh-CN", StringComparison.OrdinalIgnoreCase);
-                string langInstruction = isEnglish
-                    ? "Please output a detailed change summary in English (be thorough, covering what was changed, why, the approach taken, and any notable details). You may use read_file to review the final state of changed files before writing the summary."
-                    : "请用中文输出详细的变更摘要（尽量详细，包含改了什么、为什么改、改法思路、技术细节等）。你可以使用 read_file 查看变更后文件的最终状态，以确保摘要准确。";
+                string langInstruction = AiPrompts.ChangeSummaryUserInstruction;
                 summaryPrompt.AppendLine(langInstruction);
 
                 // ── 构建消息（带工具循环）──
-                string shortSystemPrompt = isEnglish
-                    ? "You are a code change summary writer. You may read files to verify changes, then output only the summary."
-                    : "你是代码变更总结写手。你可以读取文件以验证变更内容，然后只输出总结。";
+                string shortSystemPrompt = AiPrompts.ChangeSummarySystemPrompt;
 
                 var messages = new List<ChatApiMessage>
                 {

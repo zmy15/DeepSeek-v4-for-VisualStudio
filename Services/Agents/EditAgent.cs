@@ -503,17 +503,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     messages.Add(new ChatApiMessage
                     {
                         Role = "user",
-                        Content = "⚠️ 上次输出格式不正确，未检测到有效的编辑操作。\n\n"
-                            + "**请先判断**：你是否认为已经完成了所有必要的代码变更？\n\n"
-                            + "👉 如果**没有要更改的了**，请直接**输出空的**（不输出任何内容），"
-                            + "系统会认为该步骤已完成，无需进一步修改。\n\n"
-                            + "👉 如果**仍有代码需要修改**，请使用以下格式之一重新输出代码变更：\n\n"
-                            + "1. apply_patch（首选）: *** Begin Patch / *** End Patch\n"
-                            + "2. insert_edit_into_file: ```insert_edit_into_file:路径\\n...existing code...\n"
-                            + "3. create_file: ```file:路径\\n完整内容\n\n"
-                            + "**重要**：你已经在前面读取过相关文件的内容（见上方工具调用结果），"
-                            + "无需重复读取任何文件。请直接基于已读取的内容输出编辑操作。"
-                            + "不要添加任何额外解释，只输出编辑块（或留空表示无需修改）。"
+                        Content = AiPrompts.EditFormatRecoveryPrompt
                     });
                 }
 
@@ -1406,7 +1396,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             AgentContext context, bool isCodeStep)
         {
             var sb = new StringBuilder();
-            sb.AppendLine($"你是一个 Edit Agent，正在执行任务：「{plan.Title}」。");
+            sb.AppendLine(string.Format(AiPrompts.EditStepPromptPrefix, plan.Title));
             sb.AppendLine($"当前步骤 ({step.Index}/{plan.Steps.Count}): {step.Title}");
             sb.AppendLine($"步骤详情: {step.Description}");
             sb.AppendLine();

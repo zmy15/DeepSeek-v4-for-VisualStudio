@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DeepSeek_v4_for_VisualStudio.Services;
 
 namespace DeepSeek_v4_for_VisualStudio.Models
 {
@@ -105,10 +106,6 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public bool AutoCompressEnabled { get; set; } = true;
 
         /// <summary>压缩用的提示词模板。{0}=被压缩的对话内容</summary>
-        public string CompressionPrompt { get; set; } =
-            "请将以下对话历史压缩为一段精简的摘要（不超过200字），保留关键技术细节、" +
-            "用户需求、文件路径、错误信息和已做出的决策。不要遗漏任何重要的代码片段或文件名。\n\n" +
-            "对话历史：\n{0}\n\n" +
-            "摘要：";
+        public string CompressionPrompt { get; set; } = AiPrompts.CompressionPromptTemplate;
     }
 }
