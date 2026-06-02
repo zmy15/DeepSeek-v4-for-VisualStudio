@@ -1515,10 +1515,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
-        /// 判断工具是否需要用户交互（需要等待用户响应，不应设超时）。
-        /// <summary>
         /// 判断工具是否需要用户交互（不设工具层超时）。
         /// 构建类工具也在此列，因为其执行时间不可预测，超时由 BuildService 内部自行管理。
+        /// read_file / list_dir 等只读工具也包含在内，因为它们可能触发项目外路径权限弹窗，
+        /// 用户响应时间不可预测，硬超时会导致权限拒绝结果丢失。
         /// </summary>
         private static bool IsInteractiveTool(string toolName)
         {
@@ -1530,7 +1530,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 or "create_file"
                 or "apply_patch"
                 or "build_solution"          // 构建时间不可预测，由 BuildService 内部控制超时
-                or "create_and_run_task";    // 自定义任务同理
+                or "create_and_run_task"     // 自定义任务同理
+                or "read_file"               // 可能触发项目外路径权限弹窗
+                or "list_dir"                // 同上
+                or "create_directory"        // 同上
+                or "file_search"             // 同上
+                or "grep_search";            // 同上
         }
 
         /// <summary>
