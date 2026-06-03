@@ -150,6 +150,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     systemPrompt += "\n\n" + AiPrompts.MultiAgentSystemPromptFragment;
                 }
 
+                // ── 注入记忆系统使用指导 ──
+                systemPrompt += "\n\n" + AiPrompts.MemoryInstructionsFragment;
+
                 string workspaceRoot = _solutionPath ?? string.Empty;
                 if (!string.IsNullOrEmpty(workspaceRoot))
                 {
