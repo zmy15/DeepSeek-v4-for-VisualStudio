@@ -117,6 +117,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public static string MultiAgentSystemPromptFragment => L["system.multiAgentSystemPromptFragment"];
 
         /// <summary>
+        /// 记忆系统提示词片段 — 告知 AI 何时应主动使用 memory 工具存储偏好、项目知识等。
+        /// </summary>
+        public static string MemoryInstructionsFragment => L["system.memoryInstructions"];
+
+        /// <summary>
         /// Agent 路由分析 — 系统提示词。
         /// </summary>
         public static string AgentRoutingSystemPrompt => L["system.agentRoutingSystemPrompt"];

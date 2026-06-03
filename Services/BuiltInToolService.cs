@@ -136,7 +136,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 Register(new MemoryTool(_memoryService,
                     () => CurrentSessionId,
-                    () => null)); // solutionPath 从 ExecuteAsync 的 workspaceRoot 获取
+                    () => null)); // solutionPath 回退值；实际由 ExecuteAsync 的 workspaceRoot 参数传入
             }
         }
 

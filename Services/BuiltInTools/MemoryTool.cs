@@ -132,14 +132,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 if (string.IsNullOrEmpty(command))
                     return "❌ memory: 缺少 command 参数。可用命令: view, create, str_replace, insert, delete, rename";
 
+                // ── 解析解决方案路径：优先使用 ExecuteAsync 传入的 workspaceRoot，
+                //     回退到构造函数注入的 _getSolutionPath（兼容旧路径和测试）──
+                string? resolvedSolutionPath = workspaceRoot ?? _getSolutionPath();
+
                 return command switch
                 {
-                    "view" => await ExecuteViewAsync(args),
-                    "create" => await ExecuteCreateAsync(args),
-                    "str_replace" => await ExecuteStrReplaceAsync(args),
-                    "insert" => await ExecuteInsertAsync(args),
-                    "delete" => await ExecuteDeleteAsync(args),
-                    "rename" => await ExecuteRenameAsync(args),
+                    "view" => await ExecuteViewAsync(args, resolvedSolutionPath),
+                    "create" => await ExecuteCreateAsync(args, resolvedSolutionPath),
+                    "str_replace" => await ExecuteStrReplaceAsync(args, resolvedSolutionPath),
+                    "insert" => await ExecuteInsertAsync(args, resolvedSolutionPath),
+                    "delete" => await ExecuteDeleteAsync(args, resolvedSolutionPath),
+                    "rename" => await ExecuteRenameAsync(args, resolvedSolutionPath),
                     _ => $"❌ memory: 未知命令 '{command}'。可用命令: view, create, str_replace, insert, delete, rename"
                 };
             }
@@ -154,7 +158,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         #region Command Implementations
 
-        private async Task<string> ExecuteViewAsync(Dictionary<string, JsonElement> args)
+        private async Task<string> ExecuteViewAsync(Dictionary<string, JsonElement> args, string? solutionPath)
         {
             string rawPath = GetStringArg(args, "path");
             var (scope, path) = ParseMemoryPath(rawPath);
@@ -170,7 +174,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 }
             }
 
-            var result = await _memoryService.ViewAsync(scope, path, _getSessionId(), _getSolutionPath(), startLine, endLine);
+            var result = await _memoryService.ViewAsync(scope, path, _getSessionId(), solutionPath, startLine, endLine);
 
             if (result.IsDirectoryListing && result.Entries != null)
             {
@@ -197,7 +201,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             return header + "\n\n" + (result.Content ?? "(空)");
         }
 
-        private async Task<string> ExecuteCreateAsync(Dictionary<string, JsonElement> args)
+        private async Task<string> ExecuteCreateAsync(Dictionary<string, JsonElement> args, string? solutionPath)
         {
             string rawPath = GetStringArg(args, "path");
             string content = GetStringArg(args, "file_text");
@@ -208,10 +212,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 return "❌ memory create: 缺少 file_text 参数";
 
             var (scope, path) = ParseMemoryPath(rawPath);
-            return await _memoryService.CreateAsync(scope, path, content, _getSessionId(), _getSolutionPath());
+            return await _memoryService.CreateAsync(scope, path, content, _getSessionId(), solutionPath);
         }
 
-        private async Task<string> ExecuteStrReplaceAsync(Dictionary<string, JsonElement> args)
+        private async Task<string> ExecuteStrReplaceAsync(Dictionary<string, JsonElement> args, string? solutionPath)
         {
             string rawPath = GetStringArg(args, "path");
             string oldStr = GetStringArg(args, "old_str");
@@ -225,10 +229,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 return "❌ memory str_replace: 缺少 new_str 参数";
 
             var (scope, path) = ParseMemoryPath(rawPath);
-            return await _memoryService.StrReplaceAsync(scope, path, oldStr, newStr, _getSessionId(), _getSolutionPath());
+            return await _memoryService.StrReplaceAsync(scope, path, oldStr, newStr, _getSessionId(), solutionPath);
         }
 
-        private async Task<string> ExecuteInsertAsync(Dictionary<string, JsonElement> args)
+        private async Task<string> ExecuteInsertAsync(Dictionary<string, JsonElement> args, string? solutionPath)
         {
             string rawPath = GetStringArg(args, "path");
             string text = GetStringArg(args, "insert_text");
@@ -243,20 +247,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 lineNumber = lineEl.GetInt32();
 
             var (scope, path) = ParseMemoryPath(rawPath);
-            return await _memoryService.InsertAsync(scope, path, lineNumber, text, _getSessionId(), _getSolutionPath());
+            return await _memoryService.InsertAsync(scope, path, lineNumber, text, _getSessionId(), solutionPath);
         }
 
-        private async Task<string> ExecuteDeleteAsync(Dictionary<string, JsonElement> args)
+        private async Task<string> ExecuteDeleteAsync(Dictionary<string, JsonElement> args, string? solutionPath)
         {
             string rawPath = GetStringArg(args, "path");
             if (string.IsNullOrEmpty(rawPath))
                 return "❌ memory delete: 缺少 path 参数";
 
             var (scope, path) = ParseMemoryPath(rawPath);
-            return await _memoryService.DeleteAsync(scope, path, _getSessionId(), _getSolutionPath());
+            return await _memoryService.DeleteAsync(scope, path, _getSessionId(), solutionPath);
         }
 
-        private async Task<string> ExecuteRenameAsync(Dictionary<string, JsonElement> args)
+        private async Task<string> ExecuteRenameAsync(Dictionary<string, JsonElement> args, string? solutionPath)
         {
             string rawOldPath = GetStringArg(args, "old_path");
             string rawNewPath = GetStringArg(args, "new_path");
@@ -272,7 +276,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             if (oldScope != newScope)
                 return "❌ memory rename: 不能跨作用域重命名";
 
-            return await _memoryService.RenameAsync(oldScope, oldPath, newPath, _getSessionId(), _getSolutionPath());
+            return await _memoryService.RenameAsync(oldScope, oldPath, newPath, _getSessionId(), solutionPath);
         }
 
         #endregion

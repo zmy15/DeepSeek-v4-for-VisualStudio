@@ -1278,6 +1278,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 systemPrompt += "\n\n" + AiPrompts.MultiAgentSystemPromptFragment;
             }
 
+            // ── 注入记忆系统使用指导 ──
+            systemPrompt += "\n\n" + AiPrompts.MemoryInstructionsFragment;
+
             // ── 注入工作区路径信息，让 AI 知道项目根目录 ──
             string workspaceRoot = _solutionPath ?? string.Empty;
             Logger.Info($"[Workspace] 构建系统提示时 _solutionPath=[{_solutionPath ?? "(null)"}], workspaceRoot=[{workspaceRoot}]");
