@@ -60,19 +60,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
             if (toolResult.Contains("构建成功") || toolResult.Contains("Build succeeded"))
-                return "✅ 构建成功";
+                return LocalizationService.Instance["tool.buildSolution.success"];
             if (toolResult.Contains("构建失败") || toolResult.Contains("Build failed"))
-                return "⚠️ 构建失败";
-            return "🔨 构建完成";
+                return LocalizationService.Instance["tool.buildSolution.failed"];
+            return LocalizationService.Instance["tool.buildSolution.complete"];
         }
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
         {
             if (_buildService == null)
-                return "❌ build_solution: 构建服务未初始化。请在 VS 中打开解决方案后重试。";
+                return LocalizationService.Instance["tool.buildSolution.serviceNotInit"];
 
             try
             {
@@ -90,12 +90,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             catch (OperationCanceledException)
             {
                 Logger.Info("[BuiltInTool] build_solution 已取消");
-                return "⏱️ 构建已取消（超时或用户中断）";
+                return LocalizationService.Instance["tool.buildSolution.cancelled"];
             }
             catch (Exception ex)
             {
                 Logger.Error($"[BuiltInTool] build_solution 异常: {ex.Message}", ex);
-                return $"❌ 构建失败: {ex.Message}";
+                return LocalizationService.Instance.Format("tool.buildSolution.failedWithError", ex.Message);
             }
         }
     }

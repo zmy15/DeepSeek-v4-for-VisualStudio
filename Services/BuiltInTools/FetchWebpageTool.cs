@@ -56,7 +56,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
             return $"✅ 抓取完成 ({toolResult.Length} 字符)";
         }
@@ -68,7 +68,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             int maxContentLength = GetIntArg(args, "maxContentLength", 3000);
 
             if (string.IsNullOrWhiteSpace(url))
-                return "❌ fetch_webpage: 缺少必需的 url 参数。";
+                return LocalizationService.Instance["tool.fetchWebpage.missingUrl"];
 
             if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
                 !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
@@ -78,7 +78,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             if (maxContentLength < 500) maxContentLength = 500; else if (maxContentLength > 10000) maxContentLength = 10000;
 
             if (_webSearchService == null)
-                return "❌ fetch_webpage: WebSearchService 未初始化，无法抓取网页。";
+                return LocalizationService.Instance["tool.fetchWebpage.serviceNotInit"];
 
             try
             {

@@ -89,7 +89,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             var statsText = new TextBlock
             {
-                Text = "📊 差异预览中",
+                Text = LocalizationService.Instance["status.diffPreviewing"],
                 Foreground = new SolidColorBrush(Color.FromRgb(0xA0, 0xA0, 0xA0)),
                 FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center,

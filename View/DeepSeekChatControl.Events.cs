@@ -1271,7 +1271,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── 删除前确认 ──
             string confirmMsg = LocalizationService.Instance["chat.confirmDeleteConversation"];
             if (string.IsNullOrEmpty(confirmMsg))
-                confirmMsg = "确定要删除当前对话吗？此操作不可撤销。";
+                confirmMsg = LocalizationService.Instance["status.deleteConfirm"];
 
             var result = System.Windows.MessageBox.Show(
                 confirmMsg,

@@ -1,3 +1,4 @@
+using DeepSeek_v4_for_VisualStudio.Services;
 using System;
 using System.ComponentModel;
 using System.Drawing;
@@ -76,7 +77,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
                 Trimming = StringTrimming.EllipsisCharacter,
             };
 
-            e.Graphics.DrawString("🔗 点击下载", font, brush, e.Bounds, format);
+            e.Graphics.DrawString(LocalizationService.Instance["status.downloadClick"], font, brush, e.Bounds, format);
         }
     }
 }

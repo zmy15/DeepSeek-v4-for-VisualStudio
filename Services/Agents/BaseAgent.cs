@@ -1057,7 +1057,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     return await RequestAskQuestionsAsync(questionsJson);
                 }
-                return "❌ VisualStudio_askQuestions: 缺少 questions 参数";
+                return LocalizationService.Instance["service.baseAgent.missingQuestions"];
             }
 
             // ── 越权文件访问检查：AI 访问项目外路径需要用户审批 ──
@@ -2038,7 +2038,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     questionsJson, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 
                 if (questions == null || questions.Count == 0)
-                    return "❌ VisualStudio_askQuestions: 问题列表为空";
+                    return LocalizationService.Instance["service.baseAgent.emptyQuestions"];
 
                 var request = new AgentQuestionRequest
                 {

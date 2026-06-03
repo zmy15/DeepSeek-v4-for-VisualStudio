@@ -1034,7 +1034,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // Plan Agent 开始（中英文）
             if (msg.StartsWith("Plan Agent 开始规划") || msg.StartsWith("Plan Agent started planning"))
-                return "🔍 开始分析任务，探索项目结构…";
+                return LocalizationService.Instance["status.analyzing"];
 
             // Plan Agent 完成 / 探索路由 / 发现完成（中英文）
             if (msg.StartsWith("计划创建完成") || msg.StartsWith("Plan created")
@@ -1044,11 +1044,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // 无计划 / 单步（中英文）
             if (msg.StartsWith("无计划") || msg.StartsWith("No plan"))
-                return "📋 单步任务，直接执行代码修改…";
+                return LocalizationService.Instance["status.singleStepTask"];
 
             // 编译结果（中英文）
             if (msg.Contains("编译通过") || msg.Contains("build passed") || msg.Contains("Build succeeded"))
-                return "✅ 编译验证通过";
+                return LocalizationService.Instance["status.buildVerified"];
             if ((msg.Contains("编译") || msg.Contains("build") || msg.Contains("Build"))
                 && (msg.Contains("失败") || msg.Contains("错误") || msg.Contains("failed") || msg.Contains("error")))
                 return $"⚠️ {msg}";

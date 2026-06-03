@@ -733,7 +733,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     Logger.Error($"DeepSeek API Key 校验失败: {deepSeekError}");
                     await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = "⚠️ DeepSeek API Key 无效，请检查配置";
+                    StatusLabel.Text = LocalizationService.Instance["status.apiKeyInvalid"];
                 }
                 else
                 {
@@ -750,7 +750,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     Logger.Error($"百度 API Key 校验失败: {baiduError}");
                     await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = "⚠️ 百度 API Key 无效，请检查配置";
+                    StatusLabel.Text = LocalizationService.Instance["status.baiduApiKeyInvalid"];
                 }
                 else
                 {
@@ -767,7 +767,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (!ocrReady)
                 {
                     await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = "⚠️ Windows 内置 OCR 不可用。请检查系统语言包设置。";
+                    StatusLabel.Text = LocalizationService.Instance["status.ocrUnavailable"];
                 }
             }
         }
@@ -1115,7 +1115,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         Logger.Error($"[Context] 从 ApiHistory 恢复上下文失败，回退到树重建: {ex.Message}", ex);
                         // 回退：从树节点重建上下文（不含 tool_calls，但 user/assistant 可用）
                         RebuildContextFromTree();
-                        StatusLabel.Text = "⚠️ 部分上下文恢复失败，已回退";
+                        StatusLabel.Text = LocalizationService.Instance["status.contextRestoreFailed"];
                     }
                 }
                 else

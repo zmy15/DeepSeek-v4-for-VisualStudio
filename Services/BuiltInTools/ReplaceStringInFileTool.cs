@@ -49,7 +49,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
             if (toolResult.StartsWith("✅") || toolResult.Contains("成功") || toolResult.Contains("success"))
                 return "✅ 编辑完成";
@@ -63,9 +63,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string newString = GetStringArg(args, "newString");
 
             if (string.IsNullOrEmpty(filePath))
-                return "❌ replace_string_in_file: 缺少 filePath 参数";
+                return LocalizationService.Instance["tool.replaceString.missingFilePath"];
             if (string.IsNullOrEmpty(oldString))
-                return "❌ replace_string_in_file: 缺少 oldString 参数";
+                return LocalizationService.Instance["tool.replaceString.missingOldString"];
 
             filePath = ResolvePath(filePath, workspaceRoot);
 

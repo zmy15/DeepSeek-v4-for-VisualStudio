@@ -53,7 +53,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
 
             var dirLines = toolResult.Split('\n');

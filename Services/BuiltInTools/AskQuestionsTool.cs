@@ -69,14 +69,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetDisplayText(Dictionary<string, JsonElement> args)
         {
-            return "💬 向用户提问";
+            return LocalizationService.Instance["tool.askQuestions.displayText"];
         }
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
-            return "💬 用户已回答";
+            return LocalizationService.Instance["tool.askQuestions.answered"];
         }
 
         public override Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)

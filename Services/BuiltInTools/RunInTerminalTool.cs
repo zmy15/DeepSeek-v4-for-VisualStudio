@@ -61,12 +61,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 return $"💻 执行终端命令: {TruncateText(expl, 80)}";
             else if (!string.IsNullOrEmpty(cmd))
                 return $"💻 执行终端命令: `{TruncateText(cmd, 60)}`";
-            return "💻 执行终端命令";
+            return LocalizationService.Instance["tool.runTerminal.defaultDisplayText"];
         }
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌") || toolResult.StartsWith("⛔")) return toolResult;
             if (toolResult.Contains("exit code: 0") || toolResult.Contains("ExitCode: 0"))
                 return "✅ 终端命令执行成功";
@@ -79,7 +79,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string mode = GetStringArg(args, "mode");
 
             if (string.IsNullOrEmpty(command))
-                return "❌ run_in_terminal: 缺少 command 参数";
+                return LocalizationService.Instance["tool.runTerminal.missingCommand"];
 
             if (IsBuildCommand(command))
             {

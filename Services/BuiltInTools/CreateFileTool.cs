@@ -48,11 +48,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
             if (toolResult.StartsWith("✅") || toolResult.Contains("成功") || toolResult.Contains("success"))
-                return "✅ 文件已创建";
-            return "📝 文件操作完成";
+                return LocalizationService.Instance["tool.createFile.created"];
+            return LocalizationService.Instance["tool.createFile.complete"];
         }
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
@@ -61,7 +61,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string content = GetStringArg(args, "content");
 
             if (string.IsNullOrEmpty(filePath))
-                return "❌ create_file: 缺少 filePath 参数";
+                return LocalizationService.Instance["tool.createFile.missingParam"];
 
             filePath = ResolvePath(filePath, workspaceRoot);
 
@@ -87,12 +87,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 await Task.Run(() => File.WriteAllText(filePath, normalizedContent, Encoding.UTF8));
 
                 return existed
-                    ? $"✅ 已覆盖文件: {Path.GetFileName(filePath)}"
-                    : $"✅ 已创建文件: {Path.GetFileName(filePath)}";
+                    ? LocalizationService.Instance.Format("tool.createFile.overwritten", Path.GetFileName(filePath))
+                    : LocalizationService.Instance.Format("tool.createFile.createdNew", Path.GetFileName(filePath));
             }
             catch (Exception ex)
             {
-                return $"❌ create_file 失败: {ex.Message}";
+                return LocalizationService.Instance.Format("tool.createFile.failed", ex.Message);
             }
         }
     }

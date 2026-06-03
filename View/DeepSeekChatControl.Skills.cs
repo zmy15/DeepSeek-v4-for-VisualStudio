@@ -219,7 +219,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"[Skill] 显示技能帮助失败: {ex.Message}");
-                StatusLabel.Text = "显示技能帮助失败";
+                StatusLabel.Text = LocalizationService.Instance["status.skillHelpFailed"];
             }
         }
 
@@ -235,7 +235,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
                 var count = _skillDiscoveryResult?.TotalCount ?? 0;
-                StatusLabel.Text = $"✅ 技能已刷新: 共 {count} 个技能";
+                StatusLabel.Text = LocalizationService.Instance.Format("status.skillRefreshed", count);
                 Logger.Info($"[Skill] 手动刷新完成: {count} 个技能");
 
                 var sb = new StringBuilder();
@@ -262,7 +262,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"[Skill] 刷新技能失败: {ex.Message}");
-                StatusLabel.Text = "刷新技能失败";
+                StatusLabel.Text = LocalizationService.Instance["status.skillRefreshFailed"];
             }
         }
 
@@ -373,7 +373,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _messages.Add(existsMsg);
                     AddMessagesHtml("assistant", existsMsg.Content);
                     UpdateBrowser();
-                    StatusLabel.Text = $"技能已存在: {skillName}";
+                    StatusLabel.Text = LocalizationService.Instance.Format("status.skillExists", skillName);
                     return;
                 }
 
@@ -444,7 +444,7 @@ user-invocable: true
                 _messages.Add(successMsg);
                 AddMessagesHtml("assistant", successMsg.Content);
                 UpdateBrowser();
-                StatusLabel.Text = $"✅ 技能已创建: {skillName}";
+                StatusLabel.Text = LocalizationService.Instance.Format("status.skillCreated", skillName);
             }
             catch (Exception ex)
             {

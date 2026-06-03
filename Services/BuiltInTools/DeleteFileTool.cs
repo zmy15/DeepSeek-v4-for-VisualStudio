@@ -49,7 +49,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
             return "🗑️ 文件已删除";
         }
@@ -59,23 +59,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string filePath = GetStringArg(args, "filePath");
 
             if (string.IsNullOrEmpty(filePath))
-                return "❌ delete_file: 缺少 filePath 参数";
+                return LocalizationService.Instance["tool.deleteFile.missingParam"];
 
             filePath = ResolvePath(filePath, workspaceRoot);
 
             try
             {
                 if (!File.Exists(filePath))
-                    return $"⚠️ 文件不存在: {Path.GetFileName(filePath)}";
+                    return LocalizationService.Instance.Format("tool.deleteFile.notFound", Path.GetFileName(filePath));
 
                 string fileName = Path.GetFileName(filePath);
                 await Task.Run(() => File.Delete(filePath));
 
-                return $"✅ 已删除文件: {fileName}";
+                return LocalizationService.Instance.Format("tool.deleteFile.deletedFile", fileName);
             }
             catch (Exception ex)
             {
-                return $"❌ delete_file 失败: {ex.Message}";
+                return LocalizationService.Instance.Format("tool.deleteFile.failed", ex.Message);
             }
         }
     }

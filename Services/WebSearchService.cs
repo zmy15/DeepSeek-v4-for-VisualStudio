@@ -591,7 +591,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                                (string.IsNullOrEmpty(detail) ? "" : $"详情: {detail}");
                     }
                     if (statusCode == 429)
-                        return "百度搜索请求频率超限，请稍后重试。";
+                        return LocalizationService.Instance["service.webSearch.rateLimit"];
                     return $"百度搜索返回 HTTP {statusCode}，请稍后重试。";
                 }
 
@@ -931,7 +931,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     {
                         Title = title,
                         Url = url,
-                        Snippet = string.IsNullOrWhiteSpace(snippet) ? "(无摘要)" : snippet,
+                        Snippet = string.IsNullOrWhiteSpace(snippet) ? LocalizationService.Instance["service.webSearch.noSummary"] : snippet,
                     });
                 }
             }
@@ -972,7 +972,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         private static string TruncateSnippet(string snippet, int maxLength = 500)
         {
-            if (string.IsNullOrEmpty(snippet)) return "(无摘要)";
+            if (string.IsNullOrEmpty(snippet)) return LocalizationService.Instance["service.webSearch.noSummary"];
             if (snippet.Length <= maxLength) return snippet.Trim();
             return snippet.Substring(0, maxLength).Trim() + "...";
         }

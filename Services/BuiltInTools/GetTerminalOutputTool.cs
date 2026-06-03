@@ -42,12 +42,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetDisplayText(Dictionary<string, JsonElement> args)
         {
-            return "📋 获取终端输出";
+            return LocalizationService.Instance["tool.getTerminalOutput.displayText"];
         }
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
             return $"📋 终端输出 ({toolResult.Length} 字符)";
         }

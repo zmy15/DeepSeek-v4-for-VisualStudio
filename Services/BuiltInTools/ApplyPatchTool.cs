@@ -44,14 +44,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetDisplayText(Dictionary<string, JsonElement> args)
         {
-            return "🔧 应用补丁";
+            return LocalizationService.Instance["tool.applyPatch.displayText"];
         }
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌") || toolResult.StartsWith("⚠️")) return toolResult;
-            return "🔧 补丁应用完成";
+            return LocalizationService.Instance["tool.applyPatch.complete"];
         }
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)

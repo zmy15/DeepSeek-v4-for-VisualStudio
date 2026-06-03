@@ -50,7 +50,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
             return "📁 目录操作完成";
         }
@@ -60,19 +60,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string dirPath = GetStringArg(args, "dirPath");
 
             if (string.IsNullOrEmpty(dirPath))
-                return Task.FromResult("❌ create_directory: 缺少 dirPath 参数。请提供 Windows 绝对路径。");
+                return Task.FromResult(LocalizationService.Instance["tool.createDirectory.missingParam"]);
 
             try
             {
                 if (Directory.Exists(dirPath))
-                    return Task.FromResult($"📁 目录已存在: {dirPath}");
+                    return Task.FromResult(LocalizationService.Instance.Format("tool.createDirectory.alreadyExists", dirPath));
 
                 Directory.CreateDirectory(dirPath);
-                return Task.FromResult($"✅ 已创建目录: {dirPath}");
+                return Task.FromResult(LocalizationService.Instance.Format("tool.createDirectory.created", dirPath));
             }
             catch (Exception ex)
             {
-                return Task.FromResult($"❌ create_directory 失败: {ex.Message}");
+                return Task.FromResult(LocalizationService.Instance.Format("tool.createDirectory.failed", ex.Message));
             }
         }
     }

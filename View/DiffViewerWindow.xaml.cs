@@ -298,7 +298,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             catch
             {
-                StatsLabel.Text = "计算中…";
+                StatsLabel.Text = LocalizationService.Instance["status.diffCalculating"];
             }
         }
 

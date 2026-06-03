@@ -67,7 +67,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
 
             if (toolResult.Contains("0 个错误") || toolResult.Contains("0 errors"))
@@ -77,7 +77,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (errMatch.Success)
                 return $"⚠️ 发现 {errMatch.Groups[1].Value} 个错误";
-            return "✅ 编译检查完成";
+            return LocalizationService.Instance["tool.getErrors.checkComplete"];
         }
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
@@ -126,7 +126,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         }
                         return sb.ToString().TrimEnd();
                     }
-                    return "🔍 错误列表中未选中任何错误项。请在错误列表窗口中点击选中错误项后重试。";
+                    return LocalizationService.Instance["tool.getErrors.noSelection"];
                 }
                 catch (Exception ex)
                 {
