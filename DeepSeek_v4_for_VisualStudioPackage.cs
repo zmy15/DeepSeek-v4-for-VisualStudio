@@ -5,6 +5,7 @@ using DeepSeek_v4_for_VisualStudio.Utils;
 using DeepSeek_v4_for_VisualStudio.View;
 using Microsoft.VisualStudio.Shell;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -40,10 +41,58 @@ namespace DeepSeek_v4_for_VisualStudio
         /// .NET Standard 桥接程序集的版本绑定问题。
         /// Markdig 编译时引用 System.Memory 4.0.5.0，但实际部署的是 NuGet 版本
         /// (4.5.5, 程序集版本 4.0.1.2)，需要通过此处理器完成运行时重定向。
+        /// 
+        /// 同时预加载 WebView2 程序集，确保在 ReSharper 等第三方扩展之前加载
+        /// 扩展自带的兼容版本，避免版本冲突导致聊天窗口无法打开 (issue #18)。
         /// </summary>
         static DeepSeek_v4_for_VisualStudioPackage()
         {
+            // ── 预加载 WebView2 程序集 ──
+            // 在 ReSharper 等第三方扩展可能加载不同版本之前，先将扩展自带的
+            // WebView2 程序集加载到 AppDomain。预加载失败不阻止包初始化，
+            // AssemblyResolve 处理器会作为后备路径再次尝试。
+            PreloadWebViewAssemblies();
+
             AppDomain.CurrentDomain.AssemblyResolve += ResolveSystemAssembly;
+        }
+
+        /// <summary>
+        /// 预加载 WebView2 程序集，确保扩展自带的兼容版本在 ReSharper 等
+        /// 第三方扩展之前加载。预加载失败不抛异常，AssemblyResolve 作为后备。
+        /// </summary>
+        private static void PreloadWebViewAssemblies()
+        {
+            try
+            {
+                var extensionDir = Path.GetDirectoryName(
+                    Assembly.GetExecutingAssembly().Location);
+                if (extensionDir == null) return;
+
+                foreach (var name in WebView2AssemblyNames)
+                {
+                    var dllPath = Path.Combine(extensionDir, name + ".dll");
+                    if (File.Exists(dllPath))
+                    {
+                        try
+                        {
+                            Assembly.LoadFrom(dllPath);
+                            DiagnosticLog.Write($"[DeepSeek AR] Preload OK: {name} from {dllPath}");
+                        }
+                        catch (Exception ex)
+                        {
+                            DiagnosticLog.Write($"[DeepSeek AR] Preload FAILED: {name} — {ex.GetType().Name}: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        DiagnosticLog.Write($"[DeepSeek AR] Preload SKIP: {name}.dll not found at {dllPath}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Write($"[DeepSeek AR] PreloadWebViewAssemblies error: {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         private static readonly string[] SystemAssemblyNames = new[]
@@ -55,9 +104,25 @@ namespace DeepSeek_v4_for_VisualStudio
             "System.Threading.Tasks.Extensions",
             "System.ValueTuple",
             "System.Diagnostics.DiagnosticSource",
-            // JetBrains ReSharper Platform会预加载不同版本的 Microsoft.Web.WebView2.Wpf/Core。扩展打包的版本若直接加载会导致
-            // InvalidCastException（同名类型来自两个不同版本程序集）。
-            // 解决方案：优先重用 VS 已加载的版本，仅当 VS 环境没有时才回退到扩展自带的。
+            // JetBrains ReSharper Platform会预加载不同版本的 Microsoft.Web.WebView2.Wpf/Core。
+            // 扩展若直接加载不同版本会导致 InvalidCastException（同名类型来自两个版本的程序集）。
+            //
+            // 策略变更 (2026-06-05):
+            // 旧策略"优先重用已加载版本"导致 ReSharper WebView2 vA 被用于 DeepSeek 编译目标 vB，
+            // API 不兼容时引发 XamlParseException / MissingMethodException，聊天窗口打不开 (issue #18)。
+            // 新策略: 对 WebView2 程序集始终优先加载扩展自带版本，跳过已加载版本检测。
+            // ReSharper 和 DeepSeek 各自使用自己的版本，避免跨版本 API 不兼容。
+            "Microsoft.Web.WebView2.Wpf",
+            "Microsoft.Web.WebView2.Core",
+        };
+
+        /// <summary>
+        /// WebView2 相关程序集名称。对这些程序集，不重用 AppDomain 中已加载的版本，
+        /// 而应始终加载扩展自带的兼容版本，避免 ReSharper 等第三方扩展预加载的
+        /// 不同版本造成 API 不兼容。
+        /// </summary>
+        private static readonly HashSet<string> WebView2AssemblyNames = new(StringComparer.OrdinalIgnoreCase)
+        {
             "Microsoft.Web.WebView2.Wpf",
             "Microsoft.Web.WebView2.Core",
         };
@@ -70,26 +135,41 @@ namespace DeepSeek_v4_for_VisualStudio
             if (Array.IndexOf(SystemAssemblyNames, requestName.Name) < 0)
                 return null;
 
-            // 优先检查 AppDomain 中是否已加载同名程序集（任意版本）
-            // 解决 JetBrains ReSharper 已加载不同版本 WebView2 的冲突问题
-            foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies())
+            // ── WebView2 程序集特殊处理 ──
+            // 不重用 AppDomain 中已加载的版本（可能来自 ReSharper 等第三方扩展）。
+            // ReSharper 2026.2 预加载的版本与 DeepSeek 编译目标 (1.0.3912.50) 可能
+            // API 不兼容，重用会导致 XamlParseException (BAML 类型解析失败) 或
+            // MissingMethodException，造成聊天窗口无法打开 (GitHub issue #18)。
+            // 对于 WebView2，始终从扩展目录加载自带版本。
+            bool isWebView2 = WebView2AssemblyNames.Contains(requestName.Name);
+
+            if (!isWebView2)
             {
-                if (string.Equals(loaded.GetName().Name, requestName.Name, StringComparison.OrdinalIgnoreCase))
+                // 非 WebView2 程序集：优先复用已加载版本（解决 System.Memory 等桥接程序集版本冲突）
+                foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies())
                 {
-                    DiagnosticLog.Write(
-                        $"[DeepSeek AR] Reuse loaded: {requestName.Name} v{loaded.GetName().Version} (requested v{requestName.Version})");
-                    return loaded;
+                    if (string.Equals(loaded.GetName().Name, requestName.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        DiagnosticLog.Write(
+                            $"[DeepSeek AR] Reuse loaded: {requestName.Name} v{loaded.GetName().Version} (requested v{requestName.Version})");
+                        return loaded;
+                    }
+                }
+
+                // 首先尝试按简单名称加载（已加载的程序集）
+                try
+                {
+                    return Assembly.Load(requestName.Name);
+                }
+                catch (FileNotFoundException)
+                {
+                    // 未加载，尝试从扩展目录加载 DLL
                 }
             }
-
-            // 首先尝试按简单名称加载（已加载的程序集）
-            try
+            else
             {
-                return Assembly.Load(requestName.Name);
-            }
-            catch (FileNotFoundException)
-            {
-                // 未加载，尝试从扩展目录加载 DLL
+                DiagnosticLog.Write(
+                    $"[DeepSeek AR] WebView2 assembly requested: {requestName.Name} v{requestName.Version} — loading bundled version (skip reuse)");
             }
 
             // 从扩展安装目录加载

@@ -347,6 +347,7 @@
   "status.apiConnected": "✅ API connected",
   "status.apiDisconnected": "⚠️ API not connected",
   "status.ready": "Ready",
+  "status.webView2Failed": "⚠️ WebView2 initialization failed. Please verify the Evergreen WebView2 Runtime is installed.",
   "status.error": "Error: {0}",
   "status.apiKeyMissing": "⚠️ Please configure API key (Tools → Options → DeepSeek Chat)",
   "status.parsingFile": "Parsing file…",

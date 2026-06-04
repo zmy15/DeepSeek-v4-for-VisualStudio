@@ -848,36 +848,67 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     RebuildMessagesHtml();
                     _browserInitialized = false;
                     UpdateBrowser();
-                    _suppressWebViewUpdate = false;
                     // ── 重建持久化的任务面板 ──
                     _ = RebuildPanelsWhenPageReadyAsync();
                 }
+                else
+                {
+                    // ── 初始化失败：显示错误状态并确保抑制标志被重置 ──
+                    Logger.Error("[Render] WebView2 初始化失败，聊天窗口将以降级模式运行");
+                }
+                // ── 无论成功与否，重置抑制标志 ──
+                _suppressWebViewUpdate = false;
             }
         }
 
         /// <summary>
         /// 初始化 WebView2 环境。返回 true 表示初始化成功。
+        /// 包含重试逻辑：首次失败后，使用默认用户数据文件夹路径重试一次。
+        /// ReSharper 等第三方扩展可能通过环境变量或注册表设置影响 WebView2 运行时发现，
+        /// 显式指定 browserExecutableFolder 可提高初始化成功率。
         /// </summary>
         private async Task<bool> InitializeWebViewAsync()
         {
+            string userDataFolder = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DeepSeekVS", "WebView2");
+
+            // ── 尝试1：使用自定义用户数据文件夹 ──
             try
             {
-                Logger.Info("[Render] 开始初始化 WebView2 CoreWebView2 环境");
-                var env = await CoreWebView2Environment.CreateAsync(
-                    null,
-                    System.IO.Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                        "DeepSeekVS", "WebView2"));
+                Logger.Info($"[Render] 开始初始化 WebView2 CoreWebView2 环境 (userDataFolder={userDataFolder})");
+                var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
                 await ChatWebView.EnsureCoreWebView2Async(env);
                 Logger.Info("[Render] CoreWebView2 环境初始化成功");
                 return true;
             }
             catch (Exception ex)
             {
-                Logger.Error("[Render] WebView2 初始化失败", ex);
-                StatusLabel.Text = $"WebView2 初始化失败: {ex.Message}";
-                return false;
+                Logger.Warn($"[Render] WebView2 初始化尝试1失败: {ex.GetType().Name}: {ex.Message}");
+                Logger.Warn($"[Render] 堆栈: {ex.StackTrace}");
+
+                // ── 尝试2：使用默认用户数据文件夹 + 默认运行时发现 ──
+                try
+                {
+                    Logger.Info("[Render] 重试 WebView2 初始化 (尝试2, 默认参数)...");
+                    // 传入空字符串等效于默认临时文件夹
+                    var env = await CoreWebView2Environment.CreateAsync();
+                    await ChatWebView.EnsureCoreWebView2Async(env);
+                    Logger.Info("[Render] CoreWebView2 环境初始化成功 (尝试2)");
+                    return true;
+                }
+                catch (Exception ex2)
+                {
+                    Logger.Error($"[Render] WebView2 初始化尝试2也失败: {ex2.GetType().Name}: {ex2.Message}");
+                }
             }
+
+            // ── 所有尝试都失败 ──
+            var i18nMsg = LocalizationService.Instance["status.webView2Failed"];
+            if (i18nMsg.StartsWith("[")) // key not found, use hardcoded fallback
+                i18nMsg = "WebView2 initialization failed. Please verify the Evergreen WebView2 Runtime is installed.";
+            StatusLabel.Text = i18nMsg;
+            return false;
         }
 
         #endregion

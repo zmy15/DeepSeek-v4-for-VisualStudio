@@ -347,6 +347,7 @@
   "status.apiConnected": "✅ API 已连接",
   "status.apiDisconnected": "⚠️ API 未连接",
   "status.ready": "就绪",
+  "status.webView2Failed": "⚠️ WebView2 初始化失败，请确认已安装 Evergreen WebView2 运行时",
   "status.error": "发生错误: {0}",
   "status.apiKeyMissing": "⚠️ 请先配置 API 密钥 (工具 → 选项 → DeepSeek Chat)",
   "status.parsingFile": "正在解析文件…",
