@@ -54,8 +54,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string grepQuery = GetStringArg(args, "query");
             string incPattern = GetStringArg(args, "includePattern");
             string grepDesc = string.IsNullOrEmpty(grepQuery)
-                ? "🔎 搜索文本"
-                : $"🔎 搜索文本 `{TruncateText(grepQuery, 40)}`";
+                ? LocalizationService.Instance["tool.grepSearch.searching"]
+                : LocalizationService.Instance.Format("tool.grepSearch.searchingQuery", TruncateText(grepQuery, 40));
             if (!string.IsNullOrEmpty(incPattern))
                 grepDesc += $" 在 `{TruncateText(incPattern, 40)}` 中";
             return grepDesc;
@@ -175,7 +175,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 }
 
                 var sb = new StringBuilder();
-                sb.AppendLine($"🔍 文本搜索: \"{query}\" (找到 {results.Count} 处匹配)");
+                sb.AppendLine(LocalizationService.Instance.Format("tool.grepSearch.resultHeader", query, results.Count));
                 sb.AppendLine();
                 if (results.Count == 0)
                     sb.AppendLine("（未找到匹配结果）");

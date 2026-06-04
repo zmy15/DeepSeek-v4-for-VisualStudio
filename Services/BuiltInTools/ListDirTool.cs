@@ -47,8 +47,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             string dirPath = GetStringArg(args, "path");
             return string.IsNullOrEmpty(dirPath)
-                ? "📂 列出目录"
-                : $"📂 列出目录 `{TruncatePath(dirPath)}`";
+                ? LocalizationService.Instance["tool.listDir.listingDir"]
+                : LocalizationService.Instance.Format("tool.listDir.listingDirPath", TruncatePath(dirPath));
         }
 
         public override string GetResultSummary(string toolResult)

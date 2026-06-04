@@ -62,8 +62,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 && repsElement.ValueKind == JsonValueKind.Array)
                 count = repsElement.GetArrayLength();
             return count > 0
-                ? $"✏️ 批量编辑 ({count} 处替换)"
-                : "✏️ 批量编辑文件";
+                ? LocalizationService.Instance.Format("tool.multiReplace.batchEditCount", count)
+                : LocalizationService.Instance["tool.multiReplace.batchEdit"];
         }
 
         public override string GetResultSummary(string toolResult)
@@ -109,7 +109,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 else failCount++;
             }
 
-            string summary = $"🔧 multi_replace_string_in_file: 成功 {successCount}, 失败 {failCount}";
+            string summary = $"multi_replace_string_in_file: success {successCount}, fail {failCount}";
             return summary + "\n" + string.Join("\n", results);
         }
     }

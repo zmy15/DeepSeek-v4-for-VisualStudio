@@ -924,7 +924,7 @@
   "tool.readFile.displayText": "📄 Read file `{0}`",
   "tool.readFile.missingParam": "❌ read_file: missing filePath parameter",
   "tool.readFile.readCompleteLines": "✅ Read complete ({0} lines)",
-  "tool.readFile.fileChanged": "🔄 [File changed, re-reading] File `{0}`",
+  "tool.readFile.fileChanged": "🔄 [File changed, re-reading] File `{0}` has been modified since last read:\n\n📄 File: {1} (total {2} lines, showing {3}-{4})\n\n{5}",
   "tool.readFile.expired": "🔄 [{0}, allow re-read] File `{1}`",
   "tool.readFile.cached": "⚡ [Cached, do not re-read] File `{0}`",
   "tool.readFile.cachedHint": "💡 You already have this file content. Analyze based on existing data.",
@@ -1288,5 +1288,15 @@
   "tool.common.handoffComplete": "Handoff complete",
   "chat.html.questionsTitle": "Confirm Analysis",
   "chat.html.submitAnswer": "Submit Answer",
-  "chat.html.skip": "Skip"
+  "chat.html.skip": "Skip",
+  "tool.fileSearch.resultHeader": "🔍 File search: \"{0}\" ({1})",
+  "tool.grepSearch.resultHeader": "🔍 Text search: \"{0}\" (found {1} matches)",
+  "tool.readFile.cacheExpiredStale": "🔄 [Session reset, cache expired, re-read allowed] File `{0}`:\n\n📄 File: {1} (total {2} lines, showing {3}-{4})\n\n{5}",
+  "tool.readFile.cacheExpiredRound": "🔄 [Round expired ({0} rounds ago, threshold: {1}), re-read allowed] File `{2}`:\n\n📄 File: {3} (total {4} lines, showing {5}-{6})\n\n{7}",
+  "tool.readFile.cachedContent": "📄 File: {0} (total {1} lines, showing {2}-{3})\n\n{4}",
+  "tool.readFile.fileHeader": "📄 File: {0} (total {1} lines, showing {2}-{3})",
+  "tool.readFile.cachedWarningFull": "⚡ [Cached — do not re-read] File `{0}` ({1} lines, {2} chars) lines {3}-{4} were already read in a previous read_file call.{5}\n\n💡 You already have the full content of this file. Please analyze based on existing content. **Do NOT call read_file again** for this file.",
+  "tool.memory.dirInfo": "📁 Directory: {0} (scope: {1})",
+  "tool.memory.fileInfoRange": "📄 File: {0} (scope: {1}, lines {2}-{3} / {4} total)",
+  "tool.memory.fileInfo": "📄 File: {0} (scope: {1})"
 }

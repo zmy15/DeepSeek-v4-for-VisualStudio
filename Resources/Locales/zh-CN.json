@@ -924,7 +924,7 @@
   "tool.readFile.displayText": "📄 读取文件 `{0}`",
   "tool.readFile.missingParam": "❌ read_file: 缺少 filePath 参数",
   "tool.readFile.readCompleteLines": "✅ 读取完成 ({0} 行)",
-  "tool.readFile.fileChanged": "🔄 [文件已变更，重新读取] 文件 `{0}`",
+  "tool.readFile.fileChanged": "🔄 [文件已变更，重新读取] 文件 `{0}` 自上次读取后已被修改：\n\n📄 文件: {1} (共 {2} 行，显示 {3}-{4})\n\n{5}",
   "tool.readFile.expired": "🔄 [{0}，允许重读] 文件 `{1}`",
   "tool.readFile.cached": "⚡ [已缓存，请勿重复读取] 文件 `{0}`",
   "tool.readFile.cachedHint": "💡 你已拥有此文件的内容，请直接基于已有内容进行分析。",
@@ -1288,5 +1288,15 @@
   "tool.common.handoffComplete": "移交完成",
   "chat.html.questionsTitle": "分析确认",
   "chat.html.submitAnswer": "提交回答",
-  "chat.html.skip": "跳过"
+  "chat.html.skip": "跳过",
+  "tool.fileSearch.resultHeader": "🔍 文件搜索: \"{0}\" ({1})",
+  "tool.grepSearch.resultHeader": "🔍 文本搜索: \"{0}\" (找到 {1} 处匹配)",
+  "tool.readFile.cacheExpiredStale": "🔄 [会话已重置，缓存过期，允许重读] 文件 `{0}`：\n\n📄 文件: {1} (共 {2} 行，显示 {3}-{4})\n\n{5}",
+  "tool.readFile.cacheExpiredRound": "🔄 [轮数过期（距今 {0} 轮，阈值: {1} 轮），允许重读] 文件 `{2}`：\n\n📄 文件: {3} (共 {4} 行，显示 {5}-{6})\n\n{7}",
+  "tool.readFile.cachedContent": "📄 文件: {0} (共 {1} 行，显示 {2}-{3})\n\n{4}",
+  "tool.readFile.fileHeader": "📄 文件: {0} (共 {1} 行，显示 {2}-{3})",
+  "tool.readFile.cachedWarningFull": "⚡ [已缓存，请勿重复读取] 文件 `{0}`（{1} 行，{2} 字符）的第 {3}-{4} 行已在之前的 read_file 调用中读取过。{5}\n\n💡 你已拥有此文件的全部内容，请直接基于已有内容进行分析，**无需再次调用 read_file** 读取此文件。",
+  "tool.memory.dirInfo": "📁 目录: {0} (作用域: {1})",
+  "tool.memory.fileInfoRange": "📄 文件: {0} (作用域: {1}, 行 {2}-{3} / 共 {4} 行)",
+  "tool.memory.fileInfo": "📄 文件: {0} (作用域: {1})"
 }

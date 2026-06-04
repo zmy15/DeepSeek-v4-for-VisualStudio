@@ -92,7 +92,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     if (selectedErrors.Count > 0)
                     {
                         var sb = new StringBuilder();
-                        sb.AppendLine("🔍 错误列表中选中的错误项");
+                        sb.AppendLine(LocalizationService.Instance["tool.getErrors.selectedErrors"]);
                         sb.AppendLine();
                         sb.AppendLine($"| # | 描述 | 文件 | 行 | 列 | 错误码 | 项目 |");
                         sb.AppendLine("|---|------|------|----|----|--------|------|");
@@ -148,7 +148,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 if (!string.IsNullOrWhiteSpace(errors))
                 {
                     var sb = new StringBuilder();
-                    sb.AppendLine("🔧 编译错误检查");
+                    sb.AppendLine(LocalizationService.Instance["tool.getErrors.buildCheck"]);
                     sb.AppendLine();
                     sb.AppendLine(errors);
                     return sb.ToString().TrimEnd();

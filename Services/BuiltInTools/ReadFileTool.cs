@@ -71,8 +71,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 return LocalizationService.Instance.Format("tool.readFile.displayTextFrom", fileName, sLine);
             else
                 return string.IsNullOrEmpty(filePath)
-                    ? "📄 读取文件"
-                    : $"📄 读取文件 `{fileName}`";
+                    ? LocalizationService.Instance["tool.readFile.readingFile"]
+                    : LocalizationService.Instance.Format("tool.readFile.readingFileName", fileName);
         }
 
         public override string GetResultSummary(string toolResult)
@@ -161,11 +161,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                                 LastReadRound = CurrentRound
                             },
                             cachedEntry);
-                        string expireReason = staleCache
-                            ? "会话已重置，缓存过期"
-                            : $"轮数过期（距今 {roundsSinceLastRead} 轮，阈值: {RoundThreshold} 轮）";
-                        return Task.FromResult(
-                            $"🔄 [{expireReason}，允许重读] 文件 `{Path.GetFileName(filePath)}`：\n\n📄 文件: {filePath} (共 {totalLines} 行，显示 {reqStartLine}-{actualEnd})\n\n{freshContent}");
+                        var fname = Path.GetFileName(filePath);
+                        return Task.FromResult(staleCache
+                            ? LocalizationService.Instance.Format("tool.readFile.cacheExpiredStale", fname, filePath, totalLines, reqStartLine, actualEnd, freshContent)
+                            : LocalizationService.Instance.Format("tool.readFile.cacheExpiredRound", roundsSinceLastRead, RoundThreshold, fname, filePath, totalLines, reqStartLine, actualEnd, freshContent));
                     }
 
                     // ── 行范围覆盖检查 ──
@@ -180,8 +179,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             ? $"  (距今 {roundsSinceLastRead} 轮，还需 {Math.Max(0, RoundThreshold - roundsSinceLastRead)} 轮后可重读)"
                             : "";
                         return Task.FromResult(
-                            $"⚡ [已缓存，请勿重复读取] 文件 `{Path.GetFileName(filePath)}`（{cachedLineCount} 行，{cachedCharCount} 字符）的第 {reqStartLine}-{reqActualEnd} 行已在之前的 read_file 调用中读取过。{roundHint}" +
-                            $"\n\n💡 你已拥有此文件的全部内容，请直接基于已有内容进行分析，**无需再次调用 read_file** 读取此文件。");
+                            LocalizationService.Instance.Format("tool.readFile.cachedWarningFull", Path.GetFileName(filePath), cachedLineCount, cachedCharCount, reqStartLine, reqActualEnd, roundHint));
                     }
 
                     // 请求范围未被覆盖 → 从缓存中提取新范围，更新已读范围
@@ -191,7 +189,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     updatedEntry.LastReadRound = CurrentRound;
                     _fileReadCache.TryUpdate(filePath, updatedEntry, cachedEntry);
                     return Task.FromResult(
-                        $"📄 文件: {filePath} (共 {cachedTotalLines} 行，显示 {reqStartLine}-{reqActualEnd})\n\n{rangedContent}");
+                        LocalizationService.Instance.Format("tool.readFile.cachedContent", filePath, cachedTotalLines, reqStartLine, reqActualEnd, rangedContent));
                 }
 
                 // 文件已变更 → 返回完整最新内容（已读范围已清空，重新开始追踪）
@@ -207,16 +205,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     },
                     cachedEntry);
                 return Task.FromResult(
-                    $"🔄 [文件已变更，重新读取] 文件 `{Path.GetFileName(filePath)}` 自上次读取后已被修改：\n\n📄 文件: {filePath} (共 {changedTotalLines} 行，显示 {reqStartLine}-{changedActualEnd})\n\n{changedContent}");
+                    LocalizationService.Instance.Format("tool.readFile.fileChanged", Path.GetFileName(filePath), filePath, changedTotalLines, reqStartLine, changedActualEnd, changedContent));
             }
 
             // ── 首次读取（缓存未命中）──
             if (!File.Exists(filePath))
             {
                 string wsHint = !string.IsNullOrEmpty(workspaceRoot) && Directory.Exists(workspaceRoot)
-                    ? $"\n💡 当前工作区根目录: `{workspaceRoot}`，请使用此目录下的绝对路径。"
+                    ? "\n" + LocalizationService.Instance.Format("tool.readFile.workspaceHint", workspaceRoot)
                     : "";
-                wsHint += "\n💡 如果这是需要新建的文件，请使用 create_file 工具创建（会自动创建父目录）。如果父目录不存在，请先使用 create_directory 创建目录。";
+                wsHint += "\n" + LocalizationService.Instance["tool.readFile.newFileHint"];
                 return Task.FromResult(LocalizationService.Instance.Format("tool.readFile.fileNotFound", filePath) + wsHint);
             }
 
@@ -237,9 +235,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 string rangedContent = FormatLinesFromFullContent(fullContent, reqStartLine, actualEnd);
 
                 var resultBuilder = new StringBuilder();
-                resultBuilder.AppendLine($"📄 文件: {filePath} (共 {totalLines} 行，显示 {reqStartLine}-{actualEnd})");
+                resultBuilder.AppendLine(LocalizationService.Instance.Format("tool.readFile.fileHeader", filePath, totalLines, reqStartLine, actualEnd));
                 if (truncated)
-                    resultBuilder.AppendLine($"> ⚠️ 文件过大（>{maxLinesToRead}行），仅缓存了前 {maxLinesToRead} 行");
+                    resultBuilder.AppendLine(LocalizationService.Instance.Format("tool.readFile.fileTooLarge", maxLinesToRead));
                 resultBuilder.AppendLine();
                 resultBuilder.Append(rangedContent);
 

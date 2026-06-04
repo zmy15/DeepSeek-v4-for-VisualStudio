@@ -120,20 +120,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             await _handoffHandler(request);
 
-            return $"🔄 HANDOFF_REQUESTED → {targetAgentStr}: {reason}\n\n目标 Agent 将接收以下任务并在新的上下文中执行。当前 Agent 会话结束。";
+            return LocalizationService.Instance.Format("tool.requestHandoff.handoffRequested", targetAgentStr, reason);
         }
 
         public override string GetDisplayText(Dictionary<string, JsonElement> args)
         {
             string target = GetStringArg(args, "targetAgent") ?? "?";
             string reason = GetStringArg(args, "reason")?.Truncate(50) ?? "移交任务";
-            return $"🔄 **移交 → {target}** — {reason}";
+            return LocalizationService.Instance.Format("tool.requestHandoff.handoffTo", target, reason);
         }
 
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return "移交完成";
-            if (toolResult.StartsWith("🔄 HANDOFF_REQUESTED")) return "✅ 已请求移交";
+            if (toolResult.StartsWith("🔄 HANDOFF_REQUESTED")) return LocalizationService.Instance["tool.requestHandoff.completed"];
             return toolResult.Truncate(80);
         }
     }

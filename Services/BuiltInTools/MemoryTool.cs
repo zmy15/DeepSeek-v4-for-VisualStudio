@@ -179,7 +179,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             if (result.IsDirectoryListing && result.Entries != null)
             {
                 var sb = new StringBuilder();
-                sb.AppendLine($"📁 目录: {result.Path} (作用域: {scope})");
+                sb.AppendLine(LocalizationService.Instance.Format("tool.memory.dirInfo", result.Path, scope));
                 sb.AppendLine();
                 foreach (var entry in result.Entries)
                 {
@@ -195,8 +195,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             // 文件内容
             var header = result.TotalLines.HasValue
-                ? $"📄 文件: {result.Path} (作用域: {scope}, 行 {result.ViewStartLine}-{result.ViewEndLine} / 共 {result.TotalLines} 行)"
-                : $"📄 文件: {result.Path} (作用域: {scope})";
+                ? LocalizationService.Instance.Format("tool.memory.fileInfoRange", result.Path, scope, result.ViewStartLine, result.ViewEndLine, result.TotalLines)
+                : LocalizationService.Instance.Format("tool.memory.fileInfo", result.Path, scope);
 
             return header + "\n\n" + (result.Content ?? LocalizationService.Instance["tool.memory.empty"]);
         }
@@ -290,13 +290,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             return command switch
             {
-                "view" => $"🧠 查看记忆: {path}",
-                "create" => $"🧠 创建记忆: {path}",
-                "str_replace" => $"🧠 编辑记忆: {path}",
-                "insert" => $"🧠 插入记忆: {path}",
-                "delete" => $"🧠 删除记忆: {path}",
-                "rename" => $"🧠 重命名记忆: {path}",
-                _ => $"🧠 记忆操作: {command}"
+                "view" => LocalizationService.Instance.Format("tool.memory.viewMemory", path),
+                "create" => LocalizationService.Instance.Format("tool.memory.createMemory", path),
+                "str_replace" => LocalizationService.Instance.Format("tool.memory.editMemory", path),
+                "insert" => LocalizationService.Instance.Format("tool.memory.insertMemory", path),
+                "delete" => LocalizationService.Instance.Format("tool.memory.deleteMemory", path),
+                "rename" => LocalizationService.Instance.Format("tool.memory.renameMemory", path),
+                _ => LocalizationService.Instance.Format("tool.memory.operation", command)
             };
         }
 

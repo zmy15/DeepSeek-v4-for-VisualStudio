@@ -50,8 +50,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             string url = GetStringArg(args, "url");
             return string.IsNullOrEmpty(url)
-                ? "🌐 抓取网页"
-                : $"🌐 抓取网页 `{TruncateText(url, 60)}`";
+                ? LocalizationService.Instance["tool.fetchWebpage.fetching"]
+                : LocalizationService.Instance.Format("tool.fetchWebpage.fetchingUrl", TruncateText(url, 60));
         }
 
         public override string GetResultSummary(string toolResult)

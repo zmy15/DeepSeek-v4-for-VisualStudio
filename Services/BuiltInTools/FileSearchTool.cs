@@ -52,8 +52,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             string fsQuery = GetStringArg(args, "query");
             return string.IsNullOrEmpty(fsQuery)
-                ? "🔍 搜索文件"
-                : $"🔍 搜索文件 `{TruncateText(fsQuery, 60)}`";
+                ? LocalizationService.Instance["tool.fileSearch.searching"]
+                : LocalizationService.Instance.Format("tool.fileSearch.searchingQuery", TruncateText(fsQuery, 60));
         }
 
         public override string GetResultSummary(string toolResult)
@@ -135,7 +135,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 string countInfo = totalFound > maxFilesToEnumerate
                     ? $"找到 >{maxFilesToEnumerate} 个文件（已截断）"
                     : $"找到 {totalFound} 个文件";
-                sb.AppendLine($"🔍 文件搜索: \"{query}\" ({countInfo}" + (results.Count < totalFound ? $"，显示前 {results.Count}" : "") + ")");
+                sb.AppendLine(LocalizationService.Instance.Format("tool.fileSearch.resultHeader", query, countInfo + (results.Count < totalFound ? ", showing first " + results.Count : "")));
                 sb.AppendLine();
                 foreach (var r in results)
                     sb.AppendLine($"- `{r}`");
