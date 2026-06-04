@@ -635,6 +635,7 @@
   "agent.log.explorePhase1Done": "Structure scan complete ({0} chars)",
   "agent.log.explorePhase1Failed": "Structure scan returned no results, proceeding to area exploration",
   "agent.log.explorePhase1Error": "Structure scan error: {0}, continuing with area exploration",
+  "agent.log.explorePhase1Cached": "📋 Reusing cached file list ({0} files), skipping Phase 1 structure scan",
   "agent.log.explorePhase2": "🔍 Phase 2/2: Parallel deep exploration (root re-scan skipped)…",
   "agent.log.exploreRouting": "Explore routing: {0} area(s) → [{1}]",
   "agent.log.planExploreDone": "Discovery phase complete: {0}/{1} succeeded",

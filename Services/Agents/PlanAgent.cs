@@ -237,28 +237,50 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 var L = LocalizationService.Instance;
 
                 // ── 阶段 1（串行）：快速扫描项目顶层结构 ──
+                // 如果共享 ExploreAgent 已有此项目的文件列表缓存，直接复用，跳过重复扫描
                 AddLog("INFO", L["agent.log.explorePhase1"]);
                 string structureContext = "";
+                bool phase1Skipped = false;
                 try
                 {
-                    string phase1Prompt =
-                        $"{L["agent.plan.discoveryPhase1Prompt"]}\n\n" +
-                        (string.IsNullOrEmpty(context.SolutionPath) ? ""
-                            : $"Workspace root: {context.SolutionPath}\n\n") +
-                        $"{L["agent.plan.discoveryPhase1Tail"]}";
-
-                    var phase1Result = await RunSingleExploreAsync("structure", phase1Prompt, context);
-                    if (phase1Result.Success && !string.IsNullOrEmpty(phase1Result.Findings))
+                    // ── 检查缓存：避免同一会话内 ask→plan 切换时重复扫描项目结构 ──
+                    if (!string.IsNullOrEmpty(context.SolutionPath)
+                        && _exploreAgent != null)
                     {
-                        structureContext = phase1Result.Findings;
-                        sb.AppendLine(string.Format(L["plan.discovery.areaHeader"], L["agent.log.explorePhase1Label"]));
-                        sb.AppendLine(structureContext);
-                        sb.AppendLine();
-                        AddLog("INFO", string.Format(L["agent.log.explorePhase1Done"], structureContext.Length));
+                        var cachedFiles = _exploreAgent.GetCachedDiscoveredFiles(context.SolutionPath);
+                        if (cachedFiles != null && cachedFiles.Count > 0)
+                        {
+                            // 从缓存文件列表构建结构上下文（目录树摘要），跳过 Phase 1 API 调用
+                            structureContext = BuildStructureContextFromCache(cachedFiles);
+                            sb.AppendLine(string.Format(L["plan.discovery.areaHeader"], L["agent.log.explorePhase1Label"]));
+                            sb.AppendLine(structureContext);
+                            sb.AppendLine();
+                            AddLog("INFO", string.Format(L["agent.log.explorePhase1Cached"], cachedFiles.Count));
+                            phase1Skipped = true;
+                        }
                     }
-                    else
+
+                    if (!phase1Skipped)
                     {
-                        AddLog("WARN", L["agent.log.explorePhase1Failed"]);
+                        string phase1Prompt =
+                            $"{L["agent.plan.discoveryPhase1Prompt"]}\n\n" +
+                            (string.IsNullOrEmpty(context.SolutionPath) ? ""
+                                : $"Workspace root: {context.SolutionPath}\n\n") +
+                            $"{L["agent.plan.discoveryPhase1Tail"]}";
+
+                        var phase1Result = await RunSingleExploreAsync("structure", phase1Prompt, context);
+                        if (phase1Result.Success && !string.IsNullOrEmpty(phase1Result.Findings))
+                        {
+                            structureContext = phase1Result.Findings;
+                            sb.AppendLine(string.Format(L["plan.discovery.areaHeader"], L["agent.log.explorePhase1Label"]));
+                            sb.AppendLine(structureContext);
+                            sb.AppendLine();
+                            AddLog("INFO", string.Format(L["agent.log.explorePhase1Done"], structureContext.Length));
+                        }
+                        else
+                        {
+                            AddLog("WARN", L["agent.log.explorePhase1Failed"]);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -359,6 +381,85 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine();
             sb.AppendLine(L["agent.plan.discoveryPhase2Tail"]);
 
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 从缓存的文件列表构建项目结构摘要（替代 Phase 1 的 ExploreAgent API 调用）。
+        /// 提取目录层级和前几级文件，生成与 Phase 1 输出格式兼容的结构上下文。
+        /// </summary>
+        private static string BuildStructureContextFromCache(List<string> cachedFiles)
+        {
+            if (cachedFiles == null || cachedFiles.Count == 0)
+                return string.Empty;
+
+            var sb = new StringBuilder();
+
+            // 提取唯一目录
+            var dirs = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            var rootFiles = new List<string>();
+            string? commonRoot = null;
+
+            foreach (var file in cachedFiles)
+            {
+                try
+                {
+                    string dir = System.IO.Path.GetDirectoryName(file) ?? "";
+                    if (!string.IsNullOrEmpty(dir))
+                    {
+                        dirs.Add(dir);
+
+                        // 找公共根目录
+                        if (commonRoot == null)
+                            commonRoot = dir;
+                        else
+                        {
+                            // 逐步缩短公共根
+                            while (commonRoot.Length > 0 && !dir.StartsWith(commonRoot, StringComparison.OrdinalIgnoreCase))
+                                commonRoot = System.IO.Path.GetDirectoryName(commonRoot) ?? "";
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // 按层级分组展示目录树
+            sb.AppendLine("## 项目结构 (来自缓存)");
+            sb.AppendLine();
+
+            // 列出顶级目录
+            var topDirs = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dir in dirs)
+            {
+                string relative = dir;
+                if (!string.IsNullOrEmpty(commonRoot) && dir.StartsWith(commonRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    relative = dir.Substring(commonRoot.Length).TrimStart(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+                }
+                if (string.IsNullOrEmpty(relative)) continue;
+
+                string[] parts = relative.Split(new[] { System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 0)
+                    topDirs.Add(parts[0]);
+            }
+
+            foreach (var d in topDirs)
+            {
+                // 统计该顶级目录下的文件数
+                int count = 0;
+                string prefix = !string.IsNullOrEmpty(commonRoot)
+                    ? System.IO.Path.Combine(commonRoot, d)
+                    : d;
+                foreach (var file in cachedFiles)
+                {
+                    if (file.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        count++;
+                }
+                sb.AppendLine($"- 📁 {d}/ ({count} 个文件)");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine($"共 {cachedFiles.Count} 个文件, {dirs.Count} 个目录");
             return sb.ToString();
         }
 

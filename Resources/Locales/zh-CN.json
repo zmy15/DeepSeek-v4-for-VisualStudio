@@ -635,6 +635,7 @@
   "agent.log.explorePhase1Done": "结构扫描完成 ({0} 字符)",
   "agent.log.explorePhase1Failed": "结构扫描未返回结果，将直接进入区域探索",
   "agent.log.explorePhase1Error": "结构扫描异常: {0}，继续进入区域探索",
+  "agent.log.explorePhase1Cached": "📋 复用缓存的 {0} 个文件列表，跳过 Phase 1 结构扫描",
   "agent.log.explorePhase2": "🔍 阶段 2/2: 并行深入探索各区域（已跳过根目录重复扫描）…",
   "agent.log.exploreRouting": "探索路由: {0} 个区域 → [{1}]",
   "agent.log.planExploreDone": "发现阶段完成: {0}/{1} 成功",
