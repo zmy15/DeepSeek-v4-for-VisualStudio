@@ -1,10 +1,12 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
@@ -14,6 +16,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     /// </summary>
     public class ReplaceStringInFileTool : BuiltInToolBase
     {
+        /// <summary>
+        /// 按文件路径的读写锁，防止并行工具调用对同一文件产生竞态条件（IOException: 文件正由另一进程使用）。
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new(
+            StringComparer.OrdinalIgnoreCase);
+
         public override string Name => "replace_string_in_file";
 
         public override ToolDefinition GetDefinition()
@@ -72,9 +80,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             if (!File.Exists(filePath))
                 return LocalizationService.Instance.Format("tool.replaceString.fileNotFound", filePath);
 
+            // 按文件加锁，防止并行工具调用对同一文件产生竞态条件
+            SemaphoreSlim fileLock = _fileLocks.GetOrAdd(filePath, _ => new SemaphoreSlim(1, 1));
+            await fileLock.WaitAsync();
             try
             {
-                string content = await Task.Run(() => File.ReadAllText(filePath, Encoding.UTF8));
+                string content = File.ReadAllText(filePath, Encoding.UTF8);
                 string normalizedContent = content.Replace("\r\n", "\n").Replace("\r", "\n");
                 string normalizedOld = oldString.Replace("\r\n", "\n").Replace("\r", "\n");
                 string normalizedNew = newString.Replace("\r\n", "\n").Replace("\r", "\n");
@@ -93,12 +104,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 newContent = newContent.Replace("\n", "\r\n");
 
-                await Task.Run(() => File.WriteAllText(filePath, newContent, Encoding.UTF8));
+                File.WriteAllText(filePath, newContent, Encoding.UTF8);
                 return LocalizationService.Instance.Format("tool.replaceString.replaced", Path.GetFileName(filePath));
             }
             catch (Exception ex)
             {
                 return LocalizationService.Instance.Format("tool.replaceString.failed", ex.Message);
+            }
+            finally
+            {
+                fileLock.Release();
             }
         }
     }
