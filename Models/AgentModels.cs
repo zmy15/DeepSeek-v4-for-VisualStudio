@@ -7,6 +7,21 @@ using System.Threading.Tasks;
 namespace DeepSeek_v4_for_VisualStudio.Models
 {
     /// <summary>
+    /// 审批模式：控制工具操作（终端命令、文件删除等）是否需要用户确认。
+    /// </summary>
+    public enum ApprovalMode
+    {
+        /// <summary>全部拦截：所有需要审批的操作都询问用户</summary>
+        BlockAll,
+
+        /// <summary>全部放行：所有需要审批的操作自动通过，不询问用户</summary>
+        AllowAll,
+
+        /// <summary>智能拦截：仅检测到危险操作时询问用户，安全操作自动放行</summary>
+        SmartBlock,
+    }
+
+    /// <summary>
     /// Agent 意图类型：判断用户请求是需要修改代码还是普通问答。
     /// 保留向后兼容，同时支持多 Agent 路由。
     /// </summary>

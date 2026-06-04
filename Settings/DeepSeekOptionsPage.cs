@@ -183,6 +183,16 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [TypeConverter(typeof(LanguageConverter))]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public string Language { get; set; } = "auto";
+
+        // ═══════════════════════════════════════════════
+        //  审批模式设置
+        // ═══════════════════════════════════════════════
+
+        [LocalizedCategory("settings.category.approval")]
+        [LocalizedDisplayName("settings.approvalMode.displayName")]
+        [LocalizedDescription("settings.approvalMode.description")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public string ApprovalMode { get; set; } = "SmartBlock";
     }
 
     /// <summary>

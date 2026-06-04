@@ -174,6 +174,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- ═══ 会话选择栏 ═══ -->
@@ -635,21 +636,7 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <!-- ═══ 余额显示行 ═══ -->
-                <Border Grid.Row="2"
-                        x:Name="BalanceBar"
-                        Background="Transparent"
-                        Padding="4,2,4,4"
-                        Visibility="Collapsed">
-                    <TextBlock x:Name="BalanceLabel"
-                               FontSize="11"
-                               Foreground="#888888"
-                               HorizontalAlignment="Right"
-                               VerticalAlignment="Center"
-                               TextTrimming="CharacterEllipsis" />
-                </Border>
-
-                <Grid Grid.Row="3" Margin="0,6,0,0">
+                <Grid Grid.Row="2" Margin="0,6,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
@@ -726,6 +713,41 @@
                                 Foreground="#6CAFD9" FontSize="14" Padding="4,0" />
                     </StackPanel>
                 </Grid>
+            </Grid>
+        </Border>
+
+        <!-- ═══ 审批控制栏 ═══ -->
+        <Border Grid.Row="5"
+                Background="#2D2D2D"
+                BorderBrush="#3F3F46" BorderThickness="0,1,0,0"
+                Padding="12,4">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- 左侧：审批模式下拉框 -->
+                <ComboBox x:Name="ApprovalModeComboBox"
+                          Grid.Column="0"
+                          MinWidth="130"
+                          Height="26"
+                          SelectionChanged="ApprovalModeComboBox_SelectionChanged" />
+
+                <!-- 右侧：余额和 Token 显示 -->
+                <Border Grid.Column="2"
+                        x:Name="BalanceBar"
+                        Background="Transparent"
+                        Padding="4,0"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="BalanceLabel"
+                               FontSize="11"
+                               Foreground="#888888"
+                               HorizontalAlignment="Right"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" />
+                </Border>
             </Grid>
         </Border>
     </Grid>

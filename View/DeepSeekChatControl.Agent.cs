@@ -1118,10 +1118,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// Agent 权限请求回调：在 WebView 中注入确认/拒绝按钮。
-        /// 针对不同 ActionType 渲染不同的 UI：
-        /// - "file_delete" → 文件删除确认卡片（含文件列表、确认/取消按钮）
-        /// - "terminal_command" → 终端命令审批卡片（含命令详情、允许/跳过按钮）
-        /// - 其他 → 通用权限确认弹窗
+        /// 根据当前审批模式决定是否直接放行：
+        /// - AllowAll：全部自动放行
+        /// - BlockAll：全部拦截询问
+        /// - SmartBlock：检测危险命令，仅拦截危险操作
         /// </summary>
         private void OnAgentPermissionRequested(AgentPermissionRequest request)
         {
@@ -1130,10 +1130,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 if (ChatWebView.CoreWebView2 == null)
                 {
-                    // WebView 未就绪，自动拒绝权限请求，避免无限等待
                     Logger.Warn($"[Agent] CoreWebView2 未就绪，自动拒绝权限请求: {request.Title}");
                     _agentDispatcher?.RespondToPermission(request.RequestId, false);
                     return;
+                }
+
+                // ── 审批模式检查：全部放行 → 自动批准 ──
+                var approvalMode = GetCurrentApprovalMode();
+                if (approvalMode == Models.ApprovalMode.AllowAll)
+                {
+                    Logger.Info($"[Agent] 审批模式=全部放行，自动批准: {request.Title}");
+                    _agentDispatcher?.RespondToPermission(request.RequestId, true);
+                    return;
+                }
+
+                // ── 审批模式检查：智能拦截 → 仅危险命令需要审批 ──
+                if (approvalMode == Models.ApprovalMode.SmartBlock)
+                {
+                    bool isDangerous = IsDangerousCommand(request.Command, request.ActionType);
+                    if (!isDangerous)
+                    {
+                        Logger.Info($"[Agent] 审批模式=智能拦截，安全命令自动放行: {request.Title}");
+                        _agentDispatcher?.RespondToPermission(request.RequestId, true);
+                        return;
+                    }
+                    Logger.Info($"[Agent] 审批模式=智能拦截，检测到危险命令，需要审批: {request.Command}");
                 }
 
                 try

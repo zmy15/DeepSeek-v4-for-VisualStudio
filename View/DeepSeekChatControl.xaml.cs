@@ -284,6 +284,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             EffortComboBox.ItemsSource = new[] { "high", "max" };
             EffortComboBox.SelectedIndex = 0;
 
+            // 初始化审批模式下拉框
+            InitializeApprovalModeComboBox();
+
             ThinkingCheckBox.IsChecked = true;
 
             // 联网搜索: 默认关闭
@@ -332,6 +335,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             _package = package;
             _options = package.Options;
+
+            // ── 从设置恢复审批模式 ──
+            RefreshApprovalModeFromSettings();
 
             InitializeWebSearchService();
             InitializeApiService();
@@ -1565,12 +1571,197 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 // ── 刷新 diff 栏（如果当前可见，更新文本为当前语言）──
                 RefreshDiffGlobalBar();
+
+                // ── 刷新审批模式下拉框（语言切换时更新显示）──
+                RefreshApprovalModeComboBox();
             }
             catch (Exception ex)
             {
                 Logger.Warn($"[i188] 更新 UI 标签失败: {ex.Message}");
             }
         }
+
+        #region Approval Mode
+
+        /// <summary>
+        /// 审批模式选项数据类，用于绑定 ComboBox。
+        /// </summary>
+        private class ApprovalModeOption
+        {
+            public Models.ApprovalMode Mode { get; set; }
+            public string DisplayText { get; set; } = string.Empty;
+        }
+
+        /// <summary>
+        /// 初始化审批模式下拉框，从设置中加载当前模式。
+        /// </summary>
+        private void InitializeApprovalModeComboBox()
+        {
+            var L = LocalizationService.Instance;
+            var options = new[]
+            {
+                new ApprovalModeOption { Mode = Models.ApprovalMode.BlockAll, DisplayText = L["approval.blockAll"] },
+                new ApprovalModeOption { Mode = Models.ApprovalMode.AllowAll, DisplayText = L["approval.allowAll"] },
+                new ApprovalModeOption { Mode = Models.ApprovalMode.SmartBlock, DisplayText = L["approval.smartBlock"] },
+            };
+
+            ApprovalModeComboBox.ItemsSource = options;
+            ApprovalModeComboBox.DisplayMemberPath = "DisplayText";
+            ApprovalModeComboBox.SelectedValuePath = "Mode";
+
+            // 从设置恢复
+            string savedMode = _options?.ApprovalMode ?? "SmartBlock";
+            ApprovalModeComboBox.SelectedValue = savedMode switch
+            {
+                "BlockAll" => Models.ApprovalMode.BlockAll,
+                "AllowAll" => Models.ApprovalMode.AllowAll,
+                _ => Models.ApprovalMode.SmartBlock,
+            };
+
+            // 确保默认选中
+            if (ApprovalModeComboBox.SelectedIndex < 0)
+                ApprovalModeComboBox.SelectedValue = Models.ApprovalMode.SmartBlock;
+        }
+
+        /// <summary>
+        /// 从设置恢复审批模式下拉框选中值。
+        /// </summary>
+        private void RefreshApprovalModeFromSettings()
+        {
+            if (ApprovalModeComboBox == null || _options == null) return;
+            string savedMode = _options.ApprovalMode ?? "SmartBlock";
+            ApprovalModeComboBox.SelectedValue = savedMode switch
+            {
+                "BlockAll" => Models.ApprovalMode.BlockAll,
+                "AllowAll" => Models.ApprovalMode.AllowAll,
+                _ => Models.ApprovalMode.SmartBlock,
+            };
+            if (ApprovalModeComboBox.SelectedIndex < 0)
+                ApprovalModeComboBox.SelectedValue = Models.ApprovalMode.SmartBlock;
+        }
+
+        /// <summary>
+        /// 刷新审批模式下拉框的显示文本（语言切换时调用）。
+        /// </summary>
+        private void RefreshApprovalModeComboBox()
+        {
+            if (ApprovalModeComboBox?.ItemsSource is ApprovalModeOption[] options)
+            {
+                var L = LocalizationService.Instance;
+                foreach (var opt in options)
+                {
+                    opt.DisplayText = opt.Mode switch
+                    {
+                        Models.ApprovalMode.BlockAll => L["approval.blockAll"],
+                        Models.ApprovalMode.AllowAll => L["approval.allowAll"],
+                        Models.ApprovalMode.SmartBlock => L["approval.smartBlock"],
+                        _ => opt.DisplayText,
+                    };
+                }
+                // 强制刷新 ItemsSource 绑定
+                var selectedValue = ApprovalModeComboBox.SelectedValue;
+                ApprovalModeComboBox.ItemsSource = null;
+                ApprovalModeComboBox.ItemsSource = options;
+                ApprovalModeComboBox.SelectedValue = selectedValue;
+            }
+        }
+
+        /// <summary>
+        /// 获取当前审批模式。
+        /// </summary>
+        public Models.ApprovalMode GetCurrentApprovalMode()
+        {
+            if (ApprovalModeComboBox?.SelectedValue is Models.ApprovalMode mode)
+                return mode;
+            return Models.ApprovalMode.SmartBlock;
+        }
+
+        /// <summary>
+        /// 检测命令是否危险（用于智能拦截模式）。
+        /// 检查终端命令、文件删除等操作中是否包含危险模式。
+        /// </summary>
+        /// <param name="command">待执行的命令字符串</param>
+        /// <param name="actionType">操作类型</param>
+        /// <returns>true 表示命令危险，需要用户审批</returns>
+        public static bool IsDangerousCommand(string command, string actionType)
+        {
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            // 文件删除始终视为需要审批
+            if (actionType == "file_delete")
+                return true;
+
+            // 转小写进行模式匹配
+            string cmd = command.ToLowerInvariant().Trim();
+
+            // ── 高危系统命令 ──
+            // format / diskpart 等磁盘操作
+            if (cmd.Contains("format ") && (cmd.Contains("c:") || cmd.Contains("d:") || cmd.Contains("/fs")))
+                return true;
+            if (cmd.Contains("diskpart"))
+                return true;
+
+            // ── 危险删除操作 ──
+            // rm -rf / 或系统目录
+            if ((cmd.Contains("rm ") || cmd.Contains("rmdir ")) && cmd.Contains("-rf"))
+            {
+                if (cmd.Contains(" /") || cmd.Contains(" ~") || cmd.Contains("/*")
+                    || cmd.Contains("c:\\") || cmd.Contains("/windows") || cmd.Contains("/system"))
+                    return true;
+            }
+            // del /f /s 系统路径
+            if (cmd.Contains("del ") && (cmd.Contains("/s") || cmd.Contains("/f")) && cmd.Contains("c:\\"))
+                return true;
+            // Remove-Item 危险路径
+            if (cmd.Contains("remove-item") && cmd.Contains("-recurse") && cmd.Contains("-force"))
+            {
+                if (cmd.Contains("c:\\windows") || cmd.Contains("c:\\program files")
+                    || cmd.Contains("$env:systemroot") || cmd.Contains("/etc"))
+                    return true;
+            }
+
+            // ── 危险的 git 操作 ──
+            if (cmd.Contains("git push") && (cmd.Contains("--force") || cmd.Contains("-f"))
+                && (cmd.Contains("master") || cmd.Contains("main")))
+                return true;
+            if (cmd.Contains("git reset") && cmd.Contains("--hard"))
+                return true;
+            if (cmd.Contains("git clean") && (cmd.Contains("-fd") || cmd.Contains("-df")))
+                return true;
+
+            // ── 关机/重启命令 ──
+            if (cmd.Contains("shutdown") && (cmd.Contains("/s") || cmd.Contains("/r") || cmd.Contains("/t")))
+                return true;
+            if (cmd.Contains("restart-computer") || cmd.Contains("stop-computer"))
+                return true;
+
+            // ── 远程执行 / 下载并执行 ──
+            if ((cmd.Contains("iex ") || cmd.Contains("invoke-expression") || cmd.Contains("invoke-webrequest")
+                || cmd.Contains("iwr ")) && cmd.Contains("|"))
+                return true;
+            if (cmd.Contains("wget ") && cmd.Contains("| sh"))
+                return true;
+            if (cmd.Contains("curl ") && cmd.Contains("| bash"))
+                return true;
+
+            // ── 系统配置修改 ──
+            if (cmd.Contains("set-executionpolicy") && !cmd.Contains("-scope process"))
+                return true;
+            if (cmd.Contains("reg delete") && (cmd.Contains("hklm") || cmd.Contains("hkey_local_machine")))
+                return true;
+
+            // ── 数据库危险操作 ──
+            if ((cmd.Contains("drop table") || cmd.Contains("drop database") || cmd.Contains("truncate table"))
+                && !cmd.Contains("if exists"))
+                return true;
+            if (cmd.Contains("delete from") && !cmd.Contains("where"))
+                return true;
+
+            return false;
+        }
+
+        #endregion
 
         /// <summary>
         /// 更新 Agent 模式徽章显示。

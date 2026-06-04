@@ -75,6 +75,7 @@
   "settings.category.autocomplete": "DeepSeek Auto-completion",
   "settings.category.context": "Context Management",
   "settings.category.i18n": "Language / 语言",
+  "settings.category.approval": "Approval Settings",
 
   "settings.apiKey.displayName": "API Key",
   "settings.apiKey.description": "DeepSeek API key. Obtain from https://platform.deepseek.com/api_keys",
@@ -141,6 +142,9 @@
 
   "settings.language.displayName": "Display Language / 显示语言",
   "settings.language.description": "Choose display language. Select 'Auto' to follow system language.\n选择显示语言。「自动」则跟随系统语言。",
+
+  "settings.approvalMode.displayName": "Approval Mode",
+  "settings.approvalMode.description": "Controls the approval behavior for tool operations (terminal commands, file deletion, etc.):\n  • SmartBlock — Only dangerous commands require approval; safe commands auto-approved\n  • BlockAll — All terminal commands and file operations require user approval\n  • AllowAll — Auto-approve all operations without asking (⚠️ use with caution)",
 
   "═══ Chat UI Strings ═══": "═══ Chat UI Strings ═══",
 
@@ -402,6 +406,12 @@
   "input.uploadFile": "Upload File...",
   "input.fileChangesDetected": "📊 File Changes Detected",
   "input.contextStatsLabel": "Tokens:",
+
+  "═══ Approval Mode ═══": "═══ Approval Mode ═══",
+
+  "approval.blockAll": "🛑 Block All",
+  "approval.allowAll": "✅ Allow All",
+  "approval.smartBlock": "🤖 Smart Block",
 
   "═══ Status / Notifications ═══": "═══ Status / Notifications ═══",
 

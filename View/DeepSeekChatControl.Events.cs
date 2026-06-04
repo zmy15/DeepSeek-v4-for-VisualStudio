@@ -1299,6 +1299,24 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
         }
 
+        private void ApprovalModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (ApprovalModeComboBox.SelectedValue is Models.ApprovalMode mode)
+            {
+                // 持久化到设置
+                if (_options != null)
+                {
+                    _options.ApprovalMode = mode switch
+                    {
+                        Models.ApprovalMode.BlockAll => "BlockAll",
+                        Models.ApprovalMode.AllowAll => "AllowAll",
+                        _ => "SmartBlock",
+                    };
+                }
+                Logger.Info($"审批模式切换为: {mode}");
+            }
+        }
+
         private void ThinkingCheckBox_Changed(object sender, RoutedEventArgs e)
         {
             if (_apiService != null)

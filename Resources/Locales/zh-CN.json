@@ -75,6 +75,7 @@
   "settings.category.autocomplete": "DeepSeek 自动补全",
   "settings.category.context": "Context Management",
   "settings.category.i18n": "Language / 语言",
+  "settings.category.approval": "审批设置",
 
   "settings.apiKey.displayName": "API Key",
   "settings.apiKey.description": "DeepSeek API 密钥，从 https://platform.deepseek.com/api_keys 获取",
@@ -141,6 +142,9 @@
 
   "settings.language.displayName": "界面语言 / Language",
   "settings.language.description": "选择显示语言。选择「自动」则跟随系统语言。\nSelect display language. 'Auto' follows system language.",
+
+  "settings.approvalMode.displayName": "审批模式",
+  "settings.approvalMode.description": "控制工具操作（终端命令、文件删除等）的审批行为：\n  • SmartBlock（智能拦截）— 仅危险命令需要审批，安全命令自动放行\n  • BlockAll（全部拦截）— 所有终端命令和文件操作都需要用户审批\n  • AllowAll（全部放行）— 自动批准所有操作，不询问用户（⚠️ 谨慎使用）",
 
   "═══ Chat UI Strings ═══": "═══ Chat UI Strings ═══",
 
@@ -402,6 +406,12 @@
   "input.uploadFile": "上传文件...",
   "input.fileChangesDetected": "📊 检测到文件变更",
   "input.contextStatsLabel": "Token:",
+
+  "═══ Approval Mode ═══": "═══ Approval Mode ═══",
+
+  "approval.blockAll": "🛑 全部拦截",
+  "approval.allowAll": "✅ 全部放行",
+  "approval.smartBlock": "🤖 智能拦截",
 
   "═══ Status / Notifications ═══": "═══ Status / Notifications ═══",
 
