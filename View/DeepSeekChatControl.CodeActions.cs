@@ -558,8 +558,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     int addLines = diffLinesAdd(oldContent, code);
                     int delLines = diffLinesDel(oldContent, code);
                     string fileName = Path.GetFileName(filePath);
-                    StatusLabel.Text = $"📊 预览中: {fileName}" +
-                        (addLines > 0 || delLines > 0 ? $" (+{addLines} -{delLines} 行变化)" : "");
+                    StatusLabel.Text = (addLines > 0 || delLines > 0)
+                        ? string.Format(LocalizationService.Instance["codeAction.previewingWithStats"], fileName, addLines, delLines)
+                        : string.Format(LocalizationService.Instance["codeAction.previewing"], fileName);
                     Logger.Info($"[CodeAction] 编辑器内 diff 预览已激活: {filePath}");
                 }
                 else
@@ -570,7 +571,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     if (error != null)
                     {
                         Logger.Error($"[CodeAction] 写入失败: {error}");
-                        StatusLabel.Text = $"❌ 写入失败: {error}";
+                        StatusLabel.Text = string.Format(LocalizationService.Instance["codeAction.writeFailedStatus"], error);
                         return;
                     }
 
@@ -584,10 +585,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     int addLines = diffLinesAdd(oldContent, code);
                     int delLines = diffLinesDel(oldContent, code);
                     string fileName = Path.GetFileName(filePath);
-                    StatusLabel.Text = $"✅ 已写入 {fileName}" +
-                        (addLines > 0 || delLines > 0 ? $" (+{addLines} -{delLines} 行变化)" : "") +
-                        ((_options == null || _options.ShowDiffMarkersInEditor) && (addLines > 0 || delLines > 0)
-                            ? " — 打开文件后可预览变更" : "");
+                    StatusLabel.Text = (addLines > 0 || delLines > 0)
+                        ? ((_options == null || _options.ShowDiffMarkersInEditor)
+                            ? string.Format(LocalizationService.Instance["codeAction.writtenWithTip"], fileName, addLines, delLines)
+                            : string.Format(LocalizationService.Instance["codeAction.writtenWithStats"], fileName, addLines, delLines))
+                        : string.Format(LocalizationService.Instance["codeAction.written"], fileName);
                     Logger.Info($"[CodeAction] 写入完成: {filePath}, +{addLines} -{delLines} 行变化");
                 }
             }

@@ -109,7 +109,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     if (entry.Role == "user" || entry.Role == "assistant")
                     {
                         string text = entry.Content ?? string.Empty;
-                        string prefix = entry.Role == "user" ? "用户" : "AI";
+                        string prefix = entry.Role == "user" ? LocalizationService.Instance["chat.role.user"] : LocalizationService.Instance["chat.role.ai"];
                         // RAG-MARK: no-truncate — 不再截断对话上下文，完整传递给重试流程
                         recentTurns.Insert(0, $"[{prefix}]: {text}");
                         turnCount++;
@@ -472,10 +472,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     PostStreamEnd(_agentStreamingMsgIndex, finalContent, string.Empty, combinedFooter);
 
                     StatusLabel.Text = plan.IsCancelled
-                        ? "⚠️ Agent 任务已取消"
+                        ? LocalizationService.Instance["agent.taskCancelled"]
                         : plan.ChangedFiles.Count > 0
-                            ? $"✅ Agent 任务完成 ({plan.ChangedFiles.Count} 个文件变更)"
-                            : $"✅ Agent 计划完成 ({plan.Steps.Count} 个步骤)";
+                            ? string.Format(LocalizationService.Instance["agent.taskCompletedFiles"], plan.ChangedFiles.Count)
+                            : string.Format(LocalizationService.Instance["agent.planCompletedSteps"], plan.Steps.Count);
 
                     // ── 如果有待处理的 Handoff（如 Plan→Edit），注入"开始实现"按钮 ──
                     if (_pendingHandoff != null && _agentStreamingMsgIndex >= 0)
@@ -551,7 +551,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
                 else if (!agentResult.Success)
                 {
-                    string errorContent = $"❌ Agent 执行失败: {agentResult.ErrorMessage}";
+                    string errorContent = string.Format(LocalizationService.Instance["agent.executionFailed"], agentResult.ErrorMessage);
                     lock (_lock)
                     {
                         if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count)
