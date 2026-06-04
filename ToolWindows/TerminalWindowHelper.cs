@@ -87,8 +87,9 @@ namespace DeepSeek_v4_for_VisualStudio.ToolWindows
                 && !Utils.CodeContentValidator.IsProbablySourceCode(filePath, newContent))
             {
                 string lang = Utils.CodeContentValidator.GetLanguageDescription(filePath);
-                string msg = $"❌ 文件写入被拒绝: `{Path.GetFileName(filePath)}` 的内容不像是合法的 {lang} 源代码。" +
-                    "\n请写入实际可编译的代码，严禁用自然语言描述、TODO 注释、文档摘要或功能说明替代代码。";
+                string msg = string.Format(LocalizationService.Instance["service.terminal.fileRejected"],
+                    Path.GetFileName(filePath), lang) +
+                    "\n" + LocalizationService.Instance["service.terminal.fileRejectedDetail"];
                 Logger.Warn($"[WriteCode] {msg}");
                 return msg;
             }

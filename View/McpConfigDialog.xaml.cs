@@ -211,7 +211,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                 }
 
-                ParseStatusLabel.Text = string.Format(LocalizationService.Instance["mcp.status.detectSuccess"], $"新增 {added} 个, 更新 {updated} 个");
+                ParseStatusLabel.Text = string.Format(LocalizationService.Instance["mcp.dialog.detectSuccess"], string.Format(LocalizationService.Instance["mcp.dialog.detectDetail"], added, updated));
                 ParseStatusLabel.Foreground = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(0x4E, 0xC9, 0xB0));
 
@@ -259,7 +259,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             btn.Content = "⏳";
             TestStatusBorder.Visibility = Visibility.Visible;
             TestProgressBar.IsIndeterminate = true;
-            TestStatusText.Text = $"正在连接 {config.Name}...";
+            TestStatusText.Text = string.Format(LocalizationService.Instance["mcp.dialog.connecting"], config.Name);
 
             try
             {
@@ -287,10 +287,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     var toolNames = string.Join(", ", client.Tools.Select(t => t.Name));
                     TestProgressBar.IsIndeterminate = false;
                     TestProgressBar.Value = 100;
-                    TestStatusText.Text = $"✅ {config.Name} 连接成功！\n" +
-                                          $"   服务器: {client.ServerInfo?.ServerInfo?.Name ?? config.Name}\n" +
-                                          $"   版本: {client.ServerInfo?.ServerInfo?.Version ?? "未知"}\n" +
-                                          $"   工具 ({client.Tools.Count}): {toolNames}";
+                    TestStatusText.Text = string.Format(LocalizationService.Instance["mcp.dialog.connected"],
+                        config.Name,
+                        client.ServerInfo?.ServerInfo?.Name ?? config.Name,
+                        client.ServerInfo?.ServerInfo?.Version ?? LocalizationService.Instance["mcp.dialog.versionUnknown"],
+                        client.Tools.Count,
+                        toolNames);
                     TestStatusText.Foreground = new System.Windows.Media.SolidColorBrush(
                         System.Windows.Media.Color.FromRgb(0x4E, 0xC9, 0xB0));
                     btn.Content = "✅";
@@ -302,8 +304,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     TestProgressBar.IsIndeterminate = false;
                     TestProgressBar.Value = 100;
-                    TestStatusText.Text = $"⚠️ {config.Name} 连接成功但未提供任何工具。\n" +
-                                          $"   请检查服务器配置是否正确。";
+                    TestStatusText.Text = string.Format(LocalizationService.Instance["mcp.dialog.noTools"], config.Name);
                     TestStatusText.Foreground = new System.Windows.Media.SolidColorBrush(
                         System.Windows.Media.Color.FromRgb(0xCE, 0x91, 0x78));
                     btn.Content = "⚠️";
@@ -314,8 +315,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (OperationCanceledException)
             {
                 TestProgressBar.IsIndeterminate = false;
-                TestStatusText.Text = $"⏱️ {config.Name} 连接超时（20秒）。\n" +
-                                      $"   请检查网络连接或服务器地址是否正确。";
+                TestStatusText.Text = string.Format(LocalizationService.Instance["mcp.dialog.timeout"], config.Name);
                 TestStatusText.Foreground = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(0xCE, 0x91, 0x78));
                 btn.Content = "⏱️";
@@ -325,7 +325,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (McpException ex)
             {
                 TestProgressBar.IsIndeterminate = false;
-                TestStatusText.Text = $"❌ {config.Name} MCP 协议错误:\n{ex.Message}";
+                TestStatusText.Text = string.Format(LocalizationService.Instance["mcp.dialog.protocolError"], config.Name, ex.Message);
                 TestStatusText.Foreground = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(0xF4, 0x87, 0x71));
                 btn.Content = "❌";
@@ -337,12 +337,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 bool isHttp = config.Transport?.ToLowerInvariant() == "http";
                 string errorHint = isHttp
-                    ? $"• 服务器地址是否正确（当前: {config.Url}）\n• 网络连接是否正常\n• 服务器是否在线"
-                    : $"• 命令是否正确（当前: {config.Command}）\n• 是否已安装所需运行时\n• 网络/Token 是否有效";
+                    ? string.Format(LocalizationService.Instance["mcp.dialog.urlCheckHint"], config.Url)
+                    : string.Format(LocalizationService.Instance["mcp.dialog.commandCheckHint"], config.Command);
 
                 TestProgressBar.IsIndeterminate = false;
-                TestStatusText.Text = $"❌ {config.Name} 连接失败:\n{ex.Message}\n\n" +
-                                      $"请检查:\n{errorHint}";
+                TestStatusText.Text = string.Format(LocalizationService.Instance["mcp.dialog.connectionFailed"], config.Name, ex.Message, errorHint);
                 TestStatusText.Foreground = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(0xF4, 0x87, 0x71));
                 btn.Content = "❌";

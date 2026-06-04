@@ -82,7 +82,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     Logger.Info($"[Skill] ══════════════════════════");
 
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = $"🎯 已加载技能: {skill.Name}";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["skills.loaded"], skill.Name);
 
                     var instructions = skill.GetFullInstructions();
                     return $"用户通过 /{commandName} 调用了技能 \"{skill.Name}\"。请按以下技能指令执行：\n\n{instructions}";
@@ -110,7 +110,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _messages.Add(errorMsg);
                     AddMessagesHtml("assistant", errorMsg.Content);
                     UpdateBrowser();
-                    StatusLabel.Text = $"⚠️ 未知命令: /{commandName}";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["skills.unknownCommand"], commandName);
 
                     return null;
                 }
@@ -214,7 +214,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _messages.Add(helpMsg);
                 AddMessagesHtml("assistant", helpMsg.Content);
                 UpdateBrowser();
-                StatusLabel.Text = $"共 {allSkills.Count} 个技能可用";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["skills.countAvailable"], allSkills.Count);
             }
             catch (Exception ex)
             {
@@ -334,7 +334,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _messages.Add(promptMsg);
                     AddMessagesHtml("assistant", promptMsg.Content);
                     UpdateBrowser();
-                    StatusLabel.Text = "请输入技能名称";
+                    StatusLabel.Text = LocalizationService.Instance["skills.enterName"];
                     return;
                 }
 
@@ -355,7 +355,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _messages.Add(errorMsg);
                     AddMessagesHtml("assistant", errorMsg.Content);
                     UpdateBrowser();
-                    StatusLabel.Text = $"⚠️ 无效的技能名称: {skillName}";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["skills.invalidName"], skillName);
                     return;
                 }
 
@@ -449,7 +449,7 @@ user-invocable: true
             catch (Exception ex)
             {
                 Logger.Error($"[Skill] 创建技能失败: {ex.Message}");
-                StatusLabel.Text = "创建技能失败";
+                StatusLabel.Text = LocalizationService.Instance["skills.createFailed"];
             }
         }
 
@@ -497,7 +497,7 @@ user-invocable: true
                     new ChatApiMessage { Role = "user", Content = routingUserPrompt }
                 };
 
-                StatusLabel.Text = "AI 正在匹配技能…";
+                StatusLabel.Text = LocalizationService.Instance["skills.matching"];
                 Logger.Info($"[SkillRoute] 开始技能路由判断 (用户输入 {fullUserContent.Length} 字符)");
 
                 string? routingResponse = null;
@@ -510,20 +510,20 @@ user-invocable: true
                 catch (OperationCanceledException)
                 {
                     Logger.Warn("[SkillRoute] 路由判断超时，跳过技能匹配");
-                    StatusLabel.Text = "DeepSeek 思考中…";
+                    StatusLabel.Text = LocalizationService.Instance["status.thinking"];
                     return null;
                 }
                 catch (Exception ex)
                 {
                     Logger.Warn($"[SkillRoute] 路由判断失败: {ex.Message}");
-                    StatusLabel.Text = "DeepSeek 思考中…";
+                    StatusLabel.Text = LocalizationService.Instance["status.thinking"];
                     return null;
                 }
 
                 if (string.IsNullOrEmpty(routingResponse))
                 {
                     Logger.Info("[SkillRoute] 路由判断返回空，跳过技能匹配");
-                    StatusLabel.Text = "DeepSeek 思考中…";
+                    StatusLabel.Text = LocalizationService.Instance["status.thinking"];
                     return null;
                 }
 
@@ -550,7 +550,7 @@ user-invocable: true
                 {
                     Logger.Info($"[SkillRoute] AI 判断无需调用技能" +
                         (routingResult?.Reason != null ? $": {routingResult.Reason}" : ""));
-                    StatusLabel.Text = "DeepSeek 思考中…";
+                    StatusLabel.Text = LocalizationService.Instance["status.thinking"];
                     return null;
                 }
 
@@ -568,12 +568,12 @@ user-invocable: true
                 if (matchedSkill == null)
                 {
                     Logger.Warn($"[SkillRoute] AI 返回的技能 '{skillName}' 在可用列表中未找到");
-                    StatusLabel.Text = "DeepSeek 思考中…";
+                    StatusLabel.Text = LocalizationService.Instance["status.thinking"];
                     return null;
                 }
 
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                StatusLabel.Text = $"🎯 AI 自动加载技能: {skillName}";
+                StatusLabel.Text = string.Format(LocalizationService.Instance["skills.autoLoaded"], skillName);
 
                 var instructions = matchedSkill.GetFullInstructions();
                 Logger.Info($"[SkillRoute] 技能指令长度: {instructions.Length} 字符");

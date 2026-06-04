@@ -146,6 +146,8 @@
 
   "chat.windowTitle": "DeepSeek Chat",
   "chat.deleteConversation": "Delete Current Conversation",
+  "chat.role.user": "User",
+  "chat.role.ai": "AI",
   "chat.confirmDeleteConversation": "Are you sure you want to delete the current conversation? This action cannot be undone.",
   "chat.sendMessage": "Send Message",
   "chat.thinking": "Thinking...",
@@ -1112,6 +1114,7 @@
   "service.webSearch.rateLimit": "Baidu search rate limit exceeded, please try again later.",
   "service.webSearch.noSummary": "(no summary)",
   "service.builtInTool.noResult": "(no result)",
+  "service.terminal.fileRejectedDetail": "Please write actual compilable code. Do NOT use natural language descriptions, TODO comments, documentation summaries, or feature descriptions as code substitutes.",
 
   "═══ Agent Log Messages ═══": "═══ Agent Log Messages ═══",
 
@@ -1181,5 +1184,74 @@
   "agent.log.editFileDeletedSuffix": " (deleted)",
   "agent.log.editNotifiedDeleted": "Deleted",
   "agent.log.editBuildFailed": "⚠️ Build failed: {0}",
-  "agent.log.editFinalBuildStepTitle": "Final Build Verification"
+  "agent.log.editFinalBuildStepTitle": "Final Build Verification",
+
+  "═══ UI ═══": "═══ UI ═══",
+
+  "ui.chat.deleteConversation": "Delete conversation",
+  "ui.chat.detectedFileChanges": "📊 File changes detected",
+  "ui.chat.undoAll": "↩️ Undo all",
+  "ui.chat.acceptAll": "✅ Accept all",
+  "ui.chat.addContextTip": "Add context: Active document / Project files / All project files / Selected code / Debug output",
+  "ui.chat.addActiveDoc": "📄 Add active document",
+  "ui.chat.addActiveDocTip": "Add the active document content to the conversation context",
+  "ui.chat.addProjectFile": "📁 Add project files…",
+  "ui.chat.addProjectFileTip": "Select files from the project to add to conversation context",
+  "ui.chat.addAllFiles": "📦 Add all project files",
+  "ui.chat.addAllFilesTip": "Add all source files from the current solution to the conversation context",
+  "ui.chat.addSelection": "✂️ Add selected code",
+  "ui.chat.addSelectionTip": "Add the currently selected code block to the conversation context",
+  "ui.chat.addDebug": "🐛 Add debug output",
+  "ui.chat.addDebugTip": "Add debug information from the Visual Studio output window to the conversation context",
+  "ui.chat.inputPlaceholder": "Type your question...",
+  "ui.chat.uploadTip": "Upload files (.txt .doc .xls .py .c etc.)",
+  "ui.chat.searchEngineTip": "Select search engine",
+  "ui.chat.webSearchOff": "Web search: Off",
+  "ui.chat.webSearchOn": "Web search: On",
+  "ui.chat.mcpConfig": "Configure MCP servers",
+  "ui.chat.clear": "Clear",
+  "ui.chat.newChat": "+ New chat",
+
+  "═══ Skills ═══": "═══ Skills ═══",
+
+  "skills.loaded": "🎯 Skill loaded: {0}",
+  "skills.unknownCommand": "⚠️ Unknown command: /{0}",
+  "skills.countAvailable": "{0} skills available",
+  "skills.enterName": "Enter skill name",
+  "skills.invalidName": "⚠️ Invalid skill name: {0}",
+  "skills.createFailed": "Failed to create skill",
+  "skills.matching": "AI is matching skills…",
+  "skills.autoLoaded": "🎯 AI auto-loaded skill: {0}",
+  "skills.available": "Available skill commands",
+
+  "═══ Agent ═══": "═══ Agent ═══",
+
+  "agent.taskCancelled": "⚠️ Agent task cancelled",
+  "agent.taskCompletedFiles": "✅ Agent task completed ({0} files changed)",
+  "agent.planCompletedSteps": "✅ Agent plan completed ({0} steps)",
+  "agent.executionFailed": "❌ Agent execution failed: {0}",
+
+  "═══ Code Actions ═══": "═══ Code Actions ═══",
+
+  "codeAction.previewing": "📊 Previewing: {0}",
+  "codeAction.previewingWithStats": "📊 Previewing: {0} (+{1} -{2} lines)",
+  "codeAction.written": "✅ Written: {0}",
+  "codeAction.writtenWithStats": "✅ Written: {0} (+{1} -{2} lines)",
+  "codeAction.writtenWithTip": "✅ Written: {0} (+{1} -{2} lines) — Open file to preview changes",
+  "codeAction.writeFailedStatus": "❌ Write failed: {0}",
+
+  "═══ MCP Config ═══": "═══ MCP Config ═══",
+
+  "mcp.dialog.connecting": "Connecting to {0}...",
+  "mcp.dialog.connected": "✅ {0} connected!\n   Server: {1}\n   Version: {2}\n   Tools ({3}): {4}",
+  "mcp.dialog.versionUnknown": "Unknown",
+  "mcp.dialog.noTools": "⚠️ {0} connected but provided no tools.\n   Please check server configuration.",
+  "mcp.dialog.timeout": "⏱️ {0} connection timed out (20s).\n   Check network connection or server address.",
+  "mcp.dialog.protocolError": "❌ {0} MCP protocol error:\n{1}",
+  "mcp.dialog.connectionFailed": "❌ {0} connection failed:\n{1}\n\nPlease check:\n{2}",
+  "mcp.dialog.urlCheckHint": "• Is the server address correct? (current: {0})\n• Is the network connection working?\n• Is the server online?",
+  "mcp.dialog.commandCheckHint": "• Is the command correct? (current: {0})\n• Are required runtimes installed?\n• Is the network/token valid?",
+  "mcp.dialog.detectSuccess": "Detection complete: {0}",
+  "mcp.dialog.detectDetail": "{0} added, {1} updated",
+  "mcp.dialog.saved": "✅ Saved {0} MCP server configurations"
 }

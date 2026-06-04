@@ -146,6 +146,8 @@
 
   "chat.windowTitle": "DeepSeek Chat",
   "chat.deleteConversation": "删除当前对话",
+  "chat.role.user": "用户",
+  "chat.role.ai": "AI",
   "chat.confirmDeleteConversation": "确定要删除当前对话吗？此操作不可撤销。",
   "chat.sendMessage": "发送消息",
   "chat.thinking": "思考中...",
@@ -1117,6 +1119,7 @@
   "service.webSearch.rateLimit": "百度搜索请求频率超限，请稍后重试。",
   "service.webSearch.noSummary": "(无摘要)",
   "service.builtInTool.noResult": "（无返回结果）",
+  "service.terminal.fileRejectedDetail": "请写入实际可编译的代码，严禁用自然语言描述、TODO 注释、文档摘要或功能说明替代代码。",
 
   "═══ Agent Log Messages ═══": "═══ Agent Log Messages ═══",
 
@@ -1186,5 +1189,74 @@
   "agent.log.editFileDeletedSuffix": " (已删除)",
   "agent.log.editNotifiedDeleted": "已删除",
   "agent.log.editBuildFailed": "⚠️ 构建失败: {0}",
-  "agent.log.editFinalBuildStepTitle": "最终编译验证"
+  "agent.log.editFinalBuildStepTitle": "最终编译验证",
+
+  "═══ UI ═══": "═══ UI ═══",
+
+  "ui.chat.deleteConversation": "删除当前对话",
+  "ui.chat.detectedFileChanges": "📊 检测到文件变更",
+  "ui.chat.undoAll": "↩️ 撤销全部",
+  "ui.chat.acceptAll": "✅ 接受全部",
+  "ui.chat.addContextTip": "添加上下文：活动文档 / 项目文件 / 项目全部文件 / 选中代码块 / 调试输出",
+  "ui.chat.addActiveDoc": "📄 添加活动文档",
+  "ui.chat.addActiveDocTip": "将当前编辑器中的活动文档内容添加到对话上下文",
+  "ui.chat.addProjectFile": "📁 添加项目文件…",
+  "ui.chat.addProjectFileTip": "从项目中选择文件添加到对话上下文",
+  "ui.chat.addAllFiles": "📦 添加项目全部文件",
+  "ui.chat.addAllFilesTip": "一键将当前解决方案中所有项目的源代码文件添加到对话上下文",
+  "ui.chat.addSelection": "✂️ 添加选中代码块",
+  "ui.chat.addSelectionTip": "将编辑器中当前选中的代码块添加到对话上下文",
+  "ui.chat.addDebug": "🐛 添加调试输出",
+  "ui.chat.addDebugTip": "将 Visual Studio 输出窗口中的调试信息添加到对话上下文",
+  "ui.chat.inputPlaceholder": "输入问题...",
+  "ui.chat.uploadTip": "上传文件 (支持 .txt .doc .xls .py .c 等)",
+  "ui.chat.searchEngineTip": "选择搜索引擎",
+  "ui.chat.webSearchOff": "联网搜索: 已关闭",
+  "ui.chat.webSearchOn": "联网搜索: 已开启",
+  "ui.chat.mcpConfig": "配置 MCP 服务器",
+  "ui.chat.clear": "清空",
+  "ui.chat.newChat": "+ 新对话",
+
+  "═══ Skills ═══": "═══ Skills ═══",
+
+  "skills.loaded": "🎯 已加载技能: {0}",
+  "skills.unknownCommand": "⚠️ 未知命令: /{0}",
+  "skills.countAvailable": "共 {0} 个技能可用",
+  "skills.enterName": "请输入技能名称",
+  "skills.invalidName": "⚠️ 无效的技能名称: {0}",
+  "skills.createFailed": "创建技能失败",
+  "skills.matching": "AI 正在匹配技能…",
+  "skills.autoLoaded": "🎯 AI 自动加载技能: {0}",
+  "skills.available": "可用的技能命令",
+
+  "═══ Agent ═══": "═══ Agent ═══",
+
+  "agent.taskCancelled": "⚠️ Agent 任务已取消",
+  "agent.taskCompletedFiles": "✅ Agent 任务完成 ({0} 个文件变更)",
+  "agent.planCompletedSteps": "✅ Agent 计划完成 ({0} 个步骤)",
+  "agent.executionFailed": "❌ Agent 执行失败: {0}",
+
+  "═══ Code Actions ═══": "═══ Code Actions ═══",
+
+  "codeAction.previewing": "📊 预览中: {0}",
+  "codeAction.previewingWithStats": "📊 预览中: {0} (+{1} -{2} 行变化)",
+  "codeAction.written": "✅ 已写入 {0}",
+  "codeAction.writtenWithStats": "✅ 已写入 {0} (+{1} -{2} 行变化)",
+  "codeAction.writtenWithTip": "✅ 已写入 {0} (+{1} -{2} 行变化) — 打开文件后可预览变更",
+  "codeAction.writeFailedStatus": "❌ 写入失败: {0}",
+
+  "═══ MCP Config ═══": "═══ MCP Config ═══",
+
+  "mcp.dialog.connecting": "正在连接 {0}...",
+  "mcp.dialog.connected": "✅ {0} 连接成功！\n   服务器: {1}\n   版本: {2}\n   工具 ({3}): {4}",
+  "mcp.dialog.versionUnknown": "未知",
+  "mcp.dialog.noTools": "⚠️ {0} 连接成功但未提供任何工具。\n   请检查服务器配置是否正确。",
+  "mcp.dialog.timeout": "⏱️ {0} 连接超时（20秒）。\n   请检查网络连接或服务器地址是否正确。",
+  "mcp.dialog.protocolError": "❌ {0} MCP 协议错误:\n{1}",
+  "mcp.dialog.connectionFailed": "❌ {0} 连接失败:\n{1}\n\n请检查:\n{2}",
+  "mcp.dialog.urlCheckHint": "• 服务器地址是否正确（当前: {0}）\n• 网络连接是否正常\n• 服务器是否在线",
+  "mcp.dialog.commandCheckHint": "• 命令是否正确（当前: {0}）\n• 是否已安装所需运行时\n• 网络/Token 是否有效",
+  "mcp.dialog.detectSuccess": "检测完成: {0}",
+  "mcp.dialog.detectDetail": "新增 {0} 个, 更新 {1} 个",
+  "mcp.dialog.saved": "✅ 已保存 {0} 个 MCP 服务器配置"
 }
