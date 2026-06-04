@@ -279,8 +279,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (context.IsPlanningMode && step.Status == AgentStepStatus.Completed)
                     {
                         string stepResult = string.IsNullOrEmpty(step.ResultSummary)
-                            ? $"步骤 {step.Index} ({step.Title}) 已完成"
-                            : $"步骤 {step.Index} ({step.Title}): {step.ResultSummary}";
+                            ? string.Format(L["agent.log.editStepContextCompleted"], step.Index, step.Title)
+                            : string.Format(L["agent.log.editStepContextWithResult"], step.Index, step.Title, step.ResultSummary);
                         context.AccumulatedContext = (context.AccumulatedContext ?? "") + "\n" + stepResult;
                         if (!string.IsNullOrEmpty(step.AiResponse) && step.AiResponse!.Length < 3000)
                             context.AccumulatedContext += "\n" + step.AiResponse;
@@ -314,12 +314,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         {
                             finalBuildResult = await BuiltInTools.ExecuteBuiltInToolAsync(
                                 "build_solution", "{}", context.SolutionPath)
-                                ?? "⚠️ 构建工具未返回结果";
+                                ?? LocalizationService.Instance["agent.log.editBuildToolNoResult"];
                         }
                         else
                         {
                             finalBuildResult = await ExecuteBuildStepAsync(
-                                new AgentStep { Title = "最终编译验证" }, context.SolutionPath,
+                                new AgentStep { Title = LocalizationService.Instance["agent.log.editFinalBuildStepTitle"] }, context.SolutionPath,
                                 _agentCts.Token);
                         }
                         string oneLine = finalBuildResult.Split(new[] { '\r', '\n' },
@@ -388,7 +388,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (!approved)
                 {
                     step.Status = AgentStepStatus.Skipped;
-                    step.ResultSummary = "用户拒绝执行";
+                    step.ResultSummary = LocalizationService.Instance["agent.log.editStepPermissionDenied"];
                     return;
                 }
 
@@ -411,7 +411,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     buildResult = await BuiltInTools.ExecuteBuiltInToolAsync(
                         "build_solution", "{}", context.SolutionPath)
-                        ?? "⚠️ 构建工具未返回结果";
+                        ?? LocalizationService.Instance["agent.log.editBuildToolNoResult"];
                 }
                 else
                 {
@@ -550,7 +550,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         sb.AppendLine();
                         sb.AppendLine("---");
-                        sb.AppendLine($"> ⚠️ 第 {i + 1} 次尝试（前次格式错误，已自动重试）");
+                        sb.AppendLine(string.Format(LocalizationService.Instance["agent.log.editFormatRetryNotice"], i + 1));
                         sb.AppendLine();
                     }
                     sb.Append(retryOutputs[i]);
@@ -565,7 +565,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── AI 明确表示没有要更改的内容 → 跳过编辑执行 ──
             if (string.IsNullOrWhiteSpace(result))
             {
-                step.ResultSummary = "✅ 无需修改（AI 确认没有要更改的内容）";
+                step.ResultSummary = LocalizationService.Instance["agent.log.editNoChangesConfirmed"];
                 TerminalWindowHelper.SuppressDiffPreview = false;
                 AddLog("INFO", LocalizationService.Instance["agent.log.editNoChange"]);
                 return;
@@ -646,9 +646,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 .Select(g => g.First())
                 .ToList();
 
+            var L = LocalizationService.Instance;
             step.ResultSummary = changes.Count > 0
-                ? $"修改 {changes.Count} 个文件（格式: {operationType}）"
-                : $"未检测到文件变更（格式: {operationType}，已尝试匹配并应用编辑）";
+                ? string.Format(L["agent.log.editFilesModified"], changes.Count, operationType)
+                : string.Format(L["agent.log.editNoFilesChanged"], operationType);
 
             // ── 编辑后健全性检查：检测括号不匹配等常见问题 ──
             string? sanityWarnings = null;
@@ -676,8 +677,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     // ── 注入 step.AiResponse 确保警告即使跳过验证阶段也不会丢失 ──
                     step.AiResponse = (step.AiResponse ?? "") +
-                        $"\n\n## ⚠️ 编辑后健全性检查 — 括号不匹配\n\n{sanityWarnings}\n\n" +
-                        "请在后续步骤中用 read_file 检查这些文件，修复括号/圆括号不匹配问题。";
+                        string.Format(LocalizationService.Instance["agent.log.editBraceParenWarningHeader"], sanityWarnings) +
+                        LocalizationService.Instance["agent.log.editBraceParenWarningHint"];
                 }
             }
 
@@ -753,7 +754,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 if (!string.IsNullOrWhiteSpace(verifyResult))
                 {
-                    step.AiResponse = (step.AiResponse ?? "") + "\n\n## 验证\n\n" + verifyResult;
+                    step.AiResponse = (step.AiResponse ?? "") + LocalizationService.Instance["agent.log.editVerifyHeader"] + verifyResult;
                     AddLog("INFO", LocalizationService.Instance["agent.log.verifyPhaseComplete"]);
 
                     // ── 追踪验证阶段的文件变更到 plan.ChangedFiles ──
@@ -860,7 +861,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             FilePath = resolvedPath,
                             Success = false,
                             OperationType = EditOperationType.ApplyPatch,
-                            ErrorMessage = "用户拒绝修改项目文件",
+                            ErrorMessage = LocalizationService.Instance["agent.log.editPermissionDeniedGeneric"],
                         });
                         continue;
                     }
@@ -986,7 +987,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             FilePath = resolvedPath,
                             Success = false,
                             OperationType = EditOperationType.InsertEditIntoFile,
-                            ErrorMessage = "用户拒绝修改项目文件",
+                            ErrorMessage = LocalizationService.Instance["agent.log.editPermissionDeniedGeneric"],
                         });
                         continue;
                     }
@@ -1027,7 +1028,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         {
                             AddLog("WARN", LocalizationService.Instance.Format("agent.log.editWriteSkipped", Path.GetFileName(resolvedPath)));
                             applyResult.Success = false;
-                            applyResult.ErrorMessage = "用户拒绝修改项目文件";
+                            applyResult.ErrorMessage = LocalizationService.Instance["agent.log.editPermissionDeniedGeneric"];
                         }
                     }
 
@@ -1124,13 +1125,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     bool createWriteAllowed = await EnsureProjectFileWriteConfirmedAsync(resolvedPath, createOpDesc, change.NewContent ?? string.Empty);
                     if (!createWriteAllowed)
                     {
-                        AddLog("WARN", $"⏭ 已跳过项目文件写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
+                        AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.editProjectFileWriteSkipped"], Path.GetFileName(resolvedPath)));
                         appliedResults.Add(new EditApplyResult
                         {
                             FilePath = resolvedPath,
                             Success = false,
                             OperationType = EditOperationType.CreateFile,
-                            ErrorMessage = "用户拒绝修改项目文件",
+                            ErrorMessage = LocalizationService.Instance["agent.log.editPermissionDeniedGeneric"],
                         });
                         continue;
                     }
@@ -1211,8 +1212,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
             }
 
-            string deleteReason = plan.Title ?? "代码重构";
-            string deletePurpose = $"根据计划「{deleteReason}」中的要求，需要删除这些不再需要的文件";
+            string deleteReason = plan.Title ?? LocalizationService.Instance["agent.log.editDefaultDeleteReason"];
+            string deletePurpose = string.Format(LocalizationService.Instance["agent.log.editDeletePurpose"], deleteReason);
             bool confirmed = await RequestFileDeleteConfirmationAsync(resolvedDeletions, deleteReason, deletePurpose);
 
             if (confirmed)
@@ -1228,10 +1229,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         FilePath = deletedPath,
                         LinesAdded = 0,
                         LinesRemoved = -1,
-                        BriefDescription = $"{Path.GetFileName(deletedPath)} (已删除)",
+                        BriefDescription = $"{Path.GetFileName(deletedPath)}{LocalizationService.Instance["agent.log.editFileDeletedSuffix"]}",
                         OriginalContent = capturedOriginal,
                     });
-                    NotifyFileChange(plan.PlanId, "delete", deletedPath, "已删除");
+                    NotifyFileChange(plan.PlanId, "delete", deletedPath, LocalizationService.Instance["agent.log.editNotifiedDeleted"]);
                 }
             }
             else
@@ -1358,7 +1359,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             catch (Exception ex)
             {
                 Logger.Warn($"[EditAgent] 构建异常: {ex.Message}");
-                return $"⚠️ 构建失败: {ex.Message}";
+                return string.Format(LocalizationService.Instance["agent.log.editBuildFailed"], ex.Message);
             }
         }
 
