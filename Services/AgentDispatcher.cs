@@ -747,6 +747,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         #region Permission
 
         /// <summary>
+        /// 按 RequestId 查找待处理的权限请求（不删除）。
+        /// 支持并发权限请求场景：从活跃 Agent 的 _pendingPermissions 字典中精确查找。
+        /// </summary>
+        public AgentPermissionRequest? TryGetPendingPermission(string requestId)
+        {
+            return GetActiveAgent()?.TryGetPendingPermission(requestId);
+        }
+
+        /// <summary>
         /// 响应权限请求。
         /// </summary>
         public void RespondToPermission(string requestId, bool approved)

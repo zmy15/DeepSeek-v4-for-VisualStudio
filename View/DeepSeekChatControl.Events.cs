@@ -1736,8 +1736,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         bool confirmed = obj.TryGetProperty("confirmed", out var confProp)
                             && confProp.GetBoolean();
 
-                        // 从活跃 Agent 的待处理权限中获取文件路径
-                        var pendingPermission = _agentDispatcher?.PendingPermission;
+                        // 按 RequestId 精确查找待处理的权限请求（支持并发权限场景）
+                        var pendingPermission = _agentDispatcher?.TryGetPendingPermission(requestId);
                         List<string> filePaths = pendingPermission?.FilePaths ?? new List<string>();
 
                         if (confirmed && filePaths.Count > 0)
