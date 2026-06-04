@@ -130,7 +130,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             {
                 string command = GetStringArg(args, "command");
                 if (string.IsNullOrEmpty(command))
-                    return "❌ memory: 缺少 command 参数。可用命令: view, create, str_replace, insert, delete, rename";
+                    return LocalizationService.Instance["tool.memory.missingCommand"];
 
                 // ── 解析解决方案路径：优先使用 ExecuteAsync 传入的 workspaceRoot，
                 //     回退到构造函数注入的 _getSolutionPath（兼容旧路径和测试）──
@@ -150,7 +150,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             catch (Exception ex)
             {
                 Logger.Error($"[MemoryTool] 执行异常", ex);
-                return $"❌ memory 错误: {ex.Message}";
+                return LocalizationService.Instance.Format("tool.memory.error", ex.Message);
             }
         }
 
@@ -198,7 +198,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 ? $"📄 文件: {result.Path} (作用域: {scope}, 行 {result.ViewStartLine}-{result.ViewEndLine} / 共 {result.TotalLines} 行)"
                 : $"📄 文件: {result.Path} (作用域: {scope})";
 
-            return header + "\n\n" + (result.Content ?? "(空)");
+            return header + "\n\n" + (result.Content ?? LocalizationService.Instance["tool.memory.empty"]);
         }
 
         private async Task<string> ExecuteCreateAsync(Dictionary<string, JsonElement> args, string? solutionPath)
@@ -207,9 +207,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string content = GetStringArg(args, "file_text");
 
             if (string.IsNullOrEmpty(rawPath))
-                return "❌ memory create: 缺少 path 参数";
+                return LocalizationService.Instance["tool.memory.createMissingPath"];
             if (content == null)
-                return "❌ memory create: 缺少 file_text 参数";
+                return LocalizationService.Instance["tool.memory.createMissingText"];
 
             var (scope, path) = ParseMemoryPath(rawPath);
             return await _memoryService.CreateAsync(scope, path, content, _getSessionId(), solutionPath);
@@ -222,11 +222,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string newStr = GetStringArg(args, "new_str");
 
             if (string.IsNullOrEmpty(rawPath))
-                return "❌ memory str_replace: 缺少 path 参数";
+                return LocalizationService.Instance["tool.memory.strReplaceMissingPath"];
             if (oldStr == null)
-                return "❌ memory str_replace: 缺少 old_str 参数";
+                return LocalizationService.Instance["tool.memory.strReplaceMissingOld"];
             if (newStr == null)
-                return "❌ memory str_replace: 缺少 new_str 参数";
+                return LocalizationService.Instance["tool.memory.strReplaceMissingNew"];
 
             var (scope, path) = ParseMemoryPath(rawPath);
             return await _memoryService.StrReplaceAsync(scope, path, oldStr, newStr, _getSessionId(), solutionPath);
@@ -238,9 +238,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string text = GetStringArg(args, "insert_text");
 
             if (string.IsNullOrEmpty(rawPath))
-                return "❌ memory insert: 缺少 path 参数";
+                return LocalizationService.Instance["tool.memory.insertMissingPath"];
             if (text == null)
-                return "❌ memory insert: 缺少 insert_text 参数";
+                return LocalizationService.Instance["tool.memory.insertMissingText"];
 
             int lineNumber = 0;
             if (args.TryGetValue("insert_line", out var lineEl) && lineEl.ValueKind == JsonValueKind.Number)
@@ -254,7 +254,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             string rawPath = GetStringArg(args, "path");
             if (string.IsNullOrEmpty(rawPath))
-                return "❌ memory delete: 缺少 path 参数";
+                return LocalizationService.Instance["tool.memory.deleteMissingPath"];
 
             var (scope, path) = ParseMemoryPath(rawPath);
             return await _memoryService.DeleteAsync(scope, path, _getSessionId(), solutionPath);
@@ -266,15 +266,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string rawNewPath = GetStringArg(args, "new_path");
 
             if (string.IsNullOrEmpty(rawOldPath))
-                return "❌ memory rename: 缺少 old_path 参数";
+                return LocalizationService.Instance["tool.memory.renameMissingOld"];
             if (string.IsNullOrEmpty(rawNewPath))
-                return "❌ memory rename: 缺少 new_path 参数";
+                return LocalizationService.Instance["tool.memory.renameMissingNew"];
 
             var (oldScope, oldPath) = ParseMemoryPath(rawOldPath);
             var (newScope, newPath) = ParseMemoryPath(rawNewPath);
 
             if (oldScope != newScope)
-                return "❌ memory rename: 不能跨作用域重命名";
+                return LocalizationService.Instance["tool.memory.renameCrossScope"];
 
             return await _memoryService.RenameAsync(oldScope, oldPath, newPath, _getSessionId(), solutionPath);
         }
@@ -302,7 +302,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "（无返回结果）";
+            if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
             // 截取结果的前80字符作为摘要
             return toolResult.Length > 80

@@ -45,14 +45,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             string mkdirPath = GetStringArg(args, "dirPath");
             string mkdirName = string.IsNullOrEmpty(mkdirPath) ? "?" : Path.GetFileName(mkdirPath);
-            return $"📁 创建目录 `{mkdirName}`";
+            return LocalizationService.Instance.Format("tool.createDirectory.displayText", mkdirName);
         }
 
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
-            return "📁 目录操作完成";
+            return LocalizationService.Instance["tool.createDirectory.complete"];
         }
 
         public override Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)

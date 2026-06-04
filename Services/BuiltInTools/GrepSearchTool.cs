@@ -80,7 +80,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             workspaceRoot = NormalizeWorkspaceRoot(workspaceRoot);
             string query = GetStringArg(args, "query");
             if (string.IsNullOrEmpty(query))
-                return Task.FromResult("❌ grep_search: 缺少 query 参数");
+                return Task.FromResult(LocalizationService.Instance["tool.grepSearch.missingQuery"]);
 
             bool isRegexp = GetBoolArg(args, "isRegexp");
             string? includePattern = GetStringArg(args, "includePattern");
@@ -88,7 +88,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             string searchRoot = workspaceRoot ?? Directory.GetCurrentDirectory();
             if (!Directory.Exists(searchRoot))
-                return Task.FromResult($"❌ 工作区目录不存在: {searchRoot}");
+                return Task.FromResult(LocalizationService.Instance.Format("tool.grepSearch.workspaceNotExist", searchRoot));
 
             try
             {
@@ -135,7 +135,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 if (isRegexp)
                 {
                     try { regex = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100)); }
-                    catch { return Task.FromResult($"❌ 无效的正则表达式: {query}"); }
+                    catch { return Task.FromResult(LocalizationService.Instance.Format("tool.grepSearch.invalidRegex", query)); }
                 }
 
                 foreach (var file in filesToSearch)
@@ -187,7 +187,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             }
             catch (Exception ex)
             {
-                return Task.FromResult($"❌ 文本搜索失败: {ex.Message}");
+                return Task.FromResult(LocalizationService.Instance.Format("tool.grepSearch.failed", ex.Message));
             }
         }
     }

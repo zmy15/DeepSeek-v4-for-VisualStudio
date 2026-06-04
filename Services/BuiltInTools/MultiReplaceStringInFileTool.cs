@@ -71,15 +71,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
             if (toolResult.StartsWith("✅") || toolResult.Contains("成功") || toolResult.Contains("success"))
-                return "✅ 编辑完成";
-            return "✏️ 编辑完成";
+                return LocalizationService.Instance["tool.multiReplace.editComplete"];
+            return LocalizationService.Instance["tool.multiReplace.editDone"];
         }
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
         {
             if (!args.TryGetValue("replacements", out var element) ||
                 element.ValueKind != JsonValueKind.Array)
-                return "❌ multi_replace_string_in_file: 缺少 replacements 数组参数";
+                return LocalizationService.Instance["tool.multiReplace.missingReplacements"];
 
             var results = new List<string>();
             int successCount = 0;

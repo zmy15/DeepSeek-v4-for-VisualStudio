@@ -66,9 +66,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             int eLine = GetIntArg(args, "endLine", 0);
             string fileName = string.IsNullOrEmpty(filePath) ? "?" : Path.GetFileName(filePath);
             if (sLine > 0 && eLine > 0 && eLine > sLine)
-                return $"📄 读取文件 `{fileName}` (第{sLine}-{eLine}行)";
+                return LocalizationService.Instance.Format("tool.readFile.displayTextRange", fileName, sLine, eLine);
             else if (sLine > 0)
-                return $"📄 读取文件 `{fileName}` (从第{sLine}行)";
+                return LocalizationService.Instance.Format("tool.readFile.displayTextFrom", fileName, sLine);
             else
                 return string.IsNullOrEmpty(filePath)
                     ? "📄 读取文件"
@@ -86,15 +86,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 firstLine, @"(?:共|total|总计)\s*(\d+)\s*(?:行|lines)",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (lineCountMatch.Success)
-                return $"✅ 读取完成 ({lineCountMatch.Groups[1].Value} 行)";
-            return $"✅ 读取完成 ({readLines.Length} 行)";
+                return LocalizationService.Instance.Format("tool.readFile.readCompleteLines", lineCountMatch.Groups[1].Value);
+            return LocalizationService.Instance.Format("tool.readFile.readCompleteLines", readLines.Length);
         }
 
         public override Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
         {
             string filePath = GetStringArg(args, "filePath");
             if (string.IsNullOrEmpty(filePath))
-                return Task.FromResult("❌ read_file: 缺少 filePath 参数");
+                return Task.FromResult(LocalizationService.Instance["tool.readFile.missingParam"]);
 
             int reqStartLine = GetIntArg(args, "startLine", 1);
             int reqEndLine = GetIntArg(args, "endLine", int.MaxValue);
@@ -129,7 +129,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     else
                     {
                         _fileReadCache.TryRemove(filePath, out _);
-                        return Task.FromResult($"❌ 文件不存在: {filePath}");
+                        return Task.FromResult(LocalizationService.Instance.Format("tool.readFile.fileNotFound", filePath));
                     }
                 }
                 catch { /* 读取失败时不阻塞，使用缓存内容 */ }
@@ -217,7 +217,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     ? $"\n💡 当前工作区根目录: `{workspaceRoot}`，请使用此目录下的绝对路径。"
                     : "";
                 wsHint += "\n💡 如果这是需要新建的文件，请使用 create_file 工具创建（会自动创建父目录）。如果父目录不存在，请先使用 create_directory 创建目录。";
-                return Task.FromResult($"❌ 文件不存在: {filePath}{wsHint}");
+                return Task.FromResult(LocalizationService.Instance.Format("tool.readFile.fileNotFound", filePath) + wsHint);
             }
 
             try
@@ -261,7 +261,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             }
             catch (Exception ex)
             {
-                return Task.FromResult($"❌ 读取文件失败: {ex.Message}");
+                return Task.FromResult(LocalizationService.Instance.Format("tool.readFile.failed", ex.Message));
             }
         }
 

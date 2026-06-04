@@ -43,7 +43,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             string createPath = GetStringArg(args, "filePath");
             string createFile = string.IsNullOrEmpty(createPath) ? "?" : Path.GetFileName(createPath);
-            return $"📝 创建文件 `{createFile}`";
+            return LocalizationService.Instance.Format("tool.createFile.displayText", createFile);
         }
 
         public override string GetResultSummary(string toolResult)
@@ -79,8 +79,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     && !Utils.CodeContentValidator.IsProbablySourceCode(filePath, normalizedContent))
                 {
                     string lang = Utils.CodeContentValidator.GetLanguageDescription(filePath);
-                    return $"❌ create_file 被拒绝: `{Path.GetFileName(filePath)}` 的内容不像是合法的 {lang} 源代码。" +
-                        "\n请写入实际可编译的代码，严禁用自然语言描述、TODO 注释、文档摘要或功能说明替代代码。";
+                    return LocalizationService.Instance.Format("tool.createFile.rejected", Path.GetFileName(filePath), lang);
                 }
 
                 bool existed = File.Exists(filePath);

@@ -83,7 +83,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             // 此工具的实际执行由 UI 层（DeepSeekChatControl）拦截处理，
             // 不在后端执行。如果到达此处，说明 UI 未拦截。
-            return Task.FromResult("💬 问题已提交给用户，等待回答...");
+            return Task.FromResult(LocalizationService.Instance["tool.askQuestions.submitted"]);
         }
     }
 }

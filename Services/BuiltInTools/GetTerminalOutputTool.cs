@@ -49,14 +49,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
-            return $"📋 终端输出 ({toolResult.Length} 字符)";
+            return LocalizationService.Instance.Format("tool.getTerminalOutput.result", toolResult.Length);
         }
 
         public override Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
         {
             string id = GetStringArg(args, "id");
             if (string.IsNullOrEmpty(id))
-                return Task.FromResult("❌ get_terminal_output: 缺少 id 参数");
+                return Task.FromResult(LocalizationService.Instance["tool.getTerminalOutput.missingId"]);
 
             return Task.FromResult(
                 $"📟 终端 ID: {id}\n" +

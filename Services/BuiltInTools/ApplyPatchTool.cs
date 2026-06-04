@@ -59,7 +59,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string patchText = GetStringArg(args, "patch");
 
             if (string.IsNullOrEmpty(patchText))
-                return "❌ apply_patch: 缺少 patch 参数。请提供 *** Begin Patch / *** End Patch 格式的补丁文本。";
+                return LocalizationService.Instance["tool.applyPatch.missingParam"];
 
             workspaceRoot = NormalizeWorkspaceRoot(workspaceRoot);
 
@@ -70,7 +70,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 if (patches.Count == 0)
                 {
-                    return "⚠️ apply_patch: 未检测到 *** Begin Patch / *** End Patch 块。\n"
+                    return LocalizationService.Instance["tool.applyPatch.noPatchBlock"] + "\n"
                         + "请使用正确格式：\n"
                         + "*** Begin Patch\n"
                         + "*** Update File: /path/to/file\n"
@@ -178,7 +178,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             }
             catch (Exception ex)
             {
-                return $"❌ apply_patch 失败: {ex.Message}";
+                return LocalizationService.Instance.Format("tool.applyPatch.failed", ex.Message);
             }
         }
     }

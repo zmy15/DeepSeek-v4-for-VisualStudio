@@ -61,8 +61,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             var filePaths = GetStringArrayArg(args, "filePaths");
             if (filePaths != null && filePaths.Length > 0)
-                return $"⚠️ 检查 {filePaths.Length} 个文件的编译错误";
-            return "⚠️ 检查工作区编译错误";
+                return LocalizationService.Instance.Format("tool.getErrors.displayTextFiles", filePaths.Length);
+            return LocalizationService.Instance["tool.getErrors.displayText"];
         }
 
         public override string GetResultSummary(string toolResult)
@@ -71,12 +71,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             if (toolResult.StartsWith("❌")) return toolResult;
 
             if (toolResult.Contains("0 个错误") || toolResult.Contains("0 errors"))
-                return "✅ 无编译错误";
+                return LocalizationService.Instance["tool.getErrors.noErrors"];
             var errMatch = System.Text.RegularExpressions.Regex.Match(
                 toolResult, @"(\d+)\s*(?:个)?\s*(?:错误|errors?)",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (errMatch.Success)
-                return $"⚠️ 发现 {errMatch.Groups[1].Value} 个错误";
+                return LocalizationService.Instance.Format("tool.getErrors.foundErrors", errMatch.Groups[1].Value);
             return LocalizationService.Instance["tool.getErrors.checkComplete"];
         }
 
@@ -131,7 +131,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 catch (Exception ex)
                 {
                     Logger.Warn($"[BuiltInTool] get_errors (selected) 异常: {ex.Message}");
-                    return $"❌ 获取选中错误项失败: {ex.Message}";
+                    return LocalizationService.Instance.Format("tool.getErrors.selectedItemFailed", ex.Message);
                 }
             }
 
@@ -154,12 +154,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     return sb.ToString().TrimEnd();
                 }
 
-                return "🔧 编译错误检查: 未检测到编译错误。代码编译通过。";
+                return LocalizationService.Instance["tool.getErrors.noErrorsDetected"];
             }
             catch (Exception ex)
             {
                 Logger.Warn($"[BuiltInTool] get_errors 异常: {ex.Message}");
-                return $"❌ 获取编译错误失败: {ex.Message}\n💡 建议使用 build_solution 工具触发编译并获取错误详情。";
+                return LocalizationService.Instance.Format("tool.getErrors.failed", ex.Message);
             }
         }
 
@@ -186,7 +186,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     if (solutionBuild.BuildState == EnvDTE.vsBuildState.vsBuildStateInProgress)
                     {
                         Logger.Info("[BuiltInTool] get_errors: 构建仍在进行中，提示 AI 等待");
-                        return "⏳ 构建仍在进行中，错误列表可能不完整。\n\n" +
+                        return LocalizationService.Instance["tool.getErrors.buildInProgress"] + "\n\n" +
                                "请等待构建完成后再调用 `get_errors`。\n" +
                                "💡 提示：CMake 项目构建通常需要 1-5 分钟，大型项目可能更长。";
                     }
