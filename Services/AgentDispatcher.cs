@@ -673,7 +673,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
 
             string handoffMessage = sb.ToString();
-            context.ActivePlan = ActivePlan;
+            // ── 保留 context 中已有的 ActivePlan（如 EditAgent 设的计划），仅在非 null 时覆盖 ──
+            context.ActivePlan = ActivePlan ?? context.ActivePlan;
             context.IsPlanningMode = true; // Handoff 后进入 Planning 模式执行
 
             return await agent.ExecuteAsync(handoffMessage, context);
