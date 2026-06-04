@@ -184,6 +184,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // ── 没有计划，作为单步代码修改执行 ──
                 AddLog("INFO", LocalizationService.Instance["agent.log.editNoPlan"]);
                 var plan = CreateSingleStepPlan(userMessage);
+                context.ActivePlan = plan; // 确保 Handoff 时 AskAgent 可检测到已完成计划
                 await ExecutePlanAsync(plan, context);
                 result.Plan = plan;
                 result.FileChanges = plan.ChangedFiles;

@@ -148,42 +148,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 var ct = context.CancellationToken;
 
-                // ── 构建包含历史的对话消息 ──
-                var messages = new List<ChatApiMessage>();
-                messages.Add(new ChatApiMessage
-                {
-                    Role = "system",
-                    Content = Definition.SystemPrompt
-                });
-
-                // 添加会话历史（最近 10 轮），保留完整消息结构
-                if (context.ConversationHistory.Count > 0)
-                {
-                    int historyStart = Math.Max(0, context.ConversationHistory.Count - 20);
-                    for (int i = historyStart; i < context.ConversationHistory.Count; i++)
-                    {
-                        var histMsg = context.ConversationHistory[i];
-                        var apiMsg = new ChatApiMessage
-                        {
-                            Role = histMsg.Role,
-                            Content = histMsg.Content,
-                            // ── 保留工具调用相关字段，避免 API 400 ──
-                            ToolCalls = histMsg.ToolCalls,
-                            ToolCallId = histMsg.ToolCallId,
-                            Name = histMsg.Name,
-                            ReasoningContent = histMsg.ReasoningContent,
-                        };
-                        messages.Add(apiMsg);
-                    }
-                }
-
-                // 添加上下文信息
+                // ── 使用 BuildContextAwareMessages 构建消息（优先 ContextManager 实时历史）──
                 string contextualPrompt = BuildContextualPrompt(userMessage, context);
-                messages.Add(new ChatApiMessage
-                {
-                    Role = "user",
-                    Content = contextualPrompt
-                });
+                var messages = BuildContextAwareMessages(
+                    Definition.SystemPrompt,
+                    contextualPrompt,
+                    maxRecentTurns: 10);
 
                 // ── 使用工具调用循环（支持 runSubagent 委派探索任务 + request_handoff 移交）──
                 string workspaceRoot = GetWorkspaceRoot(context);
