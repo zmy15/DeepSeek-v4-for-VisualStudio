@@ -532,6 +532,7 @@
   "tool.run_in_terminal.desc": "在 Windows PowerShell 终端中执行命令。\n**只能使用 PowerShell/CMD 语法，不支持 Unix/Linux 命令！**\n- 用 `;` 分隔多个命令（不要用 `&&`）\n- 用 `Select-String` 替代 `grep`，用 `Get-Content` 替代 `cat`\n- 用 `Remove-Item -Recurse -Force` 替代 `rm -rf`\n- 路径使用 `\\` 反斜杠，不要用 `/`\n用于运行测试、包管理、脚本等命令。\n⚠️ 编译/构建请使用 build_solution 工具（VS SDK 原生接口），不要在终端中运行 dotnet build / msbuild。\n返回终端输出（最多 60KB）。\n对于长时间运行的命令（服务器、监视器等），使用 async 模式。",
   "tool.get_terminal_output.desc": "获取异步终端命令的输出。用于检查后台运行命令的状态和结果。\n需要提供 run_in_terminal 返回的终端 ID。",
   "tool.runSubagent.desc": "将探索任务委派给子 Agent（目前支持 Explore）。\n当你需要搜索代码库、读取文件、了解项目结构时使用此工具，而非直接操作文件。\n参数格式：\n- agentName: 固定为 \"Explore\"\n- prompt: 详细的探索任务描述（搜索目标、文件范围、详细程度 quick/medium/thorough）\n- description: 3-5 词简短摘要（可选，用于日志）\n\n示例：\n{ \"agentName\": \"Explore\", \"prompt\": \"Find all implementations of IAgentDispatcher and describe their differences\", \"description\": \"Explore IAgentDispatcher implementations\" }",
+  "tool.request_handoff.desc": "将整个任务移交给另一个 Agent。与 runSubagent 不同，这是完整的控制权移交（当前 Agent 结束，目标 Agent 接管）。\n参数：\n- targetAgent: Edit|Ask|Plan|Build|Explore\n- reason: 移交原因（简短说明）\n- taskDescription: 给目标 Agent 的完整任务描述\n- chainBack: 是否完成后链回（默认 false）\n\n示例：\n{ \"targetAgent\": \"Edit\", \"reason\": \"计划已完成，需要执行代码修改\", \"taskDescription\": \"按照以下计划逐步修改代码...\" }",
 
   "═══ MCP Status ═══": "═══ MCP Status ═══",
 

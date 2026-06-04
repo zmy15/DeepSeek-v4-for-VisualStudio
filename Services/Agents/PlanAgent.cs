@@ -62,6 +62,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 AllowedTools = new List<string>
                 {
                     "runSubagent",               // 调用 Explore 子代理进行代码库探索
+                    "request_handoff",           // 移交任务给其他 Agent
                     "VisualStudio_askQuestions",  // 向用户提问澄清
                     "memory",                     // 记忆管理
                 },

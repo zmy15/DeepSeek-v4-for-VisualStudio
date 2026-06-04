@@ -110,6 +110,7 @@ public class EditAgentTests
         EditAgent.EditTools.Should().Contain("read_file");
         EditAgent.EditTools.Should().Contain("get_errors");
         EditAgent.EditTools.Should().Contain("runSubagent");
+        EditAgent.EditTools.Should().Contain("request_handoff");
     }
 
     [Fact]

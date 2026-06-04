@@ -49,11 +49,12 @@ public class ExploreAgentTests
     }
 
     [Fact]
-    public void Definition_IsNotUserInvocable()
+    public void Definition_IsUserInvocable()
     {
         var agent = new ExploreAgent(_apiService);
 
-        agent.Definition.UserInvocable.Should().BeFalse();
+        // ExploreAgent 现在是用户可调用的（可直接通过 @explore 使用）
+        agent.Definition.UserInvocable.Should().BeTrue();
     }
 
     [Fact]

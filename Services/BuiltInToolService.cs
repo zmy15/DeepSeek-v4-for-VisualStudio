@@ -83,6 +83,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public Func<BuiltInTools.ExplorationContext, Task<string>>? ExploreHandler { get; set; }
 
         /// <summary>
+        /// RequestHandoff 工具的处理委托（由 BaseAgent 在执行前注入）。
+        /// 桥接 BuiltInToolService 和 Agent 的 PendingHandoffRequest。
+        /// </summary>
+        public Func<HandoffRequest, Task>? HandoffHandler { get; set; }
+
+        /// <summary>
         /// 当前会话 ID，供 MemoryTool 等需要会话上下文的工具使用。
         /// 由 ChatControl 在会话切换/创建时设置。
         /// </summary>
@@ -152,6 +158,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (ExploreHandler != null)
                     return ExploreHandler(ctx);
                 return Task.FromResult("❌ runSubagent: ExploreAgent 未注入。请确保 AgentDispatcher 已正确初始化。");
+            }));
+
+            // Agent 间移交工具
+            Register(new RequestHandoffTool(async (request) =>
+            {
+                if (HandoffHandler != null)
+                    await HandoffHandler(request);
             }));
         }
 
@@ -310,7 +323,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     or "replace_string_in_file" or "multi_replace_string_in_file" or "create_file" or "delete_file"
                     or "apply_patch" or "create_directory"
                     or "run_in_terminal" or "get_terminal_output" or "VisualStudio_askQuestions"
-                    or "runSubagent" or "memory" => true,
+                    or "runSubagent" or "request_handoff" or "memory" => true,
                 _ => false
             };
         }

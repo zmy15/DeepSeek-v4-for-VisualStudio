@@ -64,11 +64,13 @@ public class AskAgentTests
     }
 
     [Fact]
-    public void Definition_HasHandoffs_ToEditAndPlanAndBuild()
+    public void Definition_HasHandoffs_ToExploreEditPlanAndBuild()
     {
         var agent = new AskAgent(_apiService);
 
-        agent.Definition.Handoffs.Should().HaveCount(3);
+        // AskAgent 现在有 4 个 Handoff 目标（含新增的 Explore）
+        agent.Definition.Handoffs.Should().HaveCount(4);
+        agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Explore);
         agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Edit);
         agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Plan);
         agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Build);
@@ -89,6 +91,7 @@ public class AskAgentTests
 
         // Ask agent delegates exploration to ExploreAgent via runSubagent
         agent.Definition.AllowedTools.Should().Contain("runSubagent");
+        agent.Definition.AllowedTools.Should().Contain("request_handoff");
         agent.Definition.AllowedTools.Should().Contain("fetch_webpage");
         agent.Definition.AllowedTools.Should().Contain("memory");
     }
@@ -112,6 +115,7 @@ public class AskAgentTests
     public void AskTools_ContainsDelegationAndUtilityTools()
     {
         AskAgent.AskTools.Should().Contain("runSubagent");
+        AskAgent.AskTools.Should().Contain("request_handoff");
         AskAgent.AskTools.Should().Contain("fetch_webpage");
         AskAgent.AskTools.Should().Contain("memory");
     }
