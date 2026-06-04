@@ -862,9 +862,51 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                                         // ── 诊断日志：记录工具调用时传入的 _solutionPath ──
                                         Logger.Info($"[ToolCall] 执行 {acc.FunctionName}，_solutionPath=[{_solutionPath ?? "(null)"}]");
+
+                                        // ── runSubagent 实时进度：订阅 ExploreAgent 日志，逐步展示探索过程 ──
+                                        Action<AgentLogEntry>? exploreProgressHandler = null;
+                                        var exploreProgressLines = new List<string>();
+                                        if (acc.FunctionName == "runSubagent")
+                                        {
+                                            var exploreAgent = _agentDispatcher?.ExploreAgent;
+                                            if (exploreAgent != null)
+                                            {
+                                                exploreProgressHandler = (entry) =>
+                                                {
+                                                    if (entry.Level == "INFO" && !string.IsNullOrEmpty(entry.Message))
+                                                    {
+                                                        string msg = entry.Message;
+                                                        // 过滤只显示工具调用相关消息（包含常见工具 emoji）
+                                                        bool isToolCall = msg.Contains("📂") || msg.Contains("🔍") || msg.Contains("📄")
+                                                            || msg.Contains("📖") || msg.Contains("🌐") || msg.Contains("📋")
+                                                            || msg.Contains("🔎") || msg.Contains("🔨") || msg.Contains("💻");
+                                                        if (isToolCall)
+                                                        {
+                                                            exploreProgressLines.Add($"> - {msg.Truncate(150)}");
+                                                            // 只保留最近 20 行，防止内容过长
+                                                            while (exploreProgressLines.Count > 20)
+                                                                exploreProgressLines.RemoveAt(0);
+                                                            string progressBlock = "\n🔧 **正在探索...**\n" + string.Join("\n", exploreProgressLines) + "\n";
+                                                            assistantMsg.Content = (contentBuffer.Length > 0
+                                                                ? contentBuffer.ToString() + "\n\n"
+                                                                : "") + progressBlock;
+                                                            BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString());
+                                                        }
+                                                    }
+                                                };
+                                                exploreAgent.LogEntryAdded += exploreProgressHandler;
+                                            }
+                                        }
+
                                         toolResult = await _builtInToolService.ExecuteBuiltInToolAsync(
                                             acc.FunctionName!, acc.ArgumentsBuilder.ToString(), _solutionPath)
                                             ?? "❌ 内置工具未返回结果";
+
+                                        // ── 清理 runSubagent 进度订阅 ──
+                                        if (exploreProgressHandler != null && _agentDispatcher?.ExploreAgent != null)
+                                        {
+                                            _agentDispatcher.ExploreAgent.LogEntryAdded -= exploreProgressHandler;
+                                        }
                                     }
                                     else
                                     {
@@ -901,9 +943,30 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                             string completedSummary = "🔧 **" + LocalizationService.Instance["status.toolCallCompleted"].Replace("🔧 ", "") + "**\n"
                                 + string.Join("\n", completedLines) + "\n\n";
+
+                            // ── runSubagent 探索追踪注入：从工具结果中提取 [explore-trace] 标记的追踪内容 ──
+                            string exploreTraceBlock = "";
+                            foreach (var (name, result) in recentToolFullResults)
+                            {
+                                if (name == "runSubagent")
+                                {
+                                    int traceStart = result.IndexOf("[explore-trace]");
+                                    int traceEnd = result.IndexOf("[/explore-trace]");
+                                    if (traceStart >= 0 && traceEnd > traceStart)
+                                    {
+                                        string traceContent = result.Substring(
+                                            traceStart + "[explore-trace]".Length,
+                                            traceEnd - traceStart - "[explore-trace]".Length).Trim();
+                                        if (!string.IsNullOrWhiteSpace(traceContent))
+                                            exploreTraceBlock = "\n" + traceContent + "\n";
+                                    }
+                                    break;
+                                }
+                            }
+
                             assistantMsg.Content = contentBuffer.Length > 0
-                                ? contentBuffer.ToString() + "\n\n" + completedSummary + "\n_" + LocalizationService.Instance["status.toolCallAnalyzing"] + "_\n"
-                                : completedSummary + "\n_" + LocalizationService.Instance["status.toolCallAnalyzing"] + "_\n";
+                                ? contentBuffer.ToString() + "\n\n" + completedSummary + exploreTraceBlock + "\n_" + LocalizationService.Instance["status.toolCallAnalyzing"] + "_\n"
+                                : completedSummary + exploreTraceBlock + "\n_" + LocalizationService.Instance["status.toolCallAnalyzing"] + "_\n";
                             BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString());
 
                             // ── 移交检测：request_handoff 被调用后立即终止循环 ──
