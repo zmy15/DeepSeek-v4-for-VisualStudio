@@ -91,7 +91,7 @@ public class AskAgentTests
 
         // Ask agent delegates exploration to ExploreAgent via runSubagent
         agent.Definition.AllowedTools.Should().Contain("runSubagent");
-        agent.Definition.AllowedTools.Should().Contain("request_handoff");
+        agent.Definition.AllowedTools.Should().NotContain("request_handoff");
         agent.Definition.AllowedTools.Should().Contain("fetch_webpage");
         agent.Definition.AllowedTools.Should().Contain("memory");
     }
@@ -115,7 +115,7 @@ public class AskAgentTests
     public void AskTools_ContainsDelegationAndUtilityTools()
     {
         AskAgent.AskTools.Should().Contain("runSubagent");
-        AskAgent.AskTools.Should().Contain("request_handoff");
+        AskAgent.AskTools.Should().NotContain("request_handoff");
         AskAgent.AskTools.Should().Contain("fetch_webpage");
         AskAgent.AskTools.Should().Contain("memory");
     }

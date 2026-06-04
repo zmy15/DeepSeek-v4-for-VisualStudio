@@ -90,11 +90,11 @@ public class BuiltInToolServiceTests
     #region Static GetBuiltInToolDefinitions
 
     [Fact]
-    public void GetBuiltInToolDefinitions_Returns16Tools()
+    public void GetBuiltInToolDefinitions_Returns18Tools()
     {
         var defs = BuiltInToolService.GetBuiltInToolDefinitions();
 
-        defs.Should().HaveCount(16);
+        defs.Should().HaveCount(18);
     }
 
     [Fact]
