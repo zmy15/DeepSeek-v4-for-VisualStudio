@@ -1,4 +1,4 @@
-using DeepSeek_v4_for_VisualStudio.Utils;
+﻿using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
@@ -22,7 +22,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// - CMake / Open Folder 项目（通过命令行 cmake --build）
     /// - 构建错误收集（Task List + Output Window）
     /// </summary>
-    public class BuildService : IBuildService
+    public partial class BuildService : IBuildService
     {
         /// <summary>
         /// 执行解决方案构建。自动检测项目类型并选择合适的构建方式。
