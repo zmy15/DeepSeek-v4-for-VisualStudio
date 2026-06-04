@@ -273,6 +273,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     UpdateInputPlaceholder();
                     UpdateAllTooltips();
                     UpdateUiLabels();
+                    RefreshBalanceDisplay();
                 });
             };
 
@@ -1288,7 +1289,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             string balanceText = string.Empty;
             if (balance.IsAvailable && balance.BalanceInfos.Count > 0)
             {
-                bool isChinese = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "zh";
+                bool isChinese = LocalizationService.Instance.CurrentLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
                 string targetCurrency = isChinese ? "CNY" : "USD";
                 string currencySymbol = isChinese ? "¥" : "$";
 
@@ -1331,7 +1332,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             if (totalTokens == 0) return string.Empty;
 
-            bool isChinese = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "zh";
+            bool isChinese = LocalizationService.Instance.CurrentLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
 
             string FormatTokens(long n) => n >= 1000 ? $"{n / 1000.0:F1}K" : n.ToString();
 
@@ -1385,6 +1386,21 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 balanceLabel.Text = $"{balancePart}  |  {consumptionText}";
             }
             balanceBar.Visibility = System.Windows.Visibility.Visible;
+        }
+
+        /// <summary>
+        /// 使用缓存的余额数据刷新显示（不发起 API 请求），语言切换时调用。
+        /// </summary>
+        private void RefreshBalanceDisplay()
+        {
+            if (_lastBalance != null)
+            {
+                UpdateBalanceDisplay(_lastBalance);
+            }
+            else
+            {
+                RefreshConsumptionDisplay();
+            }
         }
 
         #endregion
