@@ -423,8 +423,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 根据当前语言环境格式化余额显示，同时显示本会话 token 消耗。
-        /// 中文环境显示 RMB，英文环境显示 USD。
+        /// 根据 API 返回的币种格式化余额显示，同时显示本会话 token 消耗。
+        /// 币种符号直接使用 API 返回值，不根据语言选择。
         /// </summary>
         private void UpdateBalanceDisplay(BalanceResponse balance)
         {
@@ -443,16 +443,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
             string balanceText = string.Empty;
             if (balance.IsAvailable && balance.BalanceInfos.Count > 0)
             {
+                // 直接使用 API 返回的第一个币种信息
+                var info = balance.BalanceInfos[0];
+                string symbol = GetCurrencySymbol(info.Currency);
+
                 bool isChinese = LocalizationService.Instance.CurrentLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
-                string targetCurrency = isChinese ? "CNY" : "USD";
-                string currencySymbol = isChinese ? "¥" : "$";
-
-                var targetInfo = balance.BalanceInfos.Find(b => b.Currency == targetCurrency)
-                              ?? balance.BalanceInfos[0];
-
                 balanceText = isChinese
-                    ? $"💰 余额: {currencySymbol}{targetInfo.TotalBalance}"
-                    : $"💰 Balance: {currencySymbol}{targetInfo.TotalBalance}";
+                    ? $"💰 余额: {symbol}{info.TotalBalance}"
+                    : $"💰 Balance: {symbol}{info.TotalBalance}";
             }
 
             // ── 会话消耗部分 ──
@@ -471,6 +469,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 balanceBar.Visibility = System.Windows.Visibility.Collapsed;
             }
+        }
+
+        /// <summary>
+        /// 根据 API 返回的币种代码获取对应符号。
+        /// </summary>
+        private static string GetCurrencySymbol(string currency)
+        {
+            return (currency ?? "").ToUpperInvariant() switch
+            {
+                "CNY" => "¥",
+                "USD" => "$",
+                "EUR" => "€",
+                "GBP" => "£",
+                "JPY" => "¥",
+                "KRW" => "₩",
+                _ => currency ?? "",
+            };
         }
 
         /// <summary>

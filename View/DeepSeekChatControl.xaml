@@ -720,7 +720,7 @@
         <Border Grid.Row="5"
                 Background="#2D2D2D"
                 BorderBrush="#3F3F46" BorderThickness="0,1,0,0"
-                Padding="12,4">
+                Padding="12,2">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -732,7 +732,7 @@
                 <ComboBox x:Name="ApprovalModeComboBox"
                           Grid.Column="0"
                           MinWidth="130"
-                          Height="26"
+                          Height="22"
                           SelectionChanged="ApprovalModeComboBox_SelectionChanged" />
 
                 <!-- 右侧：余额和 Token 显示 -->
