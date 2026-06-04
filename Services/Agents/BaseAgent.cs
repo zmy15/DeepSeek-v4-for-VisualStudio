@@ -1026,7 +1026,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                         AddLog("INFO", $"[{Definition.Name}] → ExploreAgent: {ctx.Description}");
 
-                        var exploreResult = await ExploreAgent.ExecuteAsync(ctx.Prompt, exploreCtx);
+                        // ── 转发 ExploreAgent 日志到父 Agent，让用户看到探索进度 ──
+                        Action<AgentLogEntry> forwardLog = (entry) =>
+                        {
+                            AddLog(entry.Level, $"[Explore] {entry.Message.Truncate(200)}");
+                        };
+                        ExploreAgent.LogEntryAdded += forwardLog;
+                        AgentResult exploreResult;
+                        try
+                        {
+                            exploreResult = await ExploreAgent.ExecuteAsync(ctx.Prompt, exploreCtx);
+                        }
+                        finally
+                        {
+                            ExploreAgent.LogEntryAdded -= forwardLog;
+                        }
 
                         // ── 回收 ExploreAgent 的缓存到当前 Context ──
                         if (Context != null && exploreResult.Success)

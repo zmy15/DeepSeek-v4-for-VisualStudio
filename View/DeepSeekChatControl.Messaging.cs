@@ -1644,10 +1644,24 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         SolutionPath = ctx.WorkspaceRoot ?? _solutionPath,
                         CancellationToken = CancellationToken.None,
                     };
-                    var exploreResult = await exploreAgent.ExecuteAsync(ctx.Prompt, exploreAgent.Context);
-                    return exploreResult.Success && !string.IsNullOrEmpty(exploreResult.Content)
-                        ? exploreResult.Content
-                        : $"❌ ExploreAgent 失败: {exploreResult.ErrorMessage ?? "未知错误"}";
+
+                    // ── 转发 ExploreAgent 日志到主流程，让用户看到探索进度 ──
+                    Action<AgentLogEntry> forwardLog = (entry) =>
+                    {
+                        Logger.Info($"[ExploreAgent] {entry.Level} {entry.Message.Truncate(200)}");
+                    };
+                    exploreAgent.LogEntryAdded += forwardLog;
+                    try
+                    {
+                        var exploreResult = await exploreAgent.ExecuteAsync(ctx.Prompt, exploreAgent.Context);
+                        return exploreResult.Success && !string.IsNullOrEmpty(exploreResult.Content)
+                            ? exploreResult.Content
+                            : $"❌ ExploreAgent 失败: {exploreResult.ErrorMessage ?? "未知错误"}";
+                    }
+                    finally
+                    {
+                        exploreAgent.LogEntryAdded -= forwardLog;
+                    }
                 };
             }
 
