@@ -272,33 +272,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         internalToolCalls.Add(toolSummary);
                     });
 
-                // ── 构建探索过程追踪（让用户看到 Explore Agent 具体做了什么）──
-                string explorationTraceHtml = string.Empty;
+                // ── 构建探索过程追踪（纯 Markdown blockquote，[explore-trace] 标记供主流程提取）──
+                string explorationTraceMd = string.Empty;
                 if (internalToolCalls.Count > 0)
                 {
                     var traceBuilder = new StringBuilder();
-                    traceBuilder.AppendLine("<details class='explore-trace' style='margin-bottom:12px'>");
-                    traceBuilder.AppendLine($"<summary>{LocalizationService.Instance.Format("agent.log.exploreTrace", internalToolCalls.Count)}</summary>");
-                    traceBuilder.AppendLine("<div class='explore-trace-content' style='font-size:0.9em;color:#888;padding:8px 0'>");
+                    traceBuilder.AppendLine("[explore-trace]");
+                    traceBuilder.AppendLine($"> {LocalizationService.Instance.Format("agent.log.exploreTrace", internalToolCalls.Count)}");
                     foreach (var call in internalToolCalls)
                     {
-                        traceBuilder.AppendLine($"- {System.Net.WebUtility.HtmlEncode(call)}");
+                        traceBuilder.AppendLine($"> - {call}");
                     }
-                    traceBuilder.AppendLine("</div>");
-                    traceBuilder.AppendLine("</details>");
-                    explorationTraceHtml = traceBuilder.ToString();
+                    traceBuilder.AppendLine("[/explore-trace]");
+                    traceBuilder.AppendLine();
+                    explorationTraceMd = traceBuilder.ToString();
                 }
 
                 // ── 如果工具调用后有思考内容，附加到结果中 ──
                 if (!string.IsNullOrEmpty(thinkingContent))
                 {
-                    result.Content = $"<details><summary>{LocalizationService.Instance["chat.html.thinkingTitle"]}</summary>\n\n{thinkingContent}\n\n</details>\n\n{explorationTraceHtml}\n\n{aiResponse}";
+                    result.Content = $"<details><summary>{LocalizationService.Instance["chat.html.thinkingTitle"]}</summary>\n\n{thinkingContent}\n\n</details>\n\n{explorationTraceMd}\n\n{aiResponse}";
                 }
                 else
                 {
-                    result.Content = string.IsNullOrEmpty(explorationTraceHtml)
+                    result.Content = string.IsNullOrEmpty(explorationTraceMd)
                         ? aiResponse
-                        : $"{explorationTraceHtml}\n\n{aiResponse}";
+                        : $"{explorationTraceMd}\n\n{aiResponse}";
                 }
 
                 result.Logs.AddRange(_logs);
