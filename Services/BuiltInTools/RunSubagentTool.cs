@@ -121,7 +121,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string agentName = GetStringArg(args, "agentName");
             string desc = GetStringArg(args, "description");
             string displayDesc = string.IsNullOrWhiteSpace(desc)
-                ? GetStringArg(args, "prompt")?.Truncate(50) ?? "探索代码库"
+                ? GetStringArg(args, "prompt")?.Truncate(50) ?? L["tool.runSubagent.fallbackDesc"]
                 : desc;
 
             return $"🤖 **{agentName ?? "Explore"}** — {displayDesc}";
@@ -129,11 +129,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override string GetResultSummary(string toolResult)
         {
-            if (string.IsNullOrEmpty(toolResult)) return "无结果";
+            if (string.IsNullOrEmpty(toolResult)) return L["tool.runSubagent.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
             // 统计探索到的关键信息量
             int lines = toolResult.Split('\n').Length;
-            return $"✅ 探索完成（{toolResult.Length} 字符, {lines} 行）";
+            return LocalizationService.Instance.Format("tool.runSubagent.completed", toolResult.Length, lines);
         }
     }
 
