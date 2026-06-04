@@ -83,15 +83,14 @@ public class AskAgentTests
     }
 
     [Fact]
-    public void Definition_AllowedTools_ContainsReadOnlyTools()
+    public void Definition_AllowedTools_ContainsDelegationAndUtilityTools()
     {
         var agent = new AskAgent(_apiService);
 
-        // Ask agent should only have read-only tools (no file modification)
-        agent.Definition.AllowedTools.Should().Contain("read_file");
-        agent.Definition.AllowedTools.Should().Contain("file_search");
-        agent.Definition.AllowedTools.Should().Contain("grep_search");
-        agent.Definition.AllowedTools.Should().Contain("list_dir");
+        // Ask agent delegates exploration to ExploreAgent via runSubagent
+        agent.Definition.AllowedTools.Should().Contain("runSubagent");
+        agent.Definition.AllowedTools.Should().Contain("fetch_webpage");
+        agent.Definition.AllowedTools.Should().Contain("memory");
     }
 
     [Fact]
@@ -110,16 +109,10 @@ public class AskAgentTests
     #region AskTools Static Array
 
     [Fact]
-    public void AskTools_ContainsAllExpectedReadTools()
+    public void AskTools_ContainsDelegationAndUtilityTools()
     {
-        AskAgent.AskTools.Should().Contain("read_file");
-        AskAgent.AskTools.Should().Contain("file_search");
-        AskAgent.AskTools.Should().Contain("grep_search");
-        AskAgent.AskTools.Should().Contain("list_dir");
-        AskAgent.AskTools.Should().Contain("get_errors");
+        AskAgent.AskTools.Should().Contain("runSubagent");
         AskAgent.AskTools.Should().Contain("fetch_webpage");
-        AskAgent.AskTools.Should().Contain("github_repo");
-        AskAgent.AskTools.Should().Contain("semantic_search");
         AskAgent.AskTools.Should().Contain("memory");
     }
 

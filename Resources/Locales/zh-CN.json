@@ -531,6 +531,7 @@
   "tool.create_directory.desc": "创建一个新的目录结构。会自动递归创建所有父目录（类似 mkdir -p）。用于在源代码树中创建所需的子目录。",
   "tool.run_in_terminal.desc": "在 Windows PowerShell 终端中执行命令。\n**只能使用 PowerShell/CMD 语法，不支持 Unix/Linux 命令！**\n- 用 `;` 分隔多个命令（不要用 `&&`）\n- 用 `Select-String` 替代 `grep`，用 `Get-Content` 替代 `cat`\n- 用 `Remove-Item -Recurse -Force` 替代 `rm -rf`\n- 路径使用 `\\` 反斜杠，不要用 `/`\n用于运行测试、包管理、脚本等命令。\n⚠️ 编译/构建请使用 build_solution 工具（VS SDK 原生接口），不要在终端中运行 dotnet build / msbuild。\n返回终端输出（最多 60KB）。\n对于长时间运行的命令（服务器、监视器等），使用 async 模式。",
   "tool.get_terminal_output.desc": "获取异步终端命令的输出。用于检查后台运行命令的状态和结果。\n需要提供 run_in_terminal 返回的终端 ID。",
+  "tool.runSubagent.desc": "将探索任务委派给子 Agent（目前支持 Explore）。\n当你需要搜索代码库、读取文件、了解项目结构时使用此工具，而非直接操作文件。\n参数格式：\n- agentName: 固定为 \"Explore\"\n- prompt: 详细的探索任务描述（搜索目标、文件范围、详细程度 quick/medium/thorough）\n- description: 3-5 词简短摘要（可选，用于日志）\n\n示例：\n{ \"agentName\": \"Explore\", \"prompt\": \"Find all implementations of IAgentDispatcher and describe their differences\", \"description\": \"Explore IAgentDispatcher implementations\" }",
 
   "═══ MCP Status ═══": "═══ MCP Status ═══",
 
@@ -605,6 +606,8 @@
   "agent.ask.description": "回答技术问题、解释代码、讨论方案。纯问答模式，不修改代码。",
   "agent.ask.argumentHint": "输入你的技术问题",
   "agent.ask.systemPromptFragment": "\n你当前处于 **Ask 模式**——一个专注技术问答的 AI 编程助手。\n\n## 核心能力\n- 解释代码逻辑和架构设计\n- 分析技术问题和 Bug 根因\n- 讨论实现方案和最佳实践\n- 回答各类编程和技术问题\n\n## 行为准则\n- 回答简洁、准确、直接\n- 优先给出可运行的代码示例\n- 涉及代码时明确指出文件路径和行号\n- 优先使用用户项目已有的框架和库\n- 如果问题模糊，先追问澄清再回答",
+  "agent.ask.handoffExploreLabel": "探索代码库",
+  "agent.ask.handoffExplorePrompt": "用户需要探索代码库以回答以下问题。请搜索相关代码并返回分析结果：\n\n",
   "agent.ask.handoffEditLabel": "修改代码",
   "agent.ask.handoffEditPrompt": "用户需要修改代码。请根据以下上下文执行代码变更：\n\n",
   "agent.ask.handoffPlanLabel": "制定计划",

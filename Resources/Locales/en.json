@@ -531,6 +531,7 @@
   "tool.create_directory.desc": "Create a new directory structure. Recursively creates all parent directories (like mkdir -p). Use to create needed subdirectories in the source tree.",
   "tool.run_in_terminal.desc": "Execute a command in the Windows PowerShell terminal.\n**Only PowerShell/CMD syntax is supported — Unix/Linux commands will NOT work!**\n- Use `;` to separate multiple commands (do NOT use `&&`)\n- Use `Select-String` instead of `grep`, `Get-Content` instead of `cat`\n- Use `Remove-Item -Recurse -Force` instead of `rm -rf`\n- Use `\\` backslashes for paths, not `/`\nUse for running tests, package management, scripts, etc.\n⚠️ For compilation/build, use the build_solution tool (VS SDK native interface) instead — do NOT run dotnet build / msbuild in terminal.\nReturns terminal output (up to 60KB).\nFor long-running commands (servers, watchers, etc.), use async mode.",
   "tool.get_terminal_output.desc": "Get output from an async terminal command. Use to check the status and results of background commands.\nRequires the terminal ID returned by run_in_terminal async mode.",
+  "tool.runSubagent.desc": "Delegate an exploration task to a sub-agent (currently supports Explore).\nUse this tool when you need to search the codebase, read files, or understand project structure — instead of direct file operations.\nParameters:\n- agentName: Must be \"Explore\"\n- prompt: Detailed exploration task description (what to search, file scope, thoroughness: quick/medium/thorough)\n- description: 3-5 word brief summary (optional, for logging)\n\nExample:\n{ \"agentName\": \"Explore\", \"prompt\": \"Find all implementations of IAgentDispatcher and describe their differences\", \"description\": \"Explore IAgentDispatcher implementations\" }",
 
   "═══ MCP Status ═══": "═══ MCP Status ═══",
 
@@ -605,6 +606,8 @@
   "agent.ask.description": "Answer technical questions, explain code, discuss solutions. Pure Q&A mode, no code modifications.",
   "agent.ask.argumentHint": "Ask your technical question",
   "agent.ask.systemPromptFragment": "\nYou are in **Ask mode** — a technical Q&A-focused AI programming assistant.\n\n## Core Capabilities\n- Explain code logic and architecture design\n- Analyze technical issues and bug root causes\n- Discuss implementation approaches and best practices\n- Answer all types of programming and technical questions\n\n## Code of Conduct\n- Provide concise, accurate, and direct answers\n- Prefer runnable code examples\n- Clearly specify file paths and line numbers when referencing code\n- Prefer frameworks and libraries already used in the user's project\n- If the question is vague, ask for clarification before answering",
+  "agent.ask.handoffExploreLabel": "Explore Codebase",
+  "agent.ask.handoffExplorePrompt": "The user needs to explore the codebase to answer the following question. Please search for relevant code and return analysis results:\n\n",
   "agent.ask.handoffEditLabel": "Modify Code",
   "agent.ask.handoffEditPrompt": "The user needs code modifications. Please execute code changes based on the following context:\n\n",
   "agent.ask.handoffPlanLabel": "Create Plan",

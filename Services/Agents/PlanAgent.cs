@@ -34,7 +34,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 用于在发现阶段并行探索代码库。
         /// 设置时自动转发 ExploreAgent 的日志和文件变更事件。
         /// </summary>
-        public ExploreAgent? ExploreAgent
+        public new ExploreAgent? ExploreAgent
         {
             get => _exploreAgent;
             set => RegisterExploreAgent(value, ref _exploreAgent);
@@ -58,10 +58,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 ArgumentHint = LocalizationService.Instance["agent.plan.argumentHint"],
                 UserInvocable = true,
                 DisableModelInvocation = false,
-                AllowedTools = new List<string>(ExploreAgent.DefaultReadTools)
+                // Plan Agent 不再持有直接读取工具，所有探索通过 runSubagent 委派给 ExploreAgent
+                AllowedTools = new List<string>
                 {
-                    "VisualStudio_askQuestions", // 向用户提问澄清
-                    "runSubagent",          // 调用 Explore 子代理
+                    "runSubagent",               // 调用 Explore 子代理进行代码库探索
+                    "VisualStudio_askQuestions",  // 向用户提问澄清
+                    "memory",                     // 记忆管理
                 },
                 SubAgents = new List<AgentType> { AgentType.Explore },
                 Handoffs = new List<AgentHandoff>

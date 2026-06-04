@@ -77,6 +77,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private readonly Dictionary<string, BuiltInToolBase> _tools = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
+        /// RunSubagent 工具的处理委托（由 BaseAgent 在执行前注入）。
+        /// 桥接 BuiltInToolService 和 Agent 的 ExploreAgent 引用。
+        /// </summary>
+        public Func<BuiltInTools.ExplorationContext, Task<string>>? ExploreHandler { get; set; }
+
+        /// <summary>
         /// 当前会话 ID，供 MemoryTool 等需要会话上下文的工具使用。
         /// 由 ChatControl 在会话切换/创建时设置。
         /// </summary>
@@ -138,6 +144,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     () => CurrentSessionId,
                     () => null)); // solutionPath 回退值；实际由 ExecuteAsync 的 workspaceRoot 参数传入
             }
+
+            // 子代理委派工具
+            Register(new RunSubagentTool(ctx =>
+            {
+                // 委托给 ExploreHandler（由 BaseAgent 在执行前注入）
+                if (ExploreHandler != null)
+                    return ExploreHandler(ctx);
+                return Task.FromResult("❌ runSubagent: ExploreAgent 未注入。请确保 AgentDispatcher 已正确初始化。");
+            }));
         }
 
         private void Register(BuiltInToolBase tool)
@@ -295,7 +310,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     or "replace_string_in_file" or "multi_replace_string_in_file" or "create_file" or "delete_file"
                     or "apply_patch" or "create_directory"
                     or "run_in_terminal" or "get_terminal_output" or "VisualStudio_askQuestions"
-                    or "memory" => true,
+                    or "runSubagent" or "memory" => true,
                 _ => false
             };
         }

@@ -28,24 +28,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// ExploreAgent 引用，由 AgentDispatcher 注入。
         /// </summary>
-        public ExploreAgent? ExploreAgent { get; set; }
+        public new ExploreAgent? ExploreAgent { get; set; }
 
         #region Agent Definition
 
         /// <summary>
-        /// Ask Agent 工具集 — 只读工具 + 联网搜索。
+        /// Ask Agent 工具集 — 仅保留记忆和子代理委派能力。
+        /// 所有代码库读取/搜索操作必须通过 runSubagent 委派给 ExploreAgent。
         /// </summary>
         public static readonly string[] AskTools = new[]
         {
-            "read_file",
-            "file_search",
-            "grep_search",
-            "list_dir",
-            "get_errors",
-            "fetch_webpage",
-            "github_repo",
-            "semantic_search",
-            "memory",
+            "runSubagent",   // 委派探索任务给 ExploreAgent
+            "fetch_webpage",  // 联网搜索（无需代码库访问）
+            "memory",         // 记忆管理
         };
 
         protected override AgentDefinition CreateDefinition(AgentType agentType)
@@ -62,6 +57,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 SubAgents = new List<AgentType>(),
                 Handoffs = new List<AgentHandoff>
                 {
+                    new AgentHandoff
+                    {
+                        Label = LocalizationService.Instance["agent.ask.handoffExploreLabel"],
+                        TargetAgent = AgentType.Explore,
+                        Prompt = LocalizationService.Instance["agent.ask.handoffExplorePrompt"],
+                        AutoSend = false,
+                        ShowContinueOn = true,
+                    },
                     new AgentHandoff
                     {
                         Label = LocalizationService.Instance["agent.ask.handoffEditLabel"],
@@ -94,7 +97,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static string BuildSystemPrompt()
         {
             return CommonSystemPromptPrefix + LocalizationService.Instance["agent.ask.systemPromptFragment"]
-                + "\n\n## 记忆系统 (memory 工具)\n"
+                + "\n\n## 代码库探索（runSubagent 工具）\n"
+                + "你 **没有** 直接读取或搜索代码库文件的工具。当需要了解项目代码时，必须使用 `runSubagent` 工具委派给 Explore 子代理：\n"
+                + "```json\n"
+                + "{ \"agentName\": \"Explore\", \"prompt\": \"描述要探索的内容和详细程度 (quick/medium/thorough)\", \"description\": \"3-5词简短摘要\" }\n"
+                + "```\n"
+                + "- Explore 子代理会返回基于实际文件内容的分析结果\n"
+                + "- 你基于 Explore 的返回结果回答问题，附上引用来源\n"
+                + "- 需要探索代码库时**必须**先调用 runSubagent，不要凭训练数据猜测\n\n"
+                + "## 记忆系统 (memory 工具)\n"
                 + "你拥有一个持久化记忆系统，通过 `memory` 工具管理三层记忆：\n"
                 + "- **用户记忆** (`/memories/`): 跨所有工作区持久化，用于存储用户偏好、编码习惯、常用命令等\n"
                 + "- **会话记忆** (`/memories/session/`): 当前对话内有效，存储临时上下文和进行中笔记\n"
@@ -173,8 +184,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     Content = contextualPrompt
                 });
 
-                // ── 调用 AI ──
-                string aiResponse = await CallAiWithHistoryAsync(messages, ct, maxTokens: 4096);
+                // ── 使用工具调用循环（支持 runSubagent 委派探索任务）──
+                string workspaceRoot = GetWorkspaceRoot(context);
+                string aiResponse = await CallAiWithToolLoopAsync(
+                    messages,
+                    workspaceRoot,
+                    ct,
+                    maxTokens: 4096,
+                    onToolCall: (toolSummary) =>
+                    {
+                        AddLog("INFO", toolSummary);
+                    });
                 result.Content = aiResponse;
 
                 AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.askDone"], aiResponse.Length));

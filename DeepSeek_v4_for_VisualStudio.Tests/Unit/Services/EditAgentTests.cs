@@ -104,22 +104,23 @@ public class EditAgentTests
     }
 
     [Fact]
-    public void EditTools_ContainsReadOnlyTools()
+    public void EditTools_ContainsReadAndDelegationTools()
     {
+        // EditAgent keeps read_file for editing, delegates exploration via runSubagent
         EditAgent.EditTools.Should().Contain("read_file");
-        EditAgent.EditTools.Should().Contain("file_search");
-        EditAgent.EditTools.Should().Contain("grep_search");
-        EditAgent.EditTools.Should().Contain("list_dir");
+        EditAgent.EditTools.Should().Contain("get_errors");
+        EditAgent.EditTools.Should().Contain("runSubagent");
     }
 
     [Fact]
-    public void EditTools_ContainsTerminalAndBuildTools()
+    public void EditTools_ContainsTerminalBuildAndTaskTools()
     {
         EditAgent.EditTools.Should().Contain("run_in_terminal");
         EditAgent.EditTools.Should().Contain("get_terminal_output");
         EditAgent.EditTools.Should().Contain("create_and_run_task");
         EditAgent.EditTools.Should().Contain("build_solution");
         EditAgent.EditTools.Should().Contain("manage_todo_list");
+        EditAgent.EditTools.Should().Contain("memory");
     }
 
     [Fact]

@@ -55,6 +55,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>MCP 管理器引用（由 AgentDispatcher 注入，用于执行 MCP 工具）</summary>
         public McpManagerService? McpManager { get; set; }
 
+        /// <summary>ExploreAgent 引用（由 AgentDispatcher 注入，用于 runSubagent 委派探索任务）</summary>
+        public ExploreAgent? ExploreAgent { get; set; }
+
         /// <summary>日志事件</summary>
         public event Action<AgentLogEntry>? LogEntryAdded;
 
@@ -985,6 +988,70 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         private async Task<string> ExecuteToolAsync(string toolName, string argumentsJson, string? workspaceRoot, CancellationToken ct)
         {
+            // ── 注入 ExploreHandler 到 BuiltInToolService（桥接 Agent.ExploreAgent）──
+            if (BuiltInTools != null && ExploreAgent != null)
+            {
+                BuiltInTools.ExploreHandler = async (ctx) =>
+                {
+                    try
+                    {
+                        // ── 同步上下文到 ExploreAgent ──
+                        ExploreAgent.Context = this.Context;
+                        if (ExploreAgent.BuiltInTools == null)
+                            ExploreAgent.BuiltInTools = this.BuiltInTools;
+                        if (ExploreAgent.McpManager == null)
+                            ExploreAgent.McpManager = this.McpManager;
+
+                        // ── 构建 ExploreAgent 上下文 ──
+                        var exploreCtx = new AgentContext
+                        {
+                            SolutionPath = ctx.WorkspaceRoot ?? Context?.SolutionPath,
+                            CancellationToken = ct,
+                            ContextManager = Context?.ContextManager,
+                            FileReadCache = Context?.FileReadCache ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                            DiscoveredFiles = Context?.DiscoveredFiles,
+                        };
+
+                        AddLog("INFO", $"[{Definition.Name}] → ExploreAgent: {ctx.Description}");
+
+                        var exploreResult = await ExploreAgent.ExecuteAsync(ctx.Prompt, exploreCtx);
+
+                        // ── 回收 ExploreAgent 的缓存到当前 Context ──
+                        if (Context != null && exploreResult.Success)
+                        {
+                            // 文件读缓存
+                            if (exploreCtx.FileReadCache.Count > 0)
+                            {
+                                foreach (var kvp in exploreCtx.FileReadCache)
+                                {
+                                    Context.FileReadCache[kvp.Key] = kvp.Value;
+                                }
+                            }
+                            // 发现的文件列表
+                            if (exploreCtx.DiscoveredFiles != null && exploreCtx.DiscoveredFiles.Count > 0)
+                            {
+                                Context.DiscoveredFiles = exploreCtx.DiscoveredFiles;
+                            }
+                        }
+
+                        if (exploreResult.Success && !string.IsNullOrEmpty(exploreResult.Content))
+                        {
+                            AddLog("INFO", $"[{Definition.Name}] ExploreAgent 完成: {exploreResult.Content.Length} 字符");
+                            return exploreResult.Content;
+                        }
+
+                        return exploreResult.Success
+                            ? "(ExploreAgent 完成但无内容)"
+                            : $"❌ ExploreAgent 失败: {exploreResult.ErrorMessage ?? "未知错误"}";
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error($"[BaseAgent] runSubagent 异常: {ex.Message}", ex);
+                        return $"❌ runSubagent 执行异常: {ex.Message}";
+                    }
+                };
+            }
+
             // ── 终端命令需要用户审批 ──
             if (toolName == "run_in_terminal" && BuiltInTools != null)
             {

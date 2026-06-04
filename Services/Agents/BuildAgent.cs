@@ -30,8 +30,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     public class BuildAgent : BaseAgent
     {
         /// <summary>
-        /// Build Agent 工具集 — 构建、诊断、探索、编辑全覆盖。
-        /// 与 EditAgent 工具集对齐，专注于编译驱动的代码修复。
+        /// Build Agent 工具集 — 构建、诊断、编辑全覆盖。
+        /// 代码库探索（搜索、列表、grep）通过 runSubagent 委派给 ExploreAgent。
+        /// read_file 保留用于修复前确认文件内容（利用 ExploreAgent 预热缓存）。
         /// </summary>
         public static readonly string[] BuildTools = new[]
         {
@@ -46,11 +47,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "delete_file",
             "apply_patch",
             "create_directory",
-            // 代码探索
-            "file_search",
-            "grep_search",
-            "list_dir",
-            "get_changed_files",
+            // 子代理委派（探索代码库）
+            "runSubagent",
             // 终端
             "run_in_terminal",
             "get_terminal_output",
@@ -240,7 +238,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 从 AgentContext 解析工作区根目录。
         /// </summary>
-        private static string GetWorkspaceRoot(AgentContext context)
+        private static new string GetWorkspaceRoot(AgentContext context)
         {
             string? sln = context.SolutionPath;
             if (!string.IsNullOrEmpty(sln))

@@ -250,4 +250,68 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>搜索到的关键符号（函数名、类名等）</summary>
         public List<string> KeySymbols { get; set; } = new();
     }
+
+    // ========================================================================
+    // Handoff 请求 — 专用 JSON 格式的 Agent 间移交协议
+    // ========================================================================
+
+    /// <summary>
+    /// Agent 间移交请求的专用 JSON 格式。
+    /// 当 Agent 需要将任务移交给另一个 Agent 时，通过此结构声明移交意图。
+    /// 
+    /// 使用场景：
+    /// - AskAgent/EditAgent/BuildAgent 需要代码库探索 → 移交给 ExploreAgent
+    /// - PlanAgent 完成规划 → 移交给 EditAgent
+    /// - EditAgent 完成修改遇到编译错误 → 移交给 BuildAgent
+    /// 
+    /// 移交流程：
+    /// 1. 源 Agent 输出 HandoffRequest JSON
+    /// 2. AgentDispatcher 解析并执行 ExecuteHandoffAsync
+    /// 3. 目标 Agent 接收完整上下文（含计划、文件缓存等）
+    /// 4. 目标 Agent 执行完毕后，可选择链回源 Agent 或 AskAgent（生成总结）
+    /// </summary>
+    public class HandoffRequest
+    {
+        /// <summary>移交请求 ID（用于追踪）</summary>
+        public string RequestId { get; set; } = Guid.NewGuid().ToString("N").Substring(0, 8);
+
+        /// <summary>源 Agent 类型</summary>
+        public AgentType SourceAgent { get; set; }
+
+        /// <summary>目标 Agent 类型</summary>
+        public AgentType TargetAgent { get; set; }
+
+        /// <summary>移交原因（简短说明为什么要移交）</summary>
+        public string Reason { get; set; } = string.Empty;
+
+        /// <summary>委派给目标 Agent 的任务描述</summary>
+        public string TaskDescription { get; set; } = string.Empty;
+
+        /// <summary>是否需要目标 Agent 完成后链回源 Agent</summary>
+        public bool ChainBack { get; set; }
+
+        /// <summary>是否自动执行（不等待用户确认）</summary>
+        public bool AutoSend { get; set; }
+
+        /// <summary>传递给目标 Agent 的附加上下文（如已探索的文件列表）</summary>
+        public string? AdditionalContext { get; set; }
+    }
+
+    /// <summary>
+    /// Handoff 响应：目标 Agent 完成后的结果。
+    /// </summary>
+    public class HandoffResponse
+    {
+        /// <summary>对应的请求 ID</summary>
+        public string RequestId { get; set; } = string.Empty;
+
+        /// <summary>是否成功</summary>
+        public bool Success { get; set; }
+
+        /// <summary>目标 Agent 的执行结果</summary>
+        public string? Result { get; set; }
+
+        /// <summary>是否需要进一步移交</summary>
+        public AgentHandoff? NextHandoff { get; set; }
+    }
 }

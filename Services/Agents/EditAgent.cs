@@ -39,7 +39,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 用于在执行代码修改前智能发现相关文件。
         /// 设置时自动转发 ExploreAgent 的日志和文件变更事件。
         /// </summary>
-        public ExploreAgent? ExploreAgent
+        public new ExploreAgent? ExploreAgent
         {
             get => _exploreAgent;
             set => RegisterExploreAgent(value, ref _exploreAgent);
@@ -56,42 +56,44 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         #region Agent Definition
 
         /// <summary>
-        /// Edit Agent 工具集 — 包含文件读写和终端执行能力。
+        /// Edit Agent 工具集 — 编辑/终端/构建能力。
+        /// 代码库探索（搜索、列表、grep）通过 runSubagent 委派给 ExploreAgent。
+        /// read_file 保留用于编辑前确认文件内容（利用 ExploreAgent 预热缓存）。
         /// </summary>
         public static readonly string[] EditTools = new[]
         {
+            // 编辑工具
             "create_file",
             "delete_file",
             "replace_string_in_file",
             "multi_replace_string_in_file",
             "apply_patch",
             "create_directory",
+            // 编辑必需：读取文件（利用缓存命中）
             "read_file",
-            "file_search",
-            "grep_search",
-            "list_dir",
             "get_errors",
-            "get_changed_files",
+            // 终端与构建
             "run_in_terminal",
             "get_terminal_output",
             "create_and_run_task",
-            "manage_todo_list",
             "build_solution",
+            // 子代理委派
+            "runSubagent",
+            // 任务与记忆
+            "manage_todo_list",
             "memory",
         };
 
         /// <summary>
-        /// Edit Agent 代码步骤专用探索工具集（只读）。
-        /// AI 在编写代码前使用这些工具探索项目结构，避免盲写。
+        /// Edit Agent 代码步骤专用探索工具集。
+        /// AI 在编写代码前使用 runSubagent 委派 ExploreAgent 探索项目结构，
+        /// 配合 read_file（利用缓存命中）和 get_errors 完成上下文收集。
         /// </summary>
         private static readonly string[] ExplorationTools = new[]
         {
             "read_file",
-            "file_search",
-            "grep_search",
-            "list_dir",
             "get_errors",
-            "get_changed_files",
+            "runSubagent",
         };
 
         protected override AgentDefinition CreateDefinition(AgentType agentType)

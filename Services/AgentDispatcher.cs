@@ -240,6 +240,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 planAgent.ExploreAgent = ExploreAgent;
             }
 
+            // ── 注入 ExploreAgent 到 BuildAgent，使其能通过 runSubagent 委派探索任务 ──
+            if (agent is BuildAgent buildAgent)
+            {
+                if (buildAgent.ExploreAgent == null)
+                    buildAgent.ExploreAgent = ExploreAgent;
+            }
+
             // 绑定事件（如果尚未绑定）
             agent.PermissionRequested -= OnAgentPermissionRequested;
             agent.PermissionRequested += OnAgentPermissionRequested;
