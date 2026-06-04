@@ -58,9 +58,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string cmd = GetStringArg(args, "command");
             string expl = GetStringArg(args, "explanation");
             if (!string.IsNullOrEmpty(expl))
-                return $"💻 执行终端命令: {TruncateText(expl, 80)}";
+                return LocalizationService.Instance.Format("tool.runTerminal.displayText", TruncateText(expl, 80));
             else if (!string.IsNullOrEmpty(cmd))
-                return $"💻 执行终端命令: `{TruncateText(cmd, 60)}`";
+                return LocalizationService.Instance.Format("tool.runTerminal.displayTextWithCmd", TruncateText(cmd, 60));
             return LocalizationService.Instance["tool.runTerminal.defaultDisplayText"];
         }
 
@@ -69,8 +69,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌") || toolResult.StartsWith("⛔")) return toolResult;
             if (toolResult.Contains("exit code: 0") || toolResult.Contains("ExitCode: 0"))
-                return "✅ 终端命令执行成功";
-            return "💻 终端命令已执行";
+                return LocalizationService.Instance["tool.runTerminal.success"];
+            return LocalizationService.Instance["tool.runTerminal.executed"];
         }
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
@@ -83,7 +83,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             if (IsBuildCommand(command))
             {
-                return $"⛔ 禁止在终端中运行编译命令。请改用 build_solution 工具，它通过 VS SDK 原生接口编译，" +
+                return LocalizationService.Instance["tool.runTerminal.buildBlocked"] + "\n\n" +
                     $"编译错误也会自动进入 VS Error List，可通过 get_errors 工具获取详细错误信息。\n\n" +
                     $"被拦截的命令: {command}";
             }
@@ -154,7 +154,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 var process = Process.Start(psi);
                 if (process == null)
-                    return "❌ run_in_terminal: 无法启动进程";
+                    return LocalizationService.Instance["tool.runTerminal.cannotStart"];
 
                 if (isAsync)
                 {
@@ -167,7 +167,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         catch { }
                         finally { process.Dispose(); }
                     });
-                    return warningPrefix + $"🚀 终端命令已启动 (PID: {pid}, 模式: async)\n命令: {command}";
+                    return warningPrefix + LocalizationService.Instance.Format("tool.runTerminal.started", pid, command);
                 }
                 else
                 {
@@ -230,7 +230,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             }
             catch (Exception ex)
             {
-                return $"❌ run_in_terminal 失败: {ex.Message}";
+                return LocalizationService.Instance.Format("tool.runTerminal.failed", ex.Message);
             }
         }
 
@@ -349,7 +349,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             if (issues.Count == 0) return null;
 
-            return "⚠️ 终端命令包含 Unix/Linux 风格语法，已自动修正：\n" + string.Join("\n", issues);
+            return LocalizationService.Instance["tool.runTerminal.unixWarning"] + "\n" + string.Join("\n", issues);
         }
 
         /// <summary>

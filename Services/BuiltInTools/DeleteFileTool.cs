@@ -44,14 +44,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             string deletePath = GetStringArg(args, "filePath");
             string deleteFile = string.IsNullOrEmpty(deletePath) ? "?" : Path.GetFileName(deletePath);
-            return $"🗑️ 删除文件 `{deleteFile}`";
+            return LocalizationService.Instance.Format("tool.deleteFile.displayText", deleteFile);
         }
 
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
-            return "🗑️ 文件已删除";
+            return LocalizationService.Instance["tool.deleteFile.deleted"];
         }
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)

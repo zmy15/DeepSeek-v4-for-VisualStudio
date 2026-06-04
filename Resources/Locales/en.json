@@ -956,6 +956,7 @@
   "tool.getErrors.noSelection": "🔍 No error item selected in Error List.",
   "tool.getErrors.buildInProgress": "⏳ Build in progress, error list may be incomplete.",
   "tool.getErrors.noErrorsDetected": "🔧 Build error check: no errors detected. Code compiles successfully.",
+  "tool.getErrors.selectedItemFailed": "❌ Failed to get selected error item: {0}",
   "tool.getErrors.failed": "❌ Failed to get build errors: {0}",
 
   "tool.getTerminalOutput.displayText": "📋 Get Terminal Output",
@@ -994,6 +995,8 @@
   "tool.memory.deleteMissingPath": "❌ memory delete: missing path parameter",
   "tool.memory.renameMissingOld": "❌ memory rename: missing old_path parameter",
   "tool.memory.renameMissingNew": "❌ memory rename: missing new_path parameter",
+  "tool.memory.error": "❌ memory error: {0}",
+  "tool.memory.empty": "(empty)",
   "tool.memory.renameCrossScope": "❌ memory rename: cannot rename across scopes",
   "tool.memory.view": "🧠 View Memory: {0}",
   "tool.memory.create": "🧠 Create Memory: {0}",
@@ -1013,6 +1016,7 @@
   "tool.readFile.displayTextRange": "📄 Read file `{0}` (lines {1}-{2})",
   "tool.readFile.displayTextFrom": "📄 Read file `{0}` (from line {1})",
   "tool.readFile.displayText": "📄 Read file `{0}`",
+  "tool.readFile.missingParam": "❌ read_file: missing filePath parameter",
   "tool.readFile.readCompleteLines": "✅ Read complete ({0} lines)",
   "tool.readFile.fileChanged": "🔄 [File changed, re-reading] File `{0}`",
   "tool.readFile.expired": "🔄 [{0}, allow re-read] File `{1}`",
@@ -1044,6 +1048,8 @@
   "tool.runTerminal.unixWarning": "⚠️ Terminal command contains Unix/Linux syntax, auto-corrected",
   "tool.runTerminal.started": "🚀 Terminal command started (PID: {0}, mode: async)",
   "tool.runTerminal.timeout": "⏱️ Terminal command timeout ({0} min), force terminated",
+  "tool.runTerminal.cannotStart": "❌ run_in_terminal: cannot start process",
+  "tool.runTerminal.failed": "❌ run_in_terminal failed: {0}",
   "tool.runTerminal.stderr": "--- STDERR ---",
 
   "═════════════════════════": "═══ View / Status ═══",

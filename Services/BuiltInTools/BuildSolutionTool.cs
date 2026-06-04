@@ -54,8 +54,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             string config = GetStringArg(args, "configuration");
             return string.IsNullOrEmpty(config)
-                ? "🔨 构建解决方案"
-                : $"🔨 构建解决方案 ({config})";
+                ? LocalizationService.Instance["tool.buildSolution.displayText"]
+                : LocalizationService.Instance.Format("tool.buildSolution.displayTextWithConfig", config);
         }
 
         public override string GetResultSummary(string toolResult)

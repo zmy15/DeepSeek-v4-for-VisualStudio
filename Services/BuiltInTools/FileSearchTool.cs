@@ -69,7 +69,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 return $"✅ {fsMatch.Value.Trim()}";
             var fsLines = toolResult.Split('\n');
             int fsCount = fsLines.Count(l => l.TrimStart().StartsWith("- `"));
-            return $"✅ 找到 {fsCount} 个文件";
+            return LocalizationService.Instance.Format("tool.fileSearch.foundFiles", fsCount);
         }
 
         public override Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
@@ -77,12 +77,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             workspaceRoot = NormalizeWorkspaceRoot(workspaceRoot);
             string query = GetStringArg(args, "query");
             if (string.IsNullOrEmpty(query))
-                return Task.FromResult("❌ file_search: 缺少 query 参数");
+                return Task.FromResult(LocalizationService.Instance["tool.fileSearch.missingQuery"]);
 
             int maxResults = GetIntArg(args, "maxResults", 50);
             string searchRoot = workspaceRoot ?? Directory.GetCurrentDirectory();
             if (!Directory.Exists(searchRoot))
-                return Task.FromResult($"❌ 工作区目录不存在: {searchRoot}");
+                return Task.FromResult(LocalizationService.Instance.Format("tool.fileSearch.workspaceNotExist", searchRoot));
 
             try
             {
@@ -147,7 +147,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             }
             catch (Exception ex)
             {
-                return Task.FromResult($"❌ 文件搜索失败: {ex.Message}");
+                return Task.FromResult(LocalizationService.Instance.Format("tool.fileSearch.failed", ex.Message));
             }
         }
     }

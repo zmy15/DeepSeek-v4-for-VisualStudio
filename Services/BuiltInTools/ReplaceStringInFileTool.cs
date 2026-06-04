@@ -44,7 +44,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             string editPath = GetStringArg(args, "filePath");
             string editFile = string.IsNullOrEmpty(editPath) ? "?" : Path.GetFileName(editPath);
-            return $"✏️ 编辑文件 `{editFile}`";
+            return LocalizationService.Instance.Format("tool.replaceString.displayText", editFile);
         }
 
         public override string GetResultSummary(string toolResult)
@@ -52,8 +52,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
             if (toolResult.StartsWith("✅") || toolResult.Contains("成功") || toolResult.Contains("success"))
-                return "✅ 编辑完成";
-            return "✏️ 编辑完成";
+                return LocalizationService.Instance["tool.replaceString.editComplete"];
+            return LocalizationService.Instance["tool.replaceString.editDone"];
         }
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
@@ -70,7 +70,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             filePath = ResolvePath(filePath, workspaceRoot);
 
             if (!File.Exists(filePath))
-                return $"❌ replace_string_in_file: 文件不存在: {filePath}";
+                return LocalizationService.Instance.Format("tool.replaceString.fileNotFound", filePath);
 
             try
             {
@@ -81,11 +81,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 int index = normalizedContent.IndexOf(normalizedOld, StringComparison.Ordinal);
                 if (index < 0)
-                    return $"❌ replace_string_in_file: 未在文件中找到要替换的文本。请用 read_file 确认文件当前内容。文件: {Path.GetFileName(filePath)}";
+                    return LocalizationService.Instance.Format("tool.replaceString.textNotFound", Path.GetFileName(filePath));
 
                 int secondIndex = normalizedContent.IndexOf(normalizedOld, index + 1, StringComparison.Ordinal);
                 if (secondIndex >= 0)
-                    return $"❌ replace_string_in_file: oldString 在文件中匹配了多处（至少位置 {index} 和 {secondIndex}）。请使用包含更多上下文的更精确字符串，或使用 multi_replace_string_in_file。";
+                    return LocalizationService.Instance.Format("tool.replaceString.multipleMatches", index, secondIndex);
 
                 string newContent = normalizedContent.Substring(0, index)
                     + normalizedNew
@@ -94,11 +94,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 newContent = newContent.Replace("\n", "\r\n");
 
                 await Task.Run(() => File.WriteAllText(filePath, newContent, Encoding.UTF8));
-                return $"✅ 已替换: {Path.GetFileName(filePath)}";
+                return LocalizationService.Instance.Format("tool.replaceString.replaced", Path.GetFileName(filePath));
             }
             catch (Exception ex)
             {
-                return $"❌ replace_string_in_file 失败: {ex.Message}";
+                return LocalizationService.Instance.Format("tool.replaceString.failed", ex.Message);
             }
         }
     }

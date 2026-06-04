@@ -58,7 +58,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
-            return $"✅ 抓取完成 ({toolResult.Length} 字符)";
+            return LocalizationService.Instance.Format("tool.fetchWebpage.complete", toolResult.Length);
         }
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
@@ -72,7 +72,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
                 !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                return $"❌ fetch_webpage: URL 必须以 http:// 或 https:// 开头。收到: {url}";
+                return LocalizationService.Instance.Format("tool.fetchWebpage.invalidUrl", url);
 
             if (maxDepth < 1) maxDepth = 1; else if (maxDepth > 3) maxDepth = 3;
             if (maxContentLength < 500) maxContentLength = 500; else if (maxContentLength > 10000) maxContentLength = 10000;
@@ -90,7 +90,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 await FetchRecursiveAsync(safeUrl, maxDepth, maxContentLength, visited, allContents);
 
                 if (allContents.Count == 0)
-                    return $"⚠️ fetch_webpage: 无法从 {url} 提取到有效内容。网站可能使用 JavaScript 动态加载，或需要登录。";
+                    return LocalizationService.Instance.Format("tool.fetchWebpage.noContent", url);
 
                 var sb = new StringBuilder();
                 sb.AppendLine($"=== 网页内容: {url} ===");
@@ -115,7 +115,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             catch (Exception ex)
             {
                 Logger.Error($"[fetch_webpage] 抓取异常 ({url}): {ex.Message}", ex);
-                return $"❌ fetch_webpage: 抓取失败 - {ex.Message}";
+                return LocalizationService.Instance.Format("tool.fetchWebpage.failed", ex.Message);
             }
         }
 

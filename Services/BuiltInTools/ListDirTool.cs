@@ -59,7 +59,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             var dirLines = toolResult.Split('\n');
             int dirCount = dirLines.Count(l => l.TrimStart().StartsWith("- 📁"));
             int fileCount = dirLines.Count(l => l.TrimStart().StartsWith("- 📄"));
-            return $"列出完成: {dirCount} 个子目录, {fileCount} 个文件";
+            return LocalizationService.Instance.Format("tool.listDir.complete", dirCount, fileCount);
         }
 
         public override Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
@@ -75,7 +75,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 }
                 else
                 {
-                    return Task.FromResult("❌ list_dir: 缺少有效的绝对路径参数。请使用 Windows 绝对路径（如 C:\\project\\src）。"
+                    return Task.FromResult(LocalizationService.Instance["tool.listDir.missingParam"]
                         + (string.IsNullOrEmpty(workspaceRoot) ? "" : $" 当前工作区: {workspaceRoot}"));
                 }
             }
@@ -86,7 +86,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     ? $"\n💡 提示: 当前工作区根目录是 \"{workspaceRoot}\"，请使用此路径或其中的子目录。"
                     : "\n💡 提示: 请使用 Windows 绝对路径格式（如 C:\\Users\\...\\project\\src）。";
                 suggestion += "\n💡 如需创建新目录，请使用 create_directory 工具。";
-                return Task.FromResult($"❌ 目录不存在: {path}{suggestion}");
+                return Task.FromResult(LocalizationService.Instance.Format("tool.listDir.notFound", path) + suggestion);
             }
 
             try
@@ -129,7 +129,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             }
             catch (Exception ex)
             {
-                return Task.FromResult($"❌ 列出目录失败: {ex.Message}");
+                return Task.FromResult(LocalizationService.Instance.Format("tool.listDir.failed", ex.Message));
             }
         }
     }
