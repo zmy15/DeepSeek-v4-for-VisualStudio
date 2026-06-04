@@ -130,7 +130,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (cachedFiles != null && cachedFiles.Count > 0)
                     {
                         plan.DiscoveredFiles = cachedFiles;
-                        AddLog("INFO", $"[PlanAgent] 已将 {cachedFiles.Count} 个已发现文件注入计划（以后会被 RAG 替代）");
+                        AddLog("INFO", LocalizationService.Instance.Format("agent.log.planCachedFiles", cachedFiles.Count));
                     }
                 }
 
@@ -418,7 +418,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
             catch (Exception ex)
             {
-                AddLog("WARN", $"对齐检查失败（默认跳过）: {ex.Message}");
+                AddLog("WARN", LocalizationService.Instance.Format("agent.log.planAlignmentCheckFailed", ex.Message));
                 return false;
             }
         }
@@ -475,17 +475,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // 将 AI 在提问前生成的规划概要合并到结果中
                 string planSummary = alignmentContent.ToString().Trim();
 
-                AddLog("INFO", $"[Plan] 对齐阶段完成 ({alignmentResult.Truncate(200)})");
+                AddLog("INFO", LocalizationService.Instance.Format("agent.log.planAlignmentDone", alignmentResult.Truncate(200)));
                 return planSummary;
             }
             catch (OperationCanceledException)
             {
-                AddLog("WARN", "[Plan] 对齐阶段被用户取消");
+                AddLog("WARN", LocalizationService.Instance["agent.log.planAlignmentCancelled"]);
                 return string.Empty;
             }
             catch (Exception ex)
             {
-                AddLog("WARN", $"[Plan] 对齐阶段出错（非致命，继续规划）: {ex.Message}");
+                AddLog("WARN", LocalizationService.Instance.Format("agent.log.planAlignmentError", ex.Message));
                 return string.Empty;
             }
         }

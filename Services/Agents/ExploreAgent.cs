@@ -211,7 +211,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             int firstNewline = userMessage.IndexOf('\n');
             if (firstNewline > 0)
                 logMessage = userMessage.Substring(0, firstNewline).TrimEnd('\r');
-            AddLog("INFO", $"Explore Agent 开始执行: \"{logMessage.Truncate(100)}\"");
+            AddLog("INFO", LocalizationService.Instance.Format("agent.log.exploreStarted", logMessage.Truncate(100)));
 
             var result = new AgentResult
             {
@@ -246,7 +246,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     catch { }
                 }
 
-                AddLog("INFO", $"Explore prompt 已构建 ({messages.Last().Content?.Length ?? 0} 字符), workspaceRoot={workspaceRoot}");
+                AddLog("INFO", LocalizationService.Instance.Format("agent.log.explorePromptBuilt", messages.Last().Content?.Length ?? 0, workspaceRoot));
 
                 // ── 使用工具调用循环 ──
                 string thinkingContent = string.Empty;
@@ -282,19 +282,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 result.Logs.AddRange(_logs);
 
-                AddLog("INFO", $"Explore Agent 完成 ({aiResponse.Length} 字符)");
+                AddLog("INFO", LocalizationService.Instance.Format("agent.log.exploreDone", aiResponse.Length));
             }
             catch (OperationCanceledException)
             {
                 result.Success = false;
-                result.ErrorMessage = "探索已取消";
-                AddLog("WARN", "探索已取消");
+                result.ErrorMessage = LocalizationService.Instance["agent.log.exploreCancelled"];
+                AddLog("WARN", LocalizationService.Instance["agent.log.exploreCancelled"]);
             }
             catch (Exception ex)
             {
                 result.Success = false;
                 result.ErrorMessage = ex.Message;
-                AddLog("ERROR", $"探索失败: {ex.Message}");
+                AddLog("ERROR", LocalizationService.Instance.Format("agent.log.exploreFailed", ex.Message));
             }
 
             return result;
@@ -392,7 +392,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 if (_discoveredFilesCache.TryGetValue(cacheKey, out var cached))
                 {
-                    AddLog("INFO", $"[Discover] 命中文件列表缓存: {cached.Count} 个文件 (solutionPath={solutionPath})");
+                    AddLog("INFO", LocalizationService.Instance.Format("agent.log.discoverCacheHit", cached.Count, solutionPath));
                     // 如果缓存的文件数 >= 请求数，直接返回；否则返回全部缓存
                     if (cached.Count >= maxFiles)
                         return cached.Take(maxFiles).ToList();
@@ -411,11 +411,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     .GetGlobalService(typeof(EnvDTE.DTE));
                 if (dte?.Solution == null || !dte.Solution.IsOpen)
                 {
-                    AddLog("INFO", "[Discover] 当前没有打开的解决方案，跳过文件发现");
+                    AddLog("INFO", LocalizationService.Instance["agent.log.discoverNoSolution"]);
                     return discoveredFiles;
                 }
 
-                AddLog("INFO", $"[Discover] 开始扫描解决方案: {solutionPath}");
+                AddLog("INFO", LocalizationService.Instance.Format("agent.log.discoverScanStart", solutionPath));
 
                 // 遍历解决方案中的所有项目（同步，在主线程上）
                 foreach (EnvDTE.Project project in dte.Solution.Projects)
@@ -429,15 +429,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
                     catch (Exception ex)
                     {
-                        AddLog("WARN", $"[Discover] 扫描项目 {project.Name} 时出错: {ex.Message}");
+                        AddLog("WARN", LocalizationService.Instance.Format("agent.log.discoverProjectError", project.Name, ex.Message));
                     }
                 }
 
-                AddLog("INFO", $"[Discover] 文件发现完成: {discoveredFiles.Count} 个文件");
+                AddLog("INFO", LocalizationService.Instance.Format("agent.log.discoverDone", discoveredFiles.Count));
             }
             catch (Exception ex)
             {
-                AddLog("ERROR", $"[Discover] 文件发现失败: {ex.Message}");
+                AddLog("ERROR", LocalizationService.Instance.Format("agent.log.discoverFailed", ex.Message));
             }
 
             // ── 回退：CMake / Open Folder 项目中 DTE ProjectItems 可能为空 ──

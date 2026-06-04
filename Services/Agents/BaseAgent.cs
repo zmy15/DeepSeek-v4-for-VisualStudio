@@ -1080,13 +1080,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         $"AI 请求{operation}项目外部路径 `{targetPath}` 以完成任务");
                     if (!approved)
                     {
-                        AddLog("WARN", $"❌ 用户拒绝了项目外路径访问: {targetPath}");
+                        AddLog("WARN", LocalizationService.Instance.Format("agent.log.permissionDenied", targetPath));
                         return $"⛔ 用户拒绝了项目外路径{operation}: {targetPath}\n\n"
                             + $"⚠️ 重要提醒：用户已明确拒绝访问此项目外路径。\n"
                             + $"请绝对不要再尝试访问 `{targetPath}` 或其父目录下的任何文件。\n"
                             + $"请基于当前工作区 `{workspaceRoot}` 内的文件完成任务。";
                     }
-                    AddLog("INFO", $"✅ 用户已批准项目外路径访问: {targetPath}");
+                    AddLog("INFO", LocalizationService.Instance.Format("agent.log.permissionGranted", targetPath));
                 }
             }
 
@@ -1122,10 +1122,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         filePurpose);
                     if (!approved)
                     {
-                        AddLog("WARN", $"❌ 用户拒绝了项目文件修改: {fileName}");
+                        AddLog("WARN", LocalizationService.Instance.Format("agent.log.projectModDenied", fileName));
                         return $"⏭️ 用户取消了项目文件{operation}: {fileName}";
                     }
-                    AddLog("INFO", $"✅ 用户已批准项目文件修改: {fileName}");
+                    AddLog("INFO", LocalizationService.Instance.Format("agent.log.projectModGranted", fileName));
                 }
             }
 
@@ -2109,7 +2109,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             bool approved = await request.ResponseTcs.Task;
             PendingPermission = null;
-            AddLog("INFO", $"文件删除确认结果: {(approved ? "✅ 确认删除" : "❌ 取消")} → {title}");
+            AddLog("INFO", LocalizationService.Instance.Format("agent.log.fileDeleteConfirm", approved ? "✅ 确认删除" : "❌ 取消", title));
             return approved;
         }
 

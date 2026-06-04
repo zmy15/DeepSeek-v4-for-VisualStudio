@@ -216,14 +216,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     foreach (var kvp in builtInCache)
                         context.FileReadCache[kvp.Key] = kvp.Value;
-                    AddLog("INFO", $"[EditAgent] 已同步 BuiltInToolService 文件读取缓存: {builtInCache.Count} 个文件（以后会被 RAG 替代）");
+                    AddLog("INFO", LocalizationService.Instance.Format("agent.log.editCachedFiles", builtInCache.Count));
                 }
             }
 
             // ── 防重守卫：如果计划已完成，跳过重复执行 ──
             if (plan.IsCompleted)
             {
-                AddLog("INFO", "[EditAgent] 计划已完成，跳过重复执行");
+                AddLog("INFO", LocalizationService.Instance["agent.log.editPlanDone"]);
                 return;
             }
 
@@ -242,7 +242,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // ── 跳过已完成的步骤（防止计划被恢复后重复执行）──
                     if (step.Status is AgentStepStatus.Completed or AgentStepStatus.Skipped)
                     {
-                        AddLog("INFO", $"[EditAgent] 步骤 {step.Index} ({step.Title}) 已完成，跳过");
+                        AddLog("INFO", LocalizationService.Instance.Format("agent.log.editStepSkipped", step.Index, step.Title));
                         continue;
                     }
 
@@ -525,7 +525,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // ── 检测 AI 是否明确表示没有要更改的内容 ──
                 if (IsNoChangesResponse(result))
                 {
-                    AddLog("INFO", "[EditAgent] AI 返回空/无更改响应，跳过本步骤的编辑执行");
+                    AddLog("INFO", LocalizationService.Instance["agent.log.editEmptyResponse"]);
                     result = string.Empty; // 统一置空，后续流程据此跳过编辑
                     break;
                 }
@@ -567,7 +567,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 step.ResultSummary = "✅ 无需修改（AI 确认没有要更改的内容）";
                 TerminalWindowHelper.SuppressDiffPreview = false;
-                AddLog("INFO", "[EditAgent] 跳过编辑：AI 返回空响应，确认无需更改");
+                AddLog("INFO", LocalizationService.Instance["agent.log.editNoChange"]);
                 return;
             }
 
@@ -763,7 +763,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // 避免因 AI 回复中的否定表述（如"没有错误"）误报警告
                     if (HasBuildFailure(verifyResult))
                     {
-                        AddLog("WARN", "⚠️ 最终编译存在问题，请查看上方详情");
+                        AddLog("WARN", LocalizationService.Instance["agent.log.editBuildWarning"]);
                     }
                 }
             }
@@ -854,7 +854,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         $"向 `{fileName}` 应用代码补丁以完成项目配置修改\n\n补丁预览:\n{patchPreview}");
                     if (!confirmed)
                     {
-                        AddLog("WARN", $"⏭ 已跳过项目文件补丁（用户拒绝）: {fileName}");
+                        AddLog("WARN", LocalizationService.Instance.Format("agent.log.editProjectPatchSkipped", fileName));
                         appliedResults.Add(new EditApplyResult
                         {
                             FilePath = resolvedPath,
@@ -934,7 +934,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
                 else
                 {
-                    AddLog("ERROR", $"[EditAgent] Patch 应用失败: {resolvedPath} - {applyResult.ErrorMessage}");
+                    AddLog("ERROR", LocalizationService.Instance.Format("agent.log.editPatchFailed", resolvedPath, applyResult.ErrorMessage));
                 }
 
                 appliedResults.Add(applyResult);
@@ -953,12 +953,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             if (_insertEditTool == null)
             {
-                AddLog("WARN", "InsertEditTool 未注入，无法处理 insert_edit_into_file 格式");
+                AddLog("WARN", LocalizationService.Instance["agent.log.editNoInsertEditTool"]);
                 return;
             }
 
             var insertEdits = InsertEditTool.ParseInsertEdits(aiResult);
-            AddLog("INFO", $"[EditAgent] 解析到 {insertEdits.Count} 个 InsertEdit 操作");
+            AddLog("INFO", LocalizationService.Instance.Format("agent.log.editInsertEditsParsed", insertEdits.Count));
 
             // ── 排序：项目配置优先，构建定义文件最后 ──
             var sortedEdits = insertEdits
@@ -980,7 +980,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         $"对 `{Path.GetFileName(resolvedPath)}` 进行必要的配置变更");
                     if (!confirmed)
                     {
-                        AddLog("WARN", $"⏭ 已跳过项目文件 InsertEdit（用户拒绝）: {Path.GetFileName(resolvedPath)}");
+                        AddLog("WARN", LocalizationService.Instance.Format("agent.log.editInsertEditSkipped", Path.GetFileName(resolvedPath)));
                         appliedResults.Add(new EditApplyResult
                         {
                             FilePath = resolvedPath,
@@ -1016,7 +1016,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 if (applyResult.Success)
                 {
-                    AddLog("INFO", $"✅ InsertEdit 已应用: {resolvedPath} ({applyResult.AppliedEdits.Count} 个编辑)");
+                    AddLog("INFO", LocalizationService.Instance.Format("agent.log.editInsertEditApplied", resolvedPath, applyResult.AppliedEdits.Count));
 
                     // ── 项目文件拦截 ──
                     if (!string.IsNullOrEmpty(applyResult.FinalContent))
@@ -1025,7 +1025,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             resolvedPath, $"{applyResult.AppliedEdits.Count} 个编辑点", applyResult.FinalContent!);
                         if (!writeAllowed)
                         {
-                            AddLog("WARN", $"⏭ 已跳过项目文件写入（用户拒绝）: {Path.GetFileName(resolvedPath)}");
+                            AddLog("WARN", LocalizationService.Instance.Format("agent.log.editWriteSkipped", Path.GetFileName(resolvedPath)));
                             applyResult.Success = false;
                             applyResult.ErrorMessage = "用户拒绝修改项目文件";
                         }
@@ -1058,7 +1058,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
                 else
                 {
-                    AddLog("ERROR", $"❌ InsertEdit 应用失败: {resolvedPath} - {applyResult.ErrorMessage}");
+                    AddLog("ERROR", LocalizationService.Instance.Format("agent.log.editInsertEditFailed", resolvedPath, applyResult.ErrorMessage));
                 }
 
                 appliedResults.Add(applyResult);
@@ -1113,7 +1113,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                             Directory.CreateDirectory(dir);
                         await Task.Run(() => File.WriteAllText(resolvedPath, string.Empty, System.Text.Encoding.UTF8), ct);
-                        AddLog("INFO", $"📄 预创建文件并加入项目: {Path.GetFileName(resolvedPath)}");
+                        AddLog("INFO", LocalizationService.Instance.Format("agent.log.editPreCreateFile", Path.GetFileName(resolvedPath)));
                         await AddFileToProjectAsync(resolvedPath, ct);
                     }
 
@@ -1157,7 +1157,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
                     else
                     {
-                        AddLog("ERROR", $"写入文件失败: {resolvedPath} - {error}");
+                        AddLog("ERROR", LocalizationService.Instance.Format("agent.log.editWriteFailed", resolvedPath, error));
                         appliedResults.Add(new EditApplyResult
                         {
                             FilePath = resolvedPath,
@@ -1169,7 +1169,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
                 catch (Exception ex)
                 {
-                    AddLog("ERROR", $"写入文件失败: {change.FilePath} - {ex.Message}");
+                    AddLog("ERROR", LocalizationService.Instance.Format("agent.log.editWriteError", change.FilePath, ex.Message));
                 }
             }
         }
@@ -1191,7 +1191,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             if (resolvedDeletions.Count == 0) return;
 
-            AddLog("INFO", $"检测到 {resolvedDeletions.Count} 个待删除文件: [{string.Join(", ", resolvedDeletions.Select(Path.GetFileName))}]");
+            AddLog("INFO", LocalizationService.Instance.Format("agent.log.editDeletionsDetected", resolvedDeletions.Count, string.Join(", ", resolvedDeletions.Select(Path.GetFileName))));
 
             var deletionOriginals = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (string deletedPath in resolvedDeletions)
@@ -1218,7 +1218,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (confirmed)
             {
                 await AgentDispatcher.DeleteFilesViaEnvDTEAsync(resolvedDeletions);
-                AddLog("INFO", $"✅ 已删除 {resolvedDeletions.Count} 个文件");
+                AddLog("INFO", LocalizationService.Instance.Format("agent.log.editDeletionsDone", resolvedDeletions.Count));
 
                 foreach (string deletedPath in resolvedDeletions)
                 {
@@ -1236,7 +1236,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
             else
             {
-                AddLog("WARN", "❌ 用户取消了文件删除");
+                AddLog("WARN", LocalizationService.Instance["agent.log.editDeletionsCancelled"]);
             }
         }
 
@@ -1346,7 +1346,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         private async Task<string> ExecuteBuildStepAsync(AgentStep step, string? solutionPath, CancellationToken ct)
         {
-            AddLog("INFO", $"开始构建步骤: {step.Title}");
+            AddLog("INFO", LocalizationService.Instance.Format("agent.log.editStepStart", step.Title));
 
             try
             {
@@ -1701,7 +1701,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     effectivePurpose = "代码修改涉及项目配置变更，需要更新项目文件以保持一致";
             }
 
-            AddLog("WARN", $"⚠️ 检测到项目文件修改: {fileName}，请求用户确认...");
+            AddLog("WARN", LocalizationService.Instance.Format("agent.log.editProjectModDetected", fileName));
 
             // 构造内容预览（截断过长内容，保留前后各 30 行）
             string detail = "";
@@ -1738,7 +1738,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             if (!approved)
             {
-                AddLog("WARN", $"❌ 用户拒绝了项目文件修改: {fileName}");
+                AddLog("WARN", LocalizationService.Instance.Format("agent.log.projectModDenied", fileName));
             }
             return approved;
         }
@@ -1899,7 +1899,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (discoveredFromPlan != null && discoveredFromPlan.Count > 0)
                 {
                     relevantFiles = discoveredFromPlan;
-                    AddLog("INFO", $"[EditAgent] 复用 PlanAgent 已发现文件: {relevantFiles.Count} 个（以后会被 RAG 替代）");
+                    AddLog("INFO", LocalizationService.Instance.Format("agent.log.editReusePlanFiles", relevantFiles.Count));
                 }
                 // ── 第2层：ExploreAgent 文件列表缓存 ──
                 else if (ExploreAgent != null)
@@ -1908,7 +1908,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (cached != null && cached.Count > 0)
                     {
                         relevantFiles = cached;
-                        AddLog("INFO", $"[EditAgent] 命中 ExploreAgent 文件列表缓存: {relevantFiles.Count} 个（以后会被 RAG 替代）");
+                        AddLog("INFO", LocalizationService.Instance.Format("agent.log.editCacheHit", relevantFiles.Count));
                     }
                     else if (!string.IsNullOrWhiteSpace(userQuery))
                     {
@@ -1927,18 +1927,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             }
                         }
 
-                        AddLog("INFO", $"[EditAgent] 委托 ExploreAgent 智能发现相关文件: \"{userQuery.Truncate(80)}\"");
+                        AddLog("INFO", LocalizationService.Instance.Format("agent.log.editDelegateExplore", userQuery.Truncate(80)));
                         relevantFiles = await ExploreAgent.DiscoverRelevantFilesAsync(
                             solutionPath!, userQuery, maxFiles: 30,
                             additionalContext: additionalCtx);
-                        AddLog("INFO", $"[EditAgent] ExploreAgent 返回 {relevantFiles.Count} 个相关文件（已自动缓存，以后会被 RAG 替代）");
+                        AddLog("INFO", LocalizationService.Instance.Format("agent.log.editExploreDone", relevantFiles.Count));
                     }
                     else
                     {
                         // ── 第3层：回退到全量发现（结果会自动缓存）──
                         relevantFiles = await ExploreAgent.DiscoverSolutionFilesAsync(
                             solutionPath!, maxFiles: 50);
-                        AddLog("INFO", $"[EditAgent] 全量文件发现: {relevantFiles.Count} 个（已自动缓存，以后会被 RAG 替代）");
+                        AddLog("INFO", LocalizationService.Instance.Format("agent.log.editFullDiscovery", relevantFiles.Count));
                     }
                 }
                 else
