@@ -95,6 +95,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "read_file",
             "get_errors",
             "runSubagent",
+            "build_solution",      // 允许探索阶段编译验证当前代码状态
         };
 
         protected override AgentDefinition CreateDefinition(AgentType agentType)
@@ -295,8 +296,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     NotifyPlanUpdated();
 
-                    // ── Planning 模式下继承上下文：将刚完成的步骤结果累积 ──
-                    if (context.IsPlanningMode && step.Status == AgentStepStatus.Completed)
+                    // ── 继承上下文：将刚完成的步骤结果累积（所有模式通用）──
+                    if (step.Status == AgentStepStatus.Completed)
                     {
                         string stepResult = string.IsNullOrEmpty(step.ResultSummary)
                             ? string.Format(L["agent.log.editStepContextCompleted"], step.Index, step.Title)
@@ -304,6 +305,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         context.AccumulatedContext = (context.AccumulatedContext ?? "") + "\n" + stepResult;
                         if (!string.IsNullOrEmpty(step.AiResponse) && step.AiResponse!.Length < 3000)
                             context.AccumulatedContext += "\n" + step.AiResponse;
+
+                        // ── 截断：保留最近 8000 字符，防止无限增长导致 token 爆炸 ──
+                        const int maxAccumulatedChars = 8000;
+                        if (context.AccumulatedContext.Length > maxAccumulatedChars)
+                        {
+                            context.AccumulatedContext = "...(早期上下文已截断)\n"
+                                + context.AccumulatedContext.Substring(
+                                    context.AccumulatedContext.Length - maxAccumulatedChars);
+                        }
                         AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.contextAccumulated"], context.AccumulatedContext.Length));
                     }
                 }
@@ -735,13 +745,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     new ChatApiMessage { Role = "system", Content = verifySystemPrompt }
                 };
 
+                // ── 构建验证阶段的探索上下文摘要（注入已读取的文件信息，避免重复探索）──
+                string verifyExploreContext = "";
+                if (BuiltInTools != null)
+                {
+                    var verifyFileCache = BuiltInTools.GetFileReadCacheSnapshot();
+                    if (verifyFileCache.Count > 0)
+                    {
+                        var sbCtx = new StringBuilder();
+                        sbCtx.AppendLine("\n## 探索阶段已读取的文件（已缓存，可直接使用）");
+                        sbCtx.AppendLine("> 以下文件已在编辑前被读取并缓存。验证阶段可直接引用，无需重复 read_file。");
+                        int count = 0;
+                        foreach (var kvp in verifyFileCache.Take(10))
+                        {
+                            sbCtx.AppendLine($"- `{kvp.Key}` ({kvp.Value.Length} 字符)");
+                            count++;
+                        }
+                        if (verifyFileCache.Count > 10)
+                            sbCtx.AppendLine($"> ... 还有 {verifyFileCache.Count - 10} 个已缓存文件");
+                        verifyExploreContext = sbCtx.ToString();
+                    }
+                }
+
                 string verifyUserMessage =
                     "## 代码修改已完成\n\n" +
-                    $"已修改 {changes.Count} 个文件：{string.Join(", ", changes.Select(c => Path.GetFileName(c.FilePath)))}\n\n" +
+                    $"已修改 {changes.Count} 个文件：{string.Join(", ", changes.Select(c => Path.GetFileName(c.FilePath)))}\n" +
+                    verifyExploreContext + "\n" +
                     (sanityWarnings != null
                         ? $"⚠️ **编辑后健全性检查发现可能的问题**: {sanityWarnings}\n" +
                           $"请在验证时重点检查这些文件的括号/圆括号是否匹配，必要时用 read_file 查看文件末尾附近。\n\n"
-                        : "") +
+                        : "\n") +
                     "请立即执行以下操作（分两轮进行）：\n" +
                     "**第 1 轮**：只调用 build_solution 工具触发编译（build_solution 是异步的，会立即返回\"构建已启动\"）\n" +
                     "**第 2 轮**：收到 build_solution 回复后，调用 get_errors（不带参数）获取编译错误\n" +
@@ -1422,18 +1455,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine($"步骤详情: {step.Description}");
             sb.AppendLine();
 
-            // ── Planning 模式：注入之前步骤的累积上下文，避免重复搜索解决方案 ──
-            if (context.IsPlanningMode && !string.IsNullOrEmpty(context.AccumulatedContext))
+            // ── 注入之前步骤的累积上下文（所有模式通用），避免重复搜索解决方案 ──
+            if (!string.IsNullOrEmpty(context.AccumulatedContext))
             {
                 sb.AppendLine("## 前面步骤的执行结果（请基于这些结果继续，不要重复搜索已发现的文件）");
-                // RAG-MARK: no-truncate — 不再截断累积上下文，完整传递给 EditAgent
+                // RAG-MARK: no-truncate — 已在 ExecutePlanAsync 中做了 8000 字符截断
                 // RAG-SOURCE: accumulated-context 之前步骤的累积执行结果
                 sb.AppendLine(context.AccumulatedContext);
                 sb.AppendLine();
             }
 
-            // ── Planning 模式：注入前面步骤已读取的文件内容缓存，避免重复 read_file 调用 ──
-            if (context.IsPlanningMode && BuiltInTools != null)
+            // ── 注入前面步骤已读取的文件内容缓存（所有模式通用），避免重复 read_file 调用 ──
+            if (BuiltInTools != null)
             {
                 var fileCache = BuiltInTools.GetFileReadCacheSnapshot();
                 if (fileCache.Count > 0)

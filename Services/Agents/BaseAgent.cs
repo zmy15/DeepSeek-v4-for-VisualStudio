@@ -638,17 +638,28 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     Logger.Info($"[Agent:{Definition.Name}] 检测到 {toolCalls.Count} 个工具调用: {string.Join(", ", toolCalls.Select(t => t.Function.Name))}");
 
-                    // ── 通知工具调用（含详细信息，每轮仅一次）──
-                    // 每个工具调用单独一行，便于用户阅读执行过程
-                    foreach (var tc in toolCalls)
+                    // ── 去重：检测同一批次中完全相同的工具调用（同函数名+同参数），避免重复执行 ──
+                    // 例如 AI 可能误调用 3 次相同的 runSubagent，去重后只执行 1 次，结果复用
+                    var (dedupedIndices, dedupMapping) = DeduplicateToolCalls(toolCalls);
+                    bool hasDedup = dedupedIndices.Count < toolCalls.Count;
+                    if (hasDedup)
                     {
+                        int skipped = toolCalls.Count - dedupedIndices.Count;
+                        Logger.Info($"[Agent:{Definition.Name}] 🔄 去重: 跳过 {skipped} 个重复工具调用（{toolCalls.Count} → {dedupedIndices.Count} 个唯一调用）");
+                    }
+
+                    // ── 通知工具调用（含详细信息，每轮仅一次，去重后只通知唯一调用）──
+                    foreach (var idx in dedupedIndices)
+                    {
+                        var tc = toolCalls[idx];
                         string summary = BuiltInToolService.GetToolCallDisplayText(tc.Function.Name, tc.Function.Arguments);
                         onToolCall?.Invoke(summary);
                     }
 
-                    // ── 收集本轮工具调用摘要到历史（用于循环终止时的上下文总结）──
-                    foreach (var tc in toolCalls)
+                    // ── 收集本轮工具调用摘要到历史（去重后，用于循环终止时的上下文总结）──
+                    foreach (var idx in dedupedIndices)
                     {
+                        var tc = toolCalls[idx];
                         string summary = BuiltInToolService.GetToolCallDisplayText(tc.Function.Name, tc.Function.Arguments);
                         toolCallHistory.Add((round, summary));
                     }
@@ -665,13 +676,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         ToolCalls = toolCalls
                     });
 
-                    // ── 并行执行工具调用（带超时保护，长时工具使用更长超时）──
-                    var toolTasks = toolCalls.Select(tc =>
+                    // ── 并行执行工具调用（带超时保护，长时工具使用更长超时，已去重）──
+                    var toolTasks = dedupedIndices.Select(idx =>
                     {
+                        var tc = toolCalls[idx];
                         var timeout = GetToolTimeout(tc.Function.Name);
                         return ExecuteToolWithTimeoutAsync(tc, workspaceRoot, ct, timeout);
                     }).ToList();
-                    var toolResults = await Task.WhenAll(toolTasks).ConfigureAwait(false);
+                    var dedupedResults = await Task.WhenAll(toolTasks).ConfigureAwait(false);
+
+                    // ── 将去重后的结果映射回原始 toolCalls 数组 ──
+                    var toolResults = new string[toolCalls.Count];
+                    for (int i = 0; i < dedupedIndices.Count; i++)
+                    {
+                        int originalIdx = dedupedIndices[i];
+                        toolResults[originalIdx] = dedupedResults[i];
+                    }
+                    // 将去重结果复制到所有重复调用
+                    foreach (var mapping in dedupMapping)
+                    {
+                        int sourceIdx = mapping.Key;       // 实际执行的索引
+                        foreach (int dupIdx in mapping.Value) // 重复调用的索引列表
+                        {
+                            toolResults[dupIdx] = dedupedResults[dedupedIndices.IndexOf(sourceIdx)];
+                        }
+                    }
 
                     for (int i = 0; i < toolCalls.Count; i++)
                     {
@@ -1704,6 +1733,71 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 _ => TimeSpan.FromSeconds(60),  // 默认 60 秒
             };
+        }
+
+        /// <summary>
+        /// 对同一批次中的工具调用进行去重。
+        /// 相同函数名 + 相同参数（规范化 JSON）的调用只保留第一个，
+        /// 后续重复调用映射到第一个的结果。
+        /// </summary>
+        /// <returns>
+        /// dedupedIndices: 去重后需要实际执行的 toolCalls 索引列表。
+        /// dedupMapping: 源索引 → 重复索引列表的映射（用于将结果复制到重复调用）。
+        /// </returns>
+        private static (List<int> dedupedIndices, Dictionary<int, List<int>> dedupMapping) DeduplicateToolCalls(
+            List<ToolCall> toolCalls)
+        {
+            var dedupedIndices = new List<int>();
+            var dedupMapping = new Dictionary<int, List<int>>();
+            // key: "functionName|normalizedArgs" → 第一个出现的索引
+            var seen = new Dictionary<string, int>();
+
+            for (int i = 0; i < toolCalls.Count; i++)
+            {
+                var tc = toolCalls[i];
+                string normalizedArgs = NormalizeToolArguments(tc.Function.Arguments);
+                string key = $"{tc.Function.Name}|{normalizedArgs}";
+
+                if (seen.TryGetValue(key, out int firstIdx))
+                {
+                    // 重复调用：映射到第一个出现的索引
+                    if (!dedupMapping.ContainsKey(firstIdx))
+                        dedupMapping[firstIdx] = new List<int>();
+                    dedupMapping[firstIdx].Add(i);
+                }
+                else
+                {
+                    seen[key] = i;
+                    dedupedIndices.Add(i);
+                }
+            }
+
+            return (dedupedIndices, dedupMapping);
+        }
+
+        /// <summary>
+        /// 规范化工具参数 JSON：移除空格/换行等无意义差异，
+        /// 确保相同语义的参数能匹配到同一个去重 key。
+        /// </summary>
+        private static string NormalizeToolArguments(string argumentsJson)
+        {
+            if (string.IsNullOrWhiteSpace(argumentsJson))
+                return string.Empty;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(argumentsJson);
+                // 重新序列化，使用紧凑格式（无缩进、无多余空格）
+                return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions
+                {
+                    WriteIndented = false
+                });
+            }
+            catch
+            {
+                // JSON 解析失败时，回退到原始字符串（去除首尾空白）
+                return argumentsJson.Trim();
+            }
         }
 
         /// <summary>
