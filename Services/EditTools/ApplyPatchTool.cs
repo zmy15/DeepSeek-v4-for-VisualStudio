@@ -218,7 +218,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                         CurrentFileContent = currentContent,
                         OriginalOperationType = EditOperationType.ApplyPatch,
                         FailedPatch = patch,
-                        FailureReason = result.ErrorMessage ?? "未知原因",
+                        FailureReason = result.ErrorMessage ?? LocalizationService.Instance["tool.edit.applyPatch.unknownReason"],
                         FailedContextDetails = result.FailedHunks
                             .Select(h => $"Hunk ({string.Join(", ", h.ContextMarkers.Take(3))})")
                             .ToList(),
@@ -228,14 +228,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
                     if (healingResponse?.Success == true && healingResponse.CorrectedPatch != null)
                     {
-                        Logger.Info($"[ApplyPatch] Healing 成功: {resolvedPath}");
+                        Logger.Info(LocalizationService.Instance.Format("tool.edit.insert.healingSuccess", resolvedPath));
                         result = await ApplySinglePatchAsync(
                             healingResponse.CorrectedPatch, resolvedPath, currentContent, ct);
 
                         // ── 兜底：Healing 后仍失败 → 尝试 create_file ──
                         if (!result.Success && !string.IsNullOrEmpty(result.FinalContent))
                         {
-                            Logger.Warn($"[ApplyPatch] Healing 修正后仍失败，启用 create_file 兜底: {resolvedPath}");
+                            Logger.Warn(LocalizationService.Instance.Format("tool.edit.insert.healingRetryFailed", resolvedPath));
                             try
                             {
                                 await Task.Run(() => File.WriteAllText(resolvedPath,
@@ -245,7 +245,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                             }
                             catch (Exception ex)
                             {
-                                Logger.Error($"[ApplyPatch] create_file 兜底失败: {ex.Message}");
+                                Logger.Error(LocalizationService.Instance.Format("tool.edit.insert.createFileFallbackFailed", ex.Message));
                             }
                         }
                     }
@@ -288,7 +288,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             if (!File.Exists(filePath))
             {
                 result.Success = false;
-                result.ErrorMessage = $"文件不存在: {filePath}";
+                result.ErrorMessage = LocalizationService.Instance.Format("tool.edit.applyPatch.fileNotExist", filePath);
                 return result;
             }
 
@@ -312,7 +312,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             {
                 result.Success = false;
                 result.FailedHunks = failedHunks;
-                result.ErrorMessage = $"{failedHunks.Count}/{patch.Hunks.Count} 个 Hunk 解析失败";
+                result.ErrorMessage = LocalizationService.Instance.Format("tool.edit.applyPatch.hunkParseFailed", failedHunks.Count, patch.Hunks.Count);
                 return result;
             }
 
@@ -415,7 +415,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             {
                 result.Success = false;
                 result.FailedHunks = failedHunks;
-                result.ErrorMessage = $"{failedHunks.Count}/{patch.Hunks.Count} 个 Hunk 匹配失败";
+                result.ErrorMessage = LocalizationService.Instance.Format("tool.edit.applyPatch.hunkMatchFailed", failedHunks.Count, patch.Hunks.Count);
                 return result;
             }
 
@@ -571,11 +571,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             {
                 if (chunk.OrigIndex > originalLines.Length)
                     throw new InvalidOperationException(
-                        $"文件重建错误: Chunk.OrigIndex ({chunk.OrigIndex}) 超出文件行数 ({originalLines.Length})");
+                        LocalizationService.Instance.Format("tool.edit.applyPatch.chunkOutOfRange", chunk.OrigIndex, originalLines.Length));
 
                 if (origIdx > chunk.OrigIndex)
                     throw new InvalidOperationException(
-                        $"文件重建错误: 当前索引 ({origIdx}) 超过 Chunk.OrigIndex ({chunk.OrigIndex})，Chunk 可能重叠");
+                        LocalizationService.Instance.Format("tool.edit.applyPatch.chunkOverlap", origIdx, chunk.OrigIndex));
 
                 destLines.AddRange(originalLines.Skip(origIdx).Take(chunk.OrigIndex - origIdx));
                 origIdx = chunk.OrigIndex;
@@ -720,13 +720,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 else
                 {
                     result.Success = false;
-                    result.ErrorMessage = $"文件不存在: {filePath}";
+                    result.ErrorMessage = LocalizationService.Instance.Format("tool.edit.applyPatch.fileNotExist", filePath);
                 }
             }
             catch (Exception ex)
             {
                 result.Success = false;
-                result.ErrorMessage = $"删除失败: {ex.Message}";
+                result.ErrorMessage = LocalizationService.Instance.Format("tool.edit.applyPatch.deleteFailed", ex.Message);
             }
 
             return result;
@@ -745,7 +745,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 if (!File.Exists(sourcePath))
                 {
                     result.Success = false;
-                    result.ErrorMessage = $"源文件不存在: {sourcePath}";
+                    result.ErrorMessage = LocalizationService.Instance.Format("tool.edit.applyPatch.sourceNotExist", sourcePath);
                     return result;
                 }
 
@@ -762,7 +762,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             catch (Exception ex)
             {
                 result.Success = false;
-                result.ErrorMessage = $"移动失败: {ex.Message}";
+                result.ErrorMessage = LocalizationService.Instance.Format("tool.edit.applyPatch.moveFailed", ex.Message);
             }
 
             return result;

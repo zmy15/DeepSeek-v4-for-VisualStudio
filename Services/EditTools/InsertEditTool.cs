@@ -107,7 +107,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                         CurrentFileContent = fileContent,
                         OriginalOperationType = EditOperationType.InsertEditIntoFile,
                         FailedInsertEditContent = edit.FullContent,
-                        FailureReason = result.ErrorMessage ?? "未知原因",
+                        FailureReason = result.ErrorMessage ?? LocalizationService.Instance["tool.edit.applyPatch.unknownReason"],
                         FailedContextDetails = result.FailedRegions,
                     };
 
@@ -115,7 +115,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
                     if (healingResponse?.Success == true && healingResponse.CorrectedInsertEditContent != null)
                     {
-                        Logger.Info($"[InsertEdit] Healing 成功: {resolvedPath}");
+                        Logger.Info(LocalizationService.Instance.Format("tool.edit.insert.healingSuccess", resolvedPath));
                         var correctedEdit = new InsertEditOperation
                         {
                             FilePath = edit.FilePath,
@@ -126,7 +126,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                         // ── 兜底：Healing 后仍失败 → create_file ──
                         if (!result.Success)
                         {
-                            Logger.Warn($"[InsertEdit] Healing 修正后仍失败，启用 create_file 兜底: {resolvedPath}");
+                            Logger.Warn(LocalizationService.Instance.Format("tool.edit.insert.healingRetryFailed", resolvedPath));
                             try
                             {
                                 await Task.Run(() => File.WriteAllText(resolvedPath,
@@ -136,7 +136,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                             }
                             catch (Exception ex)
                             {
-                                Logger.Error($"[InsertEdit] create_file 兜底失败: {ex.Message}");
+                                Logger.Error(LocalizationService.Instance.Format("tool.edit.insert.createFileFallbackFailed", ex.Message));
                             }
                         }
                     }
@@ -184,7 +184,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             if (segments.Count == 0)
             {
                 result.Success = false;
-                result.ErrorMessage = "未找到有效的编辑内容";
+                result.ErrorMessage = LocalizationService.Instance["tool.edit.insert.noEditContent"];
                 return result;
             }
 
@@ -232,7 +232,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             {
                 result.Success = false;
                 result.FailedRegions = failedRegions;
-                result.ErrorMessage = $"{failedRegions.Count} 个代码区域匹配失败";
+                result.ErrorMessage = LocalizationService.Instance.Format("tool.edit.insert.regionMatchFailed", failedRegions.Count);
                 return result;
             }
 

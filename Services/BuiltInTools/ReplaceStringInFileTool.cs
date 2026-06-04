@@ -38,9 +38,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         type = "object",
                         properties = new
                         {
-                            filePath = new { type = "string", description = "要修改的文件的绝对路径（Windows 格式）" },
-                            oldString = new { type = "string", description = "要替换的原始文本（必须精确匹配，包括所有空白和缩进）" },
-                            newString = new { type = "string", description = "替换后的新文本" }
+                            filePath = new { type = "string", description = LocalizationService.Instance["tool.replaceString.param.filePath"] },
+                            oldString = new { type = "string", description = LocalizationService.Instance["tool.replaceString.param.oldString"] },
+                            newString = new { type = "string", description = LocalizationService.Instance["tool.replaceString.param.newString"] }
                         },
                         required = new[] { "filePath", "oldString", "newString" }
                     }

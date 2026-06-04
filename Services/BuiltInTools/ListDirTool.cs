@@ -34,7 +34,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             path = new
                             {
                                 type = "string",
-                                description = "要列出的目录的绝对路径（Windows 格式，如 C:\\Users\\... 或 F:\\VSCode\\...）"
+                                description = LocalizationService.Instance["tool.listDir.param.dirPath"]
                             }
                         },
                         required = new[] { "path" }

@@ -30,8 +30,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         type = "object",
                         properties = new
                         {
-                            filePath = new { type = "string", description = "要创建/覆盖的文件的绝对路径（Windows 格式）" },
-                            content = new { type = "string", description = "文件的完整内容" }
+                            filePath = new { type = "string", description = LocalizationService.Instance["tool.createFile.param.filePath"] },
+                            content = new { type = "string", description = LocalizationService.Instance["tool.createFile.param.content"] }
                         },
                         required = new[] { "filePath", "content" }
                     }

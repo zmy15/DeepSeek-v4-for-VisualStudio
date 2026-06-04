@@ -63,7 +63,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 prepared.GeneratedEdit = new GeneratedEditResult
                 {
                     Success = false,
-                    ErrorMessage = "oldString 和 newString 相同，无需修改。",
+                    ErrorMessage = LocalizationService.Instance["tool.edit.replaceString.sameNoChange"],
                 };
                 return false;
             }
@@ -86,8 +86,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 prepared.GeneratedEdit = new GeneratedEditResult
                 {
                     Success = false,
-                    ErrorMessage = $"无法在文件中找到 oldString。\n" +
-                        "请确保 oldString 与文件中的文本完全一致（包括空白、缩进、换行符）。",
+                    ErrorMessage = LocalizationService.Instance["tool.edit.replaceString.notFound"],
                 };
                 return false;
             }
@@ -102,8 +101,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     prepared.GeneratedEdit = new GeneratedEditResult
                     {
                         Success = false,
-                        ErrorMessage = $"oldString 在文件中匹配到多处。请添加更多上下文（前后各至少3行）使其唯一。\n" +
-                            $"匹配位置: 第 {matchPos} 字符处, 第 {secondMatch} 字符处",
+                        ErrorMessage = LocalizationService.Instance.Format("tool.edit.replaceString.multipleMatch", matchPos, secondMatch),
                     };
                     return false;
                 }

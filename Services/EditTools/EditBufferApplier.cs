@@ -74,7 +74,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[EditBufferApplier] 应用 TextEdit 到编辑器失败: {ex.Message}");
+                Logger.Warn(LocalizationService.Instance.Format("tool.edit.buffer.applyFailed", ex.Message));
                 return false;
             }
         }
@@ -132,7 +132,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[EditBufferApplier] 获取 TextBuffer 失败: {ex.Message}");
+                Logger.Warn(LocalizationService.Instance.Format("tool.edit.buffer.getFailed", ex.Message));
             }
 
             return null;

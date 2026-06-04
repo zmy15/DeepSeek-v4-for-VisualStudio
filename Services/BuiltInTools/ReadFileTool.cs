@@ -49,9 +49,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         type = "object",
                         properties = new
                         {
-                            filePath = new { type = "string", description = "要读取的文件的绝对路径（Windows 格式）" },
-                            startLine = new { type = "integer", description = "起始行号（1-based），可选，默认为 1" },
-                            endLine = new { type = "integer", description = "结束行号（1-based，包含），可选，默认读取到文件末尾" }
+                            filePath = new { type = "string", description = LocalizationService.Instance["tool.readFile.param.filePath"] },
+                            startLine = new { type = "integer", description = LocalizationService.Instance["tool.readFile.param.startLine"] },
+                            endLine = new { type = "integer", description = LocalizationService.Instance["tool.readFile.param.endLine"] }
                         },
                         required = new[] { "filePath" }
                     }

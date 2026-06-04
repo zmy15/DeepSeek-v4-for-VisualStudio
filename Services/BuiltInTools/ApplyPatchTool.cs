@@ -33,7 +33,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             patch = new
                             {
                                 type = "string",
-                                description = "补丁文本，使用 *** Begin Patch / *** End Patch 格式。每行前缀：空格=上下文、-=删除行、+=新增行。@@ 用于定位（类名/函数名等）。"
+                                description = LocalizationService.Instance["tool.applyPatch.description"]
                             }
                         },
                         required = new[] { "patch" }
@@ -71,7 +71,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 if (patches.Count == 0)
                 {
                     return LocalizationService.Instance["tool.applyPatch.noPatchBlock"] + "\n"
-                        + "请使用正确格式：\n"
+                        + LocalizationService.Instance["tool.applyPatch.formatHint"] + "\n"
                         + "*** Begin Patch\n"
                         + "*** Update File: /path/to/file\n"
                         + "@@ some context\n"
@@ -93,11 +93,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             if (File.Exists(filePath))
                             {
                                 await Task.Run(() => File.Delete(filePath));
-                                results.Add($"✅ 已删除: {Path.GetFileName(filePath)}");
+                                results.Add(LocalizationService.Instance.Format("tool.applyPatch.deleted", Path.GetFileName(filePath)));
                             }
                             else
                             {
-                                results.Add($"⚠️ 文件不存在，跳过删除: {Path.GetFileName(filePath)}");
+                                results.Add(LocalizationService.Instance.Format("tool.applyPatch.skipNotExist", Path.GetFileName(filePath)));
                             }
                             break;
 
@@ -109,7 +109,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             if (!string.IsNullOrEmpty(newFileDir) && !Directory.Exists(newFileDir))
                                 Directory.CreateDirectory(newFileDir);
                             await Task.Run(() => File.WriteAllText(filePath, newContent));
-                            results.Add($"✅ 已创建: {Path.GetFileName(filePath)} ({newContent.Split('\n').Length} 行)");
+                            results.Add(LocalizationService.Instance.Format("tool.applyPatch.created", Path.GetFileName(filePath), newContent.Split('\n').Length));
                             break;
 
                         case "update file":
@@ -117,7 +117,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         default:
                             if (!File.Exists(filePath))
                             {
-                                results.Add($"❌ 文件不存在: {filePath}\n💡 如需创建新文件，请使用 Add File 操作或 create_file 工具。");
+                                results.Add(LocalizationService.Instance.Format("tool.applyPatch.fileNotExist", filePath) + "\n" + LocalizationService.Instance["tool.applyPatch.createHint"]);
                                 break;
                             }
 
@@ -154,7 +154,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                                 }
                                 else
                                 {
-                                    results.Add($"⚠️ 无法匹配 hunk (上下文: {string.Join(", ", hunk.ContextLines.Take(2))}...) → 文件: {Path.GetFileName(filePath)}");
+                                    results.Add(LocalizationService.Instance.Format("tool.applyPatch.hunkFail", string.Join(", ", hunk.ContextLines.Take(2)), Path.GetFileName(filePath)));
                                 }
                             }
 
@@ -162,11 +162,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             {
                                 string finalContent = string.Join(Environment.NewLine, newLines);
                                 await Task.Run(() => File.WriteAllText(filePath, finalContent));
-                                results.Add($"✅ 已应用补丁: {Path.GetFileName(filePath)} ({patch.Hunks.Count} 个 hunk)");
+                                results.Add(LocalizationService.Instance.Format("tool.applyPatch.applied", Path.GetFileName(filePath), patch.Hunks.Count));
                             }
                             else if (results.All(r => !r.StartsWith("✅") && !r.StartsWith("⚠️")))
                             {
-                                results.Add($"❌ 补丁应用失败: {Path.GetFileName(filePath)} — 无法匹配任何 hunk 的上下文。\n💡 请使用 replace_string_in_file 工具进行精确替换，或使用 create_file 工具重写整个文件。");
+                                results.Add(LocalizationService.Instance.Format("tool.applyPatch.allHunksFailed", Path.GetFileName(filePath)) + "\n" + LocalizationService.Instance["tool.applyPatch.allHunksFailedHint"]);
                             }
                             break;
                     }
@@ -174,7 +174,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 return results.Count > 0
                     ? string.Join("\n", results)
-                    : "⚠️ apply_patch: 未执行任何操作";
+                    : LocalizationService.Instance["tool.applyPatch.noAction"];
             }
             catch (Exception ex)
             {

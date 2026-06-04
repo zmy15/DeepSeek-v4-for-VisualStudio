@@ -58,22 +58,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             {
                                 type = "string",
                                 @enum = new[] { "Edit", "Ask", "Plan", "Build", "Explore" },
-                                description = "目标 Agent 类型。Edit=代码修改, Ask=问答总结, Plan=规划, Build=编译修复, Explore=代码探索"
+                                description = LocalizationService.Instance["tool.requestHandoff.param.targetAgent"]
                             },
                             reason = new
                             {
                                 type = "string",
-                                description = "移交原因（简短说明为什么当前 Agent 无法完成任务或需要切换）"
+                                description = LocalizationService.Instance["tool.requestHandoff.param.reason"]
                             },
                             taskDescription = new
                             {
                                 type = "string",
-                                description = "给目标 Agent 的完整任务描述，包含所有必要上下文"
+                                description = LocalizationService.Instance["tool.requestHandoff.param.taskDescription"]
                             },
                             chainBack = new
                             {
                                 type = "boolean",
-                                description = "目标 Agent 完成后是否链回当前 Agent（默认 false，即完成后直接结束）"
+                                description = LocalizationService.Instance["tool.requestHandoff.param.chainBack"]
                             }
                         },
                         required = new[] { "targetAgent", "reason", "taskDescription" }

@@ -32,7 +32,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             dirPath = new
                             {
                                 type = "string",
-                                description = "要创建的目录的绝对路径（Windows 格式，如 C:\\Users\\...\\newfolder）"
+                                description = LocalizationService.Instance["tool.createDirectory.param.dirPath"]
                             }
                         },
                         required = new[] { "dirPath" }

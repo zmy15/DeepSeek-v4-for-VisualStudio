@@ -31,8 +31,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         type = "object",
                         properties = new
                         {
-                            filePath = new { type = "string", description = "要删除的文件的绝对路径（Windows 格式）" },
-                            explanation = new { type = "string", description = "删除原因的简短说明" }
+                            filePath = new { type = "string", description = LocalizationService.Instance["tool.deleteFile.param.filePath"] },
+                            explanation = new { type = "string", description = LocalizationService.Instance["tool.deleteFile.param.explanation"] }
                         },
                         required = new[] { "filePath" }
                     }

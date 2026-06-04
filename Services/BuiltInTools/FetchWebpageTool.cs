@@ -36,9 +36,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         type = "object",
                         properties = new
                         {
-                            url = new { type = "string", description = "要抓取内容的网页 URL（必须是完整的 HTTP 或 HTTPS URL）" },
-                            maxDepth = new { type = "integer", description = "递归抓取的最大深度（默认为 1，即只抓取当前页面）。设为 2 则会额外抓取页面中的链接，以此类推。最大不超过 3。" },
-                            maxContentLength = new { type = "integer", description = "返回内容的最大字符数（默认 3000）。超出部分会被截断并标注。" }
+                            url = new { type = "string", description = LocalizationService.Instance["tool.fetchWebpage.param.url"] },
+                            maxDepth = new { type = "integer", description = LocalizationService.Instance["tool.fetchWebpage.param.maxDepth"] },
+                            maxContentLength = new { type = "integer", description = LocalizationService.Instance["tool.fetchWebpage.param.maxContentLength"] }
                         },
                         required = new[] { "url" }
                     }
