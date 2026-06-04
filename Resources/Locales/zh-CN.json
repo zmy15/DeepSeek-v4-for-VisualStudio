@@ -620,6 +620,7 @@
   "agent.edit.handoffAskPrompt": "代码修改已完成，以下是变更详情。请根据以下上下文生成一份详细的变更总结：\n\n",
   "agent.edit.handoffBuildLabel": "诊断编译错误",
   "agent.edit.handoffBuildPrompt": "代码修改已完成，但编译可能存在问题。请执行构建验证并修复所有编译错误：\n\n",
+  "agent.edit.handoffBuildWarningHint": "⚠️ 最终编译存在警告或失败，请在总结中提及。",
 
   "agent.build.description": "构建验证与代码修复。自动编译、诊断错误、探索代码结构、直接修复 bug，循环直到编译通过。复杂重构场景可移交 Edit Agent。",
   "agent.build.argumentHint": "描述编译错误或 bug，或直接输入 @build 开始诊断修复",

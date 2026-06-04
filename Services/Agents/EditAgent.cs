@@ -1851,7 +1851,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 编译警告（如果有）
             if (HasBuildWarningsInLogs())
             {
-                sb.AppendLine("⚠️ 最终编译存在警告或失败，请在总结中提及。");
+                sb.AppendLine(LocalizationService.Instance["agent.edit.handoffBuildWarningHint"]);
             }
 
             return new AgentHandoff
@@ -2395,34 +2395,50 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             foreach (var log in _logs)
             {
-                if (log.Level == "WARN" || log.Level == "ERROR")
-                {
-                    string msg = log.Message ?? string.Empty;
+                // ── 检查 WARN / ERROR 级别日志，以及 INFO 级别中包含构建失败标记的日志 ──
+                bool isRelevantLevel = log.Level == "WARN" || log.Level == "ERROR" || log.Level == "INFO";
+                if (!isRelevantLevel) continue;
 
-                    // ── 明确的构建/编译失败标记 ──
-                    if (msg.Contains("❌ 构建失败") || msg.Contains("❌ 编译失败")
-                        || msg.Contains("❌ build") || msg.Contains("❌ Build"))
-                        return true;
+                string msg = log.Message ?? string.Empty;
 
-                    // ── 编译器/MSBuild 错误代码 ──
-                    if (System.Text.RegularExpressions.Regex.IsMatch(msg,
-                        @"\berror\s+(CS|C|LNK|MSB|BC|FS|TS|RUST)\d+\b",
-                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-                        return true;
+                // ── 明确的构建/编译失败标记（含 ❌ 前缀）──
+                if (msg.Contains("❌ 构建失败") || msg.Contains("❌ 编译失败")
+                    || msg.Contains("❌ build") || msg.Contains("❌ Build")
+                    || msg.Contains("❌ CMake") || msg.Contains("❌ MSBuild"))
+                    return true;
 
-                    // ── MSBuild 摘要失败模式 ──
-                    if (msg.Contains("Build FAILED"))
-                        return true;
+                // ── 编译器/MSBuild 错误代码 ──
+                if (System.Text.RegularExpressions.Regex.IsMatch(msg,
+                    @"\berror\s+(CS|C|LNK|MSB|BC|FS|TS|RUST)\d+\b",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    return true;
 
-                    // ── 本地化构建失败关键词（精确匹配，避免 "build" 误判）──
-                    if (msg.Contains("构建失败") || msg.Contains("编译失败")
-                        || msg.Contains("build failed"))
-                        return true;
+                // ── MSBuild 摘要失败模式 ──
+                if (msg.Contains("Build FAILED"))
+                    return true;
 
-                    // ── 最终编译验证的警告日志 ──
-                    if (msg.Contains("⚠️ 最终编译"))
-                        return true;
-                }
+                // ── 本地化构建失败关键词（精确匹配，避免 "build" 误判）──
+                if (msg.Contains("构建失败") || msg.Contains("编译失败")
+                    || msg.Contains("build failed") || msg.Contains("Build failed"))
+                    return true;
+
+                // ── CMake 构建失败 ──
+                if (msg.Contains("CMake build failed") || msg.Contains("CMake 构建失败"))
+                    return true;
+
+                // ── 非零退出码（构建进程异常退出）──
+                if (System.Text.RegularExpressions.Regex.IsMatch(msg,
+                    @"exit code:\s*[1-9]\d*",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    return true;
+
+                // ── 最终编译验证的警告日志（中/英文 locale）──
+                if (msg.Contains("⚠️ 最终编译") || msg.Contains("Final build has issues")
+                    || (msg.IndexOf("final build", StringComparison.OrdinalIgnoreCase) >= 0
+                        && (msg.IndexOf("failed", StringComparison.OrdinalIgnoreCase) >= 0
+                            || msg.IndexOf("issues", StringComparison.OrdinalIgnoreCase) >= 0
+                            || msg.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0)))
+                    return true;
             }
             return false;
         }
