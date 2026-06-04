@@ -262,7 +262,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     catch (OperationCanceledException)
                     {
                         step.Status = AgentStepStatus.Skipped;
-                        AddLog("WARN", string.Format(L["agent.log.editStepSkipped"], step.Index));
+                        AddLog("WARN", string.Format(L["agent.log.editStepCancelled"], step.Index));
                         plan.IsCancelled = true;
                         break;
                     }
