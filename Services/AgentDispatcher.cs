@@ -247,6 +247,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     buildAgent.ExploreAgent = ExploreAgent;
             }
 
+            // ── 设置基类 ExploreAgent（子类 new 隐藏了基类属性，此处确保基类属性已注入）──
+            // BaseAgent.ExecuteToolAsync 依赖 this.ExploreAgent（基类属性）检查 runSubagent 可用性
+            if (agent.ExploreAgent == null)
+                agent.ExploreAgent = ExploreAgent;
+
             // 绑定事件（如果尚未绑定）
             agent.PermissionRequested -= OnAgentPermissionRequested;
             agent.PermissionRequested += OnAgentPermissionRequested;
@@ -675,6 +680,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             string handoffMessage = sb.ToString();
             // ── 保留 context 中已有的 ActivePlan（如 EditAgent 设的计划），仅在非 null 时覆盖 ──
             context.ActivePlan = ActivePlan ?? context.ActivePlan;
+            // ── 刷新 ConversationHistory（前一个 Agent 已向 ContextManager 写入新消息）──
+            if (context.ContextManager != null)
+                context.ConversationHistory = context.ContextManager.GetConversationHistory();
             context.IsPlanningMode = true; // Handoff 后进入 Planning 模式执行
 
             return await agent.ExecuteAsync(handoffMessage, context);
