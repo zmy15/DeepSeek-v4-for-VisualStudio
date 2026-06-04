@@ -1,5 +1,5 @@
 {
-  "═════════════════════════": "═══ System Prompts ═══",
+  "═══ System Prompts ═══": "═══ System Prompts ═══",
 
   "system.defaultSystemPrompt": "你是 DeepSeek Chat，一个深度集成在 Visual Studio 中的 AI 编程助手。你的核心能力包括：解释代码逻辑、定位并修复 Bug、重构优化代码、生成单元测试、回答各类技术问题。请遵循以下准则：\n- 回答应简洁、准确、直接，优先给出可运行的代码方案。\n- 涉及代码修改时，明确指出文件路径和具体行号。\n- 优先使用用户项目已有的框架和库，不引入不必要的依赖。\n- 如果用户的问题模糊不清，先追问澄清再给出建议。\n- 使用中文回答，代码中的注释也使用中文。\n- 当用户需要获取实时信息、操作文件系统或执行特定任务时，积极使用可用的工具（tools）来完成任务。\n- **如果用户提供了 URL 链接，你必须使用 fetch_webpage 工具来获取网页内容。**\n  获取后检查内容中是否有其他相关链接，设置 maxDepth 参数递归抓取直到收集了所有需要的信息。\n- 生成或修改代码时，必须遵循以下注释规范（按语言选择对应格式）：\n  - C#：公共类、接口、方法、属性、字段→必须使用 XML 文档注释（///）。\n  - C/C++：公共类、结构体、函数、全局变量→头文件声明处必须使用文档注释（/// 或 /** */，Doxygen 风格）。\n  - 其他语言（如 VB.NET、F#、Python 等）：使用该语言标准文档注释语法。\n  - 所有文档注释均需：用中文描述职责/用途；方法/函数需说明每个参数、返回值及可能抛出的异常；属性/字段需说明存储的数据含义。\n  - 方法内部的复杂逻辑、非直观算法或临时决策，必须添加行内 // 注释进行解释。\n  - 注释应聚焦于「为什么这么做」而非「做了什么」，避免逐行翻译代码。",
 
@@ -59,13 +59,13 @@
   "plan.handoff.promptWithPlan": "根据以下计划执行代码修改。\n\n计划: {0}\n步骤数: {1}\n\n严格按步骤执行，每步完成后报告进度。",
   "plan.noValidPlan": "未能生成有效的实现计划。请提供更多信息或尝试不同的描述。",
 
-  "════════════════════════": "═══ UI Messages ═══",
+  "═══ UI Messages ═══": "═══ UI Messages ═══",
 
   "ui.welcomeMessage": "你好！我是 DeepSeek Chat，你的 AI 编程助手。\n\n我可以帮你：\n- 解释代码\n- 修复 Bug\n- 重构代码\n- 生成测试\n- 回答技术问题\n\n开始提问吧！",
 
   "ui.apiKeyMissingMessage": "⚠️ **未配置 API 密钥**\n\n请通过菜单 **工具 → 选项 → DeepSeek Chat** 配置你的 DeepSeek API 密钥。\n\n获取密钥：https://platform.deepseek.com/api_keys",
 
-  "═══════════════════════": "═══ Settings Labels ═══",
+  "═══ Settings Labels ═══": "═══ Settings Labels ═══",
 
   "settings.category.api": "API Settings",
   "settings.category.model": "Model Settings",
@@ -142,7 +142,7 @@
   "settings.language.displayName": "界面语言 / Language",
   "settings.language.description": "选择显示语言。选择「自动」则跟随系统语言。\nSelect display language. 'Auto' follows system language.",
 
-  "══════════════════════════": "═══ Chat UI Strings ═══",
+  "═══ Chat UI Strings ═══": "═══ Chat UI Strings ═══",
 
   "chat.windowTitle": "DeepSeek Chat",
   "chat.deleteConversation": "删除当前对话",
@@ -164,7 +164,7 @@
   "chat.thinkingCheckbox": "深度思考",
   "chat.contextStats": "Token: {0} / {1}",
 
-  "════════════════════════════════": "═══ MCP Configuration ═══",
+  "═══ MCP Configuration ═══": "═══ MCP Configuration ═══",
 
   "mcp.title": "MCP 服务器配置",
   "mcp.addServer": "添加服务器",
@@ -184,7 +184,7 @@
   "mcp.formatHint": "格式: KEY1=VALUE1;KEY2=VALUE2",
   "mcp.transport": "传输:",
 
-  "═══════════════════════════════": "═══ OCR Messages ═══",
+  "═══ OCR Messages ═══": "═══ OCR Messages ═══",
 
   "ocr.recognizing": "开始识别...",
   "ocr.recognitionComplete": "识别完成",
@@ -194,7 +194,7 @@
   "ocr.engineNotAvailable": "OCR 引擎不可用",
   "ocr.exception": "识别异常",
 
-  "══════════════════════════════": "═══ Build Messages ═══",
+  "═══ Build Messages ═══": "═══ Build Messages ═══",
 
   "build.success": "构建成功",
   "build.failed": "构建失败",
@@ -220,7 +220,7 @@
   "build.cmake.launchFailed": "⚠️ 无法启动 CMake 构建进程。",
   "build.cmake.outputTail": "构建输出末尾",
 
-  "═════════════════════════════": "═══ Agent Messages ═══",
+  "═══ Agent Messages ═══": "═══ Agent Messages ═══",
 
   "agent.planCreated": "规划已创建",
   "agent.planCancelled": "规划已取消",
@@ -230,7 +230,7 @@
   "agent.editApplied": "修改已应用",
   "agent.editFailed": "修改失败",
 
-  "════════════════════════════": "═══ Persistence ═══",
+  "═══ Persistence ═══": "═══ Persistence ═══",
 
   "persist.sessionNotFound": "会话文件不存在",
   "persist.sessionsLoaded": "已加载 {0} 个会话",
@@ -238,14 +238,14 @@
   "persist.exportSuccess": "导出成功",
   "persist.importSuccess": "导入成功",
 
-  "═══════════════════════════": "═══ API / Service ═══",
+  "═══ API / Service ═══": "═══ API / Service ═══",
 
   "api.requestFailed": "API 请求失败",
   "api.timeout": "请求超时",
   "api.rateLimited": "请求频率过高，请稍后重试",
   "api.unauthorized": "API 密钥无效或已过期",
 
-  "══════════════════════════": "═══ General ═══",
+  "═══ General ═══": "═══ General ═══",
 
   "general.ok": "确定",
   "general.cancel": "取消",
@@ -261,7 +261,7 @@
   "general.noResults": "无结果",
   "general.auto": "自动 (Auto)",
 
-  "══════════════════════": "═══ Chat HTML UI ═══",
+  "═══ Chat HTML UI ═══": "═══ Chat HTML UI ═══",
 
   "chat.html.retryButton": "🔄 重试",
   "chat.html.retryButtonTitle": "重新生成回答",
@@ -290,7 +290,7 @@
   "chat.html.editBranchInfo": "版本 {0}/{1}",
   "chat.html.tokenStatsPrefix": "Token:",
 
-  "══════════════════════": "═══ Diff Viewer ═══",
+  "═══ Diff Viewer ═══": "═══ Diff Viewer ═══",
 
   "diff.windowTitle": "📊 代码差异对比",
   "diff.inlineMode": "📋 内联",
@@ -304,7 +304,7 @@
   "diff.linesRemoved": "-{0} 行",
   "diff.createFailed": "❌ 创建差异视图失败: {0}",
 
-  "═══════════════════════════": "═══ Edit / Patch ═══",
+  "═══ Edit / Patch ═══": "═══ Edit / Patch ═══",
 
   "edit.fileNotFound": "文件不存在: {0}",
   "edit.hunksFailed": "{0}/{1} 个 Hunk 匹配失败",
@@ -342,7 +342,7 @@
   "edit.createFileFallbackSuccess": "✅ create_file 兜底成功: {0}",
   "edit.createFileFallbackFailed": "create_file 兜底也失败: {0}",
 
-  "═══════════════════════": "═══ Input / Toolbox ═══",
+  "═══ Input / Toolbox ═══": "═══ Input / Toolbox ═══",
 
   "input.placeholder": "输入问题，或 @选择Agent  /选择技能  @agent /skill 组合使用",
   "input.newChat": "+ 新对话",
@@ -368,11 +368,13 @@
   "input.attachAllProjectFiles": "📦 添加项目全部文件",
   "input.attachSelection": "✂️ 添加选中代码块",
   "input.attachDebug": "🐛 添加调试输出",
+  "input.attachClipboardImage": "📋 粘贴剪贴板图片",
+  "input.attachScreenshot": "📸 截取屏幕截图",
   "input.uploadFile": "上传文件...",
   "input.fileChangesDetected": "📊 检测到文件变更",
   "input.contextStatsLabel": "Token:",
 
-  "══════════════════════": "═══ Status / Notifications ═══",
+  "═══ Status / Notifications ═══": "═══ Status / Notifications ═══",
 
   "status.buildSuccess": "✅ 构建成功",
   "status.buildFailed": "⚠️ 构建失败",
@@ -443,7 +445,7 @@
   "status.fileWrittenInvisible": "✅ 通过 IVsInvisibleEditor+ITextBuffer 写入: {0}",
   "status.fileCreated": "创建新文件: {0}",
 
-  "══════════════════════": "═══ Compression ═══",
+  "═══ Compression ═══": "═══ Compression ═══",
 
   "compress.historyHeader": "[对话历史摘要]",
   "compress.historyIntro": "以下是早期对话的压缩摘要，包含了之前讨论的关键信息和决策：",
@@ -455,7 +457,7 @@
   "compress.roleTool": "工具结果",
   "compress.thinkingLabel": "[思考过程: {0}]",
 
-  "════════════════════": "═══ File Parser ═══",
+  "═══ File Parser ═══": "═══ File Parser ═══",
 
   "file.notFound": "文件不存在: {0}",
   "file.tooLarge": "文件较大: {0} ({1})，解析可能需要较长时间。",
@@ -483,7 +485,7 @@
   "compress.extractErrors": "错误/异常：",
   "compress.extractConclusion": "最后结论：",
 
-  "═════════════════════": "═══ Tool Descriptions ═══",
+  "═══ Tool Descriptions ═══": "═══ Tool Descriptions ═══",
 
   "tool.list_dir.desc": "列出指定目录的内容。返回子目录和文件名列表。用于探索项目结构。\n重要：如果不知道绝对路径，先使用当前工作区根目录。路径必须是 Windows 绝对路径（如 F:\\project\\src），不要使用 Linux 风格路径（如 /home/user）。",
   "tool.read_file.desc": "读取文件内容。可指定行范围以读取大文件的部分内容。路径必须是 Windows 绝对路径。",
@@ -501,7 +503,7 @@
   "tool.run_in_terminal.desc": "在 Windows PowerShell 终端中执行命令。\n**只能使用 PowerShell/CMD 语法，不支持 Unix/Linux 命令！**\n- 用 `;` 分隔多个命令（不要用 `&&`）\n- 用 `Select-String` 替代 `grep`，用 `Get-Content` 替代 `cat`\n- 用 `Remove-Item -Recurse -Force` 替代 `rm -rf`\n- 路径使用 `\\` 反斜杠，不要用 `/`\n用于运行测试、包管理、脚本等命令。\n⚠️ 编译/构建请使用 build_solution 工具（VS SDK 原生接口），不要在终端中运行 dotnet build / msbuild。\n返回终端输出（最多 60KB）。\n对于长时间运行的命令（服务器、监视器等），使用 async 模式。",
   "tool.get_terminal_output.desc": "获取异步终端命令的输出。用于检查后台运行命令的状态和结果。\n需要提供 run_in_terminal 返回的终端 ID。",
 
-  "════════════════════════": "═══ MCP Status ═══",
+  "═══ MCP Status ═══": "═══ MCP Status ═══",
 
   "mcp.status.pasteJsonHint": "⚠️ 请先粘贴 JSON 配置",
   "mcp.status.detectSuccess": "✅ 识别成功: {0} 服务器",
@@ -525,7 +527,7 @@
   "mcp.processExitedDuringHandshake": "进程在握手期间退出 (exit code: {0})。\n服务器 '{1}' 可能因配置错误或 Token 无效而终止。",
   "mcp.fetchingTools": "正在获取工具列表 (tools/list)...",
 
-  "═══════════════════════": "═══ Code Completion ═══",
+  "═══ Code Completion ═══": "═══ Code Completion ═══",
 
   "autocomplete.notEnabled": "[补全] DeepSeek 自动补全 未启用，跳过初始化",
   "autocomplete.initialized": "[补全] 初始化完成: 防抖间隔={0}ms",
@@ -552,12 +554,12 @@
   "autocomplete.statusDisabled": "已禁用",
   "autocomplete.status": "[补全] DeepSeek 自动补全 状态: {0}",
 
-  "══════════════════════": "═══ VSCT Commands ═══",
+  "═══ VSCT Commands ═══": "═══ VSCT Commands ═══",
 
   "vsct.openChatWindow": "打开 DeepSeek Chat",
   "vsct.toolbarGroup": "DeepSeek Chat 命令组",
 
-  "═════════════════════════": "═══ Session ═══",
+  "═══ Session ═══": "═══ Session ═══",
 
   "session.new": "新对话",
   "session.newConversation": "新建对话",
@@ -569,7 +571,7 @@
   "session.deleteFailed": "删除会话文件失败",
   "session.generateTitlePrompt": "请根据以下对话内容，生成一个简洁的会话标题（不超过20个字，不要引号，不要省略号）：\n\n用户：{0}\n\n助手：{1}\n\n标题：",
 
-  "═══════════════════════": "═══ Agent Definitions ═══",
+  "═══ Agent Definitions ═══": "═══ Agent Definitions ═══",
 
   "agent.ask.description": "回答技术问题、解释代码、讨论方案。纯问答模式，不修改代码。",
   "agent.ask.argumentHint": "输入你的技术问题",
@@ -690,7 +692,7 @@
   "agent.log.explorePhase1Error": "结构扫描异常: {0}，继续进入区域探索",
   "agent.log.explorePhase2": "🔍 阶段 2/2: 并行深入探索各区域（已跳过根目录重复扫描）…",
   "agent.log.exploreRouting": "探索路由: {0} 个区域 → [{1}]",
-  "agent.log.exploreDone": "发现阶段完成: {0}/{1} 成功",
+  "agent.log.planExploreDone": "发现阶段完成: {0}/{1} 成功",
   "agent.log.askStarted": "Ask Agent 开始回答: \"{0}\"",
   "agent.log.askDone": "Ask Agent 完成 ({0} 字符)",
   "agent.log.askCancelled": "回答已取消",
@@ -701,7 +703,7 @@
   "agent.log.editStepExec": "执行步骤 {0}/{1}: {2}",
   "agent.log.editStepDone": "✅ 步骤 {0} 完成: {1}",
   "agent.log.editPlanProgress": "📊 计划执行完成: 共 {0} 步 → 完成 {1} / 跳过 {2} / 失败 {3} / 待处理 {4}",
-  "agent.log.editStepSkipped": "⏭ 步骤 {0} 已取消",
+  "agent.log.editStepCancelled": "⏭ 步骤 {0} 已取消",
   "agent.log.editStepFailed": "❌ 步骤 {0} 失败: {1}",
   "agent.log.editFinalBuild": "🔨 Planning 模式：所有步骤完成，执行最终统一构建...",
   "agent.log.editFinalBuildOk": "✅ 最终编译通过，所有步骤修改已验证",
@@ -724,7 +726,7 @@
   "agent.log.consecutiveErrors": "🔄 连续 {0} 轮工具调用全部返回错误，强制退出循环",
   "agent.log.safetyLimit": "⚠️ 工具调用已达安全上限 {0} 轮，强制结束",
 
-  "════════════════════════": "═══ Web Search ═══",
+  "═══ Web Search ═══": "═══ Web Search ═══",
 
   "websearch.providerSwitched": "搜索提供商切换为: 百度千帆",
   "websearch.baiduNotConfigured": "未配置百度 API Key，使用 DuckDuckGo 搜索",
@@ -741,7 +743,7 @@
   "websearch.noResultsFallback": "⚠️ 百度搜索未返回结果，已自动切换至 DuckDuckGo。",
   "websearch.searchResultsHtml": "🔍 已联网搜索到 {0} 条结果（{1}），正在抓取网页内容…\n\n",
 
-  "═════════════════════": "═══ Code Write ═══",
+  "═══ Code Write ═══": "═══ Code Write ═══",
 
   "write.diffPreviewActivated": "[WriteCode] 最终 diff 预览已激活: {0}",
   "write.diffPreviewFailed": "[WriteCode] 激活最终 diff 预览失败: {0}",
@@ -754,7 +756,7 @@
   "write.appliedToActive": "[ApplyCode] 代码已成功写入活动文档",
   "write.appliedToEditor": "代码已成功写入编辑器",
 
-  "═════════════════════": "═══ Agent UI / Panels ═══",
+  "═══ Agent UI / Panels ═══": "═══ Agent UI / Panels ═══",
 
   "agent.panel.executionProcess": "📋 执行过程",
   "agent.panel.fileChanges": "文件变更",
@@ -829,7 +831,7 @@
   "popup.skillSource.user": "👤 用户",
   "popup.skillSource.package": "📦 内置",
 
-  "══════════════════": "═══ Diff Global Bar ═══",
+  "═══ Diff Global Bar ═══": "═══ Diff Global Bar ═══",
 
   "diff.global.filesChanged": "📊 {0} 个文件有变更",
   "diff.global.bothStatus": "{0} 个已打开, {1} 个待处理",
@@ -840,7 +842,7 @@
   "diff.global.allAccepted": "✅ 所有变更已确认",
   "diff.global.allUndone": "↩️ 所有变更已撤销",
 
-  "══════════════════": "═══ Code Action Status ═══",
+  "═══ Code Action Status ═══": "═══ Code Action Status ═══",
 
   "codeAction.noCode": "⚠️ 没有代码可写入",
   "codeAction.noTarget": "⚠️ 请先打开目标文件，或指定文件路径",
@@ -851,7 +853,7 @@
   "codeAction.writtenWithDetails": "✅ 已写入 {0}",
   "codeAction.noOpenDoc": "⚠️ 没有打开的文档",
 
-  "══════════════════": "═══ Agent Status ═══",
+  "═══ Agent Status ═══": "═══ Agent Status ═══",
 
   "agent.status.analyzing": "🤖 Agent 正在分析任务...",
   "agent.status.switchingTo": "🤖 切换到 {0} Agent...",
@@ -864,7 +866,7 @@
   "agent.status.busyConfirm": "⚠️ AI 正在生成回复，请等待完成后再确认编辑",
   "agent.status.regenerating": "正在重新生成…",
 
-  "══════════════════════════════════": "═══ Centralized AI Prompts ═══",
+  "═══ Centralized AI Prompts ═══": "═══ Centralized AI Prompts ═══",
 
   "system.codeCompletionSystemPrompt": "你是一个代码补全助手。只返回要补全的代码片段，不要解释，不要Markdown标记。直接返回纯代码。补全要简洁、准确、符合上下文。",
   "system.codeCompletionUserPromptWithCursor": "根据上下文补全光标处的代码。\n\n```\n{0}<CURSOR>{1}\n```\n\n只返回 <CURSOR> 位置应插入的代码。",
@@ -881,7 +883,7 @@
   "system.compressionPromptTemplate": "请将以下对话历史压缩为一段精简的摘要（不超过200字），保留关键技术细节、用户需求、文件路径、错误信息和已做出的决策。不要遗漏任何重要的代码片段或文件名。\n\n对话历史：\n{0}\n\n摘要：",
   "system.agent.commonSystemPromptPrefixCore": "你是 DeepSeek v4 for Visual Studio——一个集成在 VS Code 中的 AI 编程助手。\n你可以使用工具来读取文件、搜索代码库、获取网页内容、运行终端命令等。\n\n## 🚫 文件读取规则（严格遵守，否则浪费大量 token）\n- read_file 返回「已缓存，请勿重复读取」时，说明该文件的**该行范围**已在之前读取过。\n  你已拥有该行范围的内容，**绝对禁止**用相同行范围再次调用 read_file。\n- 但如果需要读取同一文件的**不同行范围**（之前未读过的范围），可以放心调用 read_file，系统会自动放行。\n- 重复读取相同内容是最常见的 token 浪费原因。每次违规重复读取会消耗数千 token 而没有新信息。\n- 如果你需要确认某个已读文件中的细节，直接引用之前 read_file 返回的内容即可，无需重新读取。\n\n## 🖥️ 终端命令规则（严格遵守，否则命令无法执行）\n当前系统运行在 **Windows** 上，所有 `run_in_terminal` 命令**必须使用 Windows PowerShell 语法**。\n**绝对禁止**输出 Unix/Linux 风格的命令，它们无法在 Windows 上执行：\n- ❌ 禁止使用 `&&` 连接命令 → ✅ 使用 `;`（分号）\n- ❌ 禁止使用 `export VAR=value` → ✅ 使用 `$env:VAR = \"value\"`\n- ❌ 禁止使用 `grep`、`cat`、`rm -rf`、`ls -la`、`chmod`、`sed` 等 Unix 命令\n  → ✅ 使用 `Select-String`、`Get-Content`、`Remove-Item -Recurse -Force`、`Get-ChildItem -Force` 等 PowerShell cmdlet\n- ❌ 禁止使用 `./script.sh` → ✅ 使用 `.\\script.ps1`\n- ❌ 禁止使用 `/` 作为路径分隔符 → ✅ 使用 `\\`（Windows 反斜杠）\n- ❌ 禁止使用 `mkdir -p` → ✅ 使用 `New-Item -ItemType Directory -Force`\n常用命令对照：`ls`→`Get-ChildItem`、`cat`→`Get-Content`、`rm`→`Remove-Item`、\n`cp`→`Copy-Item`、`mv`→`Move-Item`、`mkdir`→`New-Item -ItemType Directory`、\n`touch`→`New-Item`、`which`→`Get-Command`、`find`→`Get-ChildItem -Recurse`\n⚠️ 如果确实需要运行 Unix 风格脚本，请使用 `wsl` 或 `bash` 前缀明确说明。\n\n## 🔄 Agent Handoff 规则（避免重复探索，节省 token）\n- 如果你是接手前一 Agent 工作的 Handoff 场景（消息中包含 🔄 Handoff 提示）：\n  **优先从对话历史中获取已有文件内容**，不要重新探索。\n- 对话历史（上方消息）中已包含前一 Agent 的 read_file、list_dir、file_search 等工具调用结果，\n  这些都是有效的文件上下文，直接引用即可，**无需重复读取相同文件**。\n- 只有当你确实需要的文件**在对话历史中不存在**时，才调用探索工具（read_file / list_dir / file_search）。\n- 探索工具只在真正必要时使用——不要「为了探索而探索」。",
 
-  "══════════════════════": "═══ Tool Messages ═══",
+  "═══ Tool Messages ═══": "═══ Tool Messages ═══",
 
   "tool.common.noResult": "（无返回结果）",
 
@@ -1055,7 +1057,7 @@
   "tool.runTerminal.failed": "❌ run_in_terminal 失败: {0}",
   "tool.runTerminal.stderr": "--- STDERR ---",
 
-  "═════════════════════════": "═══ View / Status ═══",
+  "═══ View / Status ═══": "═══ View / Status ═══",
 
   "status.apiKeyInvalid": "⚠️ DeepSeek API Key 无效，请检查配置",
   "status.baiduApiKeyInvalid": "⚠️ 百度 API Key 无效，请检查配置",
@@ -1071,13 +1073,12 @@
   "status.skillCreated": "✅ 技能已创建: {0}",
   "status.skillRefreshed": "✅ 技能已刷新: 共 {0} 个技能",
   "status.skillExists": "技能已存在: {0}",
-  "status.thinking": "DeepSeek 思考中…",
   "status.analyzing": "🔍 开始分析任务，探索项目结构…",
   "status.singleStepTask": "📋 单步任务，直接执行代码修改…",
   "status.buildVerified": "✅ 编译验证通过",
   "status.downloadClick": "🔗 点击下载",
 
-  "═══════════════════════": "═══ Service Messages ═══",
+  "═══ Service Messages ═══": "═══ Service Messages ═══",
 
   "service.terminal.fileRejected": "❌ 文件写入被拒绝: `{0}` 的内容不像是合法的 {1} 源代码。",
   "service.baseAgent.missingQuestions": "❌ VisualStudio_askQuestions: 缺少 questions 参数",
@@ -1089,7 +1090,7 @@
   "service.webSearch.noSummary": "(无摘要)",
   "service.builtInTool.noResult": "（无返回结果）",
 
-  "════════════════════": "═══ Agent Log Messages ═══",
+  "═══ Agent Log Messages ═══": "═══ Agent Log Messages ═══",
 
   "agent.log.exploreStarted": "Explore Agent 开始执行: \"{0}\"",
   "agent.log.explorePromptBuilt": "Explore prompt 已构建 ({0} 字符), workspaceRoot={1}",

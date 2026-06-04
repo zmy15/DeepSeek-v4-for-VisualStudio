@@ -317,7 +317,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
 
                 var L2 = LocalizationService.Instance;
-                AddLog("INFO", string.Format(L2["agent.log.exploreDone"], exploreResults.Length, exploreResults.Count(r => r.Success)));
+                AddLog("INFO", string.Format(L2["agent.log.planExploreDone"], exploreResults.Length, exploreResults.Count(r => r.Success)));
             }
             catch (Exception ex)
             {

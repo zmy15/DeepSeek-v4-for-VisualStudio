@@ -1,5 +1,5 @@
 {
-  "═════════════════════════": "═══ System Prompts ═══",
+  "═══ System Prompts ═══": "═══ System Prompts ═══",
 
   "system.defaultSystemPrompt": "You are DeepSeek Chat, an AI programming assistant deeply integrated into Visual Studio. Your core capabilities include: explaining code logic, locating and fixing bugs, refactoring and optimizing code, generating unit tests, and answering technical questions. Follow these guidelines:\n- Provide concise, accurate, and direct answers, prioritizing runnable code solutions.\n- When suggesting code changes, clearly specify file paths and line numbers.\n- Prefer using existing frameworks and libraries in the user's project; do not introduce unnecessary dependencies.\n- If the user's question is ambiguous, ask for clarification before making suggestions.\n- Respond in the user's language; use the same language for code comments.\n- When users need real-time information, file system operations, or specific task execution, actively use available tools to complete tasks.\n- **If the user provides a URL, you MUST use the fetch_webpage tool to retrieve the page content.**\n  After fetching, check for related links in the content and set the maxDepth parameter to recursively crawl until all needed information is collected.\n- When generating or modifying code, follow these comment conventions (choose the appropriate format by language):\n  - C#: Public classes, interfaces, methods, properties, fields → must use XML documentation comments (///).\n  - C/C++: Public classes, structs, functions, global variables → header file declarations must use documentation comments (/// or /** */, Doxygen style).\n  - Other languages (VB.NET, F#, Python, etc.): Use the language's standard documentation comment syntax.\n  - All documentation comments must: describe the responsibility/purpose in the user's language; methods/functions must describe each parameter, return value, and possible exceptions; properties/fields must describe the data they store.\n  - Complex logic, non-obvious algorithms, or tactical decisions within methods must have inline // comments explaining them.\n  - Comments should focus on 'why' rather than 'what', avoiding line-by-line code translation.",
 
@@ -59,13 +59,13 @@
   "plan.handoff.promptWithPlan": "Execute code changes according to the following plan.\n\nPlan: {0}\nSteps: {1}\n\nFollow steps strictly and report progress after each step.",
   "plan.noValidPlan": "Could not generate a valid implementation plan. Please provide more information or try a different description.",
 
-  "════════════════════════": "═══ UI Messages ═══",
+  "═══ UI Messages ═══": "═══ UI Messages ═══",
 
   "ui.welcomeMessage": "Hello! I'm DeepSeek Chat, your AI programming assistant.\n\nI can help you with:\n- Explaining code\n- Fixing bugs\n- Refactoring code\n- Generating tests\n- Answering technical questions\n\nStart asking!",
 
   "ui.apiKeyMissingMessage": "⚠️ **API Key Not Configured**\n\nPlease configure your DeepSeek API key via **Tools → Options → DeepSeek Chat**.\n\nGet your key: https://platform.deepseek.com/api_keys",
 
-  "═══════════════════════": "═══ Settings Labels ═══",
+  "═══ Settings Labels ═══": "═══ Settings Labels ═══",
 
   "settings.category.api": "API Settings",
   "settings.category.model": "Model Settings",
@@ -142,7 +142,7 @@
   "settings.language.displayName": "Display Language / 显示语言",
   "settings.language.description": "Choose display language. Select 'Auto' to follow system language.\n选择显示语言。「自动」则跟随系统语言。",
 
-  "══════════════════════════": "═══ Chat UI Strings ═══",
+  "═══ Chat UI Strings ═══": "═══ Chat UI Strings ═══",
 
   "chat.windowTitle": "DeepSeek Chat",
   "chat.deleteConversation": "Delete Current Conversation",
@@ -164,7 +164,7 @@
   "chat.thinkingCheckbox": "Deep Think",
   "chat.contextStats": "Tokens: {0} / {1}",
 
-  "════════════════════════════════": "═══ MCP Configuration ═══",
+  "═══ MCP Configuration ═══": "═══ MCP Configuration ═══",
 
   "mcp.title": "MCP Server Configuration",
   "mcp.addServer": "Add Server",
@@ -184,7 +184,7 @@
   "mcp.formatHint": "Format: KEY1=VALUE1;KEY2=VALUE2",
   "mcp.transport": "Transport:",
 
-  "═══════════════════════════════": "═══ OCR Messages ═══",
+  "═══ OCR Messages ═══": "═══ OCR Messages ═══",
 
   "ocr.recognizing": "Recognizing...",
   "ocr.recognitionComplete": "Recognition complete",
@@ -194,7 +194,7 @@
   "ocr.engineNotAvailable": "OCR engine not available",
   "ocr.exception": "Recognition exception",
 
-  "══════════════════════════════": "═══ Build Messages ═══",
+  "═══ Build Messages ═══": "═══ Build Messages ═══",
 
   "build.success": "Build succeeded",
   "build.failed": "Build failed",
@@ -220,7 +220,7 @@
   "build.cmake.launchFailed": "⚠️ Failed to launch CMake build process.",
   "build.cmake.outputTail": "Build output tail",
 
-  "═════════════════════════════": "═══ Agent Messages ═══",
+  "═══ Agent Messages ═══": "═══ Agent Messages ═══",
 
   "agent.planCreated": "Plan created",
   "agent.planCancelled": "Plan cancelled",
@@ -230,7 +230,7 @@
   "agent.editApplied": "Changes applied",
   "agent.editFailed": "Changes failed",
 
-  "════════════════════════════": "═══ Persistence ═══",
+  "═══ Persistence ═══": "═══ Persistence ═══",
 
   "persist.sessionNotFound": "Session file not found",
   "persist.sessionsLoaded": "Loaded {0} session(s)",
@@ -238,14 +238,14 @@
   "persist.exportSuccess": "Export successful",
   "persist.importSuccess": "Import successful",
 
-  "═══════════════════════════════════": "═══ API / Service ═══",
+  "═══ API / Service ═══": "═══ API / Service ═══",
 
   "api.requestFailed": "API request failed",
   "api.timeout": "Request timed out",
   "api.rateLimited": "Too many requests, please try again later",
   "api.unauthorized": "API key is invalid or expired",
 
-  "═════════════════════════════════": "═══ General ═══",
+  "═══ General ═══": "═══ General ═══",
 
   "general.ok": "OK",
   "general.cancel": "Cancel",
@@ -261,7 +261,7 @@
   "general.noResults": "No results",
   "general.auto": "Auto",
 
-  "══════════════════════════════════": "═══ Chat HTML UI ═══",
+  "═══ Chat HTML UI ═══": "═══ Chat HTML UI ═══",
 
   "chat.html.retryButton": "🔄 Retry",
   "chat.html.retryButtonTitle": "Regenerate response",
@@ -290,7 +290,7 @@
   "chat.html.editBranchInfo": "Version {0}/{1}",
   "chat.html.tokenStatsPrefix": "Tokens:",
 
-  "══════════════════════": "═══ Diff Viewer ═══",
+  "═══ Diff Viewer ═══": "═══ Diff Viewer ═══",
 
   "diff.windowTitle": "📊 Code Diff Comparison",
   "diff.inlineMode": "📋 Inline",
@@ -304,7 +304,7 @@
   "diff.linesRemoved": "-{0} lines",
   "diff.createFailed": "❌ Failed to create diff view: {0}",
 
-  "═══════════════════════════": "═══ Edit / Patch ═══",
+  "═══ Edit / Patch ═══": "═══ Edit / Patch ═══",
 
   "edit.fileNotFound": "File not found: {0}",
   "edit.hunksFailed": "{0}/{1} hunk(s) failed to match",
@@ -342,7 +342,7 @@
   "edit.createFileFallbackSuccess": "✅ create_file fallback succeeded: {0}",
   "edit.createFileFallbackFailed": "create_file fallback also failed: {0}",
 
-  "════════════════════════════════════════════════════": "═══ Input / Toolbox ═══",
+  "═══ Input / Toolbox ═══": "═══ Input / Toolbox ═══",
 
   "input.placeholder": "Ask a question, or @agent /skill to route",
   "input.newChat": "+ New Chat",
@@ -374,7 +374,7 @@
   "input.fileChangesDetected": "📊 File Changes Detected",
   "input.contextStatsLabel": "Tokens:",
 
-  "════════════════════════════════════": "═══ Status / Notifications ═══",
+  "═══ Status / Notifications ═══": "═══ Status / Notifications ═══",
 
   "status.buildSuccess": "✅ Build succeeded",
   "status.buildFailed": "⚠️ Build failed",
@@ -445,7 +445,7 @@
   "status.fileWrittenInvisible": "✅ Written via IVsInvisibleEditor+ITextBuffer: {0}",
   "status.fileCreated": "Created new file: {0}",
 
-  "═══════════════════════════════════════════════════": "═══ Compression ═══",
+  "═══ Compression ═══": "═══ Compression ═══",
 
   "compress.historyHeader": "[Conversation History Summary]",
   "compress.historyIntro": "Below is a compressed summary of earlier conversation, including key information and decisions discussed:",
@@ -457,7 +457,7 @@
   "compress.roleTool": "Tool Result",
   "compress.thinkingLabel": "[Thought process: {0}]",
 
-  "════════════════════": "═══ File Parser ═══",
+  "═══ File Parser ═══": "═══ File Parser ═══",
 
   "file.notFound": "File not found: {0}",
   "file.tooLarge": "File is large: {0} ({1}), parsing may take a while.",
@@ -485,7 +485,7 @@
   "compress.extractErrors": "Errors/Exceptions:",
   "compress.extractConclusion": "Final conclusion:",
 
-  "═════════════════════════════════════": "═══ Tool Descriptions ═══",
+  "═══ Tool Descriptions ═══": "═══ Tool Descriptions ═══",
 
   "tool.list_dir.desc": "List the contents of a directory. Returns subdirectories and file names. Use for exploring project structure.\nImportant: If you don't know the absolute path, start with the workspace root. Paths must be Windows absolute paths (e.g., F:\\project\\src), do not use Linux-style paths (e.g., /home/user).",
   "tool.read_file.desc": "Read file content. Optionally specify a line range to read portions of large files. Path must be a Windows absolute path.",
@@ -503,7 +503,7 @@
   "tool.run_in_terminal.desc": "Execute a command in the Windows PowerShell terminal.\n**Only PowerShell/CMD syntax is supported — Unix/Linux commands will NOT work!**\n- Use `;` to separate multiple commands (do NOT use `&&`)\n- Use `Select-String` instead of `grep`, `Get-Content` instead of `cat`\n- Use `Remove-Item -Recurse -Force` instead of `rm -rf`\n- Use `\\` backslashes for paths, not `/`\nUse for running tests, package management, scripts, etc.\n⚠️ For compilation/build, use the build_solution tool (VS SDK native interface) instead — do NOT run dotnet build / msbuild in terminal.\nReturns terminal output (up to 60KB).\nFor long-running commands (servers, watchers, etc.), use async mode.",
   "tool.get_terminal_output.desc": "Get output from an async terminal command. Use to check the status and results of background commands.\nRequires the terminal ID returned by run_in_terminal async mode.",
 
-  "══════════════════════════════════════": "═══ MCP Status ═══",
+  "═══ MCP Status ═══": "═══ MCP Status ═══",
 
   "mcp.status.pasteJsonHint": "⚠️ Please paste JSON config first",
   "mcp.status.detectSuccess": "✅ Detected: {0} server(s)",
@@ -527,7 +527,7 @@
   "mcp.processExitedDuringHandshake": "Process exited during handshake (exit code: {0}).\nServer '{1}' may have terminated due to configuration error or invalid token.",
   "mcp.fetchingTools": "Fetching tool list (tools/list)...",
 
-  "═══════════════════════════════════════": "═══ Code Completion ═══",
+  "═══ Code Completion ═══": "═══ Code Completion ═══",
 
   "autocomplete.notEnabled": "[Completion] DeepSeek Auto-completion not enabled, skipping init",
   "autocomplete.initialized": "[Completion] Initialized: debounce={0}ms",
@@ -554,12 +554,12 @@
   "autocomplete.statusDisabled": "Disabled",
   "autocomplete.status": "[Completion] DeepSeek Auto-completion status: {0}",
 
-  "════════════════════════════════════════": "═══ VSCT Commands ═══",
+  "═══ VSCT Commands ═══": "═══ VSCT Commands ═══",
 
   "vsct.openChatWindow": "Open DeepSeek Chat",
   "vsct.toolbarGroup": "DeepSeek Chat Command Group",
 
-  "═════════════════════════════════════════": "═══ Session ═══",
+  "═══ Session ═══": "═══ Session ═══",
 
   "session.new": "New Conversation",
   "session.newConversation": "New Conversation",
@@ -571,7 +571,7 @@
   "session.deleteFailed": "Failed to delete session file",
   "session.generateTitlePrompt": "Based on the following conversation, generate a concise session title (max 10 words, no quotes, no ellipsis):\n\nUser: {0}\n\nAssistant: {1}\n\nTitle:",
 
-  "══════════════════════════════════════════": "═══ Agent Definitions ═══",
+  "═══ Agent Definitions ═══": "═══ Agent Definitions ═══",
 
   "agent.ask.description": "Answer technical questions, explain code, discuss solutions. Pure Q&A mode, no code modifications.",
   "agent.ask.argumentHint": "Ask your technical question",
@@ -691,7 +691,7 @@
   "agent.log.explorePhase1Error": "Structure scan error: {0}, continuing with area exploration",
   "agent.log.explorePhase2": "🔍 Phase 2/2: Parallel deep exploration (root re-scan skipped)…",
   "agent.log.exploreRouting": "Explore routing: {0} area(s) → [{1}]",
-  "agent.log.exploreDone": "Discovery phase complete: {0}/{1} succeeded",
+  "agent.log.planExploreDone": "Discovery phase complete: {0}/{1} succeeded",
   "agent.log.askStarted": "Ask Agent started answering: \"{0}\"",
   "agent.log.askDone": "Ask Agent finished ({0} chars)",
   "agent.log.askCancelled": "Answer cancelled",
@@ -700,7 +700,7 @@
   "agent.log.askSummaryDone": "Ask Agent change summary completed ({0} chars)",
   "agent.log.editNoPlan": "No plan, executing single-step code modification...",
   "agent.log.editStepExec": "Executing step {0}/{1}: {2}",
-  "agent.log.editStepDone": "✅ Step {0} complete: {1}",  "agent.log.editPlanProgress": "📊 Plan execution finished: {0} total → completed {1} / skipped {2} / failed {3} / pending {4}",  "agent.log.editStepSkipped": "⏭ Step {0} cancelled",
+  "agent.log.editStepDone": "✅ Step {0} complete: {1}",  "agent.log.editPlanProgress": "📊 Plan execution finished: {0} total → completed {1} / skipped {2} / failed {3} / pending {4}",  "agent.log.editStepCancelled": "⏭ Step {0} cancelled",
   "agent.log.editStepFailed": "❌ Step {0} failed: {1}",
   "agent.log.editFinalBuild": "🔨 Planning mode: all steps complete, running final unified build...",
   "agent.log.editFinalBuildOk": "✅ Final build passed, all step changes verified",
@@ -721,7 +721,7 @@
   "agent.log.consecutiveErrors": "🔄 {0} consecutive rounds of tool calls all returned errors, forcing exit from loop",
   "agent.log.safetyLimit": "⚠️ Tool call safety limit of {0} rounds reached, forcing end",
 
-  "═══════════════════════════════════════════": "═══ Web Search ═══",
+  "═══ Web Search ═══": "═══ Web Search ═══",
 
   "websearch.providerSwitched": "Search provider switched to: Baidu Qianfan",
   "websearch.baiduNotConfigured": "Baidu API Key not configured, using DuckDuckGo search",
@@ -738,7 +738,7 @@
   "websearch.noResultsFallback": "⚠️ Baidu returned no results, automatically switched to DuckDuckGo.",
   "websearch.searchResultsHtml": "🔍 Found {0} result(s) from web search ({1}), fetching page content…\n\n",
 
-  "════════════════════════════════════════════": "═══ Code Write ═══",
+  "═══ Code Write ═══": "═══ Code Write ═══",
 
   "write.diffPreviewActivated": "[WriteCode] Final diff preview activated: {0}",
   "write.diffPreviewFailed": "[WriteCode] Failed to activate final diff preview: {0}",
@@ -751,7 +751,7 @@
   "write.appliedToActive": "[ApplyCode] Code successfully written to active document",
   "write.appliedToEditor": "Code successfully written to editor",
 
-  "═════════════════════════════════════════════": "═══ Agent UI / Panels ═══",
+  "═══ Agent UI / Panels ═══": "═══ Agent UI / Panels ═══",
 
   "agent.panel.executionProcess": "📋 Execution Process",
   "agent.panel.fileChanges": "File Changes",
@@ -826,7 +826,7 @@
   "popup.skillSource.user": "👤 User",
   "popup.skillSource.package": "📦 Built-in",
 
-  "══════════════════": "═══ Diff Global Bar ═══",
+  "═══ Diff Global Bar ═══": "═══ Diff Global Bar ═══",
 
   "diff.global.filesChanged": "📊 {0} file(s) changed",
   "diff.global.bothStatus": "{0} open, {1} pending",
@@ -837,7 +837,7 @@
   "diff.global.allAccepted": "✅ All changes accepted",
   "diff.global.allUndone": "↩️ All changes reverted",
 
-  "═══════════════════": "═══ Code Action Status ═══",
+  "═══ Code Action Status ═══": "═══ Code Action Status ═══",
 
   "codeAction.noCode": "⚠️ No code to write",
   "codeAction.noTarget": "⚠️ Please open a target file or specify a path",
@@ -848,7 +848,7 @@
   "codeAction.writtenWithDetails": "✅ Written {0}",
   "codeAction.noOpenDoc": "⚠️ No open document",
 
-  "══════════════════════════════════════════════════": "═══ Agent Status ═══",
+  "═══ Agent Status ═══": "═══ Agent Status ═══",
 
   "agent.status.analyzing": "🤖 Agent analyzing task...",
   "agent.status.switchingTo": "🤖 Switching to {0} Agent...",
@@ -861,7 +861,7 @@
   "agent.status.busyConfirm": "⚠️ AI is generating a response, please wait before confirming edit",
   "agent.status.regenerating": "Regenerating…",
 
-  "══════════════════════════════════════════════════": "═══ Centralized AI Prompts ═══",
+  "═══ Centralized AI Prompts ═══": "═══ Centralized AI Prompts ═══",
 
   "system.codeCompletionSystemPrompt": "You are a code completion assistant. Return only the code snippet to complete, no explanations, no Markdown formatting. Return plain code directly. Keep completions concise, accurate, and context-aware.",
   "system.codeCompletionUserPromptWithCursor": "Complete the code at the cursor position based on context.\n\n```\n{0}<CURSOR>{1}\n```\n\nReturn only the code that should be inserted at the <CURSOR> position.",
@@ -878,7 +878,7 @@
   "system.compressionPromptTemplate": "Please compress the following conversation history into a concise summary (max 200 words), preserving key technical details, user requirements, file paths, error messages, and decisions made. Do not omit any important code snippets or file names.\n\nConversation history:\n{0}\n\nSummary:",
   "system.agent.commonSystemPromptPrefixCore": "You are DeepSeek v4 for Visual Studio — an AI programming assistant integrated into VS Code.\nYou can use tools to read files, search the codebase, fetch web content, run terminal commands, etc.\n\n## 🚫 File Reading Rules (follow strictly, or waste massive tokens)\n- When read_file returns \"cached, do not re-read\", it means that **line range** of the file has already been read.\n  You already have that line range's content — **absolutely DO NOT** call read_file again with the same line range.\n- However, if you need to read a **different line range** of the same file (not previously read), feel free to call read_file — the system will allow it.\n- Re-reading the same content is the most common cause of token waste. Each violation wastes thousands of tokens with zero new information.\n- If you need to confirm a detail from an already-read file, reference the previous read_file result directly — no need to re-read.\n\n## 🖥️ Terminal Command Rules (follow strictly, or commands will fail)\nThe current system runs on **Windows**. All `run_in_terminal` commands **MUST use Windows PowerShell syntax**.\n**ABSOLUTELY FORBIDDEN** to output Unix/Linux-style commands — they will not work on Windows:\n- ❌ Forbidden: `&&` chaining → ✅ Use: `;` (semicolon)\n- ❌ Forbidden: `export VAR=value` → ✅ Use: `$env:VAR = \"value\"`\n- ❌ Forbidden: `grep`, `cat`, `rm -rf`, `ls -la`, `chmod`, `sed` and other Unix commands\n  → ✅ Use: `Select-String`, `Get-Content`, `Remove-Item -Recurse -Force`, `Get-ChildItem -Force` etc.\n- ❌ Forbidden: `./script.sh` → ✅ Use: `.\\script.ps1`\n- ❌ Forbidden: `/` as path separator → ✅ Use: `\\` (Windows backslash)\n- ❌ Forbidden: `mkdir -p` → ✅ Use: `New-Item -ItemType Directory -Force`\nCommon command mappings: `ls`→`Get-ChildItem`, `cat`→`Get-Content`, `rm`→`Remove-Item`,\n`cp`→`Copy-Item`, `mv`→`Move-Item`, `mkdir`→`New-Item -ItemType Directory`,\n`touch`→`New-Item`, `which`→`Get-Command`, `find`→`Get-ChildItem -Recurse`\n⚠️ If you genuinely need to run Unix-style scripts, use `wsl` or `bash` prefix explicitly.\n\n## 🔄 Agent Handoff Rules (avoid re-exploration, save tokens)\n- If you are receiving a Handoff from a previous Agent (message contains 🔄 Handoff note):\n  **Prefer getting file content from conversation history** — do not re-explore.\n- The conversation history (messages above) already contains the previous Agent's read_file, list_dir, file_search results —\n  these are all valid file context. Reference them directly — **no need to re-read the same files**.\n- Only call exploration tools (read_file / list_dir / file_search) when the files you need **do not exist in the conversation history**.\n- Use exploration tools only when truly necessary — don't \"explore for the sake of exploring\".",
 
-  "══════════════════════": "═══ Tool Messages ═══",
+  "═══ Tool Messages ═══": "═══ Tool Messages ═══",
 
   "tool.common.noResult": "(no result)",
 
@@ -1052,7 +1052,7 @@
   "tool.runTerminal.failed": "❌ run_in_terminal failed: {0}",
   "tool.runTerminal.stderr": "--- STDERR ---",
 
-  "═════════════════════════": "═══ View / Status ═══",
+  "═══ View / Status ═══": "═══ View / Status ═══",
 
   "status.apiKeyInvalid": "⚠️ DeepSeek API Key invalid, please check configuration",
   "status.baiduApiKeyInvalid": "⚠️ Baidu API Key invalid, please check configuration",
@@ -1068,13 +1068,12 @@
   "status.skillCreated": "✅ Skill created: {0}",
   "status.skillRefreshed": "✅ Skills refreshed: {0} total",
   "status.skillExists": "Skill already exists: {0}",
-  "status.thinking": "DeepSeek thinking...",
   "status.analyzing": "🔍 Analyzing task, exploring project structure...",
   "status.singleStepTask": "📋 Single-step task, directly executing code changes...",
   "status.buildVerified": "✅ Build verification passed",
   "status.downloadClick": "🔗 Click to Download",
 
-  "═══════════════════════": "═══ Service Messages ═══",
+  "═══ Service Messages ═══": "═══ Service Messages ═══",
 
   "service.terminal.fileRejected": "❌ File write rejected: `{0}` content does not look like valid {1} source code.",
   "service.baseAgent.missingQuestions": "❌ VisualStudio_askQuestions: missing questions parameter",
@@ -1086,7 +1085,7 @@
   "service.webSearch.noSummary": "(no summary)",
   "service.builtInTool.noResult": "(no result)",
 
-  "════════════════════": "═══ Agent Log Messages ═══",
+  "═══ Agent Log Messages ═══": "═══ Agent Log Messages ═══",
 
   "agent.log.exploreStarted": "Explore Agent started: \"{0}\"",
   "agent.log.explorePromptBuilt": "Explore prompt built ({0} chars), workspaceRoot={1}",
