@@ -620,6 +620,7 @@
   "agent.edit.handoffAskPrompt": "Code changes are complete. Here are the change details. Please generate a detailed change summary based on the following context:\n\n",
   "agent.edit.handoffBuildLabel": "Diagnose Build Errors",
   "agent.edit.handoffBuildPrompt": "Code changes are complete, but the build may have issues. Please run build verification and fix all compilation errors:\n\n",
+  "agent.edit.handoffBuildWarningHint": "⚠️ The final build has warnings or failures — please mention this in the summary.",
 
   "agent.build.description": "Build verification and code fixing. Auto-build, diagnose errors, explore code, and directly fix bugs in a loop until the build passes. Complex refactoring can be handed off to the Edit agent.",
   "agent.build.argumentHint": "Describe the build error or bug, or type @build to start diagnosis and fix",
