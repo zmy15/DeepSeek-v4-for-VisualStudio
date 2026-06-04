@@ -46,7 +46,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 return response;
             }
 
-            Logger.Warn($"[Healing] 降级模型 healing 失败 ({response?.ErrorMessage ?? "无响应"})，尝试完整模型...");
+            Logger.Warn(LocalizationService.Instance.Format("tool.edit.healing.degradedFailed", response?.ErrorMessage ?? "no response"));
 
             // ── 第 2 次：完整模型 ──
             var fullResponse = await HealWithModelAsync(request, isFullModel: true, ct);
@@ -57,12 +57,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 return fullResponse;
             }
 
-            Logger.Warn($"[Healing] 完整模型 healing 也失败: {fullResponse?.ErrorMessage ?? "无法解析"}");
+            Logger.Warn(LocalizationService.Instance.Format("tool.edit.healing.fullFailed", fullResponse?.ErrorMessage ?? "cannot parse"));
 
             return new HealingResponse
             {
                 Success = false,
-                ErrorMessage = fullResponse?.ErrorMessage ?? "Healing 完全失败",
+                ErrorMessage = fullResponse?.ErrorMessage ?? LocalizationService.Instance["tool.edit.healing.completeFail"],
                 ElapsedMs = sw.ElapsedMilliseconds,
             };
         }
@@ -92,11 +92,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[Healing] {(isFullModel ? "完整" : "降级")}模型 Healing 异常: {ex.Message}");
+                Logger.Warn(LocalizationService.Instance.Format("tool.edit.healing.exception", isFullModel ? LocalizationService.Instance["tool.edit.healing.full"] : LocalizationService.Instance["tool.edit.healing.degraded"], ex.Message));
                 return new HealingResponse
                 {
                     Success = false,
-                    ErrorMessage = $"Healing 请求失败: {ex.Message}",
+                    ErrorMessage = LocalizationService.Instance.Format("tool.edit.healing.requestFailed", ex.Message),
                 };
             }
         }
@@ -196,7 +196,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 default:
                     // replace_string healing: 尝试从响应中提取修正后的 oldString/newString
                     result.Success = false;
-                    result.ErrorMessage = "不支持的 Healing 操作类型";
+                    result.ErrorMessage = LocalizationService.Instance["tool.edit.healing.unsupportedOp"];
                     break;
             }
 

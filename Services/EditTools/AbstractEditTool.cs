@@ -80,7 +80,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 prepared.GeneratedEdit = new GeneratedEditResult
                 {
                     Success = false,
-                    ErrorMessage = "oldString 和 newString 不能同时为空",
+                    ErrorMessage = LocalizationService.Instance["tool.edit.oldNewBothEmpty"],
                 };
                 return prepared;
             }
@@ -111,7 +111,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     prepared.GeneratedEdit = new GeneratedEditResult
                     {
                         Success = false,
-                        ErrorMessage = $"文件不存在: {prepared.FilePath}。请使用 create_file 创建新文件。",
+                        ErrorMessage = LocalizationService.Instance.Format("tool.edit.fileNotExist", prepared.FilePath),
                     };
                 }
                 return prepared;
@@ -128,7 +128,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 prepared.GeneratedEdit = new GeneratedEditResult
                 {
                     Success = false,
-                    ErrorMessage = $"读取文件失败: {ex.Message}",
+                    ErrorMessage = LocalizationService.Instance.Format("tool.edit.readFailed", ex.Message),
                 };
                 return prepared;
             }
@@ -201,7 +201,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                         current.GeneratedEdit = new GeneratedEditResult
                         {
                             Success = false,
-                            ErrorMessage = $"索引 {i} 处的编辑与文件 {current.FilePath} 中的另一个编辑冲突。",
+                            ErrorMessage = LocalizationService.Instance.Format("tool.edit.editConflict", i, current.FilePath),
                         };
                         break;
                     }
@@ -243,7 +243,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 if (prepared.HealedInput != null)
                 {
                     fileResult.WasHealed = true;
-                    fileResult.HealingDescription = "Healing 修正了匹配失败的替换";
+                    fileResult.HealingDescription = LocalizationService.Instance["tool.edit.healingFixed"];
                     result.HealingCount++;
                 }
 
@@ -258,7 +258,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 }
                 catch (Exception ex)
                 {
-                    fileResult.ErrorMessage = $"构造最终文件内容失败: {ex.Message}";
+                    fileResult.ErrorMessage = LocalizationService.Instance.Format("tool.edit.constructFailed", ex.Message);
                     fileResults.Add(fileResult);
                     result.FailureCount++;
                     continue;
@@ -271,7 +271,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 }
                 catch (Exception ex)
                 {
-                    fileResult.ErrorMessage = $"写入文件失败: {ex.Message}";
+                    fileResult.ErrorMessage = LocalizationService.Instance.Format("tool.edit.writeFailed", ex.Message);
                     fileResults.Add(fileResult);
                     result.FailureCount++;
                     continue;
@@ -285,7 +285,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warn($"[{ToolName}] VS 编辑器更新失败（非致命）: {ex.Message}");
+                    Logger.Warn(LocalizationService.Instance.Format("tool.edit.vsUpdateFailed", ToolName, ex.Message));
                 }
 
                 fileResults.Add(fileResult);
@@ -296,8 +296,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 {
                     Level = "INFO",
                     Message = fileResult.WasHealed
-                        ? $"✅ 编辑已应用（Healing）: {prepared.FilePath}"
-                        : $"✅ 编辑已应用: {prepared.FilePath}",
+                        ? LocalizationService.Instance.Format("tool.edit.appliedHealing", prepared.FilePath)
+                        : LocalizationService.Instance.Format("tool.edit.applied", prepared.FilePath),
                 });
             }
 

@@ -34,12 +34,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             query = new
                             {
                                 type = "string",
-                                description = "Glob 搜索模式，如 **/*.cs 或 src/**/*.ts"
+                                description = LocalizationService.Instance["tool.fileSearch.param.query"]
                             },
                             maxResults = new
                             {
                                 type = "integer",
-                                description = "最大返回结果数，默认 50"
+                                description = LocalizationService.Instance["tool.fileSearch.param.maxResults"]
                             }
                         },
                         required = new[] { "query" }

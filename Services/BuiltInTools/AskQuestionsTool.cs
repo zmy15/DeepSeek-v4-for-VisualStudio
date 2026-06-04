@@ -22,7 +22,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 Function = new ToolFunction
                 {
                     Name = "VisualStudio_askQuestions",
-                    Description = "向用户展示结构化问题并等待回答。用于在规划阶段向用户澄清需求。问题会以 UI 形式呈现给用户，用户回答后返回 JSON 格式的答案。",
+                    Description = LocalizationService.Instance["tool.askQuestions.description"],
                     Parameters = new
                     {
                         type = "object",
@@ -36,8 +36,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                                     type = "object",
                                     properties = new
                                     {
-                                        header = new { type = "string", description = "问题简短标题（唯一标识）" },
-                                        question = new { type = "string", description = "问题的完整描述文本" },
+                                        header = new { type = "string", description = LocalizationService.Instance["tool.askQuestions.param.header"] },
+                                        question = new { type = "string", description = LocalizationService.Instance["tool.askQuestions.param.question"] },
                                         options = new
                                         {
                                             type = "array",
@@ -46,19 +46,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                                                 type = "object",
                                                 properties = new
                                                 {
-                                                    label = new { type = "string", description = "选项文本" },
-                                                    description = new { type = "string", description = "选项说明（可选）" }
+                                                    label = new { type = "string", description = LocalizationService.Instance["tool.askQuestions.param.optionLabel"] },
+                                                    description = new { type = "string", description = LocalizationService.Instance["tool.askQuestions.param.optionDescription"] }
                                                 },
                                                 required = new[] { "label" }
                                             },
-                                            description = "可选选项列表，为空则允许自由文本输入"
+                                            description = LocalizationService.Instance["tool.askQuestions.param.options"]
                                         },
-                                        multiSelect = new { type = "boolean", description = "是否允许多选，默认 false" },
-                                        allowFreeformInput = new { type = "boolean", description = "除选项外是否允许自由文本输入，默认 true" }
+                                        multiSelect = new { type = "boolean", description = LocalizationService.Instance["tool.askQuestions.param.multiSelect"] },
+                                        allowFreeformInput = new { type = "boolean", description = LocalizationService.Instance["tool.askQuestions.param.allowFreeformInput"] }
                                     },
                                     required = new[] { "header", "question" }
                                 },
-                                description = "要向用户提问的问题列表（每次 1-2 个问题）"
+                                description = LocalizationService.Instance["tool.askQuestions.param.questions"]
                             }
                         },
                         required = new[] { "questions" }

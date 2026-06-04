@@ -40,7 +40,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 return new EditToolResult
                 {
                     AllSucceeded = false,
-                    ErrorSummary = "replacements 数组为空",
+                    ErrorSummary = LocalizationService.Instance["tool.edit.multiReplace.arrayEmpty"],
                 };
             }
 
@@ -77,7 +77,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 prepared.GeneratedEdit = new GeneratedEditResult
                 {
                     Success = false,
-                    ErrorMessage = "oldString 和 newString 相同，跳过。",
+                    ErrorMessage = LocalizationService.Instance["tool.edit.multiReplace.sameContent"],
                 };
                 return false;
             }
@@ -97,7 +97,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 prepared.GeneratedEdit = new GeneratedEditResult
                 {
                     Success = false,
-                    ErrorMessage = $"无法找到 oldString（已尝试多级匹配）",
+                    ErrorMessage = LocalizationService.Instance["tool.edit.multiReplace.notFound"],
                 };
                 return false;
             }
@@ -111,7 +111,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     prepared.GeneratedEdit = new GeneratedEditResult
                     {
                         Success = false,
-                        ErrorMessage = $"oldString 在文件中匹配到多处。请添加更多上下文使其唯一。",
+                        ErrorMessage = LocalizationService.Instance["tool.edit.multiReplace.multipleMatch"],
                     };
                     return false;
                 }
@@ -171,7 +171,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     CurrentFileContent = fileContent,
                     OriginalOperationType = EditOperationType.ApplyPatch, // 使用 ApplyPatch 类型（复用 healing 逻辑）
                     FailedReplaceInput = edit.Input,
-                    FailureReason = edit.GeneratedEdit.ErrorMessage ?? "oldString 匹配失败",
+                    FailureReason = edit.GeneratedEdit.ErrorMessage ?? LocalizationService.Instance["tool.edit.multiReplace.matchFailed"],
                     FailedContextDetails = new List<string> { edit.Input.OldString.Truncate(80) },
                 };
 
@@ -179,7 +179,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
                 if (healingResponse?.Success == true && healingResponse.CorrectedReplaceInput != null)
                 {
-                    Logger.Info($"[MultiReplace] Healing 成功: {edit.FilePath}");
+                    Logger.Info(LocalizationService.Instance.Format("tool.edit.multiReplace.healingSuccess", edit.FilePath));
                     edit.HealedInput = healingResponse.CorrectedReplaceInput;
 
                     // 用修正后的输入重新生成编辑
@@ -197,7 +197,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 }
                 else
                 {
-                    Logger.Warn($"[MultiReplace] Healing 失败: {edit.FilePath} - {healingResponse?.ErrorMessage}");
+                    Logger.Warn(LocalizationService.Instance.Format("tool.edit.multiReplace.healingFailed", edit.FilePath, healingResponse?.ErrorMessage));
                 }
             }
         }

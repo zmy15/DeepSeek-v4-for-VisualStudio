@@ -1,42 +1,23 @@
 {
   "═══ System Prompts ═══": "═══ System Prompts ═══",
-
   "system.defaultSystemPrompt": "You are DeepSeek Chat, an AI programming assistant deeply integrated into Visual Studio. Your core capabilities include: explaining code logic, locating and fixing bugs, refactoring and optimizing code, generating unit tests, and answering technical questions. Follow these guidelines:\n- Provide concise, accurate, and direct answers, prioritizing runnable code solutions.\n- When suggesting code changes, clearly specify file paths and line numbers.\n- Prefer using existing frameworks and libraries in the user's project; do not introduce unnecessary dependencies.\n- If the user's question is ambiguous, ask for clarification before making suggestions.\n- Respond in the user's language; use the same language for code comments.\n- When users need real-time information, file system operations, or specific task execution, actively use available tools to complete tasks.\n- **If the user provides a URL, you MUST use the fetch_webpage tool to retrieve the page content.**\n  After fetching, check for related links in the content and set the maxDepth parameter to recursively crawl until all needed information is collected.\n- When generating or modifying code, follow these comment conventions (choose the appropriate format by language):\n  - C#: Public classes, interfaces, methods, properties, fields → must use XML documentation comments (///).\n  - C/C++: Public classes, structs, functions, global variables → header file declarations must use documentation comments (/// or /** */, Doxygen style).\n  - Other languages (VB.NET, F#, Python, etc.): Use the language's standard documentation comment syntax.\n  - All documentation comments must: describe the responsibility/purpose in the user's language; methods/functions must describe each parameter, return value, and possible exceptions; properties/fields must describe the data they store.\n  - Complex logic, non-obvious algorithms, or tactical decisions within methods must have inline // comments explaining them.\n  - Comments should focus on 'why' rather than 'what', avoiding line-by-line code translation.",
-
   "system.memoryInstructions": "\n\n---\n## 🧠 Persistent Memory System\n\nYou have access to a **memory tool** for persisting important information across sessions.\n\n### When to Use the Memory Tool\nYou should **proactively invoke** the memory tool in these scenarios:\n\n1. **User Preferences & Habits** → Store in `/memories/` (user scope)\n   - Explicitly stated coding style preferences (e.g., \"I prefer var over explicit types\")\n   - Repeatedly used patterns or workflows\n   - Corrections the user makes to your output — remember the right way\n   - Language preferences, output format preferences, etc.\n\n2. **Project Conventions & Knowledge** → Store in `/memories/repo/` (repo scope)\n   - Project-specific build commands, test commands, run configurations\n   - Codebase architecture conventions (naming, folder structure)\n   - Important technical decisions and architecture decision records\n   - Purpose of specific files, responsibilities of key classes\n\n3. **Current Session Context** → Store in `/memories/session/` (session scope)\n   - Multi-step plans for the current task, work-in-progress tracking\n   - Temporary state that needs to persist across turns within the same session\n   - TODOs the user mentions during the current session\n\n### Usage Principles\n- **Be proactive**: When you learn something new, don't wait for the user to ask — use memory create to record it.\n- **Check before writing**: Use memory view to check for existing related memories before creating, to avoid duplicates.\n- **Update precisely**: When updating existing memories, use str_replace rather than delete + recreate.\n- **Keep it concise**: Each memory entry should be 3-5 lines for fast loading and review.\n- **Scope clearly**: user = preferences, repo = project knowledge, session = temporary context.\n\n### Examples\n- User says \"always use tabs for indentation\" → create /memories/indentation-preference.md\n- Discover project test command is `dotnet test --filter` → create /memories/repo/build-commands.md\n- User corrects your code style → str_replace to update existing preference file",
-
   "system.skillSystemPromptFragment": "\n\n---\n## Skills System\n\nYou have access to a **skills system** that can load specialized task workflows on demand during conversation.\n\n### When Skills Are Invoked\nSkills are invoked in **3 scenarios**:\n\n1. **User explicit invocation** — When the user types `/skillname`, the system automatically injects the skill's complete instructions.\n   You must strictly follow the steps defined in the skill.\n\n2. **AI semantic auto-matching** — When the user's question or task **semantically matches** a skill's description,\n   you should proactively identify it and declare at the beginning of your response: \"I will use the **{skillname}** skill to help you.\"\n   Then follow the skill instructions. Matching criteria:\n   - User intent highly overlaps with keywords in the skill description\n   - User task matches scenarios described in the skill's \"When to Use\" section\n   - User explicitly mentions the skill's related tech stack or workflow\n\n3. **Context inference** — When the conversation context accumulates to a point where a specific skill is needed (e.g., after multiple rounds of debugging, code review is needed),\n   you should proactively suggest and load the appropriate skill.\n\n### How to Use Skills\n- Skills are listed in the `<available_skills>` block with name and description.\n- Once a skill is loaded, strictly follow the **procedure steps** defined in the skill.\n- Skills may include resources: `scripts/` (executable scripts), `references/` (reference docs), `assets/` (templates).\n- If a skill requires running a script, execute it in the terminal.\n- **Never invent skills** — only use skills actually listed in `<available_skills>`.\n\n### Skill Matching Examples\n- User says \"review this code for me\" → matches `code-review` skill\n- User says \"check for security issues\" → matches `code-review` skill (description includes security audit)\n- User says \"how's the performance of this function\" → matches `code-review` skill (description includes code quality)\n\n**Available Skills:**\n{0}\n\nUsers can also type `/skillname` for explicit invocation, or `/help` to see all skills.",
-
   "system.multiAgentSystemPromptFragment": "\n\n---\n## Multi-Agent Collaboration System\n\nYou are currently working in a multi-agent collaboration environment. The system has the following specialized agents:\n\n- **Ask Agent** — Pure technical Q&A, code explanation, solution discussion. Cannot modify code.\n- **Plan Agent** — Research the codebase and create detailed implementation plans. Cannot modify code.\n- **Explore Agent** — Read-only codebase search sub-agent. Invoked in parallel by Plan Agent.\n- **Edit Agent** — Execute code modifications. Modify files step by step according to the plan.\n- **Build Agent** — Diagnose and fix compilation/build errors. Auto build-fix loop. Auto-handoff from Edit Agent after code changes.\n\n### Agent Collaboration Flow\n1. User asks → System auto-routes to the appropriate Agent\n2. Complex tasks → Plan Agent researches the codebase first, produces implementation plan\n3. Plan Agent can launch multiple Explore sub-agents in parallel to accelerate research\n4. Plan confirmed → Handoff to Edit Agent for code modifications\n5. Edit Agent executes step by step, reporting progress at each step\n6. Edit Agent auto-handoffs to Build Agent for compilation verification and fixes\n\n### Handoff Mechanism\nWhen the user says \"start implementing\" or \"execute the plan\", the current Agent can transfer control to the Edit Agent.\nAfter Edit Agent completes code changes, it auto-suggests handoff to Build Agent for build diagnosis.\n\n### User Commands\n- `@ask question` — Explicitly use Ask Agent\n- `@plan task` — Explicitly use Pla\n- `@build` or `@compile` — Explicitly use Build Agent (diagnose build errors)n Agent\n- `@edit task` — Explicitly use Edit Agent\n- `/skillname` — Invoke a skill\n- `/help` — View available skills",
-
   "system.skillRoutingSystemPrompt": "You are a skill router. Your only task is: based on the user's question and available skills list, determine if a skill should be invoked. Return only JSON, nothing else.",
-
   "system.skillRoutingUserPrompt": "Based on the following user question and available skills list, determine if a skill should be invoked.\n\nAvailable skills summary:\n{0}\n\nUser question:\n{1}\n\nRules:\n1. If the user's question semantically matches a skill's description or \"When to Use\", return that skill name.\n2. If the user's question is casual chat, simple Q&A, or doesn't need specialized skill intervention, set skill to null.\n3. If matched, set confidence to high/medium/low.\n4. Return only JSON, no other text.\n\nJSON format:\n{{\"skill\":\"skill-name\",\"confidence\":\"high|medium|low\",\"reason\":\"brief matching reason\"}}\n\nReturn routing decision JSON:",
-
   "system.agentRoutingSystemPrompt": "You are an Agent router. Your only task is: based on the user's message, determine which Agent to route to. Return only JSON, nothing else.",
-
   "system.agentRoutingUserPrompt": "Determine which Agent the following user message should be routed to.\n\nAvailable Agents:\n- Ask: Pure technical Q&A, code explanation, solution discussion\n- Plan: Complex tasks requiring research before implementation planning\n- Edit: Clear, narrowly-scoped code modifications\n- Build: Compilation/build error diagnosis and fix\n\nRules:\n1. If the task involves compilation errors, build failures, linker errors → Build\n2. If the task involves 3+ files or needs architecture design → Plan\n3. If it's a clear code modification with narrow scope → Edit\n4. If it's pure Q&A or chat → Ask\n5. Return only JSON: {{\"targetAgent\":\"Ask|Plan|Edit|Build\",\"confidence\":\"high|medium|low\",\"needsPlanning\":true|false,\"reason\":\"reason\"}}\n\nUser message: {0}\n\nRouting JSON:",
-
   "system.searchOptimizationSystemBaidu": "You only return JSON, nothing else.",
-
   "system.searchOptimizationUserBaidu": "You are a search query optimization assistant. Based on the user's question and conversation context, generate optimized web search keywords.\n\nRules:\n1. Extract core search intent, remove irrelevant words\n2. Keywords should be concise and precise, no more than 72 characters (each CJK character = 2 chars)\n3. If time-sensitive info is needed, set search_recency to week/month/semiyear/year\n4. If the user is just chatting/greeting/asking code questions (no web search needed), set need_search to false\n5. Do not remove time information if present in the content\n6. Strictly return JSON format, no other text\n\nJSON format:\n{{\"search_query\":\"optimized keywords\",\"search_recency\":null,\"need_search\":true}}\n\n{0}\n\nReturn optimized search JSON:",
-
   "system.searchOptimizationSystemDuckDuckGo": "You only return optimized search keywords, nothing else.",
-
   "system.searchOptimizationUserDuckDuckGo": "You are a search query optimization assistant. Based on the user's question, generate optimized web search keywords.\n\nRules:\n1. Extract core search intent, remove irrelevant words\n2. Keywords should be concise and precise, no more than 72 characters (each CJK character = 2 chars)\n3. If the user doesn't need web search, reply NO_SEARCH\n4. Return only the optimized keywords themselves, no explanations, punctuation, or formatting\n5. Do not remove time information if present in the content\n{0}\n\nOptimized keywords:",
-
   "system.fileExtractionSystem": "You only return key information extracted from the document, nothing else. If no useful information can be extracted, reply only NO_INFO.",
-
   "system.fileExtractionUser": "You are an information extraction assistant. Please extract key information from the following user-uploaded file content to optimize web search queries.\n\nExtraction rules:\n1. Extract core topics, technical terms, version numbers, API names, error codes, and other searchable key information from the document\n2. Ignore redundant details in code (like variable assignments, comments), focus on conceptual, searchable content\n3. If the user's question indicates a direction, prioritize extracting information related to the question\n4. Output format: plain text, concisely list key information points, no more than 300 characters\n5. If the document content is unrelated to the user's question or cannot extract useful info, reply NO_INFO\n6. Return only extracted information, no explanations or formatting marks\n\nUser question: {0}\n\nFile content:\n{1}\n\nExtract key information:",
-
   "system.builtInSkillCodeReview": "---\nname: code-review\ndescription: 'Review code quality, security, performance. Use when: code review, checking code quality, finding bugs, security audit, PR review.'\nargument-hint: '[file or code]'\nuser-invocable: true\n---\n\n# Code Review\n\n## When to Use\n- User requests code review or code inspection\n- Self-review before submitting a PR\n- Finding potential bugs, security vulnerabilities, or performance issues\n\n## Procedure\n1. Read the code provided by the user or in the currently open file\n2. Analyze the following aspects:\n   - **Correctness**: Logic errors, edge cases, null references\n   - **Security**: SQL injection, XSS, sensitive information exposure\n   - **Performance**: Unnecessary allocations, N+1 queries, algorithm complexity\n   - **Maintainability**: Naming conventions, code duplication, comment quality\n   - **Best Practices**: Framework conventions, design pattern usage\n3. Rank issues by severity (Critical/Medium/Suggestion)\n4. Provide specific fix suggestions and code examples for each issue\n5. Give an overall assessment and improvement roadmap\n\n## Output Format\n- Use Markdown tables to summarize issues\n- Each issue includes: location, severity, description, fix suggestion",
-
   "system.agent.languageInstruction": "Respond in English. Write code comments in English.",
-
   "system.agent.editPromptFragment": "\nYou are in **Edit mode** — specialized in executing code changes according to plan.\n\n## Core Principles\n- You have permission to modify project files, but be careful and precise\n- Verify code correctness after each change (check for compilation errors)\n- Follow existing coding conventions and architectural patterns in the project\n- Prefer frameworks and libraries already used in the project\n- Request user confirmation before deleting files; only delete when necessary\n- **⚠️ Editing MSBuild project files** (.vcxproj / .csproj / .sln, etc.):\n  - The ✅ **Allowed**: NuGet package references, external dependency paths (lib/include dirs), build options (preprocessor definitions, output paths, etc.), project-to-project references\n  - ❌ **Forbidden: manually adding/removing source file references** (<ClInclude> / <ClCompile> / <Compile> / <None> ItemGroup entries) — the system automatically adds new source files to the project via VS SDK; just create the source files\n  - **CMakeLists.txt** is not auto-managed by VS SDK; the above restrictions do not apply — direct editing is allowed (the system will ask for confirmation)\n  - If read_file returns `file not found` for a source file, create that file first — do not try to work around it by editing project configuration\n- **🚫 NEVER replace code with descriptions**: Files must contain actual compilable code. NEVER replace existing code with feature descriptions, TODO comments, documentation summaries, or interface outlines. If placeholder code needs to be cleaned up, you MUST simultaneously write complete implementation code — never leave empty files or description-only stubs\n\n## Workflow (Important!)\n- **If this is a Handoff (message contains 🔄 Handoff tip)**: Prefer using file context from conversation history; avoid re-exploring.\n- **First-time execution**: Use read_file / file_search / grep_search / list_dir tools to understand existing project code\n- Do not guess file paths or code structure — confirm by reading relevant files first\n- After exploration, make changes based on actual code\n- **Correct flow for new source files**: ① Create source files with create_file (```file: format) → ② The system automatically adds them to the project via VS SDK — no need to manually edit project configuration\n\n## Code Editing Methods (three, ordered by priority)\n\n### Method 1: apply_patch (Preferred, fastest, recommended)\nCustom diff-format patches for local modifications. Format:\n```\n*** Begin Patch\n*** Update File: /path/to/file.ts\n@@ class MyClass\n@@     method():\n         context line\n-        old code to remove\n+        new code to add\n         context line\n*** End Patch\n```\n- Wrap with *** Begin Patch / *** End Patch\n- *** Update File: / *** Add File: / *** Delete File: declare the operation\n- @@ provides context anchors (class name, function name, namespace, etc.)\n- Line prefixes: space=context, - =delete, + =add\n- **⚠️ Do not duplicate closing tokens**: If a closing token (e.g. ) } ] end) already exists in context lines, do NOT add it again as a + line. For example, when inserting new lines before a closing ) in a list, mark only the new lines as + and keep the closing ) as a context line (space-prefixed) — never mark it as +\n- Each file can have multiple @@ hunks\n- File rename: *** Move to: <new path>\n- Multiple files use separate Begin/End Patch blocks\n\n### Method 2: insert_edit_into_file (multiple changes, most code unchanged)\nOutput complete file content, **unchanged regions must use ...existing code... placeholders**:\n```insert_edit_into_file:full/absolute/path\nclass Person {\n    // ...existing code...\n    age: number;\n    // ...existing code...\n    getAge() {\n        return this.age;\n    }\n}\n```\n- Wrap with ```insert_edit_into_file: or ```edit:\n- **Must have** // ...existing code... markers (also supports # ...existing code... and <!-- ...existing code... -->)\n- Between markers is the code segment you need to modify (with context for accurate positioning)\n- **Important**: This is a text format, not a tool call — output the code block directly in your response\n\n### Method 3: create_file / delete_file (new file / complete rewrite)\nCreate new file or **completely replace file content** using ```file: format (already supported):\n```file:full/absolute/path\n// Complete new file content\n```\n- **When the entire file content is to be replaced, must use create_file format, not insert_edit_into_file**\nDelete file:\ndelete:full/absolute/path\nor\ndelete_file:full/absolute/path\n\n## Method Selection Guide\n- **Small changes (1-3 local edits)**: Prefer apply_patch\n- **Multiple changes but most code unchanged**: Use insert_edit_into_file (must include ...existing code... markers)\n- **New file creation**: Use create_file (```file: format)\n- **Complete file rewrite (old/new content completely different)**: Use create_file format, not insert_edit_into_file\n- **File deletion**: Use delete: format\n- **Important reminder**: All three are text formats — output them directly in your response, not as tool calls\n\n## Step Execution\n- Execute strictly in plan step order\n- Report progress after each step\n- Do not silently skip errors — report and request guidance\n- **After modifying code, use build_solution tool to compile and verify**\n- If compilation fails, analyze errors and fix, then call build_solution again\n- Iterate fixes until compilation passes, or report to user after multiple failures",
-
   "system.agent.verifyPromptFragment": "You are a code compilation verification assistant. Your only task is to compile and verify the modified code.\nIf compilation fails, read the relevant lines of the affected files, fix them, and recompile.\nDo not use exploration tools like file_search / list_dir / grep_search.\nDo not output apply_patch text format — it is a text format, not a tool; use replace_string_in_file tool to directly modify files.\nIterate fixes until compilation passes, or clearly report that it cannot be fixed.\n\n## Workspace Info\nCurrent workspace root: `{0}`\nAll file operations must use Windows absolute paths under this directory.\nModified files (absolute paths):\n{1}",
-
   "edit.plan.fileCount": "Files modified",
   "edit.plan.task": "Task",
   "edit.plan.currentTask": "Current task",
@@ -58,15 +39,10 @@
   "plan.handoff.prompt": "Execute code changes according to the following plan. Follow steps strictly and report progress after each step.\n\nPlan:",
   "plan.handoff.promptWithPlan": "Execute code changes according to the following plan.\n\nPlan: {0}\nSteps: {1}\n\nFollow steps strictly and report progress after each step.",
   "plan.noValidPlan": "Could not generate a valid implementation plan. Please provide more information or try a different description.",
-
   "═══ UI Messages ═══": "═══ UI Messages ═══",
-
   "ui.welcomeMessage": "Hello! I'm DeepSeek Chat, your AI programming assistant.\n\nI can help you with:\n- Explaining code\n- Fixing bugs\n- Refactoring code\n- Generating tests\n- Answering technical questions\n\nStart asking!",
-
   "ui.apiKeyMissingMessage": "⚠️ **API Key Not Configured**\n\nPlease configure your DeepSeek API key via **Tools → Options → DeepSeek Chat**.\n\nGet your key: https://platform.deepseek.com/api_keys",
-
   "═══ Settings Labels ═══": "═══ Settings Labels ═══",
-
   "settings.category.api": "API Settings",
   "settings.category.model": "Model Settings",
   "settings.category.webSearch": "Web Search",
@@ -76,78 +52,53 @@
   "settings.category.context": "Context Management",
   "settings.category.i18n": "Language / 语言",
   "settings.category.approval": "Approval Settings",
-
   "settings.apiKey.displayName": "API Key",
   "settings.apiKey.description": "DeepSeek API key. Obtain from https://platform.deepseek.com/api_keys",
-
   "settings.systemPrompt.displayName": "System Prompt",
   "settings.systemPrompt.description": "System prompt that defines the AI assistant's behavior and role",
-
   "settings.selectedModel.displayName": "Selected Model",
   "settings.selectedModel.description": "The DeepSeek model to use",
-
   "settings.enableThinking.displayName": "Enable Deep Thinking",
   "settings.enableThinking.description": "Enable deep thinking mode (Reasoning)",
-
   "settings.reasoningEffort.displayName": "Reasoning Effort",
   "settings.reasoningEffort.description": "Reasoning intensity: high or max",
-
   "settings.enableWebSearch.displayName": "Enable Web Search",
   "settings.enableWebSearch.description": "Enable web search functionality. When enabled, a web search toggle will appear in the chat window.",
-
   "settings.searchProvider.displayName": "Search Provider",
   "settings.searchProvider.description": "Select search engine: Baidu (Baidu Qianfan, requires API Key, 1500 free/month) or DuckDuckGo (completely free)",
-
   "settings.baiduApiKey.displayName": "Baidu Qianfan API Key",
   "settings.baiduApiKey.description": "Baidu Qianfan AppBuilder API Key. Get from: https://console.bce.baidu.com/ai_apaas/accessKey\n⚠️ Billing: 1500 free calls/month (~50/day). Beyond that, pay-as-you-go.\nWhen free quota is exhausted, automatically switches to DuckDuckGo.\nPost-pay setup: https://console.bce.baidu.com/ai_apaas/resource\nBilling details: https://cloud.baidu.com/doc/qianfan/s/Mmh4sv6ec",
-
   "settings.showDiffMarkers.displayName": "Show Diff Markers In Editor",
   "settings.showDiffMarkers.description": "After AI writes code, show red/green line markers in the editor (green=added, red=deleted) with confirm/revert buttons. When disabled, changes take effect directly without preview.",
-
   "settings.ocrEngine.displayName": "OCR Engine",
   "settings.ocrEngine.description": "Select image OCR engine:\n  • Windows Built-in — System built-in, no configuration needed, moderate accuracy\n  • Remote OCR service via MCP protocol",
-
   "settings.autocompleteEnabled.displayName": "Enable Code Completion",
   "settings.autocompleteEnabled.description": "Enable inline code completion (ghost text) in the editor. When enabled, DeepSeek will provide code completion suggestions as you type. Press Tab to accept, Escape to cancel.",
-
   "settings.autocompleteDelay.displayName": "Completion Delay (ms)",
   "settings.autocompleteDelay.description": "How many milliseconds to wait after you stop typing before requesting completion suggestions.",
-
   "settings.autocompleteContinueAfterAccept.displayName": "Continue Completion After Accept",
   "settings.autocompleteContinueAfterAccept.description": "When enabled, accepting a completion immediately triggers a new prediction.",
-
   "settings.autocompleteModel.displayName": "Completion Model",
   "settings.autocompleteModel.description": "Optional: specify a different model for code completion. Leave empty to use the default model. A faster model (like deepseek-v4-flash) is recommended.",
-
   "settings.tokenBudget.displayName": "Token Budget Limit",
   "settings.tokenBudget.description": "DeepSeek V4 has a 1M token context window.\nThis setting controls the maximum tokens sent to the API (reserving 100K for model output).\nDefault is 900,000. Reduce to lower API costs; increase for more context.",
-
   "settings.enableAutoCompression.displayName": "Enable Auto Compression",
   "settings.enableAutoCompression.description": "When context approaches the token budget, automatically compress early conversation into summaries\nrather than deleting old messages. When disabled, falls back to the old truncation behavior.",
-
   "settings.compressionThreshold.displayName": "Compression Trigger Threshold (%)",
   "settings.compressionThreshold.description": "Trigger auto-compression when context usage reaches this percentage.\nDefault 85%, i.e., triggers at ~765K tokens of a 900K budget.",
-
   "settings.preserveRecentTurns.displayName": "Preserve Recent Turns",
   "settings.preserveRecentTurns.description": "During compression, keep the most recent N turns of conversation uncompressed.\nDefault 3 turns. Increase to preserve more immediate context.",
-
   "settings.enableRag.displayName": "Enable RAG",
   "settings.enableRag.description": "Enable Retrieval-Augmented Generation (RAG) to automatically retrieve relevant documents from the knowledge base before conversation.\nRequires configuring a RAG provider (such as a local vector database).",
-
   "settings.ragTopK.displayName": "RAG Retrieval Count",
   "settings.ragTopK.description": "Maximum number of documents to retrieve from the knowledge base per query. Default 5.",
-
   "settings.showContextStats.displayName": "Context Stats Indicator",
   "settings.showContextStats.description": "Show current token usage in the status bar (used/budget).",
-
   "settings.language.displayName": "Display Language / 显示语言",
   "settings.language.description": "Choose display language. Select 'Auto' to follow system language.\n选择显示语言。「自动」则跟随系统语言。",
-
   "settings.approvalMode.displayName": "Approval Mode",
   "settings.approvalMode.description": "Controls the approval behavior for tool operations (terminal commands, file deletion, etc.):\n  • SmartBlock — Only dangerous commands require approval; safe commands auto-approved\n  • BlockAll — All terminal commands and file operations require user approval\n  • AllowAll — Auto-approve all operations without asking (⚠️ use with caution)",
-
   "═══ Chat UI Strings ═══": "═══ Chat UI Strings ═══",
-
   "chat.windowTitle": "DeepSeek Chat",
   "chat.deleteConversation": "Delete Current Conversation",
   "chat.role.user": "User",
@@ -169,9 +120,7 @@
   "chat.agentMode": "Agent Mode",
   "chat.thinkingCheckbox": "Deep Think",
   "chat.contextStats": "Tokens: {0} / {1}",
-
   "═══ MCP Configuration ═══": "═══ MCP Configuration ═══",
-
   "mcp.title": "MCP Server Configuration",
   "mcp.addServer": "Add Server",
   "mcp.removeServer": "Remove Server",
@@ -189,9 +138,7 @@
   "mcp.deleteServer": "Delete this server",
   "mcp.formatHint": "Format: KEY1=VALUE1;KEY2=VALUE2",
   "mcp.transport": "Transport:",
-
   "═══ OCR Messages ═══": "═══ OCR Messages ═══",
-
   "ocr.recognizing": "Recognizing...",
   "ocr.recognitionComplete": "Recognition complete",
   "ocr.recognitionFailed": "Recognition failed",
@@ -199,9 +146,7 @@
   "ocr.noTextDetected": "No text detected",
   "ocr.engineNotAvailable": "OCR engine not available",
   "ocr.exception": "Recognition exception",
-
   "═══ Build Messages ═══": "═══ Build Messages ═══",
-
   "build.success": "Build succeeded",
   "build.failed": "Build failed",
   "build.errorDetails": "Build error details",
@@ -225,9 +170,7 @@
   "build.cmake.noBuildDir": "⚠️ CMake build directory not found. Please run cmake configuration first (e.g., `cmake -B build`) to generate the build directory.",
   "build.cmake.launchFailed": "⚠️ Failed to launch CMake build process.",
   "build.cmake.outputTail": "Build output tail",
-
   "═══ Agent Messages ═══": "═══ Agent Messages ═══",
-
   "agent.planCreated": "Plan created",
   "agent.planCancelled": "Plan cancelled",
   "agent.planFailed": "Plan failed",
@@ -235,24 +178,18 @@
   "agent.exploreRouting": "Explore routing",
   "agent.editApplied": "Changes applied",
   "agent.editFailed": "Changes failed",
-
   "═══ Persistence ═══": "═══ Persistence ═══",
-
   "persist.sessionNotFound": "Session file not found",
   "persist.sessionsLoaded": "Loaded {0} session(s)",
   "persist.saveFailed": "Save failed",
   "persist.exportSuccess": "Export successful",
   "persist.importSuccess": "Import successful",
-
   "═══ API / Service ═══": "═══ API / Service ═══",
-
   "api.requestFailed": "API request failed",
   "api.timeout": "Request timed out",
   "api.rateLimited": "Too many requests, please try again later",
   "api.unauthorized": "API key is invalid or expired",
-
   "═══ General ═══": "═══ General ═══",
-
   "general.ok": "OK",
   "general.cancel": "Cancel",
   "general.yes": "Yes",
@@ -266,9 +203,7 @@
   "general.loading": "Loading...",
   "general.noResults": "No results",
   "general.auto": "Auto",
-
   "═══ Chat HTML UI ═══": "═══ Chat HTML UI ═══",
-
   "chat.html.retryButton": "🔄 Retry",
   "chat.html.retryButtonTitle": "Regenerate response",
   "chat.html.editButton": "Edit",
@@ -322,9 +257,7 @@
   "chat.html.taskAllSuccess": "{0}/{1} steps all succeeded",
   "chat.html.taskProgress": "{0}/{1} steps",
   "chat.html.closePanelTitle": "Close panel",
-
   "═══ Diff Viewer ═══": "═══ Diff Viewer ═══",
-
   "diff.windowTitle": "📊 Code Diff Comparison",
   "diff.inlineMode": "📋 Inline",
   "diff.sideBySideMode": "⬌ Side by Side",
@@ -336,9 +269,7 @@
   "diff.linesAdded": "+{0} lines",
   "diff.linesRemoved": "-{0} lines",
   "diff.createFailed": "❌ Failed to create diff view: {0}",
-
   "═══ Edit / Patch ═══": "═══ Edit / Patch ═══",
-
   "edit.fileNotFound": "File not found: {0}",
   "edit.hunksFailed": "{0}/{1} hunk(s) failed to match",
   "edit.noExistingCodeMarker": "...existing code... marker not detected",
@@ -374,9 +305,7 @@
   "edit.healingRetryFailed": "Healing retry still failed ({0}), falling back to create_file...",
   "edit.createFileFallbackSuccess": "✅ create_file fallback succeeded: {0}",
   "edit.createFileFallbackFailed": "create_file fallback also failed: {0}",
-
   "═══ Input / Toolbox ═══": "═══ Input / Toolbox ═══",
-
   "input.placeholder": "Ask a question, or @agent /skill to route",
   "input.newChat": "+ New Chat",
   "input.clearChat": "Clear",
@@ -406,15 +335,11 @@
   "input.uploadFile": "Upload File...",
   "input.fileChangesDetected": "📊 File Changes Detected",
   "input.contextStatsLabel": "Tokens:",
-
   "═══ Approval Mode ═══": "═══ Approval Mode ═══",
-
   "approval.blockAll": "🛑 Block All",
   "approval.allowAll": "✅ Allow All",
   "approval.smartBlock": "🤖 Smart Block",
-
   "═══ Status / Notifications ═══": "═══ Status / Notifications ═══",
-
   "status.buildSuccess": "✅ Build succeeded",
   "status.buildFailed": "⚠️ Build failed",
   "status.buildInProgress": "🔨 Building...",
@@ -429,9 +354,9 @@
   "status.webSearching": "Searching the web…",
   "status.thinking": "DeepSeek thinking…",
   "status.baiduKeyMissing": "⚠️ Please configure Baidu API Key",
-  "status.search.baiduKeyRequired": "⚠️ Baidu search requires an API Key. Configure at Tools\u2192Options\u2192DeepSeek Chat\u2192Web Search",
+  "status.search.baiduKeyRequired": "⚠️ Baidu search requires an API Key. Configure at Tools→Options→DeepSeek Chat→Web Search",
   "status.search.noSolution": "⚠️ No solution currently open",
-  "status.search.scanningFiles": "Scanning project files\u2026",
+  "status.search.scanningFiles": "Scanning project files…",
   "status.terminalApproved": "✅ Terminal command approved",
   "status.terminalSkipped": "⏭️ Terminal command skipped",
   "status.terminalWaitingApproval": "🖥️ Waiting for terminal command approval: {0}",
@@ -456,11 +381,9 @@
   "status.agentSwitched": "🤖 Switched to {0} Agent...",
   "status.agentError": "❌ Agent error: {0}",
   "status.agentStepProgress": "🤖 Agent: step {0}/{1}",
-  "status.agentHandoff": "🤖 Switched to {0} Agent \u2014 executing plan...",
+  "status.agentHandoff": "🤖 Switched to {0} Agent — executing plan...",
   "status.codeWriteFailed": "❌ Write failed: {0}",
-
   "status.mcpConnected": "MCP connected: {0} tool(s) available",
-
   "status.extractingInfo": "AI extracting key info from attachments…",
   "status.optimizingSearch": "AI optimizing search terms…",
   "status.searchResults": "Found {0} search result(s), fetching pages…",
@@ -483,9 +406,7 @@
   "status.fileWritten": "✅ Written via ITextBuffer to open file: {0}",
   "status.fileWrittenInvisible": "✅ Written via IVsInvisibleEditor+ITextBuffer: {0}",
   "status.fileCreated": "Created new file: {0}",
-
   "═══ Compression ═══": "═══ Compression ═══",
-
   "compress.historyHeader": "[Conversation History Summary]",
   "compress.historyIntro": "Below is a compressed summary of earlier conversation, including key information and decisions discussed:",
   "compress.turnSeparator": "--- Turns {0}-{1} Summary ---",
@@ -495,9 +416,7 @@
   "compress.roleAssistant": "Assistant",
   "compress.roleTool": "Tool Result",
   "compress.thinkingLabel": "[Thought process: {0}]",
-
   "═══ File Parser ═══": "═══ File Parser ═══",
-
   "file.notFound": "File not found: {0}",
   "file.tooLarge": "File is large: {0} ({1}), parsing may take a while.",
   "file.unsupportedFormat": "Unsupported file format: {0}",
@@ -509,7 +428,6 @@
   "file.filter.pdfDocs": "PDF Documents",
   "file.filter.imageFiles": "Image Files",
   "file.filter.allFiles": "All Files",
-
   "mcp.startingProcess": "Starting process {0}...",
   "mcp.connecting": "Connecting to {0}...",
   "mcp.toolError": "Error: {0}",
@@ -518,14 +436,11 @@
   "mcp.processStatusRunning": "Running",
   "mcp.serverProcessStatus": "Server process status: {0}",
   "mcp.stdinUnavailable": "Process stdin unavailable",
-
   "compress.extractUserQuestion": "User questions:",
   "compress.extractFilesInvolved": "Files involved:",
   "compress.extractErrors": "Errors/Exceptions:",
   "compress.extractConclusion": "Final conclusion:",
-
   "═══ Tool Descriptions ═══": "═══ Tool Descriptions ═══",
-
   "tool.list_dir.desc": "List the contents of a directory. Returns subdirectories and file names. Use for exploring project structure.\nImportant: If you don't know the absolute path, start with the workspace root. Paths must be Windows absolute paths (e.g., F:\\project\\src), do not use Linux-style paths (e.g., /home/user).",
   "tool.read_file.desc": "Read file content. Optionally specify a line range to read portions of large files. Path must be a Windows absolute path.",
   "tool.file_search.desc": "Search for files using glob patterns. Supports ** for recursive matching. Examples: **/*.cs, src/**/*.ts. Searches under the workspace root.",
@@ -543,9 +458,7 @@
   "tool.get_terminal_output.desc": "Get output from an async terminal command. Use to check the status and results of background commands.\nRequires the terminal ID returned by run_in_terminal async mode.",
   "tool.runSubagent.desc": "Delegate an exploration task to a sub-agent (currently supports Explore).\nUse this tool when you need to search the codebase, read files, or understand project structure — instead of direct file operations.\nParameters:\n- agentName: Must be \"Explore\"\n- prompt: Detailed exploration task description (what to search, file scope, thoroughness: quick/medium/thorough)\n- description: 3-5 word brief summary (optional, for logging)\n\nExample:\n{ \"agentName\": \"Explore\", \"prompt\": \"Find all implementations of IAgentDispatcher and describe their differences\", \"description\": \"Explore IAgentDispatcher implementations\" }",
   "tool.request_handoff.desc": "Transfer the entire task to another Agent. Unlike runSubagent, this is a full control transfer (current Agent ends, target Agent takes over).\nParameters:\n- targetAgent: Edit|Ask|Plan|Build|Explore\n- reason: Brief explanation of why handoff is needed\n- taskDescription: Complete task description for the target Agent\n- chainBack: Whether to chain back after completion (default false)\n\nExample:\n{ \"targetAgent\": \"Edit\", \"reason\": \"Plan complete, need code execution\", \"taskDescription\": \"Execute code changes according to the following plan...\" }",
-
   "═══ MCP Status ═══": "═══ MCP Status ═══",
-
   "mcp.status.pasteJsonHint": "⚠️ Please paste JSON config first",
   "mcp.status.detectSuccess": "✅ Detected: {0} server(s)",
   "mcp.status.noServersDetected": "Could not detect any MCP server config, please check JSON format",
@@ -567,9 +480,7 @@
   "mcp.handshaking": "Performing MCP handshake (initialize)...",
   "mcp.processExitedDuringHandshake": "Process exited during handshake (exit code: {0}).\nServer '{1}' may have terminated due to configuration error or invalid token.",
   "mcp.fetchingTools": "Fetching tool list (tools/list)...",
-
   "═══ Code Completion ═══": "═══ Code Completion ═══",
-
   "autocomplete.notEnabled": "[Completion] DeepSeek Auto-completion not enabled, skipping init",
   "autocomplete.initialized": "[Completion] Initialized: debounce={0}ms",
   "autocomplete.cacheHit": "[Completion] Cache hit, displaying directly",
@@ -594,14 +505,10 @@
   "autocomplete.statusEnabled": "Enabled",
   "autocomplete.statusDisabled": "Disabled",
   "autocomplete.status": "[Completion] DeepSeek Auto-completion status: {0}",
-
   "═══ VSCT Commands ═══": "═══ VSCT Commands ═══",
-
   "vsct.openChatWindow": "Open DeepSeek Chat",
   "vsct.toolbarGroup": "DeepSeek Chat Command Group",
-
   "═══ Session ═══": "═══ Session ═══",
-
   "session.new": "New Conversation",
   "session.newConversation": "New Conversation",
   "session.clearConversation": "Clear Conversation",
@@ -611,9 +518,7 @@
   "session.saveFailed": "Failed to save session",
   "session.deleteFailed": "Failed to delete session file",
   "session.generateTitlePrompt": "Based on the following conversation, generate a concise session title (max 10 words, no quotes, no ellipsis):\n\nUser: {0}\n\nAssistant: {1}\n\nTitle:",
-
   "═══ Agent Definitions ═══": "═══ Agent Definitions ═══",
-
   "agent.ask.description": "Answer technical questions, explain code, discuss solutions. Pure Q&A mode, no code modifications.",
   "agent.ask.argumentHint": "Ask your technical question",
   "agent.ask.systemPromptFragment": "\nYou are in **Ask mode** — a technical Q&A-focused AI programming assistant.\n\n## Core Capabilities\n- Explain code logic and architecture design\n- Analyze technical issues and bug root causes\n- Discuss implementation approaches and best practices\n- Answer all types of programming and technical questions\n\n## Code of Conduct\n- Provide concise, accurate, and direct answers\n- Prefer runnable code examples\n- Clearly specify file paths and line numbers when referencing code\n- Prefer frameworks and libraries already used in the user's project\n- If the question is vague, ask for clarification before answering",
@@ -625,11 +530,9 @@
   "agent.ask.handoffPlanPrompt": "The user needs a detailed implementation plan. Please research the codebase and create a proposal:\n\n",
   "agent.ask.handoffBuildLabel": "Diagnose Build Errors",
   "agent.ask.handoffBuildPrompt": "Change summary has been generated, but the build may have issues. Please run build verification and fix all compilation errors:\n\n",
-
   "agent.plan.description": "Research and plan multi-step implementation. Deeply analyze requirements, study the codebase, align with user, and produce detailed plans.",
   "agent.plan.argumentHint": "Describe the goal or problem to plan for",
   "agent.plan.systemPromptFragment": "\nYou are in **Plan mode** — collaborating with the user to create detailed, executable implementation plans.\n\nYour job is to research the codebase → align with the user → organize discoveries and decisions into a comprehensive plan.\nThis iterative approach catches edge cases and non-obvious requirements before actual implementation.\n\nYour only responsibility is planning. Never start implementing.\n\n## Rules\n- If you consider using file editing tools — stop. Plans are for someone else to execute.\n- Use VisualStudio_askQuestions to clarify requirements at any time — don't make big assumptions\n- Present a well-researched, gap-free plan before implementation\n- **Mandatory**: Before creating a complete plan, you must first use Explore sub-agent to deeply understand the project code structure, existing module dependencies, naming conventions, and architecture patterns.\n  It is unacceptable to create a plan without understanding the project structure and existing code.\n- If the user provides a URL, you must use the fetch_webpage tool to retrieve the page content, and check for related links that need recursive crawling.\n\n## Workflow\nLoop through the following phases based on user input. This is iterative, not linear.\n\n### 0. Project Understanding — **Must execute first**\nBefore creating any plan, you must understand the overall project structure:\n- Launch 1-3 Explore sub-agents to learn about file structure, key modules, dependencies\n- Combine keywords and context from the user's question to identify relevant existing code\n- Learn about the frameworks, libraries, coding standards, and testing frameworks used\n- If the user provides specific file paths or code snippets, prioritize analyzing those\n- Only proceed to the discovery phase after fully understanding the project structure\n\n### 1. Discovery\nLaunch Explore sub-agents to collect context, similar existing features that can serve as implementation templates, and potential blockers or ambiguities.\nWhen the task spans multiple independent areas (e.g., front-end/back-end, different features, different repos), launch 2-3 Explore sub-agents in parallel.\n\n### 2. Alignment\nIf research reveals significant ambiguities or requires validating assumptions:\n- Use VisualStudio_askQuestions to clarify intent with the user\n- Present discovered technical constraints or alternatives\n- If the answer significantly changes scope, return to discovery phase\n\n### 3. Design\nOnce context is clear, draft a comprehensive implementation plan.\nThe plan should reflect:\n- Structure concise enough to scan, detailed enough to execute\n- Step-by-step implementation with clear dependencies — mark which steps can be parallel, which depend on prior steps\n- For multi-step plans, group into independently verifiable stages\n- Automated and manual verification steps\n- Key architecture to reuse or reference — cite specific functions, types, or patterns, not just file names\n- Key files to modify (with full paths)\n- Clear scope boundaries — what's included and what's deliberately excluded\n\n## Output Format\nThe plan should be output as JSON:\n```json\n{\n  \"title\": \"Task Title\",\n  \"steps\": [\n    { \"index\": 1, \"title\": \"Step Title\", \"description\": \"Detailed description\", \"requiresApproval\": false }\n  ]\n}\n```",
-
   "agent.edit.description": "Execute code modifications. Modify files step by step according to the plan, with build verification and permission confirmation.",
   "agent.edit.argumentHint": "Describe the code modification task",
   "agent.edit.handoffAskLabel": "Generate Change Summary",
@@ -637,12 +540,10 @@
   "agent.edit.handoffBuildLabel": "Diagnose Build Errors",
   "agent.edit.handoffBuildPrompt": "Code changes are complete, but the build may have issues. Please run build verification and fix all compilation errors:\n\n",
   "agent.edit.handoffBuildWarningHint": "⚠️ The final build has warnings or failures — please mention this in the summary.",
-
   "agent.build.description": "Build verification and code fixing. Auto-build, diagnose errors, explore code, and directly fix bugs in a loop until the build passes. Complex refactoring can be handed off to the Edit agent.",
   "agent.build.argumentHint": "Describe the build error or bug, or type @build to start diagnosis and fix",
   "agent.build.handoffEditLabel": "Hand off to Edit Agent",
   "agent.build.handoffEditPrompt": "The fix involves large-scale code restructuring beyond compilation fixes. Please perform deep code changes based on the following error context:\n\n",
-
   "system.agent.buildPromptFragment": "\\nYou are in **Build mode** — specialized in build-driven diagnosis and code fixing.\\n\\n## Core Principles\\n- Your core task is to compile, verify, and fix code issues (both compilation errors and logic bugs)\\n- Use the standard fix loop: build_solution → wait for build → get_errors → explore code → fix → build_solution\\n- **build_solution is async**: it returns \\\"build started\\\" immediately and the build runs in the background. **Never call build_solution and get_errors in the same tool call batch**.\\n- Correct workflow: Turn 1 — call only build_solution; Turn 2 (the NEXT turn after receiving build_solution result) — call get_errors to retrieve error details\\n- Try fixing up to 3 times, but if new errors appear (different from previous ones), the retry counter resets\\n- Prefer replace_string_in_file / multi_replace_string_in_file tools for fixes\\n- You may use apply_patch for bulk code modifications\\n- 🔄 If this is a Handoff, prefer context from conversation history; avoid re-exploring.\n- You may use file_search / grep_search / list_dir to explore project structure (only when conversation history lacks needed context) and understand code context before fixing\\n- **get_errors needs no arguments by default**: call it directly to collect all build errors (from VS Error List and Output Window)\\n- Only use get_errors with includeSelected=true when you need detailed metadata (error codes, project names, column numbers) for specific error items\\n- **Always use the build_solution tool for compilation** — do NOT try running cl.exe, msbuild, dotnet build, etc. in the terminal\\n- If you determine the fix requires large-scale architectural restructuring (beyond compilation fixes), hand off to the Edit agent\\n\\n## \\u26a0\\ufe0f Build Workflow (Must Follow Strictly!)\\nbuild_solution is async — it starts the build and returns immediately while the build runs in VS background. **This means you CANNOT get build results in the same turn.**\\n\\n**Correct workflow (two turns, cannot be merged)**:\\n- **Turn 1**: Call only build_solution, do NOT call get_errors in the same turn. Wait for build_solution to return.\\n- **Turn 2**: In the NEXT conversation turn, after receiving build_solution''s \\\"build started\\\" response, call get_errors (no arguments) to collect build errors.\\n  - If get_errors returns \\\"build in progress\\\" or \\\"build just started\\\", **do NOT continue** — tell the user to retry after the build completes.\\n  - If the build has completed, get_errors will return the full error list.\\n  - **If get_errors returns \\\"no build errors detected\\\", verify: did you just start a build_solution? If so, the build may not be complete yet — do NOT falsely conclude the build passed!**\\n\\n**Forbidden behaviors**:\\n- \\u274c Do NOT call build_solution and get_errors in the same turn\\n- \\u274c Do NOT call get_errors in the same turn that build_solution returned\\n- \\u274c Do NOT use get_errors includeSelected=true for initial error checking (depends on user selecting items in the UI)\\n- \\u274c **Do NOT declare \\\"build passed\\\" right after starting build_solution — the build may not have even started!**\\n- \\u274c **get_errors returning \\\"no errors\\\" does NOT equal build success — the build may not have started or may still be running**\\n\\n## Fix Strategy\\n1. Turn 1: Call build_solution to trigger compilation\\n2. Turn 2: Call get_errors to retrieve build output and error details\\n3. Analyze error messages, use file_search/grep_search to locate problematic files and dependencies\\n4. Use read_file to read error files and related files (headers, interfaces, etc.)\\n5. Use replace_string_in_file / apply_patch for precise fixes\\n6. After fixing, call build_solution again to verify\\n7. Repeat until build passes or retry limit is reached\\n\\n## When to End the Conversation\\n- \\u2705 Build completed AND get_errors returns a concrete error list → analyze and fix\\n- \\u2705 After multiple fix attempts, the build truly passes (get_errors returns no errors AFTER build completion) → report success\\n- \\u274c build_solution just started, get_errors returns \\\"no build errors\\\" → **do NOT end! Wait for the next turn**\\n- \\u274c The user may be reporting a functional bug, not a build error → inform the user and suggest handing off to Edit Agent\\n\\n## Common Build Error Handling\\n- **CS#### / error C####**: C#/C++ syntax or type errors → read_file to view error lines and context, fix syntax\\n- **error LNK####**: Linker errors → search for missing symbol definitions, check project references and missing implementation files\\n- **error MSB####**: MSBuild errors → check project file configuration (.csproj/.vcxproj)\\n- **Missing using/import**: Add missing namespace references\\n- **Type mismatch**: Correct type declarations or type conversions\\n- **Runtime bugs / logic errors**: Use file_search/grep_search to trace call chains, identify root cause, and fix directly",
   "agent.log.planStarted": "Plan Agent started planning: \"{0}\"",
   "agent.log.planPhaseDiscover": "Phase 1/3: Discover — Research codebase...",
@@ -669,7 +570,6 @@
   "agent.plan.discoveryFallback": "## Codebase Research Findings (collected by Explore sub-agents)",
   "agent.plan.fileContextHeader": "## User-provided file context",
   "agent.plan.truncatedSuffix": "... (truncated)",
-
   "plan.md.userTask": "## User's Original Requirement",
   "plan.md.instructions": "## Instructions",
   "plan.md.generatePrompt": "Based on the information above (codebase research findings and JSON plan are provided in system messages), generate a detailed implementation plan in Markdown format.",
@@ -699,7 +599,6 @@
   "plan.md.savedTitle": "# 📋 Implementation Plan",
   "plan.md.savedGeneratedAt": "> **Generated at**: {0}",
   "plan.md.savedSolution": "> **Solution**: {0}",
-
   "agent.log.planMdAppended": "\n\n---\n📄 Detailed plan saved to: `{0}`",
   "agent.log.planCancelled": "Planning cancelled",
   "agent.log.planFailed": "Planning failed: {0}",
@@ -744,29 +643,29 @@
   "agent.log.askSummaryDone": "Ask Agent change summary completed ({0} chars)",
   "agent.log.editNoPlan": "No plan, executing single-step code modification...",
   "agent.log.editStepExec": "Executing step {0}/{1}: {2}",
-  "agent.log.editStepDone": "✅ Step {0} complete: {1}",  "agent.log.editPlanProgress": "📊 Plan execution finished: {0} total → completed {1} / skipped {2} / failed {3} / pending {4}",  "agent.log.editStepCancelled": "⏭ Step {0} cancelled",
+  "agent.log.editStepDone": "✅ Step {0} complete: {1}",
+  "agent.log.editPlanProgress": "📊 Plan execution finished: {0} total → completed {1} / skipped {2} / failed {3} / pending {4}",
+  "agent.log.editStepCancelled": "⏭ Step {0} cancelled",
   "agent.log.editStepFailed": "❌ Step {0} failed: {1}",
   "agent.log.editFinalBuild": "🔨 Planning mode: all steps complete, running final unified build...",
   "agent.log.editFinalBuildOk": "✅ Final build passed, all step changes verified",
   "agent.log.editFinalBuildWarn": "⚠️ Final build has issues, see details above",
-
   "agent.log.buildStarted": "Build Agent started diagnosis: \"{0}\"",
   "agent.log.buildPassed": "✅ Build passed, all errors fixed",
   "agent.log.buildStillHasErrors": "⚠️ Build still has errors, may need further manual investigation",
   "agent.log.buildCancelled": "Build diagnosis cancelled",
   "agent.log.buildFailed": "Build diagnosis failed: {0}",
-
   "agent.log.waitingPermission": "Waiting for user permission",
-  "agent.log.permissionResult": "Permission request result",  "agent.log.waitingAnswers": "⏳ Waiting for user to answer {0} question(s) (first: {1})",
-  "agent.log.answersReceived": "✅ Received user answers: {0}",  "agent.log.waitingDeleteConfirm": "Waiting for user to confirm deletion",
+  "agent.log.permissionResult": "Permission request result",
+  "agent.log.waitingAnswers": "⏳ Waiting for user to answer {0} question(s) (first: {1})",
+  "agent.log.answersReceived": "✅ Received user answers: {0}",
+  "agent.log.waitingDeleteConfirm": "Waiting for user to confirm deletion",
   "agent.log.deleteConfirmResult": "File deletion confirmation result",
   "agent.log.loopDetected": "🔄 Loop detected: {0} repeated {1} time(s)",
   "agent.log.loopTerminated": "Detected `{0}` repeated {1} time(s), auto-terminating loop.",
   "agent.log.consecutiveErrors": "🔄 {0} consecutive rounds of tool calls all returned errors, forcing exit from loop",
   "agent.log.safetyLimit": "⚠️ Tool call safety limit of {0} rounds reached, forcing end",
-
   "═══ Web Search ═══": "═══ Web Search ═══",
-
   "websearch.providerSwitched": "Search provider switched to: Baidu Qianfan",
   "websearch.baiduNotConfigured": "Baidu API Key not configured, using DuckDuckGo search",
   "websearch.baiduEmptyResult": "Baidu search returned empty results, trying DuckDuckGo",
@@ -781,9 +680,7 @@
   "websearch.quotaExhaustedShort": "⚠️ Baidu quota exhausted, switched to DuckDuckGo…\n\n",
   "websearch.noResultsFallback": "⚠️ Baidu returned no results, automatically switched to DuckDuckGo.",
   "websearch.searchResultsHtml": "🔍 Found {0} result(s) from web search ({1}), fetching page content…\n\n",
-
   "═══ Code Write ═══": "═══ Code Write ═══",
-
   "write.diffPreviewActivated": "[WriteCode] Final diff preview activated: {0}",
   "write.diffPreviewFailed": "[WriteCode] Failed to activate final diff preview: {0}",
   "write.creatingNewFile": "[WriteCode] Creating new file: {0}",
@@ -794,39 +691,32 @@
   "write.failed": "[WriteCode] Write failed: {0}",
   "write.appliedToActive": "[ApplyCode] Code successfully written to active document",
   "write.appliedToEditor": "Code successfully written to editor",
-
   "═══ Agent UI / Panels ═══": "═══ Agent UI / Panels ═══",
-
   "agent.panel.executionProcess": "📋 Execution Process",
   "agent.panel.fileChanges": "File Changes",
   "agent.panel.fileChangeStats": "### 📊 File Change Statistics",
   "agent.panel.fileChangeSummary": "### 4. 📊 File Change Summary",
   "agent.panel.dependencies": "### 5. 🔗 Dependencies",
   "agent.panel.verification": "### 6. ✅ Verification Steps",
-
   "agent.step.analyzeAndModify": "Analyze and modify code",
   "agent.step.executeCodeChange": "Execute code changes",
   "agent.step.singleStepTask": "Single-step code modification",
-
   "agent.result.taskCancelled": "## ⚠️ Task Cancelled",
   "agent.result.taskCompletedSuccess": "## ✅ Task Complete — {0}/{1} steps succeeded",
   "agent.result.taskCompletedPartial": "## ⚠️ Task Complete — {0}/{1} succeeded, {2} failed",
   "agent.result.completed": "✅ Agent task complete ({0} file(s) changed)",
   "agent.result.planCompleted": "✅ Plan execution complete",
-
   "agent.revert.title": "Confirm File Revert",
   "agent.revert.message": "This conversation modified {0} file(s):\n\n{1}\n\nRevert these changes before regenerating?\n\n• \"Yes\" — Revert files to pre-modification state, then regenerate\n• \"No\" — Keep current file state, regenerate based on existing code\n• \"Cancel\" — Do nothing\n\n⚠️ Note: Choosing \"Yes\" will restore files to their state before AI modification.\nIf you have manually edited these files since, your changes will also be lost!",
   "agent.revert.cancelled": "Cancelled",
   "agent.revert.reverting": "Reverting file changes…",
   "agent.revert.keepChanges": "📝 Keeping file changes, AI notified to reference latest files…",
   "agent.revert.staleCodeHint": "⚠️ System note: Code snippets in the conversation history above may be outdated. Please use the latest file content on disk for analysis and code changes. Do not directly reference or reuse old code from the conversation history.",
-
   "agent.log.patchMatched": "✅ Patch matched: {0} ({1} edit(s)) [in memory, pending batch write]",
   "agent.log.patchEditPoints": "{0} edit point(s)",
   "agent.log.insertEditPoints": "InsertEdit modified ({0} edit point(s))",
   "agent.log.editTypeDetected": "[EditAgent] Edit type detected: {0}",
   "agent.log.braceParenMismatch": "⚠️ Brace/parenthesis mismatch: {0}",
-
   "agent.status.planStepsPlanned": "🤖 Plan Agent: {0} step(s) planned",
   "agent.status.handoffError": "❌ Handoff error: {0}",
   "agent.log.callingAiToolLoop": "[EditAgent] Calling AI (tool loop mode, retry={0})...",
@@ -843,13 +733,10 @@
   "agent.log.finalBuildException": "Final build exception: {0}",
   "agent.log.waitingTerminalApproval": "🖥️ Waiting for terminal command approval: {0}",
   "agent.log.terminalApprovalResult": "Terminal command approval result: {0} → {1}",
-
   "agent.log.editStepPrefix": "Executing step",
   "agent.log.planStepsPlannedSuffix": "step(s) planned",
-
   "skills.availableHeader": "## Available Skills (type {0} to invoke)",
   "skills.noneAvailable": "No skills available.",
-
   "popup.agentTitle": "🤖 Available Agents (↑↓ select, Enter confirm, Esc cancel)",
   "popup.skillTitle": "💡 Available Skills (↑↓ select, Enter confirm, Esc cancel)",
   "popup.agentDesc.ask": "Q&A mode, no code changes — for explanations, analysis, discussions",
@@ -869,9 +756,7 @@
   "popup.skillSource.project": "📁 Project",
   "popup.skillSource.user": "👤 User",
   "popup.skillSource.package": "📦 Built-in",
-
   "═══ Diff Global Bar ═══": "═══ Diff Global Bar ═══",
-
   "diff.global.filesChanged": "📊 {0} file(s) changed",
   "diff.global.bothStatus": "{0} open, {1} pending",
   "diff.global.activeOnly": "{0} previewing in editor",
@@ -880,9 +765,7 @@
   "diff.global.undoAll": "↩️ Undo All",
   "diff.global.allAccepted": "✅ All changes accepted",
   "diff.global.allUndone": "↩️ All changes reverted",
-
   "═══ Code Action Status ═══": "═══ Code Action Status ═══",
-
   "codeAction.noCode": "⚠️ No code to write",
   "codeAction.noTarget": "⚠️ Please open a target file or specify a path",
   "codeAction.writeFailed": "❌ Write failed: {0}",
@@ -891,9 +774,7 @@
   "codeAction.writeSuccess": "✅ Code written to file",
   "codeAction.writtenWithDetails": "✅ Written {0}",
   "codeAction.noOpenDoc": "⚠️ No open document",
-
   "═══ Agent Status ═══": "═══ Agent Status ═══",
-
   "agent.status.analyzing": "🤖 Agent analyzing task...",
   "agent.status.switchingTo": "🤖 Switching to {0} Agent...",
   "agent.status.taskCancelled": "⚠️ Agent task cancelled",
@@ -904,9 +785,7 @@
   "agent.status.busyEdit": "⚠️ AI is generating a response, please wait before editing",
   "agent.status.busyConfirm": "⚠️ AI is generating a response, please wait before confirming edit",
   "agent.status.regenerating": "Regenerating…",
-
   "═══ Centralized AI Prompts ═══": "═══ Centralized AI Prompts ═══",
-
   "system.codeCompletionSystemPrompt": "You are a code completion assistant. Return only the code snippet to complete, no explanations, no Markdown formatting. Return plain code directly. Keep completions concise, accurate, and context-aware.",
   "system.codeCompletionUserPromptWithCursor": "Complete the code at the cursor position based on context.\n\n```\n{0}<CURSOR>{1}\n```\n\nReturn only the code that should be inserted at the <CURSOR> position.",
   "system.codeCompletionUserPromptAppend": "Complete the code based on context.\n\n```\n{0}\n```\n\nReturn only the code snippet to append.",
@@ -921,11 +800,8 @@
   "system.handoffContextPrompt": "> 🔄 **Handoff note**: You are taking over from a previous Agent. Project files have already been explored and read in the prior conversation. File content is available from the read_file / list_dir tool results in the conversation history (messages above). **Do NOT re-read or re-explore** files whose content already exists in the history. Start working directly based on the context in the conversation history.",
   "system.compressionPromptTemplate": "Please compress the following conversation history into a concise summary (max 200 words), preserving key technical details, user requirements, file paths, error messages, and decisions made. Do not omit any important code snippets or file names.\n\nConversation history:\n{0}\n\nSummary:",
   "system.agent.commonSystemPromptPrefixCore": "You are DeepSeek v4 for Visual Studio — an AI programming assistant integrated into VS Code.\nYou can use tools to read files, search the codebase, fetch web content, run terminal commands, etc.\n\n## 🚫 File Reading Rules (follow strictly, or waste massive tokens)\n- When read_file returns \"cached, do not re-read\", it means that **line range** of the file has already been read.\n  You already have that line range's content — **absolutely DO NOT** call read_file again with the same line range.\n- However, if you need to read a **different line range** of the same file (not previously read), feel free to call read_file — the system will allow it.\n- Re-reading the same content is the most common cause of token waste. Each violation wastes thousands of tokens with zero new information.\n- If you need to confirm a detail from an already-read file, reference the previous read_file result directly — no need to re-read.\n\n## 🖥️ Terminal Command Rules (follow strictly, or commands will fail)\nThe current system runs on **Windows**. All `run_in_terminal` commands **MUST use Windows PowerShell syntax**.\n**ABSOLUTELY FORBIDDEN** to output Unix/Linux-style commands — they will not work on Windows:\n- ❌ Forbidden: `&&` chaining → ✅ Use: `;` (semicolon)\n- ❌ Forbidden: `export VAR=value` → ✅ Use: `$env:VAR = \"value\"`\n- ❌ Forbidden: `grep`, `cat`, `rm -rf`, `ls -la`, `chmod`, `sed` and other Unix commands\n  → ✅ Use: `Select-String`, `Get-Content`, `Remove-Item -Recurse -Force`, `Get-ChildItem -Force` etc.\n- ❌ Forbidden: `./script.sh` → ✅ Use: `.\\script.ps1`\n- ❌ Forbidden: `/` as path separator → ✅ Use: `\\` (Windows backslash)\n- ❌ Forbidden: `mkdir -p` → ✅ Use: `New-Item -ItemType Directory -Force`\nCommon command mappings: `ls`→`Get-ChildItem`, `cat`→`Get-Content`, `rm`→`Remove-Item`,\n`cp`→`Copy-Item`, `mv`→`Move-Item`, `mkdir`→`New-Item -ItemType Directory`,\n`touch`→`New-Item`, `which`→`Get-Command`, `find`→`Get-ChildItem -Recurse`\n⚠️ If you genuinely need to run Unix-style scripts, use `wsl` or `bash` prefix explicitly.\n\n## 🔄 Agent Handoff Rules (avoid re-exploration, save tokens)\n- If you are receiving a Handoff from a previous Agent (message contains 🔄 Handoff note):\n  **Prefer getting file content from conversation history** — do not re-explore.\n- The conversation history (messages above) already contains the previous Agent's read_file, list_dir, file_search results —\n  these are all valid file context. Reference them directly — **no need to re-read the same files**.\n- Only call exploration tools (read_file / list_dir / file_search) when the files you need **do not exist in the conversation history**.\n- Use exploration tools only when truly necessary — don't \"explore for the sake of exploring\".",
-
   "═══ Tool Messages ═══": "═══ Tool Messages ═══",
-
   "tool.common.noResult": "(no result)",
-
   "tool.applyPatch.displayText": "🔧 Apply Patch",
   "tool.applyPatch.complete": "🔧 Patch applied",
   "tool.applyPatch.missingParam": "❌ apply_patch: missing patch parameter. Please provide *** Begin Patch / *** End Patch format.",
@@ -935,14 +811,12 @@
   "tool.applyPatch.created": "✅ Created: {0} ({1} lines)",
   "tool.applyPatch.fileNotFound": "❌ File not found: {0}",
   "tool.applyPatch.hunkNoMatch": "⚠️ Could not match hunk: {0} → file: {1}",
-  "tool.applyPatch.applied": "✅ Patch applied: {0} ({1} hunk(s))",
-  "tool.applyPatch.allHunksFailed": "❌ Patch failed: {0} — could not match any hunk",
+  "tool.applyPatch.applied": "✅ Patch applied: {0} ({1} hunks)",
+  "tool.applyPatch.allHunksFailed": "❌ Patch apply failed: {0} — could not match any hunk context.",
   "tool.applyPatch.failed": "❌ apply_patch failed: {0}",
-
   "tool.askQuestions.displayText": "💬 Ask Questions",
   "tool.askQuestions.answered": "💬 User answered",
   "tool.askQuestions.submitted": "💬 Questions submitted, waiting for user response...",
-
   "tool.buildSolution.displayText": "🔨 Build Solution",
   "tool.buildSolution.displayTextWithConfig": "🔨 Build Solution ({0})",
   "tool.buildSolution.success": "✅ Build succeeded",
@@ -951,14 +825,12 @@
   "tool.buildSolution.serviceNotInit": "❌ build_solution: build service not initialized. Please open a solution in VS and try again.",
   "tool.buildSolution.cancelled": "⏱️ Build cancelled (timeout or user interrupted)",
   "tool.buildSolution.failedWithError": "❌ Build failed: {0}",
-
   "tool.createDirectory.displayText": "📁 Create directory `{0}`",
   "tool.createDirectory.complete": "📁 Directory operation complete",
   "tool.createDirectory.missingParam": "❌ create_directory: missing dirPath parameter. Please provide a Windows absolute path.",
   "tool.createDirectory.alreadyExists": "📁 Directory already exists: {0}",
   "tool.createDirectory.created": "✅ Directory created: {0}",
   "tool.createDirectory.failed": "❌ create_directory failed: {0}",
-
   "tool.createFile.displayText": "📝 Create file `{0}`",
   "tool.createFile.created": "✅ File created",
   "tool.createFile.complete": "📝 File operation complete",
@@ -967,14 +839,12 @@
   "tool.createFile.overwritten": "✅ Overwritten: {0}",
   "tool.createFile.createdNew": "✅ Created: {0}",
   "tool.createFile.failed": "❌ create_file failed: {0}",
-
   "tool.deleteFile.displayText": "🗑️ Delete file `{0}`",
   "tool.deleteFile.deleted": "🗑️ File deleted",
   "tool.deleteFile.missingParam": "❌ delete_file: missing filePath parameter",
   "tool.deleteFile.notFound": "⚠️ File not found: {0}",
   "tool.deleteFile.deletedFile": "✅ Deleted: {0}",
   "tool.deleteFile.failed": "❌ delete_file failed: {0}",
-
   "tool.fetchWebpage.displayText": "🌐 Fetch Webpage",
   "tool.fetchWebpage.displayTextWithUrl": "🌐 Fetch Webpage `{0}`",
   "tool.fetchWebpage.complete": "✅ Fetch complete ({0} chars)",
@@ -983,7 +853,6 @@
   "tool.fetchWebpage.serviceNotInit": "❌ fetch_webpage: WebSearchService not initialized, cannot fetch webpage.",
   "tool.fetchWebpage.noContent": "⚠️ fetch_webpage: could not extract valid content from {0}.",
   "tool.fetchWebpage.failed": "❌ fetch_webpage: fetch failed - {0}",
-
   "tool.fileSearch.displayText": "🔍 Search Files",
   "tool.fileSearch.displayTextWithQuery": "🔍 Search Files `{0}`",
   "tool.fileSearch.foundFiles": "✅ Found {0} file(s)",
@@ -991,23 +860,20 @@
   "tool.fileSearch.workspaceNotExist": "❌ Workspace directory does not exist: {0}",
   "tool.fileSearch.tooManyMatches": "⚠️ Too many matches (>{0}), only first {0} enumerated.",
   "tool.fileSearch.failed": "❌ File search failed: {0}",
-
   "tool.getErrors.displayTextFiles": "⚠️ Check {0} file(s) for errors",
   "tool.getErrors.displayText": "⚠️ Check workspace build errors",
   "tool.getErrors.noErrors": "✅ No build errors",
   "tool.getErrors.foundErrors": "⚠️ Found {0} error(s)",
   "tool.getErrors.checkComplete": "✅ Error check complete",
   "tool.getErrors.noSelection": "🔍 No error item selected in Error List.",
-  "tool.getErrors.buildInProgress": "⏳ Build in progress, error list may be incomplete.",
+  "tool.getErrors.buildInProgress": "Please wait for the build to complete before calling `get_errors`.\n💡 Tip: CMake project builds typically take 1-5 minutes; large projects may take longer.",
   "tool.getErrors.noErrorsDetected": "🔧 Build error check: no errors detected. Code compiles successfully.",
   "tool.getErrors.selectedItemFailed": "❌ Failed to get selected error item: {0}",
   "tool.getErrors.failed": "❌ Failed to get build errors: {0}",
-
   "tool.getTerminalOutput.displayText": "📋 Get Terminal Output",
   "tool.getTerminalOutput.result": "📋 Terminal output ({0} chars)",
   "tool.getTerminalOutput.missingId": "❌ get_terminal_output: missing id parameter",
   "tool.getTerminalOutput.hint": "💡 Tip: async terminal output can be viewed in VS Output window or terminal panel.",
-
   "tool.grepSearch.displayText": "🔎 Search Text",
   "tool.grepSearch.displayTextWithQuery": "🔎 Search Text `{0}`",
   "tool.grepSearch.displayTextInPattern": " in `{0}`",
@@ -1015,19 +881,17 @@
   "tool.grepSearch.missingQuery": "❌ grep_search: missing query parameter",
   "tool.grepSearch.workspaceNotExist": "❌ Workspace directory does not exist: {0}",
   "tool.grepSearch.invalidRegex": "❌ Invalid regex: {0}",
-  "tool.grepSearch.noMatches": "(no matches found)",
+  "tool.grepSearch.noMatches": "(No matches found)",
   "tool.grepSearch.failed": "❌ Text search failed: {0}",
-
   "tool.listDir.displayText": "📂 List Directory",
   "tool.listDir.displayTextWithPath": "📂 List Directory `{0}`",
   "tool.listDir.complete": "List complete: {0} subdirectories, {1} files",
   "tool.listDir.missingParam": "❌ list_dir: missing valid absolute path parameter.",
-  "tool.listDir.workspaceHint": "💡 Tip: workspace root is \"{0}\".",
+  "tool.listDir.workspaceHint": "💡 Tip: The current workspace root is \"{0}\"; please use this path or its subdirectories.",
   "tool.listDir.absolutePathHint": "💡 Tip: please use Windows absolute path format.",
   "tool.listDir.notFound": "❌ Directory not found: {0}",
   "tool.listDir.emptyDir": "(empty directory)",
   "tool.listDir.failed": "❌ List directory failed: {0}",
-
   "tool.memory.missingCommand": "❌ memory: missing command parameter. Available: view, create, str_replace, insert, delete, rename",
   "tool.memory.createMissingPath": "❌ memory create: missing path parameter",
   "tool.memory.createMissingText": "❌ memory create: missing file_text parameter",
@@ -1048,15 +912,13 @@
   "tool.memory.insert": "🧠 Insert Memory: {0}",
   "tool.memory.delete": "🧠 Delete Memory: {0}",
   "tool.memory.rename": "🧠 Rename Memory: {0}",
-  "tool.memory.operation": "🧠 Memory Operation: {0}",
-
+  "tool.memory.operation": "🧠 Memory operation: {0}",
   "tool.multiReplace.displayText": "✏️ Batch Edit File",
   "tool.multiReplace.displayTextCount": "✏️ Batch Edit ({0} replacement(s))",
   "tool.multiReplace.editComplete": "✅ Edit complete",
   "tool.multiReplace.editDone": "✏️ Edit complete",
   "tool.multiReplace.missingReplacements": "❌ multi_replace_string_in_file: missing replacements array parameter",
   "tool.multiReplace.summary": "🔧 multi_replace_string_in_file: {0} succeeded, {1} failed",
-
   "tool.readFile.displayTextRange": "📄 Read file `{0}` (lines {1}-{2})",
   "tool.readFile.displayTextFrom": "📄 Read file `{0}` (from line {1})",
   "tool.readFile.displayText": "📄 Read file `{0}`",
@@ -1068,9 +930,8 @@
   "tool.readFile.cachedHint": "💡 You already have this file content. Analyze based on existing data.",
   "tool.readFile.fileNotFound": "❌ File not found: {0}",
   "tool.readFile.fileNotFoundHint": "💡 If this is a new file, use create_file tool.",
-  "tool.readFile.fileTooLarge": "⚠️ File too large (>{0} lines), only first {0} lines cached.",
+  "tool.readFile.fileTooLarge": "⚠️ File too large (>{0} lines); only first {0} lines cached",
   "tool.readFile.failed": "❌ Read file failed: {0}",
-
   "tool.replaceString.displayText": "✏️ Edit file `{0}`",
   "tool.replaceString.editComplete": "✅ Edit complete",
   "tool.replaceString.editDone": "✏️ Edit complete",
@@ -1081,7 +942,6 @@
   "tool.replaceString.multipleMatches": "❌ replace_string_in_file: oldString matched multiple locations.",
   "tool.replaceString.replaced": "✅ Replaced: {0}",
   "tool.replaceString.failed": "❌ replace_string_in_file failed: {0}",
-
   "tool.runTerminal.displayText": "💻 Run Terminal Command: {0}",
   "tool.runTerminal.displayTextWithCmd": "💻 Run Terminal Command: `{0}`",
   "tool.runTerminal.defaultDisplayText": "💻 Run Terminal Command",
@@ -1095,9 +955,7 @@
   "tool.runTerminal.cannotStart": "❌ run_in_terminal: cannot start process",
   "tool.runTerminal.failed": "❌ run_in_terminal failed: {0}",
   "tool.runTerminal.stderr": "--- STDERR ---",
-
   "═══ View / Status ═══": "═══ View / Status ═══",
-
   "status.apiKeyInvalid": "⚠️ DeepSeek API Key invalid, please check configuration",
   "status.baiduApiKeyInvalid": "⚠️ Baidu API Key invalid, please check configuration",
   "status.ocrUnavailable": "⚠️ Windows built-in OCR unavailable. Please check system language pack settings.",
@@ -1116,9 +974,7 @@
   "status.singleStepTask": "📋 Single-step task, directly executing code changes...",
   "status.buildVerified": "✅ Build verification passed",
   "status.downloadClick": "🔗 Click to Download",
-
   "═══ Service Messages ═══": "═══ Service Messages ═══",
-
   "service.terminal.fileRejected": "❌ File write rejected: `{0}` content does not look like valid {1} source code.",
   "service.baseAgent.missingQuestions": "❌ VisualStudio_askQuestions: missing questions parameter",
   "service.baseAgent.emptyQuestions": "❌ VisualStudio_askQuestions: question list is empty",
@@ -1129,9 +985,7 @@
   "service.webSearch.noSummary": "(no summary)",
   "service.builtInTool.noResult": "(no result)",
   "service.terminal.fileRejectedDetail": "Please write actual compilable code. Do NOT use natural language descriptions, TODO comments, documentation summaries, or feature descriptions as code substitutes.",
-
   "═══ Agent Log Messages ═══": "═══ Agent Log Messages ═══",
-
   "agent.log.exploreStarted": "Explore Agent started: \"{0}\"",
   "agent.log.explorePromptBuilt": "Explore prompt built ({0} chars), workspaceRoot={1}",
   "agent.log.exploreDone": "Explore Agent completed ({0} chars)",
@@ -1199,9 +1053,7 @@
   "agent.log.editNotifiedDeleted": "Deleted",
   "agent.log.editBuildFailed": "⚠️ Build failed: {0}",
   "agent.log.editFinalBuildStepTitle": "Final Build Verification",
-
   "═══ UI ═══": "═══ UI ═══",
-
   "ui.chat.deleteConversation": "Delete conversation",
   "ui.chat.detectedFileChanges": "📊 File changes detected",
   "ui.chat.undoAll": "↩️ Undo all",
@@ -1225,9 +1077,7 @@
   "ui.chat.mcpConfig": "Configure MCP servers",
   "ui.chat.clear": "Clear",
   "ui.chat.newChat": "+ New chat",
-
   "═══ Skills ═══": "═══ Skills ═══",
-
   "skills.loaded": "🎯 Skill loaded: {0}",
   "skills.unknownCommand": "⚠️ Unknown command: /{0}",
   "skills.countAvailable": "{0} skills available",
@@ -1237,25 +1087,19 @@
   "skills.matching": "AI is matching skills…",
   "skills.autoLoaded": "🎯 AI auto-loaded skill: {0}",
   "skills.available": "Available skill commands",
-
   "═══ Agent ═══": "═══ Agent ═══",
-
   "agent.taskCancelled": "⚠️ Agent task cancelled",
   "agent.taskCompletedFiles": "✅ Agent task completed ({0} files changed)",
   "agent.planCompletedSteps": "✅ Agent plan completed ({0} steps)",
   "agent.executionFailed": "❌ Agent execution failed: {0}",
-
   "═══ Code Actions ═══": "═══ Code Actions ═══",
-
   "codeAction.previewing": "📊 Previewing: {0}",
   "codeAction.previewingWithStats": "📊 Previewing: {0} (+{1} -{2} lines)",
   "codeAction.written": "✅ Written: {0}",
   "codeAction.writtenWithStats": "✅ Written: {0} (+{1} -{2} lines)",
   "codeAction.writtenWithTip": "✅ Written: {0} (+{1} -{2} lines) — Open file to preview changes",
   "codeAction.writeFailedStatus": "❌ Write failed: {0}",
-
   "═══ MCP Config ═══": "═══ MCP Config ═══",
-
   "mcp.dialog.connecting": "Connecting to {0}...",
   "mcp.dialog.connected": "✅ {0} connected!\n   Server: {1}\n   Version: {2}\n   Tools ({3}): {4}",
   "mcp.dialog.versionUnknown": "Unknown",
@@ -1267,5 +1111,182 @@
   "mcp.dialog.commandCheckHint": "• Is the command correct? (current: {0})\n• Are required runtimes installed?\n• Is the network/token valid?",
   "mcp.dialog.detectSuccess": "Detection complete: {0}",
   "mcp.dialog.detectDetail": "{0} added, {1} updated",
-  "mcp.dialog.saved": "✅ Saved {0} MCP server configurations"
+  "mcp.dialog.saved": "✅ Saved {0} MCP server configurations",
+  "tool.askQuestions.description": "Present structured questions to the user and wait for answers. Used during planning phase to clarify requirements. Questions are shown as UI prompts; answers are returned in JSON format.",
+  "tool.askQuestions.param.questions": "List of questions to ask the user (1-2 questions at a time)",
+  "tool.askQuestions.param.header": "Short question title (unique identifier)",
+  "tool.askQuestions.param.question": "Full question description text",
+  "tool.askQuestions.param.options": "Optional list of choices; if empty, free-text input is allowed",
+  "tool.askQuestions.param.optionLabel": "Option text",
+  "tool.askQuestions.param.optionDescription": "Option description (optional)",
+  "tool.askQuestions.param.multiSelect": "Whether to allow multiple selection; default false",
+  "tool.askQuestions.param.allowFreeformInput": "Whether to allow free-text input in addition to options; default true",
+  "tool.applyPatch.description": "Patch text using *** Begin Patch / *** End Patch format. Line prefixes: space=context, -=delete line, +=add line. Use @@ for positioning (class/function name, etc.).",
+  "tool.applyPatch.formatHint": "Please use the correct format:",
+  "tool.applyPatch.skipNotExist": "⚠️ File not found, skipping deletion: {0}",
+  "tool.applyPatch.fileNotExist": "❌ File not found: {0}",
+  "tool.applyPatch.createHint": "💡 To create a new file, use Add File operation or the create_file tool.",
+  "tool.applyPatch.hunkFail": "⚠️ Cannot match hunk (context: {0}...) → file: {1}",
+  "tool.applyPatch.allHunksFailedHint": "💡 Use replace_string_in_file for precise replacement, or use create_file to rewrite the entire file.",
+  "tool.applyPatch.noAction": "⚠️ apply_patch: no action performed",
+  "tool.buildSolution.param.configuration": "Build configuration (e.g., Debug or Release). Omit to use the current active configuration.",
+  "tool.createDirectory.param.dirPath": "Absolute path of the directory to create (Windows format, e.g., C:\\Users\\...\\newfolder)",
+  "tool.createFile.param.filePath": "Absolute path of the file to create/overwrite (Windows format)",
+  "tool.createFile.param.content": "Full content of the file",
+  "tool.deleteFile.param.filePath": "Absolute path of the file to delete (Windows format)",
+  "tool.deleteFile.param.explanation": "Brief explanation of why the file is being deleted",
+  "tool.fetchWebpage.param.url": "URL of the webpage to fetch content from (must be a full HTTP or HTTPS URL)",
+  "tool.fetchWebpage.param.maxDepth": "Maximum recursion depth for fetching (default 1, i.e. current page only). Set to 2 to additionally fetch links on the page, and so on. Max 3.",
+  "tool.fetchWebpage.param.maxContentLength": "Maximum character count of returned content (default 3000). Content beyond this is truncated and noted.",
+  "tool.fetchWebpage.fetching": "🌐 Fetching webpage",
+  "tool.fetchWebpage.fetchingUrl": "🌐 Fetching webpage `{0}`",
+  "tool.fileSearch.param.query": "Glob search pattern, e.g. **/*.cs or src/**/*.ts",
+  "tool.fileSearch.param.maxResults": "Maximum number of results to return; default 50",
+  "tool.fileSearch.searching": "🔍 Searching files",
+  "tool.fileSearch.searchingQuery": "🔍 Searching files `{0}`",
+  "tool.fileSearch.foundTruncated": "Found >{0} files (truncated)",
+  "tool.fileSearch.found": "Found {0} files",
+  "tool.fileSearch.tooMany": "⚠️ Too many matching files (>{0}); only first {0} listed. Please use a more precise search pattern.",
+  "tool.getErrors.param.filePaths": "Optional. List of file paths to check for errors. If not specified, retrieves errors for all files.",
+  "tool.getErrors.param.selectedOnly": "Optional. When true, returns info about the user's currently selected error items in the Error List window (including error code, project name, line/column numbers, etc.). Default false.",
+  "tool.getErrors.selectedErrors": "🔍 Selected error items in Error List",
+  "tool.getErrors.detailHeader": "### Detailed Error Info",
+  "tool.getErrors.project": "📦 Project: {0}",
+  "tool.getErrors.subCategory": "🏷️ Sub-category: {0}",
+  "tool.getErrors.buildCheck": "🔧 Build error check",
+  "tool.getTerminalOutput.param.id": "Terminal execution ID (returned by run_in_terminal async mode)",
+  "tool.getTerminalOutput.terminalInfo": "📟 Terminal ID: {0}\n💡 Tip: For async terminal command output, please view the VS Output window or terminal panel directly.\nIf the command is still running, please retry later.",
+  "tool.grepSearch.param.query": "Search keyword or regular expression",
+  "tool.grepSearch.param.isRegexp": "Whether the pattern is a regex; default false",
+  "tool.grepSearch.param.includePattern": "Glob pattern to restrict file search, e.g. **/*.cs, optional",
+  "tool.grepSearch.param.maxResults": "Maximum number of results to return; default 30",
+  "tool.grepSearch.searching": "🔎 Searching text",
+  "tool.grepSearch.searchingQuery": "🔎 Searching text `{0}`",
+  "tool.grepSearch.inPattern": " in `{0}`",
+  "tool.grepSearch.foundMatches": "🔍 Text search: \"{0}\" (found {1} matches)",
+  "tool.listDir.param.dirPath": "Absolute path of the directory to list (Windows format, e.g., C:\\Users\\... or F:\\VSCode\\...)",
+  "tool.listDir.listingDir": "📂 Listing directory",
+  "tool.listDir.listingDirPath": "📂 Listing directory `{0}`",
+  "tool.listDir.absPathHint": "💡 Tip: Please use Windows absolute path format (e.g., C:\\Users\\...\\project\\src).",
+  "tool.listDir.createDirHint": "💡 To create a new directory, use the create_directory tool.",
+  "tool.listDir.subdirs": "### Subdirectories",
+  "tool.listDir.files": "### Files",
+  "tool.listDir.moreDirs": "... and {0} more subdirectories",
+  "tool.listDir.moreFiles": "... and {0} more files",
+  "tool.listDir.empty": "(Empty directory)",
+  "tool.listDir.workspaceInfo": " Current workspace: {0}",
+  "tool.memory.description": "Manage AI persistent memory system with three scopes.\n\nScope descriptions:\n- user: User memory — persistent notes across all workspaces and sessions, storing preferences, patterns, general insights\n- session: Session memory — scoped to the current conversation, storing task-specific context and in-progress notes; cleared after session ends\n- repo: Repository memory — scoped to the current solution, storing codebase conventions, build commands, project structure facts, etc.\n\nPath format: '/memories/' for user scope, '/memories/session/' for session scope, '/memories/repo/' for repo scope.\nExample: '/memories/build-notes.md' (user), '/memories/repo/conventions.md' (repo)\n\nCommand descriptions:\n- view: View file contents or list a directory. Optionally provide view_range ([start_line, end_line], 1-indexed)\n- create: Create a new file (fails if it already exists). Requires file_text\n- str_replace: Exact string replacement. old_str must appear exactly once in the file\n- insert: Insert text at a specified line number (0 means beginning of file). Requires insert_line and insert_text\n- delete: Delete a file or recursively delete a directory\n- rename: Rename/move a file or directory. Requires old_path and new_path",
+  "tool.memory.param.command": "The operation to perform",
+  "tool.memory.param.path": "File or directory path. E.g., '/memories/notes.md' or '/memories/repo/'",
+  "tool.memory.param.fileText": "Content to write to the file (required for create)",
+  "tool.memory.param.oldStr": "Exact text to replace (required for str_replace; must be unique)",
+  "tool.memory.param.newStr": "Replacement text (required for str_replace)",
+  "tool.memory.param.insertLine": "Line number to insert at (required for insert; 0-based; 0 = beginning of file)",
+  "tool.memory.param.insertText": "Text to insert (required for insert)",
+  "tool.memory.param.oldPath": "Current path (required for rename)",
+  "tool.memory.param.newPath": "Target path (required for rename)",
+  "tool.memory.param.viewRange": "Optional. Line range when viewing a file [start, end], 1-indexed",
+  "tool.memory.unknownCommand": "❌ memory: Unknown command '{0}'. Available commands: view, create, str_replace, insert, delete, rename",
+  "tool.memory.emptyDir": "(Empty directory)",
+  "tool.memory.viewMemory": "🧠 View memory: {0}",
+  "tool.memory.createMemory": "🧠 Create memory: {0}",
+  "tool.memory.editMemory": "🧠 Edit memory: {0}",
+  "tool.memory.insertMemory": "🧠 Insert memory: {0}",
+  "tool.memory.deleteMemory": "🧠 Delete memory: {0}",
+  "tool.memory.renameMemory": "🧠 Rename memory: {0}",
+  "tool.multiReplace.param.filePath": "Absolute path of the file to modify",
+  "tool.multiReplace.param.oldString": "Original text to replace",
+  "tool.multiReplace.param.newString": "Replacement text",
+  "tool.multiReplace.param.replacements": "Array of replacement operations",
+  "tool.multiReplace.batchEdit": "✏️ Batch editing file",
+  "tool.multiReplace.batchEditCount": "✏️ Batch edit ({0} replacements)",
+  "tool.readFile.param.filePath": "Absolute path of the file to read (Windows format)",
+  "tool.readFile.param.startLine": "Start line (1-based), optional, defaults to 1",
+  "tool.readFile.param.endLine": "End line (1-based, inclusive), optional, defaults to end of file",
+  "tool.readFile.readingFile": "📄 Reading file",
+  "tool.readFile.readingFileName": "📄 Reading file `{0}`",
+  "tool.readFile.cacheExpired": "Session reset, cache expired",
+  "tool.readFile.roundExpired": "Round expired ({0} rounds ago, threshold: {1} rounds)",
+  "tool.readFile.cachedWarning": "⚡ [Cached — do not re-read] File `{0}` ({1} lines, {2} chars) lines {3}-{4} were already read in a previous read_file call.\n\n💡 You already have the full content of this file. Please analyze based on the existing content. **Do NOT call read_file again** for this file.",
+  "tool.readFile.workspaceHint": "💡 Current workspace root: `{0}`; please use absolute paths under this directory.",
+  "tool.readFile.newFileHint": "💡 If this is a new file to be created, use the create_file tool (parent directories will be auto-created). If the parent directory does not exist, create it first with create_directory.",
+  "tool.replaceString.param.filePath": "Absolute path of the file to modify (Windows format)",
+  "tool.replaceString.param.oldString": "Original text to replace (must match exactly, including all whitespace and indentation)",
+  "tool.replaceString.param.newString": "Replacement text",
+  "tool.requestHandoff.param.targetAgent": "Target Agent type. Edit=code modification, Ask=Q&A summary, Plan=planning, Build=build fix, Explore=code exploration",
+  "tool.requestHandoff.param.reason": "Reason for handoff (brief explanation of why the current Agent cannot complete the task or needs to switch)",
+  "tool.requestHandoff.param.taskDescription": "Complete task description for the target Agent, including all necessary context",
+  "tool.requestHandoff.param.chainBack": "Whether to chain back to the current Agent after the target Agent completes (default false, meaning end directly after completion)",
+  "tool.requestHandoff.missingTargetAgent": "❌ request_handoff: Missing targetAgent parameter. Available: Edit, Ask, Plan, Build, Explore",
+  "tool.requestHandoff.missingTaskDescription": "❌ request_handoff: Missing taskDescription parameter. Please describe the task for the target Agent.",
+  "tool.requestHandoff.handoffRequested": "🔄 HANDOFF_REQUESTED → {0}: {1}\n\nThe target Agent will receive the following task and execute it in a new context. Current Agent session ends.",
+  "tool.requestHandoff.handoffTo": "🔄 **Handoff → {0}** — {1}",
+  "tool.requestHandoff.completed": "✅ Handoff requested",
+  "tool.requestHandoff.defaultReason": "Handoff task",
+  "tool.runInTerminal.param.command": "The shell command to execute",
+  "═══ Edit Tool Messages ═══": "═══ Edit Tool Messages ═══",
+  "tool.edit.oldNewBothEmpty": "oldString and newString cannot both be empty",
+  "tool.edit.fileNotExist": "File not found: {0}. Use create_file to create a new file.",
+  "tool.edit.readFailed": "Failed to read file: {0}",
+  "tool.edit.editConflict": "Edit at index {0} conflicts with another edit in file {1}.",
+  "tool.edit.healingFixed": "Healing fixed the failed match",
+  "tool.edit.constructFailed": "Failed to construct final file content: {0}",
+  "tool.edit.writeFailed": "Failed to write file: {0}",
+  "tool.edit.vsUpdateFailed": "[{0}] VS editor update failed (non-fatal): {1}",
+  "tool.edit.appliedHealing": "✅ Edit applied (Healing): {0}",
+  "tool.edit.applied": "✅ Edit applied: {0}",
+  "tool.edit.applyPatch.fileNotExist": "File not found: {0}",
+  "tool.edit.applyPatch.hunkParseFailed": "{0}/{1} hunks failed to parse",
+  "tool.edit.applyPatch.hunkMatchFailed": "{0}/{1} hunks failed to match",
+  "tool.edit.applyPatch.chunkOutOfRange": "File rebuild error: Chunk.OrigIndex ({0}) exceeds file line count ({1})",
+  "tool.edit.applyPatch.chunkOverlap": "File rebuild error: current index ({0}) exceeds Chunk.OrigIndex ({1}); chunks may overlap",
+  "tool.edit.applyPatch.deleteFailed": "Delete failed: {0}",
+  "tool.edit.applyPatch.sourceNotExist": "Source file not found: {0}",
+  "tool.edit.applyPatch.moveFailed": "Move failed: {0}",
+  "tool.edit.applyPatch.unknownReason": "Unknown reason",
+  "tool.edit.healing.degradedFailed": "[Healing] Degraded model healing failed ({0}), trying full model...",
+  "tool.edit.healing.fullFailed": "[Healing] Full model healing also failed: {0}",
+  "tool.edit.healing.completeFail": "Healing completely failed",
+  "tool.edit.healing.exception": "[Healing] {0} model Healing exception: {1}",
+  "tool.edit.healing.requestFailed": "Healing request failed: {0}",
+  "tool.edit.healing.unsupportedOp": "Unsupported Healing operation type",
+  "tool.edit.healing.degraded": "Degraded",
+  "tool.edit.healing.full": "Full",
+  "tool.edit.buffer.applyFailed": "[EditBufferApplier] Failed to apply TextEdit to editor: {0}",
+  "tool.edit.buffer.getFailed": "[EditBufferApplier] Failed to get TextBuffer: {0}",
+  "tool.edit.insert.noEditContent": "No valid edit content found",
+  "tool.edit.insert.regionMatchFailed": "{0} code region(s) failed to match",
+  "tool.edit.insert.healingSuccess": "[InsertEdit] Healing succeeded: {0}",
+  "tool.edit.insert.healingRetryFailed": "[InsertEdit] Healing fixed but still failed; enabling create_file fallback: {0}",
+  "tool.edit.insert.createFileFallbackFailed": "[InsertEdit] create_file fallback failed: {0}",
+  "tool.edit.multiReplace.arrayEmpty": "replacements array is empty",
+  "tool.edit.multiReplace.sameContent": "oldString and newString are identical; skipping.",
+  "tool.edit.multiReplace.notFound": "Could not find oldString (multi-level matching attempted)",
+  "tool.edit.multiReplace.multipleMatch": "oldString matched multiple locations in file. Please add more context to make it unique.",
+  "tool.edit.multiReplace.matchFailed": "oldString match failed",
+  "tool.edit.multiReplace.healingSuccess": "[MultiReplace] Healing succeeded: {0}",
+  "tool.edit.multiReplace.healingFailed": "[MultiReplace] Healing failed: {0} - {1}",
+  "tool.edit.replaceString.sameNoChange": "oldString and newString are identical; no change needed.",
+  "tool.edit.replaceString.notFound": "Could not find oldString in file.\nPlease ensure oldString matches the text in the file exactly (including whitespace, indentation, and line breaks).",
+  "tool.edit.replaceString.multipleMatch": "oldString matched multiple locations in file. Please add more context (at least 3 lines before and after) to make it unique.\nMatch positions: char {0}, char {1}",
+  "═══ BuiltIn Tool Service ═══": "═══ BuiltIn Tool Service ═══",
+  "tool.service.runSubagentNotInjected": "❌ runSubagent: ExploreAgent not injected. Please ensure AgentDispatcher is properly initialized.",
+  "tool.service.executeException": "❌ Built-in tool execution exception ({0}): {1}",
+  "tool.service.callingTool": "🔧 Calling tool `{0}`",
+  "tool.service.noResult": "(No result)",
+  "tool.service.noInputData": "(No input_data provided)",
+  "tool.service.ocrParam": "📋 OCR param: input_data={0}",
+  "tool.service.callingToolWithFile": "🔧 Calling `{0}` → `{1}`{2}",
+  "tool.service.callingToolWithUrl": "🔧 Calling `{0}` → `{1}`{2}",
+  "tool.service.callingToolWithQuery": "🔧 Calling `{0}` → `{1}`{2}",
+  "tool.service.callingToolWithInput": "🔧 Calling `{0}` → `{1}`{2}",
+  "tool.service.callingToolGeneric": "🔧 Calling tool `{0}`{1}",
+  "tool.common.success": "success",
+  "tool.common.buildSuccess": "Build succeeded",
+  "tool.common.buildFailed": "Build failed",
+  "tool.common.unknownReason": "Unknown reason",
+  "tool.common.handoffComplete": "Handoff complete",
+  "chat.html.questionsTitle": "Confirm Analysis",
+  "chat.html.submitAnswer": "Submit Answer",
+  "chat.html.skip": "Skip"
 }

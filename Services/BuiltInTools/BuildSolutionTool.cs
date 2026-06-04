@@ -41,7 +41,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             configuration = new
                             {
                                 type = "string",
-                                description = "构建配置（如 Debug 或 Release）。省略则使用当前活动配置。"
+                                description = LocalizationService.Instance["tool.buildSolution.param.configuration"]
                             }
                         },
                         required = new string[] { }
@@ -62,9 +62,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("❌")) return toolResult;
-            if (toolResult.Contains("构建成功") || toolResult.Contains("Build succeeded"))
+            if (toolResult.Contains(LocalizationService.Instance["tool.common.buildSuccess"]) || toolResult.Contains("Build succeeded"))
                 return LocalizationService.Instance["tool.buildSolution.success"];
-            if (toolResult.Contains("构建失败") || toolResult.Contains("Build failed"))
+            if (toolResult.Contains(LocalizationService.Instance["tool.common.buildFailed"]) || toolResult.Contains("Build failed"))
                 return LocalizationService.Instance["tool.buildSolution.failed"];
             return LocalizationService.Instance["tool.buildSolution.complete"];
         }

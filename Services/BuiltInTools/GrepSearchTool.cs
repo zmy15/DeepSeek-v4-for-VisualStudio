@@ -38,10 +38,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         type = "object",
                         properties = new
                         {
-                            query = new { type = "string", description = "搜索关键词或正则表达式" },
-                            isRegexp = new { type = "boolean", description = "是否为正则表达式搜索，默认 false" },
-                            includePattern = new { type = "string", description = "限制搜索的文件 glob 模式，如 **/*.cs，可选" },
-                            maxResults = new { type = "integer", description = "最大返回结果数，默认 30" }
+                            query = new { type = "string", description = LocalizationService.Instance["tool.grepSearch.param.query"] },
+                            isRegexp = new { type = "boolean", description = LocalizationService.Instance["tool.grepSearch.param.isRegexp"] },
+                            includePattern = new { type = "string", description = LocalizationService.Instance["tool.grepSearch.param.includePattern"] },
+                            maxResults = new { type = "integer", description = LocalizationService.Instance["tool.grepSearch.param.maxResults"] }
                         },
                         required = new[] { "query", "isRegexp" }
                     }

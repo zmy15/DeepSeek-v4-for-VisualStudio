@@ -31,7 +31,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             id = new
                             {
                                 type = "string",
-                                description = "终端执行 ID（由 run_in_terminal 异步模式返回）"
+                                description = LocalizationService.Instance["tool.getTerminalOutput.param.id"]
                             }
                         },
                         required = new[] { "id" }

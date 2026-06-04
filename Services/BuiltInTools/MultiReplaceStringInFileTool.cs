@@ -40,13 +40,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                                     type = "object",
                                     properties = new
                                     {
-                                        filePath = new { type = "string", description = "要修改的文件的绝对路径" },
-                                        oldString = new { type = "string", description = "要替换的原始文本" },
-                                        newString = new { type = "string", description = "替换后的新文本" }
+                                        filePath = new { type = "string", description = LocalizationService.Instance["tool.multiReplace.param.filePath"] },
+                                        oldString = new { type = "string", description = LocalizationService.Instance["tool.multiReplace.param.oldString"] },
+                                        newString = new { type = "string", description = LocalizationService.Instance["tool.multiReplace.param.newString"] }
                                     },
                                     required = new[] { "filePath", "oldString", "newString" }
                                 },
-                                description = "替换操作数组"
+                                description = LocalizationService.Instance["tool.multiReplace.param.replacements"]
                             }
                         },
                         required = new[] { "replacements" }

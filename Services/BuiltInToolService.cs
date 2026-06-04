@@ -157,7 +157,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // 委托给 ExploreHandler（由 BaseAgent 在执行前注入）
                 if (ExploreHandler != null)
                     return ExploreHandler(ctx);
-                return Task.FromResult("❌ runSubagent: ExploreAgent 未注入。请确保 AgentDispatcher 已正确初始化。");
+                return Task.FromResult(LocalizationService.Instance["tool.service.runSubagentNotInjected"]);
             }));
 
             // Agent 间移交工具
@@ -277,8 +277,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             if (allowedTools != null)
             {
-                Logger.Info($"[BuiltInTool] 工具定义: {definitions.Count} 个 (MCP: {mcpDefs.Count}, 内置: {builtInDefs.Count})"
-                    + (mcpNames.Count > 0 ? $", MCP 覆盖内置: [{string.Join(", ", mcpNames)}]" : ""));
+                Logger.Info($"[BuiltInTool] Tool definitions: {definitions.Count} (MCP: {mcpDefs.Count}, BuiltIn: {builtInDefs.Count})"
+                    + (mcpNames.Count > 0 ? $", MCP overrides BuiltIn: [{string.Join(", ", mcpNames)}]" : ""));
             }
 
             return definitions;
@@ -307,7 +307,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             catch (Exception ex)
             {
-                return $"❌ 内置工具执行异常 ({toolName}): {ex.Message}";
+                return LocalizationService.Instance.Format("tool.service.executeException", toolName, ex.Message);
             }
         }
 
@@ -352,7 +352,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             catch
             {
-                return $"🔧 调用工具 `{toolName}`";
+                return LocalizationService.Instance.Format("tool.service.callingTool", toolName);
             }
         }
 
@@ -362,7 +362,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public static string GetToolResultSummary(string toolName, string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult))
-                return "（无返回结果）";
+                return LocalizationService.Instance["tool.service.noResult"];
 
             if (toolResult.StartsWith("❌") || toolResult.StartsWith("⛔"))
                 return toolResult;
@@ -415,23 +415,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 string paramSummary = !string.IsNullOrEmpty(inputData)
                     ? (inputData.Length > 60 ? inputData.Substring(0, 60) + "…" : inputData)
-                    : "（未提供 input_data）";
-                ocrHint = $" | 📋 OCR 参数: input_data={paramSummary}";
+                    : LocalizationService.Instance["tool.service.noInputData"];
+                ocrHint = LocalizationService.Instance.Format("tool.service.ocrParam", paramSummary);
             }
 
             if (!string.IsNullOrEmpty(filePath))
             {
                 string fname = Path.GetFileName(filePath);
-                return $"🔧 调用 `{toolName}` → `{fname}`{ocrHint}";
+                return LocalizationService.Instance.Format("tool.service.callingToolWithFile", toolName, fname, ocrHint);
             }
             if (!string.IsNullOrEmpty(url))
-                return $"🔧 调用 `{toolName}` → `{TruncateText(url, 50)}`{ocrHint}";
+                return LocalizationService.Instance.Format("tool.service.callingToolWithUrl", toolName, TruncateText(url, 50), ocrHint);
             if (!string.IsNullOrEmpty(query))
-                return $"🔧 调用 `{toolName}` → `{TruncateText(query, 50)}`{ocrHint}";
+                return LocalizationService.Instance.Format("tool.service.callingToolWithQuery", toolName, TruncateText(query, 50), ocrHint);
             if (!string.IsNullOrEmpty(inputData))
-                return $"🔧 调用 `{toolName}` → `{TruncateText(inputData, 50)}`{ocrHint}";
+                return LocalizationService.Instance.Format("tool.service.callingToolWithInput", toolName, TruncateText(inputData, 50), ocrHint);
 
-            return $"🔧 调用工具 `{toolName}`{ocrHint}";
+            return LocalizationService.Instance.Format("tool.service.callingToolGeneric", toolName, ocrHint);
         }
 
         #endregion

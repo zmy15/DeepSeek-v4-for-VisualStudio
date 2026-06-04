@@ -43,12 +43,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             {
                                 type = "array",
                                 items = new { type = "string" },
-                                description = "可选，指定要检查的文件路径列表。不指定则获取所有文件的错误。"
+                                description = LocalizationService.Instance["tool.getErrors.param.filePaths"]
                             },
                             includeSelected = new
                             {
                                 type = "boolean",
-                                description = "可选，设为 true 时返回用户在 Error List 窗口中当前选中的错误项信息（包含错误码、项目名、行列号等完整元数据）。默认 false。"
+                                description = LocalizationService.Instance["tool.getErrors.param.selectedOnly"]
                             }
                         },
                         required = new string[] { }
