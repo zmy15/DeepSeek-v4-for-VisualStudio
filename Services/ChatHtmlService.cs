@@ -494,7 +494,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 构建用于 JS 注入的搜索结果卡片脚本。
         /// 将搜索结果卡片插入到指定 AI 消息的上方。
         /// </summary>
-        public static string BuildSearchResultsInjectionJs(int messageIndex, IReadOnlyList<WebSearchResult> results, string providerName = "联网搜索")
+        public static string BuildSearchResultsInjectionJs(int messageIndex, IReadOnlyList<WebSearchResult> results, string providerName = null)
         {
             string cardHtml = BuildSearchResultsHtml(results, providerName);
             string escapedCard = EscapeJsString(cardHtml);
@@ -690,7 +690,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 string escapedFileName = System.Net.WebUtility.HtmlEncode(file.FileName);
                 if (!file.Success || string.IsNullOrEmpty(file.Content))
                 {
-                    string errorMsg = System.Net.WebUtility.HtmlEncode(file.Error ?? "解析失败");
+                    string errorMsg = System.Net.WebUtility.HtmlEncode(file.Error ?? L["chat.html.fileParseFailed"]);
                     blocks.Append("<div style='display:inline-block;background:#5c1a1a;color:#e07878;padding:2px 8px;border-radius:3px;font-size:10px;margin:2px'>📎 ");
                     blocks.Append(escapedFileName).Append(" — ").Append(errorMsg);
                     blocks.Append("</div>");
@@ -704,7 +704,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 string bgColor = isImage ? "#1a1a2e" : isPdf ? "#1e150a" : "#1a2e1a";
                 string summaryColor = isImage ? "#b98eff" : isPdf ? "#d4a76a" : "#7ec87e";
                 string icon = isImage ? "🖼️" : isPdf ? "📄" : "📎";
-                string tag = isImage ? "OCR" : isPdf ? "PDF" : (file.Truncated ? "已截断" : "");
+                string tag = isImage ? "OCR" : isPdf ? "PDF" : (file.Truncated ? L["chat.html.fileTruncated"] : "");
 
                 string escapedContent = System.Net.WebUtility.HtmlEncode(
                     (file.Truncated && file.TruncationNote != null
@@ -740,11 +740,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             bool isLast = curIdx >= msg.SiblingCount;
             string nodeId = System.Net.WebUtility.HtmlEncode(msg.NodeId ?? "");
 
+            string prevTitle = L["chat.html.branchPrev"];
+            string branchLabel = string.Format(L["chat.html.branchLabel"], curIdx, msg.SiblingCount);
+            string nextTitle = L["chat.html.branchNext"];
+
             return
                 $"<div class='branch-nav'>" +
-                $"<button class='branch-nav-btn' onclick='window.__navigateBranch(\"{nodeId}\",-1)' title='上一个分支' {(isFirst ? "disabled" : "")}>◀</button>" +
-                $"<span class='branch-nav-label'>分支 {curIdx}/{msg.SiblingCount}</span>" +
-                $"<button class='branch-nav-btn' onclick='window.__navigateBranch(\"{nodeId}\",1)' title='下一个分支' {(isLast ? "disabled" : "")}>▶</button>" +
+                $"<button class='branch-nav-btn' onclick='window.__navigateBranch(\"{nodeId}\",-1)' title='{prevTitle}' {(isFirst ? "disabled" : "")}>◀</button>" +
+                $"<span class='branch-nav-label'>{branchLabel}</span>" +
+                $"<button class='branch-nav-btn' onclick='window.__navigateBranch(\"{nodeId}\",1)' title='{nextTitle}' {(isLast ? "disabled" : "")}>▶</button>" +
                 $"</div>";
         }
 
@@ -1085,7 +1089,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             if (!string.IsNullOrWhiteSpace(request.Purpose))
             {
                 string escapedPurpose = EscapeJsString(request.Purpose);
-                purposeJs = $@"'<div style=""color:#CEA85C;font-size:11px;margin-bottom:4px;padding:6px 8px;background:#2A2218;border-left:3px solid #C8A84E;border-radius:4px"">'+'<span style=""font-weight:600"">🎯 目的：</span>{escapedPurpose}</div>'+";
+                purposeJs = $@"'<div style=""color:#CEA85C;font-size:11px;margin-bottom:4px;padding:6px 8px;background:#2A2218;border-left:3px solid #C8A84E;border-radius:4px"">'+'<span style=""font-weight:600"">{L["chat.html.purposeLabel"]}</span>{escapedPurpose}</div>'+";
             }
 
             // 额外详情（如修改文件时的内容预览）
@@ -1095,7 +1099,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
                 string escapedDetail = EscapeJsString(request.Detail);
                 detailJs = $@"
         '<details style=""margin-top:8px"">'+
-        '<summary style=""color:#C8A84E;font-size:11px;cursor:pointer"">📋 变更内容预览</summary>'+
+        '<summary style=""color:#C8A84E;font-size:11px;cursor:pointer"">{L["chat.html.changePreview"]}</summary>'+
         '<pre style=""background:#1A1A0E;color:#C8C84E;padding:8px;border-radius:4px;font-size:10px;margin-top:4px;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all"">{escapedDetail}</pre>'+
         '</details>'+";
             }
@@ -1111,12 +1115,12 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
     div.style.cssText='border:1px solid #C8A84E;border-radius:8px;background:#2E2A1A;padding:12px;margin:8px 0;animation:fadeIn .3s';
 
     div.innerHTML=
-        '<div style=""color:#C8A84E;font-size:12px;font-weight:600;margin-bottom:6px"">🔐 Agent 请求权限</div>'+{purposeJs}
+        '<div style=""color:#C8A84E;font-size:12px;font-weight:600;margin-bottom:6px"">{L["chat.html.permissionTitle"]}</div>'+{purposeJs}
         '<div style=""color:#D4D4D4;font-size:12px;margin-bottom:4px"">{escapedTitle}</div>'+
         '<pre style=""background:#1A1A0E;color:#C8C84E;padding:8px;border-radius:4px;font-size:11px;margin:4px 0;max-height:60px;overflow-y:auto"">{escapedCommand}</pre>'+{detailJs}
         '<div style=""display:flex;gap:8px;margin-top:8px"">'+
-        '<button onclick=""window.__agentApprove(\'{safeRequestId}\')"" style=""background:#1A3A1A;color:#4EC9B0;border:1px solid #3A6A3A;border-radius:4px;padding:4px 16px;cursor:pointer;font-size:12px"">✅ 允许</button>'+
-        '<button onclick=""window.__agentDeny(\'{safeRequestId}\')"" style=""background:#3A1A1A;color:#E07878;border:1px solid #6A3A3A;border-radius:4px;padding:4px 16px;cursor:pointer;font-size:12px"">❌ 拒绝</button>'+
+        '<button onclick=""window.__agentApprove(\'{safeRequestId}\')"" style=""background:#1A3A1A;color:#4EC9B0;border:1px solid #3A6A3A;border-radius:4px;padding:4px 16px;cursor:pointer;font-size:12px"">{L["chat.html.approveButton"]}</button>'+
+        '<button onclick=""window.__agentDeny(\'{safeRequestId}\')"" style=""background:#3A1A1A;color:#E07878;border:1px solid #6A3A3A;border-radius:4px;padding:4px 16px;cursor:pointer;font-size:12px"">{L["chat.html.denyButton"]}</button>'+
         '</div>';
 
     var container=document.getElementById('chat-container');
@@ -1168,7 +1172,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
                 // 自由文本输入（始终提供，作为补充或替代选项）
                 if (q.AllowFreeformInput)
                 {
-                    questionsHtml.Append($"<textarea id='{qId}-free' placeholder='输入你的回答...' style='width:100%;min-height:40px;background:#1e1e1e;color:#d4d4d4;border:1px solid #3c3c3c;border-radius:4px;padding:6px 8px;font-size:11px;margin-top:4px;resize:vertical'></textarea>");
+                    questionsHtml.Append($"<textarea id='{qId}-free' placeholder='{L["chat.html.answerPlaceholder"]}' style='width:100%;min-height:40px;background:#1e1e1e;color:#d4d4d4;border:1px solid #3c3c3c;border-radius:4px;padding:6px 8px;font-size:11px;margin-top:4px;resize:vertical'></textarea>");
                 }
 
                 questionsHtml.Append("</div>");
@@ -1184,10 +1188,10 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
     div.style.cssText='border:1px solid #4fc1ff;border-radius:8px;background:#1a2a3a;padding:12px;margin:8px 0;animation:fadeIn .3s';
 
     div.innerHTML=
-        '<div style=""color:#4fc1ff;font-size:12px;font-weight:600;margin-bottom:8px"">💬 Agent 想确认以下问题</div>'+{EscapeJsString(questionsHtml.ToString())}+
+        '<div style=""color:#4fc1ff;font-size:12px;font-weight:600;margin-bottom:8px"">'+{EscapeJsString(LocalizationService.Instance["chat.html.questionsTitle"])}+'</div>'+{EscapeJsString(questionsHtml.ToString())}+
         '<div style=""display:flex;gap:8px;margin-top:8px"">'+
-        '<button id=""agent-questions-submit"" onclick=""window.__answerQuestions(\'{safeRequestId}\')"" style=""background:#0e639c;color:#fff;border:none;border-radius:4px;padding:6px 20px;cursor:pointer;font-size:12px;font-weight:600"">📤 提交回答</button>'+
-        '<button onclick=""window.__skipQuestions(\'{safeRequestId}\')"" style=""background:#3c3c3c;color:#aaa;border:1px solid #555;border-radius:4px;padding:6px 16px;cursor:pointer;font-size:12px"">跳过</button>'+
+        '<button id=""agent-questions-submit"" onclick=""window.__answerQuestions(\'{safeRequestId}\')"" style=""background:#0e639c;color:#fff;border:none;border-radius:4px;padding:6px 20px;cursor:pointer;font-size:12px;font-weight:600"">'+{EscapeJsString(LocalizationService.Instance["chat.html.submitAnswer"])}+'</button>'+
+        '<button onclick=""window.__skipQuestions(\'{safeRequestId}\')"" style=""background:#3c3c3c;color:#aaa;border:1px solid #555;border-radius:4px;padding:6px 16px;cursor:pointer;font-size:12px"">'+{EscapeJsString(LocalizationService.Instance["chat.html.skip"])}+'</button>'+
         '</div>';
 
     var container=document.getElementById('chat-container');
@@ -1226,25 +1230,25 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             string purposeHtml = "";
             if (!string.IsNullOrWhiteSpace(request.Purpose))
             {
-                purposeHtml = "<div class=\"file-delete-purpose\">🎯 目的：" + EscapeHtml(request.Purpose) + "</div>";
+                purposeHtml = "<div class=\"file-delete-purpose\">" + L["chat.html.purposeLabel"] + EscapeHtml(request.Purpose) + "</div>";
             }
 
             string cardInnerHtml =
                 "<div class=\"file-delete-card-header\">" +
                 "<span class=\"icon\">🗑️</span>" +
-                "<span class=\"title\">确认删除文件</span>" +
+                "<span class=\"title\">" + L["chat.html.deleteConfirmTitle"] + "</span>" +
                 "</div>" +
                 "<div class=\"file-delete-card-body\">" +
                 purposeHtml +
-                "<div class=\"warning-text\">⚠️ 即将删除以下项目文件，此操作将通过 Visual Studio 项目系统执行（如文件已加入项目，也将从项目中移除）：</div>" +
+                "<div class=\"warning-text\">" + L["chat.html.deleteWarning"] + "</div>" +
                 "<div class=\"file-list\">" +
                 fileItemsHtml.ToString() +
                 "</div>" +
-                "<div class=\"warning-text\" style=\"color:#E07878;font-weight:600\">此操作不可撤销！是否继续？</div>" +
+                "<div class=\"warning-text\" style=\"color:#E07878;font-weight:600\">" + L["chat.html.deleteIrreversible"] + "</div>" +
                 "</div>" +
                 "<div class=\"file-delete-card-footer\">" +
-                $"<button class=\"file-delete-btn-confirm\" onclick=\"window.__fileDeleteConfirm('{EscapeHtmlAttribute(request.RequestId)}')\">✅ 确认删除</button>" +
-                $"<button class=\"file-delete-btn-cancel\" onclick=\"window.__fileDeleteCancel('{EscapeHtmlAttribute(request.RequestId)}')\">❌ 取消</button>" +
+                $"<button class=\"file-delete-btn-confirm\" onclick=\"window.__fileDeleteConfirm('{EscapeHtmlAttribute(request.RequestId)}')\">" + L["chat.html.confirmDeleteButton"] + "</button>" +
+                $"<button class=\"file-delete-btn-cancel\" onclick=\"window.__fileDeleteCancel('{EscapeHtmlAttribute(request.RequestId)}')\">" + L["chat.html.cancelButton"] + "</button>" +
                 "</div>";
 
             string escapedInnerHtml = EscapeJsString(cardInnerHtml);
@@ -1287,7 +1291,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             string purposeHtml = "";
             if (!string.IsNullOrWhiteSpace(displayPurpose))
             {
-                purposeHtml = "<div class=\"terminal-purpose\">🎯 目的：" + EscapeHtml(displayPurpose) + "</div>";
+                purposeHtml = "<div class=\"terminal-purpose\">" + L["chat.html.purposeLabel"] + EscapeHtml(displayPurpose) + "</div>";
             }
 
             string cardInnerHtml =
@@ -1297,16 +1301,16 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
                 "</div>" +
                 "<div class=\"terminal-approval-card-body\">" +
                 purposeHtml +
-                "<div class=\"warning-text\">⚠️ AI 请求在终端中执行以下命令：</div>" +
+                "<div class=\"warning-text\">" + L["chat.html.terminalWarning"] + "</div>" +
                 "<div class=\"cmd-block\">" + EscapeHtml(request.Command) + "</div>" +
                 (!string.IsNullOrEmpty(explanation)
                     ? "<div class=\"cmd-explanation\">📝 " + EscapeHtml(explanation) + "</div>"
                     : "") +
-                "<div class=\"warning-text\" style=\"color:#CEA85C;font-weight:600\">此命令将修改系统状态，是否允许执行？</div>" +
+                "<div class=\"warning-text\" style=\"color:#CEA85C;font-weight:600\">" + L["chat.html.terminalConfirm"] + "</div>" +
                 "</div>" +
                 "<div class=\"terminal-approval-card-footer\">" +
-                $"<button class=\"terminal-approval-btn-allow\" onclick=\"window.__terminalApprove('{EscapeHtmlAttribute(request.RequestId)}')\">✅ 允许</button>" +
-                $"<button class=\"terminal-approval-btn-skip\" onclick=\"window.__terminalSkip('{EscapeHtmlAttribute(request.RequestId)}')\">⏭️ 跳过</button>" +
+                $"<button class=\"terminal-approval-btn-allow\" onclick=\"window.__terminalApprove('{EscapeHtmlAttribute(request.RequestId)}')\">" + L["chat.html.approveButton"] + "</button>" +
+                $"<button class=\"terminal-approval-btn-skip\" onclick=\"window.__terminalSkip('{EscapeHtmlAttribute(request.RequestId)}')\">" + L["chat.html.skipButton"] + "</button>" +
                 "</div>";
 
             string escapedInnerHtml = EscapeJsString(cardInnerHtml);
@@ -1369,10 +1373,10 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             bool anyStarted = plan.Steps.Any(s => s.Status != AgentStepStatus.Pending);
 
             if (!anyStarted)
-                return $"0/{total}步待执行";
+                return string.Format(L["chat.html.taskPending"], total);
             if (completed + failed >= total)
-                return $"{completed}/{total}步全部完成";
-            return $"{completed}/{total}步执行中";
+                return string.Format(L["chat.html.taskComplete"], completed, total);
+            return string.Format(L["chat.html.taskInProgress"], completed, total);
         }
 
         /// <summary>
@@ -1390,6 +1394,8 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             int total = plan.Steps.Count;
             string titleStatus = GetTaskPanelTitleStatus(plan);
             string escapedTitleStatus = EscapeJsString(titleStatus);
+            string progressText = string.Format(L["chat.html.taskProgress"], completed, total);
+            string closeTitle = L["chat.html.closePanelTitle"];
 
             return $@"
 (function(){{
@@ -1402,7 +1408,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
         var titleEl=document.getElementById('agent-task-title-status-{pid}');
         if(titleEl)titleEl.textContent={escapedTitleStatus};
         var prog=document.getElementById('agent-task-progress-{pid}');
-        if(prog)prog.textContent='{completed}/{total} 步';
+        if(prog)prog.textContent={EscapeJsString(progressText)};
         return;
     }}
 
@@ -1418,8 +1424,8 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
         '<div class=""agent-task-panel-header"" onclick=""var p=document.getElementById(\'agent-task-panel-{pid}\');if(p)p.classList.toggle(\'collapsed\')"">'+
         '<span class=""task-icon"">🤖</span>'+
         '<span class=""task-title"" id=""agent-task-title-status-{pid}"">{escapedTitleStatus}</span>'+
-        '<span class=""task-progress"" id=""agent-task-progress-{pid}"">{completed}/{total} 步</span>'+
-        '<button class=""task-close"" id=""agent-task-close-{pid}"" onclick=""(function(e){{e.stopPropagation();window.__sendToHost({{type:\'dismissTaskPanel\',planId:\'{pid}\'}});var p=document.getElementById(\'agent-task-panel-{pid}\');if(p&&p.parentNode)p.parentNode.removeChild(p);}})(event);return false;"" title=""关闭面板"">✕</button>'+
+        '<span class=""task-progress"" id=""agent-task-progress-{pid}"">{progressText}</span>'+
+        '<button class=""task-close"" id=""agent-task-close-{pid}"" onclick=""(function(e){{e.stopPropagation();window.__sendToHost({{type:\'dismissTaskPanel\',planId:\'{pid}\'}});var p=document.getElementById(\'agent-task-panel-{pid}\');if(p&&p.parentNode)p.parentNode.removeChild(p);}})(event);return false;"" title=""{closeTitle}"">✕</button>'+
         '</div>'+
         '<div class=""agent-task-panel-body"" id=""agent-task-body-{pid}"">'+{escapedPlanHtml}+'</div>';
 
@@ -1439,6 +1445,8 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             int total = plan.Steps.Count;
             string titleStatus = GetTaskPanelTitleStatus(plan);
 
+            string progressText = string.Format(L["chat.html.taskProgress"], completed, total);
+
             var sb = new StringBuilder();
             sb.Append("(function(){");
 
@@ -1448,7 +1456,7 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
 
             // 更新进度文本
             sb.Append($"var prog=document.getElementById('agent-task-progress-{pid}');");
-            sb.Append($"if(prog)prog.textContent='{completed}/{total} 步';");
+            sb.Append($"if(prog)prog.textContent={EscapeJsString(progressText)};");
 
             // 复用现有的步骤进度更新逻辑
             foreach (var step in plan.Steps)
@@ -1501,11 +1509,12 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
             int total = plan.Steps.Count;
             string statusIcon = plan.IsCancelled ? "⚠️" : (failed > 0 ? "⚠️" : "✅");
             string statusColor = plan.IsCancelled ? "#E07878" : (failed > 0 ? "#C8A84E" : "#4EC9B0");
-            string statusText = plan.IsCancelled ? "已取消" : (failed > 0 ? $"{completed}/{total} 步成功，{failed} 步失败" : $"{completed}/{total} 步全部成功");
+            string statusText = plan.IsCancelled ? L["chat.html.taskCancelled"] : (failed > 0 ? string.Format(L["chat.html.taskPartialSuccess"], completed, total, failed) : string.Format(L["chat.html.taskAllSuccess"], completed, total));
             string escapedStatusIcon = EscapeJsString(statusIcon);
             string escapedStatusText = EscapeJsString(statusText);
             string titleStatus = GetTaskPanelTitleStatus(plan);
             string escapedTitleStatus = EscapeJsString(titleStatus);
+            string progressText = string.Format(L["chat.html.taskProgress"], completed, total);
 
             return $@"
 (function(){{
@@ -1522,11 +1531,11 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
 
     // 更新进度
     var prog=document.getElementById('agent-task-progress-{pid}');
-    if(prog)prog.textContent='{completed}/{total} 步';
+    if(prog)prog.textContent={EscapeJsString(progressText)};
 
     // 高亮关闭按钮
     var closeBtn=document.getElementById('agent-task-close-{pid}');
-    if(closeBtn){{closeBtn.classList.add('finished');closeBtn.title='关闭任务面板';}}
+    if(closeBtn){{closeBtn.classList.add('finished');closeBtn.title={EscapeJsString(L["chat.html.closePanelTitle"])};}}
 
     // 滚动到底部
     window.__scrollToBottom('smooth');
