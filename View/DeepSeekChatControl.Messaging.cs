@@ -548,9 +548,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     const int safetyLimit = 200;                     // 绝对安全上限
                     bool loopDetected = false;
 
-                    // ── 重置累计 Cache 统计（本次用户消息的所有 API 调用将统一累加到 _apiService）──
-                    _apiService?.ResetAccumulatedStats();
-
                     // ── 初始化流式渲染节流器 ──
                     _streamRenderStopwatch = System.Diagnostics.Stopwatch.StartNew();
                     _statusUpdateStopwatch = System.Diagnostics.Stopwatch.StartNew();

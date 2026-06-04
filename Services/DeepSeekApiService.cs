@@ -31,53 +31,86 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         public DeepSeekUsage? LastUsage { get; private set; }
 
+        // ── 线程安全的累计统计字段（使用 Interlocked 保证多 Agent 并行调用时正确累加）──
+        private long _totalCacheHitTokens;
+        private long _totalCacheMissTokens;
+        private long _totalPromptTokens;
+        private long _totalCompletionTokens;
+
         /// <summary>
-        /// 累计 Cache 统计（跨所有 API 调用汇总，含 Agent 内部调用）。
+        /// 累计 Chat API 统计（跨所有 API 调用汇总，含 Agent 内部调用）。
         /// 在每次 API 调用后自动累加。调用 <see cref="ResetAccumulatedStats"/> 重置。
+        /// 注意：FIM（代码补全）的 Token 独立统计在 <see cref="TotalFimPromptTokens"/> / <see cref="TotalFimCompletionTokens"/>。
         /// </summary>
-        public long TotalCacheHitTokens { get; private set; }
-        public long TotalCacheMissTokens { get; private set; }
-        public long TotalPromptTokens { get; private set; }
-        public long TotalCompletionTokens { get; private set; }
+        public long TotalCacheHitTokens => Interlocked.Read(ref _totalCacheHitTokens);
+        public long TotalCacheMissTokens => Interlocked.Read(ref _totalCacheMissTokens);
+        public long TotalPromptTokens => Interlocked.Read(ref _totalPromptTokens);
+        public long TotalCompletionTokens => Interlocked.Read(ref _totalCompletionTokens);
+
+        // ── FIM（代码补全）独立统计，不与聊天 Token 混合 ──
+        private long _totalFimPromptTokens;
+        private long _totalFimCompletionTokens;
+
+        /// <summary>FIM 代码补全累计 Prompt Token 数（独立于聊天统计）</summary>
+        public long TotalFimPromptTokens => Interlocked.Read(ref _totalFimPromptTokens);
+        /// <summary>FIM 代码补全累计 Completion Token 数（独立于聊天统计）</summary>
+        public long TotalFimCompletionTokens => Interlocked.Read(ref _totalFimCompletionTokens);
 
         /// <summary>
         /// 累计 Cache 命中率（0.0 ~ 1.0）。
         /// </summary>
-        public double TotalCacheHitRate => TotalCacheHitTokens + TotalCacheMissTokens > 0
-            ? (double)TotalCacheHitTokens / (TotalCacheHitTokens + TotalCacheMissTokens)
-            : 0;
+        public double TotalCacheHitRate
+        {
+            get
+            {
+                long hit = Interlocked.Read(ref _totalCacheHitTokens);
+                long miss = Interlocked.Read(ref _totalCacheMissTokens);
+                long total = hit + miss;
+                return total > 0 ? (double)hit / total : 0;
+            }
+        }
 
         /// <summary>
-        /// 重置累计 Cache 统计（新会话开始时调用）。
+        /// 重置累计 Chat 统计（新会话开始时调用）。
         /// </summary>
         public void ResetAccumulatedStats()
         {
-            TotalCacheHitTokens = 0;
-            TotalCacheMissTokens = 0;
-            TotalPromptTokens = 0;
-            TotalCompletionTokens = 0;
+            Interlocked.Exchange(ref _totalCacheHitTokens, 0);
+            Interlocked.Exchange(ref _totalCacheMissTokens, 0);
+            Interlocked.Exchange(ref _totalPromptTokens, 0);
+            Interlocked.Exchange(ref _totalCompletionTokens, 0);
         }
 
         /// <summary>
-        /// 从持久化数据恢复累计 Cache 统计（重启后调用）。
+        /// 从持久化数据恢复累计 Chat 统计（重启后调用）。
         /// </summary>
         public void RestoreAccumulatedStats(long hitTokens, long missTokens, long promptTokens, long completionTokens)
         {
-            TotalCacheHitTokens = hitTokens;
-            TotalCacheMissTokens = missTokens;
-            TotalPromptTokens = promptTokens;
-            TotalCompletionTokens = completionTokens;
+            Interlocked.Exchange(ref _totalCacheHitTokens, hitTokens);
+            Interlocked.Exchange(ref _totalCacheMissTokens, missTokens);
+            Interlocked.Exchange(ref _totalPromptTokens, promptTokens);
+            Interlocked.Exchange(ref _totalCompletionTokens, completionTokens);
         }
 
         /// <summary>
-        /// 累加一次 API 调用的 Usage 统计到累计值。
+        /// 线程安全地累加一次 API 调用的 Usage 统计到累计值（Chat API）。
         /// </summary>
         private void AccumulateStats(DeepSeekUsage usage)
         {
-            TotalCacheHitTokens += usage.PromptCacheHitTokens;
-            TotalCacheMissTokens += usage.PromptCacheMissTokens;
-            TotalPromptTokens += usage.PromptTokens;
-            TotalCompletionTokens += usage.CompletionTokens;
+            Interlocked.Add(ref _totalCacheHitTokens, usage.PromptCacheHitTokens);
+            Interlocked.Add(ref _totalCacheMissTokens, usage.PromptCacheMissTokens);
+            Interlocked.Add(ref _totalPromptTokens, usage.PromptTokens);
+            Interlocked.Add(ref _totalCompletionTokens, usage.CompletionTokens);
+        }
+
+        /// <summary>
+        /// 线程安全地累加 FIM（代码补全）的 Usage 统计。
+        /// FIM Token 独立于聊天 Token 统计，避免右下角计数器虚高。
+        /// </summary>
+        private void AccumulateFimStats(DeepSeekUsage usage)
+        {
+            Interlocked.Add(ref _totalFimPromptTokens, usage.PromptTokens);
+            Interlocked.Add(ref _totalFimCompletionTokens, usage.CompletionTokens);
         }
 
         public DeepSeekApiService(string apiKey, string model = "deepseek-v4-pro")
@@ -504,11 +537,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             var responseJson = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<DeepSeekFimResponse>(responseJson);
 
-            // 捕获 Usage 信息
+            // 捕获 Usage 信息 — FIM（代码补全）独立统计，不混入聊天 Token
             if (result?.Usage != null)
             {
                 LastUsage = result.Usage;
-                AccumulateStats(result.Usage);
+                AccumulateFimStats(result.Usage);
             }
 
             return result?.Choices?[0]?.Text ?? string.Empty;

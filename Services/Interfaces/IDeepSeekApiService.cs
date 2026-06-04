@@ -23,8 +23,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>累计 Prompt token 数</summary>
         long TotalPromptTokens { get; }
 
-        /// <summary>累计 Completion token 数</summary>
+        /// <summary>累计 Completion token 数（仅聊天，不含 FIM）</summary>
         long TotalCompletionTokens { get; }
+
+        /// <summary>FIM 代码补全累计 Prompt Token 数（独立于聊天统计）</summary>
+        long TotalFimPromptTokens { get; }
+        /// <summary>FIM 代码补全累计 Completion Token 数（独立于聊天统计）</summary>
+        long TotalFimCompletionTokens { get; }
 
         /// <summary>累计 Cache 命中率（0.0 ~ 1.0）</summary>
         double TotalCacheHitRate { get; }

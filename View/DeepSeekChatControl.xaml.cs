@@ -440,22 +440,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (balanceBar == null || balanceLabel == null) return;
 
             // ── 余额部分 ──
-            string balanceText = string.Empty;
-            if (balance.IsAvailable && balance.BalanceInfos.Count > 0)
-            {
-                // 直接使用 API 返回的第一个币种信息
-                var info = balance.BalanceInfos[0];
-                string symbol = GetCurrencySymbol(info.Currency);
-
-                bool isChinese = LocalizationService.Instance.CurrentLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
-                balanceText = isChinese
-                    ? $"💰 余额: {symbol}{info.TotalBalance}"
-                    : $"💰 Balance: {symbol}{info.TotalBalance}";
-            }
+            string balanceText = FormatBalanceText(balance);
 
             // ── 会话消耗部分 ──
             string consumptionText = FormatSessionConsumption();
 
+            // ── 组合显示 ──
             if (!string.IsNullOrEmpty(balanceText) || !string.IsNullOrEmpty(consumptionText))
             {
                 balanceLabel.Text = string.IsNullOrEmpty(balanceText)
@@ -469,6 +459,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 balanceBar.Visibility = System.Windows.Visibility.Collapsed;
             }
+        }
+
+        /// <summary>
+        /// 格式化余额文本（提取为独立方法，供 UpdateBalanceDisplay 和 RefreshConsumptionDisplay 复用）。
+        /// </summary>
+        private static string FormatBalanceText(BalanceResponse balance)
+        {
+            if (!balance.IsAvailable || balance.BalanceInfos.Count == 0)
+                return string.Empty;
+
+            var info = balance.BalanceInfos[0];
+            string symbol = GetCurrencySymbol(info.Currency);
+
+            bool isChinese = LocalizationService.Instance.CurrentLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
+            return isChinese
+                ? $"💰 余额: {symbol}{info.TotalBalance}"
+                : $"💰 Balance: {symbol}{info.TotalBalance}";
         }
 
         /// <summary>
@@ -490,6 +497,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 格式化当前会话的 token 消耗信息。
+        /// 包含：API 实际 Token 消耗 + 上下文窗口利用率。
         /// </summary>
         private string FormatSessionConsumption()
         {
@@ -499,19 +507,51 @@ namespace DeepSeek_v4_for_VisualStudio.View
             long completionTokens = _apiService.TotalCompletionTokens;
             long totalTokens = promptTokens + completionTokens;
 
-            if (totalTokens == 0) return string.Empty;
-
             bool isChinese = LocalizationService.Instance.CurrentLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
 
             string FormatTokens(long n) => n >= 1000 ? $"{n / 1000.0:F1}K" : n.ToString();
 
-            return isChinese
-                ? $"📊 本会话: 输入 {FormatTokens(promptTokens)} tokens, 输出 {FormatTokens(completionTokens)} tokens"
-                : $"📊 Session: {FormatTokens(promptTokens)} in, {FormatTokens(completionTokens)} out";
+            // ── API 消耗部分 ──
+            string apiPart;
+            if (totalTokens == 0)
+            {
+                apiPart = "";
+            }
+            else
+            {
+                apiPart = isChinese
+                    ? $"📊 本会话: 输入 {FormatTokens(promptTokens)} tokens, 输出 {FormatTokens(completionTokens)} tokens"
+                    : $"📊 Session: {FormatTokens(promptTokens)} in, {FormatTokens(completionTokens)} out";
+            }
+
+            // ── 上下文窗口利用率（仅在有对话内容时显示）──
+            string ctxPart = "";
+            if (_contextManager != null && !_contextManager.IsEmpty)
+            {
+                int estimatedTokens = _contextManager.EstimatedTokens;
+                int tokenBudget = _contextManager.TokenBudget;
+                double usagePercent = _contextManager.UsagePercent;
+                if (estimatedTokens > 0)
+                {
+                    string ctxLabel = isChinese ? "上下文" : "Context";
+                    string warnIcon = usagePercent > 90 ? " ⚠️" : usagePercent > 70 ? " ℹ️" : "";
+                    ctxPart = $"📐 {ctxLabel}: {FormatTokens(estimatedTokens)}/{FormatTokens(tokenBudget)} ({usagePercent:F0}%){warnIcon}";
+                }
+            }
+
+            // ── 组合输出 ──
+            if (!string.IsNullOrEmpty(apiPart) && !string.IsNullOrEmpty(ctxPart))
+                return $"{apiPart}  |  {ctxPart}";
+            if (!string.IsNullOrEmpty(apiPart))
+                return apiPart;
+            if (!string.IsNullOrEmpty(ctxPart))
+                return ctxPart;
+            return string.Empty;
         }
 
         /// <summary>
         /// 仅刷新消费显示（不重新请求余额 API），在流式生成完成后调用。
+        /// 基于缓存的 _lastBalance 重建完整标签，避免字符串解析。
         /// </summary>
         private void RefreshConsumptionDisplay()
         {
@@ -525,36 +565,21 @@ namespace DeepSeek_v4_for_VisualStudio.View
             var balanceBar = BalanceBar;
             if (balanceLabel == null || balanceBar == null) return;
 
-            string consumptionText = FormatSessionConsumption();
-            if (string.IsNullOrEmpty(consumptionText))
+            // ── 基于缓存余额重建完整标签（避免脆弱的字符串解析）──
+            if (_lastBalance != null)
             {
-                // 没有消费数据：如果余额也没显示，则隐藏整行
-                if (balanceBar.Visibility == System.Windows.Visibility.Visible)
-                {
-                    // 保留余额部分，去掉消费部分
-                    string currentText = balanceLabel.Text;
-                    int pipeIdx = currentText.IndexOf("  |  ");
-                    if (pipeIdx > 0)
-                        balanceLabel.Text = currentText.Substring(0, pipeIdx);
-                }
-                return;
-            }
-
-            // 合并余额和消费
-            string current = balanceLabel.Text;
-            int idx = current.IndexOf("  |  ");
-            string balancePart = idx > 0 ? current.Substring(0, idx) : current;
-
-            if (string.IsNullOrEmpty(balancePart) || !balancePart.Contains("💰"))
-            {
-                // 只有消费，无余额
-                balanceLabel.Text = consumptionText;
+                UpdateBalanceDisplay(_lastBalance);
             }
             else
             {
-                balanceLabel.Text = $"{balancePart}  |  {consumptionText}";
+                // 无余额缓存：仅更新消费部分
+                string consumptionText = FormatSessionConsumption();
+                if (!string.IsNullOrEmpty(consumptionText))
+                {
+                    balanceLabel.Text = consumptionText;
+                    balanceBar.Visibility = System.Windows.Visibility.Visible;
+                }
             }
-            balanceBar.Visibility = System.Windows.Visibility.Visible;
         }
 
         /// <summary>
