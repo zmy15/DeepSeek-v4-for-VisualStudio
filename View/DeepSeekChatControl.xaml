@@ -270,7 +270,8 @@
         <Border Grid.Row="3"
                 Background="#2D2D2D"
                 BorderBrush="#3F3F46" BorderThickness="0,1,0,1"
-                Padding="12,4">
+                Padding="12,4"
+                MaxHeight="32">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -282,7 +283,8 @@
                            Foreground="#888888"
                            VerticalAlignment="Center"
                            TextWrapping="Wrap"
-                           TextTrimming="CharacterEllipsis" />
+                           TextTrimming="CharacterEllipsis"
+                           MaxHeight="24" />
                 <Border x:Name="AgentModeBadge"
                         Grid.Column="1"
                         HorizontalAlignment="Right"
