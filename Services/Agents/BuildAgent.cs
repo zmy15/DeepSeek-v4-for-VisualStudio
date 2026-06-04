@@ -47,8 +47,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "delete_file",
             "apply_patch",
             "create_directory",
-            // 子代理委派（探索代码库）
+            // 子代理委派与移交
             "runSubagent",
+            "request_handoff",
             // 终端
             "run_in_terminal",
             "get_terminal_output",
@@ -156,8 +157,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     AddLog("INFO", L["agent.log.buildPassed"]);
                 }
 
+                // ── AI 通过 request_handoff 工具主动请求移交（优先于程序化移交）──
+                if (PendingHandoffRequest != null)
+                {
+                    result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
+                }
                 // ── 携带计划上下文，链回 Ask Agent 生成最终变更总结 ──
-                if (context.ActivePlan != null && context.ActivePlan.IsCompleted
+                else if (context.ActivePlan != null && context.ActivePlan.IsCompleted
                     && context.ActivePlan.ChangedFiles.Count > 0)
                 {
                     result.Plan = context.ActivePlan;

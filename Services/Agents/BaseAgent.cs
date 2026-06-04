@@ -76,6 +76,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>当前待回答的提问请求</summary>
         public AgentQuestionRequest? PendingQuestion { get; protected set; }
 
+        /// <summary>AI 通过 request_handoff 工具发起的待处理移交请求</summary>
+        public HandoffRequest? PendingHandoffRequest { get; protected set; }
+
         protected BaseAgent(DeepSeekApiService apiService, AgentType agentType)
         {
             _apiService = apiService ?? throw new ArgumentNullException(nameof(apiService));
@@ -663,6 +666,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         Logger.Info($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 返回: {(toolResult.Length > 200 ? toolResult.Substring(0, 200) + "..." : toolResult)}");
                     }
 
+                    // ── 移交检测：如果 AI 调用了 request_handoff，立即终止循环 ──
+                    if (PendingHandoffRequest != null)
+                    {
+                        Logger.Info($"[Agent:{Definition.Name}] 🔄 检测到移交请求 → {PendingHandoffRequest.TargetAgent}，终止工具循环");
+                        if (contentBuilder.Length > 0)
+                            contentBuilder.Append("\n\n> 🔄 任务已移交给 " + PendingHandoffRequest.TargetAgent + " Agent...");
+                        break;
+                    }
+
                     // ── 循环检测 ──
                     // 收集本轮签名
                     var roundSignatures = new List<string>();
@@ -1052,6 +1064,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 };
             }
 
+            // ── 注入 HandoffHandler 到 BuiltInToolService（处理 request_handoff 工具）──
+            if (BuiltInTools != null)
+            {
+                BuiltInTools.HandoffHandler = async (request) =>
+                {
+                    request.SourceAgent = Definition.Type;
+                    PendingHandoffRequest = request;
+                    AddLog("INFO", $"[{Definition.Name}] 🔄 移交请求: → {request.TargetAgent} (原因: {request.Reason})");
+                    await Task.CompletedTask;
+                };
+            }
+
             // ── 终端命令需要用户审批 ──
             if (toolName == "run_in_terminal" && BuiltInTools != null)
             {
@@ -1268,6 +1292,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (!string.IsNullOrEmpty(root) && File.Exists(root))
                 root = Path.GetDirectoryName(root) ?? root;
             return root;
+        }
+
+        /// <summary>
+        /// 将 HandoffRequest（AI 通过 request_handoff 工具发起的 JSON 移交）
+        /// 转换为 AgentHandoff（AgentDispatcher 使用的移交格式）。
+        /// </summary>
+        protected AgentHandoff ConvertHandoffRequestToHandoff(HandoffRequest request)
+        {
+            string label = request.TargetAgent switch
+            {
+                AgentType.Ask => "生成总结",
+                AgentType.Edit => "执行修改",
+                AgentType.Plan => "制定计划",
+                AgentType.Build => "诊断修复",
+                AgentType.Explore => "探索代码库",
+                _ => "移交任务"
+            };
+
+            string prompt = $"[移交自 {request.SourceAgent}] {request.Reason}\n\n{request.TaskDescription}";
+
+            return new AgentHandoff
+            {
+                Label = label,
+                TargetAgent = request.TargetAgent,
+                Prompt = prompt,
+                AutoSend = request.AutoSend,
+                ShowContinueOn = !request.AutoSend,
+            };
         }
 
         /// <summary>

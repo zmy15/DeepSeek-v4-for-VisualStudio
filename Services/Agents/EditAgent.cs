@@ -77,8 +77,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "get_terminal_output",
             "create_and_run_task",
             "build_solution",
-            // 子代理委派
+            // 子代理委派与移交
             "runSubagent",
+            "request_handoff",
             // 任务与记忆
             "manage_todo_list",
             "memory",
@@ -161,13 +162,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 result.Plan = context.ActivePlan;
                 result.FileChanges = context.ActivePlan.ChangedFiles;
 
-                // ── 移交 Ask Agent 生成最终总结（包含文件变更统计、缓存命中率等）──
-                result.Handoff = BuildSummaryHandoff(context.ActivePlan);
-
-                // ── 如果最终编译存在警告/失败，叠加 Handoff 到 Build Agent ──
-                if (HasBuildWarningsInLogs())
+                // ── AI 通过 request_handoff 工具主动请求移交（优先于程序化移交）──
+                if (PendingHandoffRequest != null)
                 {
-                    result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
+                    result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
+                }
+                else
+                {
+                    // ── 移交 Ask Agent 生成最终总结（包含文件变更统计、缓存命中率等）──
+                    result.Handoff = BuildSummaryHandoff(context.ActivePlan);
+
+                    // ── 如果最终编译存在警告/失败，叠加 Handoff 到 Build Agent ──
+                    if (HasBuildWarningsInLogs())
+                    {
+                        result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
+                    }
                 }
             }
             else
@@ -179,13 +188,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 result.Plan = plan;
                 result.FileChanges = plan.ChangedFiles;
 
-                // ── 移交 Ask Agent 生成最终总结（包含文件变更统计、缓存命中率等）──
-                result.Handoff = BuildSummaryHandoff(plan);
-
-                // ── 如果最终编译存在警告/失败，叠加 Handoff 到 Build Agent ──
-                if (HasBuildWarningsInLogs())
+                // ── AI 通过 request_handoff 工具主动请求移交（优先于程序化移交）──
+                if (PendingHandoffRequest != null)
                 {
-                    result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
+                    result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
+                }
+                else
+                {
+                    // ── 移交 Ask Agent 生成最终总结（包含文件变更统计、缓存命中率等）──
+                    result.Handoff = BuildSummaryHandoff(plan);
+
+                    // ── 如果最终编译存在警告/失败，叠加 Handoff 到 Build Agent ──
+                    if (HasBuildWarningsInLogs())
+                    {
+                        result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
+                    }
                 }
             }
 

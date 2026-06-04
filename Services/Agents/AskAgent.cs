@@ -38,9 +38,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public static readonly string[] AskTools = new[]
         {
-            "runSubagent",   // 委派探索任务给 ExploreAgent
-            "fetch_webpage",  // 联网搜索（无需代码库访问）
-            "memory",         // 记忆管理
+            "runSubagent",       // 委派探索任务给 ExploreAgent
+            "request_handoff",   // 移交任务给其他 Agent
+            "fetch_webpage",      // 联网搜索（无需代码库访问）
+            "memory",             // 记忆管理
         };
 
         protected override AgentDefinition CreateDefinition(AgentType agentType)
@@ -184,7 +185,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     Content = contextualPrompt
                 });
 
-                // ── 使用工具调用循环（支持 runSubagent 委派探索任务）──
+                // ── 使用工具调用循环（支持 runSubagent 委派探索任务 + request_handoff 移交）──
                 string workspaceRoot = GetWorkspaceRoot(context);
                 string aiResponse = await CallAiWithToolLoopAsync(
                     messages,
@@ -195,7 +196,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         AddLog("INFO", toolSummary);
                     });
-                result.Content = aiResponse;
+
+                // ── 检查 AI 是否通过 request_handoff 请求了移交 ──
+                if (PendingHandoffRequest != null)
+                {
+                    result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
+                    result.Content = aiResponse;
+                    AddLog("INFO", $"🔄 移交 → {PendingHandoffRequest.TargetAgent}");
+                }
+                else
+                {
+                    result.Content = aiResponse;
+                }
 
                 AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.askDone"], aiResponse.Length));
                 result.Logs.AddRange(_logs);
