@@ -857,6 +857,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     else if (_builtInToolService != null
                                         && BuiltInToolService.IsBuiltInTool(acc.FunctionName!))
                                     {
+                                        // ── 注入 ExploreHandler / HandoffHandler（主流程桥接 AgentDispatcher）──
+                                        InjectToolHandlers();
+
                                         // ── 诊断日志：记录工具调用时传入的 _solutionPath ──
                                         Logger.Info($"[ToolCall] 执行 {acc.FunctionName}，_solutionPath=[{_solutionPath ?? "(null)"}]");
                                         toolResult = await _builtInToolService.ExecuteBuiltInToolAsync(
@@ -902,6 +905,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 ? contentBuffer.ToString() + "\n\n" + completedSummary + "\n_" + LocalizationService.Instance["status.toolCallAnalyzing"] + "_\n"
                                 : completedSummary + "\n_" + LocalizationService.Instance["status.toolCallAnalyzing"] + "_\n";
                             BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString());
+
+                            // ── 移交检测：request_handoff 被调用后立即终止循环 ──
+                            if (_pendingHandoff != null)
+                            {
+                                Logger.Info("[MainFlow] 🔄 检测到移交请求，终止工具循环");
+                                // 在最后一条 assistant 消息中注入移交提示
+                                assistantMsg.Content = (contentBuffer.Length > 0
+                                    ? contentBuffer.ToString() + "\n\n"
+                                    : "") + $"🔄 任务已移交给 {_pendingHandoff.TargetAgent} Agent...";
+                                BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString());
+                                loopDetected = true;
+                                continue;
+                            }
 
                             // ── 循环检测 ──
                             // 收集本轮所有工具调用的签名和结果用于检测
@@ -1106,6 +1122,46 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
 
                     _contextManager.AddAssistantMessage(contentBuffer.ToString(), reasoningBuffer.Length > 0 ? reasoningBuffer.ToString() : null);
+
+                    // ── 主流程移交处理：request_handoff 触发的 _pendingHandoff 在此执行 ──
+                    if (_pendingHandoff != null && _agentDispatcher != null)
+                    {
+                        Logger.Info($"[MainFlow] 执行移交 → {_pendingHandoff.TargetAgent} ({_pendingHandoff.Label})");
+                        var handoff = _pendingHandoff;
+                        _pendingHandoff = null; // 防止重复执行
+
+                        // 构建上下文并执行移交
+                        var handoffContext = new AgentContext
+                        {
+                            SolutionPath = _solutionPath,
+                            ConversationHistory = _contextManager.GetConversationHistory(),
+                            ContextManager = _contextManager,
+                            CancellationToken = CancellationToken.None,
+                        };
+
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var handoffResult = await _agentDispatcher.ExecuteHandoffAsync(handoff, handoffContext);
+                                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                                // 移交结果由 Agent 流程的 RunAgentWorkflowAsync 后续处理
+                                Logger.Info($"[MainFlow] 移交执行完成: → {handoff.TargetAgent}");
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Error($"[MainFlow] 移交执行失败: {ex.Message}", ex);
+                            }
+                            finally
+                            {
+                                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                                lock (_lock) { _isGenerating = false; }
+                                UpdateButtonsState();
+                                StatusLabel.Text = LocalizationService.Instance["status.ready"];
+                            }
+                        });
+                        return; // 移交在后台执行，当前消息流结束
+                    }
 
                     // ── AI 自动生成会话标题（首轮对话完成后触发） ──
                     if (_pendingAiTitle && !string.IsNullOrWhiteSpace(_firstUserMessageForTitle))
@@ -1563,6 +1619,61 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (string.IsNullOrEmpty(text) || text.Length <= maxLength) return text;
             return text.Substring(0, maxLength) + "...";
+        }
+
+        
+        /// <summary>
+        /// 注入 ExploreHandler / HandoffHandler 到 BuiltInToolService。
+        /// 确保主聊天流程的工具执行（非 Agent 上下文）也能使用 runSubagent / request_handoff。
+        /// </summary>
+        private void InjectToolHandlers()
+        {
+            if (_builtInToolService == null) return;
+
+            var exploreAgent = _agentDispatcher?.ExploreAgent;
+            if (exploreAgent != null)
+            {
+                // 同步工具服务
+                if (exploreAgent.BuiltInTools == null)
+                    exploreAgent.BuiltInTools = _builtInToolService;
+
+                _builtInToolService.ExploreHandler = async (ctx) =>
+                {
+                    exploreAgent.Context = new AgentContext
+                    {
+                        SolutionPath = ctx.WorkspaceRoot ?? _solutionPath,
+                        CancellationToken = CancellationToken.None,
+                    };
+                    var exploreResult = await exploreAgent.ExecuteAsync(ctx.Prompt, exploreAgent.Context);
+                    return exploreResult.Success && !string.IsNullOrEmpty(exploreResult.Content)
+                        ? exploreResult.Content
+                        : $"❌ ExploreAgent 失败: {exploreResult.ErrorMessage ?? "未知错误"}";
+                };
+            }
+
+            _builtInToolService.HandoffHandler = async (request) =>
+            {
+                Logger.Info($"[MainFlow] 🔄 移交请求: → {request.TargetAgent} (原因: {request.Reason})");
+                // 构建 AgentHandoff 并设置 _pendingHandoff，主流程将在本轮工具调用后执行移交
+                string label = request.TargetAgent switch
+                {
+                    AgentType.Edit => "执行修改",
+                    AgentType.Ask => "生成总结",
+                    AgentType.Plan => "制定计划",
+                    AgentType.Build => "诊断修复",
+                    AgentType.Explore => "探索代码库",
+                    _ => "移交任务"
+                };
+                _pendingHandoff = new AgentHandoff
+                {
+                    Label = label,
+                    TargetAgent = request.TargetAgent,
+                    Prompt = $"[移交自 {request.SourceAgent}] {request.Reason}\n\n{request.TaskDescription}",
+                    AutoSend = request.AutoSend,
+                    ShowContinueOn = !request.AutoSend,
+                };
+                await Task.CompletedTask;
+            };
         }
 
         /// <summary>
