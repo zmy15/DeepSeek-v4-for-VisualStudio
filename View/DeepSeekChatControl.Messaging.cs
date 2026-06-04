@@ -1667,7 +1667,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             _builtInToolService.HandoffHandler = async (request) =>
             {
-                Logger.Info($"[MainFlow] 🔄 移交请求: → {request.TargetAgent} (原因: {request.Reason})");
+                Logger.Info($"[MainFlow] 🔄 移交请求: {request.SourceAgent} → {request.TargetAgent} (原因: {request.Reason})");
+                // ── 防御：记录当前活跃 Agent 类型，确保移交链路可追溯 ──
+                var activeType = _agentDispatcher?.ActiveAgentType;
+                Logger.Info($"[MainFlow] 当前活跃 Agent: {activeType}, Handoff 来源: {request.SourceAgent} → 目标: {request.TargetAgent}");
                 // 构建 AgentHandoff 并设置 _pendingHandoff，主流程将在本轮工具调用后执行移交
                 string label = request.TargetAgent switch
                 {

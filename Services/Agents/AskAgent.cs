@@ -39,7 +39,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         public static readonly string[] AskTools = new[]
         {
             "runSubagent",       // 委派探索任务给 ExploreAgent
-            "request_handoff",   // 移交任务给其他 Agent
             "fetch_webpage",      // 联网搜索（无需代码库访问）
             "memory",             // 记忆管理
         };

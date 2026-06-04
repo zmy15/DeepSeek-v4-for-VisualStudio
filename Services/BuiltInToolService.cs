@@ -232,6 +232,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 new RunInTerminalTool(),
                 new GetTerminalOutputTool(),
                 new AskQuestionsTool(),
+                // 子代理委派 + Agent 移交工具（仅用于显示，无需真实 handler）
+                new RunSubagentTool(_ => Task.FromResult(string.Empty)),
+                new RequestHandoffTool(_ => Task.CompletedTask),
             };
         }
 
