@@ -55,6 +55,17 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
             set => _writeToOutputWindow = value;
         }
 
+        private static volatile bool _enableFileLogging = true;
+        /// <summary>
+        /// 是否写入日志文件。默认 true。
+        /// 单元测试项目应在初始化时将此项设为 false，防止测试日志污染生产日志文件。
+        /// </summary>
+        public static bool EnableFileLogging
+        {
+            get => _enableFileLogging;
+            set => _enableFileLogging = value;
+        }
+
         private static readonly string LogDirectory =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                          "DeepSeekVS");
@@ -183,27 +194,30 @@ namespace DeepSeek_v4_for_VisualStudio.Utils
             }
 
             // ── 文件日志 ──
-            try
+            if (_enableFileLogging)
             {
-                EnsureLogDirectory();
-                File.AppendAllText(GetLogFilePath(), log + Environment.NewLine);
-
-                // 每天只执行一次过期清理
-                var lastCleanup = _lastCleanupDate;
-                var today = DateTime.Today;
-                if (lastCleanup < today)
+                try
                 {
-                    lock (_cleanupLock)
+                    EnsureLogDirectory();
+                    File.AppendAllText(GetLogFilePath(), log + Environment.NewLine);
+
+                    // 每天只执行一次过期清理
+                    var lastCleanup = _lastCleanupDate;
+                    var today = DateTime.Today;
+                    if (lastCleanup < today)
                     {
-                        if (_lastCleanupDate < today)
+                        lock (_cleanupLock)
                         {
-                            CleanOldLogs();
-                            _lastCleanupDate = today;
+                            if (_lastCleanupDate < today)
+                            {
+                                CleanOldLogs();
+                                _lastCleanupDate = today;
+                            }
                         }
                     }
                 }
+                catch { /* 写入失败不影响主流程 */ }
             }
-            catch { /* 写入失败不影响主流程 */ }
         }
 
         /// <summary>清理超过保留期限的日志文件</summary>
