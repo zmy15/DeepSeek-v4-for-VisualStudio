@@ -74,5 +74,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>验证 API Key 是否有效</summary>
         Task<string?> ValidateApiKeyAsync();
+
+        /// <summary>
+        /// 查询账户余额。
+        /// 端点: GET https://api.deepseek.com/user/balance
+        /// </summary>
+        /// <returns>余额响应，失败时返回 null</returns>
+        Task<BalanceResponse?> GetBalanceAsync();
     }
 }

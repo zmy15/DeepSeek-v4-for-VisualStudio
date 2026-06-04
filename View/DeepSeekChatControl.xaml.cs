@@ -142,6 +142,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
         // ── 防止重复释放 ──
         private bool _disposed;
 
+        // ── 余额查询定时器 ──
+        private System.Windows.Threading.DispatcherTimer? _balanceTimer;
+        private BalanceResponse? _lastBalance;
+
         // ── 增量渲染状态（对标 Turbo ucChat） ──
         private bool _browserInitialized;
         /// <summary>页面 DOM + JS 完全就绪后才为 true</summary>
@@ -391,6 +395,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // 初始化 Agent 模式徽章（默认隐藏 Ask 模式）
             UpdateAgentModeBadge();
+
+            // ── 初始化余额查询定时器（每分钟刷新一次）──
+            StartBalanceTimer();
 
             Logger.Info("API 服务初始化成功");
         }
@@ -1209,6 +1216,179 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         #endregion
 
+        #region Balance Query
+
+        /// <summary>
+        /// 启动余额查询定时器，每 60 秒自动刷新一次。
+        /// </summary>
+        private void StartBalanceTimer()
+        {
+            // 停止并释放旧定时器
+            StopBalanceTimer();
+
+            _balanceTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMinutes(1)
+            };
+            _balanceTimer.Tick += async (s, e) => await RefreshBalanceAsync();
+            _balanceTimer.Start();
+
+            // 立即查询一次
+            _ = RefreshBalanceAsync();
+        }
+
+        /// <summary>
+        /// 停止余额查询定时器。
+        /// </summary>
+        private void StopBalanceTimer()
+        {
+            _balanceTimer?.Stop();
+            _balanceTimer = null;
+        }
+
+        /// <summary>
+        /// 异步查询余额并更新 UI。
+        /// </summary>
+        private async Task RefreshBalanceAsync()
+        {
+            if (_apiService == null) return;
+
+            try
+            {
+                var balance = await _apiService.GetBalanceAsync();
+                if (balance == null) return;
+
+                _lastBalance = balance;
+                UpdateBalanceDisplay(balance);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[余额] 刷新余额失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 根据当前语言环境格式化余额显示，同时显示本会话 token 消耗。
+        /// 中文环境显示 RMB，英文环境显示 USD。
+        /// </summary>
+        private void UpdateBalanceDisplay(BalanceResponse balance)
+        {
+            // 确保在 UI 线程上执行
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(() => UpdateBalanceDisplay(balance));
+                return;
+            }
+
+            var balanceBar = BalanceBar;
+            var balanceLabel = BalanceLabel;
+            if (balanceBar == null || balanceLabel == null) return;
+
+            // ── 余额部分 ──
+            string balanceText = string.Empty;
+            if (balance.IsAvailable && balance.BalanceInfos.Count > 0)
+            {
+                bool isChinese = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "zh";
+                string targetCurrency = isChinese ? "CNY" : "USD";
+                string currencySymbol = isChinese ? "¥" : "$";
+
+                var targetInfo = balance.BalanceInfos.Find(b => b.Currency == targetCurrency)
+                              ?? balance.BalanceInfos[0];
+
+                balanceText = isChinese
+                    ? $"💰 余额: {currencySymbol}{targetInfo.TotalBalance}"
+                    : $"💰 Balance: {currencySymbol}{targetInfo.TotalBalance}";
+            }
+
+            // ── 会话消耗部分 ──
+            string consumptionText = FormatSessionConsumption();
+
+            if (!string.IsNullOrEmpty(balanceText) || !string.IsNullOrEmpty(consumptionText))
+            {
+                balanceLabel.Text = string.IsNullOrEmpty(balanceText)
+                    ? consumptionText
+                    : string.IsNullOrEmpty(consumptionText)
+                        ? balanceText
+                        : $"{balanceText}  |  {consumptionText}";
+                balanceBar.Visibility = System.Windows.Visibility.Visible;
+            }
+            else
+            {
+                balanceBar.Visibility = System.Windows.Visibility.Collapsed;
+            }
+        }
+
+        /// <summary>
+        /// 格式化当前会话的 token 消耗信息。
+        /// </summary>
+        private string FormatSessionConsumption()
+        {
+            if (_apiService == null) return string.Empty;
+
+            long promptTokens = _apiService.TotalPromptTokens;
+            long completionTokens = _apiService.TotalCompletionTokens;
+            long totalTokens = promptTokens + completionTokens;
+
+            if (totalTokens == 0) return string.Empty;
+
+            bool isChinese = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "zh";
+
+            string FormatTokens(long n) => n >= 1000 ? $"{n / 1000.0:F1}K" : n.ToString();
+
+            return isChinese
+                ? $"📊 本会话: 输入 {FormatTokens(promptTokens)} tokens, 输出 {FormatTokens(completionTokens)} tokens"
+                : $"📊 Session: {FormatTokens(promptTokens)} in, {FormatTokens(completionTokens)} out";
+        }
+
+        /// <summary>
+        /// 仅刷新消费显示（不重新请求余额 API），在流式生成完成后调用。
+        /// </summary>
+        private void RefreshConsumptionDisplay()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(() => RefreshConsumptionDisplay());
+                return;
+            }
+
+            var balanceLabel = BalanceLabel;
+            var balanceBar = BalanceBar;
+            if (balanceLabel == null || balanceBar == null) return;
+
+            string consumptionText = FormatSessionConsumption();
+            if (string.IsNullOrEmpty(consumptionText))
+            {
+                // 没有消费数据：如果余额也没显示，则隐藏整行
+                if (balanceBar.Visibility == System.Windows.Visibility.Visible)
+                {
+                    // 保留余额部分，去掉消费部分
+                    string currentText = balanceLabel.Text;
+                    int pipeIdx = currentText.IndexOf("  |  ");
+                    if (pipeIdx > 0)
+                        balanceLabel.Text = currentText.Substring(0, pipeIdx);
+                }
+                return;
+            }
+
+            // 合并余额和消费
+            string current = balanceLabel.Text;
+            int idx = current.IndexOf("  |  ");
+            string balancePart = idx > 0 ? current.Substring(0, idx) : current;
+
+            if (string.IsNullOrEmpty(balancePart) || !balancePart.Contains("💰"))
+            {
+                // 只有消费，无余额
+                balanceLabel.Text = consumptionText;
+            }
+            else
+            {
+                balanceLabel.Text = $"{balancePart}  |  {consumptionText}";
+            }
+            balanceBar.Visibility = System.Windows.Visibility.Visible;
+        }
+
+        #endregion
+
         #region IDisposable
 
         /// <summary>
@@ -1238,6 +1418,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             CancelStreaming();
             DisposeStreamingCts();
+            StopBalanceTimer();
             _apiService?.Dispose();
             _webSearchService?.Dispose();
             _mcpManager?.Dispose();

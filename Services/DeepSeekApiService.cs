@@ -618,5 +618,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         public void Dispose() => _httpClient?.Dispose();
+
+        /// <summary>
+        /// 查询账户余额。
+        /// 端点: GET https://api.deepseek.com/user/balance
+        /// </summary>
+        public async Task<BalanceResponse?> GetBalanceAsync()
+        {
+            try
+            {
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Get, "/user/balance");
+                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+                using var response = await _httpClient.SendAsync(httpRequest);
+                await ValidateResponseStatusAsync(response);
+                response.EnsureSuccessStatusCode();
+
+                var responseJson = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<BalanceResponse>(responseJson);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[余额] 查询余额失败: {ex.Message}");
+                return null;
+            }
+        }
     }
 }

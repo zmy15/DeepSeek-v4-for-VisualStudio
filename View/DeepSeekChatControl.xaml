@@ -317,6 +317,7 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <!-- ➕ 输入框左上角：添加上下文按钮 + Popup -->
@@ -634,7 +635,21 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <Grid Grid.Row="2" Margin="0,6,0,0">
+                <!-- ═══ 余额显示行 ═══ -->
+                <Border Grid.Row="2"
+                        x:Name="BalanceBar"
+                        Background="Transparent"
+                        Padding="4,2,4,4"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="BalanceLabel"
+                               FontSize="11"
+                               Foreground="#888888"
+                               HorizontalAlignment="Right"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" />
+                </Border>
+
+                <Grid Grid.Row="3" Margin="0,6,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />

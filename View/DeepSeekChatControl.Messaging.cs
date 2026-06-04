@@ -1439,6 +1439,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             SendButton.Visibility = _isGenerating ? Visibility.Collapsed : Visibility.Visible;
             InputTextBox.IsReadOnly = _isGenerating;
             ClearButton.IsEnabled = !_isGenerating;
+
+            // 流式生成结束时刷新消费显示
+            if (!_isGenerating)
+            {
+                RefreshConsumptionDisplay();
+            }
         }
 
         #endregion
