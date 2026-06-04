@@ -620,7 +620,7 @@
   "agent.plan.discoveryPhase1Tail": "请执行结构扫描并输出：1) 目录树概览 2) 项目类型和框架 3) 主要子目录用途。保持简洁，这是给后续深入探索提供上下文。",
   "agent.plan.discoveryPhase2InjectedHeader": "## 已预先扫描的项目结构（请勿重复扫描根目录）",
   "agent.plan.discoveryPhase2SkipHint": "⚠️ 以上结构信息已提供，请跳过 list_dir 根目录和读取 .sln/.vcxproj 等配置文件。直接从你的探索区域出发，使用 file_search/grep_search 定位目标文件，然后 read_file 深入阅读。",
-  "agent.plan.discoveryPhase2Tail": "请针对上述区域进行深入探索，基于实际文件内容返回分析结果。",
+  "agent.plan.discoveryPhase2Tail": "请针对上述区域进行聚焦探索，只读取与任务直接相关的文件，获取足够信息后立即停止。基于实际文件内容返回分析结果。",
   "agent.plan.discoveryFallback": "## 代码库研究发现（以下内容由 Explore 子代理搜集）",
   "agent.plan.fileContextHeader": "## 用户提供的文件上下文",
   "agent.plan.truncatedSuffix": "... (已截断)",

@@ -621,7 +621,7 @@
   "agent.plan.discoveryPhase1Tail": "Perform a structure scan and output: 1) Directory tree overview 2) Project type and framework 3) Purpose of main subdirectories. Keep it concise — this provides context for subsequent deep exploration.",
   "agent.plan.discoveryPhase2InjectedHeader": "## Pre-scanned project structure (do NOT re-scan the root directory)",
   "agent.plan.discoveryPhase2SkipHint": "⚠️ The structure above has already been scanned. Skip list_dir on root and reading .sln/.vcxproj config files. Jump directly to your exploration area using file_search/grep_search to locate target files, then read_file for deep analysis.",
-  "agent.plan.discoveryPhase2Tail": "Explore the above area in depth and return analysis results based on actual file contents.",
+  "agent.plan.discoveryPhase2Tail": "Explore the above area with focus: only read files directly relevant to the task, stop as soon as sufficient information is gathered. Return analysis results based on actual file contents.",
   "agent.plan.discoveryFallback": "## Codebase Research Findings (collected by Explore sub-agents)",
   "agent.plan.fileContextHeader": "## User-provided file context",
   "agent.plan.truncatedSuffix": "... (truncated)",
