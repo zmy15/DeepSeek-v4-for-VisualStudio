@@ -212,33 +212,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             var sb = new StringBuilder();
 
-            // ── 附加文件内容（用户通过 @file 或附件面板附加的文件）──
+            // ── 缓存优化：稳定性高的内容放前面 ──
+
+            // 第1层：附加文件内容（用户提供，会话内稳定）
             if (!string.IsNullOrEmpty(context.FileContext))
             {
                 sb.AppendLine(context.FileContext);
                 sb.AppendLine();
             }
 
-            sb.AppendLine(userMessage);
-
-            // ── 如果有活动计划，附加变更文件信息 ──
+            // 第2层：已修改文件列表（同步骤内不变）
             if (context.ActivePlan != null && context.ActivePlan.ChangedFiles.Count > 0)
             {
-                sb.AppendLine();
                 sb.AppendLine("## 已修改的文件");
                 foreach (var change in context.ActivePlan.ChangedFiles)
                 {
                     sb.AppendLine($"- `{change.FilePath}` (+{change.LinesAdded} -{change.LinesRemoved})");
                 }
+                sb.AppendLine();
             }
 
-            // ── 如果有累积上下文，附加之 ──
+            // 第3层：前置步骤上下文（每步追加，前缀稳定）
             if (!string.IsNullOrEmpty(context.AccumulatedContext))
             {
-                sb.AppendLine();
                 sb.AppendLine("## 前置步骤上下文");
                 sb.AppendLine(context.AccumulatedContext);
+                sb.AppendLine();
             }
+
+            // 第4层：用户消息（每问必变，放最后）
+            sb.AppendLine(userMessage);
 
             return sb.ToString();
         }

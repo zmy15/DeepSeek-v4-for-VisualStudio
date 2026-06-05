@@ -515,6 +515,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 避免重复读取文件、重复搜索目录等浪费。
             var retryOutputs = new List<string>();
             List<ChatApiMessage>? messages = null;
+            int stepPromptIndex = 0; // 步骤 prompt 在消息列表中的位置（重试时插入点）
 
             for (int retry = 0; retry <= maxFormatRetries; retry++)
             {
@@ -524,17 +525,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     // 首次尝试：创建全新的消息列表
                     messages = BuildContextAwareMessages(Definition.SystemPrompt, stepPrompt);
+                    stepPromptIndex = messages.Count - 1; // 步骤 prompt 始终是最后一条
                 }
                 else
                 {
-                    // 重试：在上次消息基础上追加格式修正指令
-                    // messages 中已包含前次尝试的全部工具调用及结果（文件内容等），无需重复读取
-                    messages!.Add(new ChatApiMessage
+                    // 重试：在步骤 prompt 之后、工具消息之前插入格式修正指令
+                    // 这样 sys→history→step 前缀保持完整，DeepSeek 可缓存命中的 KV 不变
+                    messages!.Insert(stepPromptIndex + 1, new ChatApiMessage
                     {
                         Role = "assistant",
                         Content = result // 上次的（格式错误）输出，作为对话上下文
                     });
-                    messages.Add(new ChatApiMessage
+                    messages.Insert(stepPromptIndex + 2, new ChatApiMessage
                     {
                         Role = "user",
                         Content = AiPrompts.EditFormatRecoveryPrompt
@@ -561,6 +563,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     AddLog("INFO", LocalizationService.Instance["agent.log.editEmptyResponse"]);
                     result = string.Empty; // 统一置空，后续流程据此跳过编辑
+                    break;
+                }
+
+                // ── 纯 Git/终端操作跳过格式校验 ──
+                // 如果本轮所有工具调用都是 git/终端/构建（无代码读取/编辑），
+                // AI 的文本回复是操作总结而非编辑输出，无需格式重试。
+                if (IsGitOrTerminalOnlyResult(messages!))
+                {
+                    AddLog("INFO", "[EditAgent] 纯 Git/终端操作，跳过编辑格式校验");
                     break;
                 }
 
@@ -1376,6 +1387,43 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             return false;
         }
 
+        /// <summary>
+        /// 检测本轮消息中是否只有 git/终端/构建操作（无代码读取或编辑）。
+        /// 如果是纯 Git 操作，AI 的文本回复是操作总结而非编辑格式，应跳过格式重试。
+        /// </summary>
+        private static bool IsGitOrTerminalOnlyResult(List<ChatApiMessage> messages)
+        {
+            // 只检查 assistant 消息中的 tool_calls
+            bool hasCodeTool = false;
+            bool hasGitOrTerminal = false;
+
+            foreach (var msg in messages)
+            {
+                if (msg.ToolCalls == null || msg.ToolCalls.Count == 0) continue;
+
+                foreach (var tc in msg.ToolCalls)
+                {
+                    string name = tc.Function?.Name ?? "";
+                    if (name == "git" || name == "run_in_terminal" ||
+                        name == "get_terminal_output" || name == "build_solution" ||
+                        name == "create_and_run_task")
+                    {
+                        hasGitOrTerminal = true;
+                    }
+                    else if (name == "read_file" || name == "replace_string_in_file" ||
+                             name == "create_file" || name == "delete_file" ||
+                             name == "multi_replace_string_in_file" || name == "apply_patch" ||
+                             name == "insert_edit_into_file" || name == "edit_notebook_file")
+                    {
+                        hasCodeTool = true;
+                    }
+                }
+            }
+
+            // 至少有一次 git/终端操作，且没有任何代码操作 → 纯 Git/终端
+            return hasGitOrTerminal && !hasCodeTool;
+        }
+
         private bool HasAnyValidEditFormat(string aiResult)
         {
             if (string.IsNullOrWhiteSpace(aiResult)) return false;
@@ -1476,12 +1524,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             AgentContext context, bool isCodeStep)
         {
             var sb = new StringBuilder();
+
+            // ── 缓存优化：稳定性高的内容放前面（token 级前缀缓存可命中更多）──
+
+            // 第1层：Plan 标题（同计划内所有步骤完全相同，最稳定）
             sb.AppendLine(string.Format(AiPrompts.EditStepPromptPrefix, plan.Title));
-            sb.AppendLine($"当前步骤 ({step.Index}/{plan.Steps.Count}): {step.Title}");
-            sb.AppendLine($"步骤详情: {step.Description}");
             sb.AppendLine();
 
-            // ── 注入之前步骤的累积上下文（所有模式通用），避免重复搜索解决方案 ──
+            // 第2层：代码记忆（跨步骤持久化，未读新文件/未修改文件时不变）
+            if (!string.IsNullOrEmpty(context.CodeMemory))
+            {
+                sb.AppendLine("## 📋 代码记忆（前面步骤读取的关键文件内容，可直接使用，无需重复 read_file）");
+                sb.AppendLine("> ⚠️ 以下内容来自前面步骤的 read_file 结果，这些文件在之前步骤中**未被修改**。已被修改过的文件已自动排除。");
+                sb.AppendLine();
+                sb.AppendLine(context.CodeMemory);
+                sb.AppendLine();
+            }
+
+            // 第3层：累积上下文（每步追加，前缀稳定）
             if (!string.IsNullOrEmpty(context.AccumulatedContext))
             {
                 sb.AppendLine("## 前面步骤的执行结果（请基于这些结果继续，不要重复搜索已发现的文件）");
@@ -1491,15 +1551,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine();
             }
 
-            // ── 注入代码记忆（跨步骤持久化的关键代码片段）──
-            if (!string.IsNullOrEmpty(context.CodeMemory))
-            {
-                sb.AppendLine("## 📋 代码记忆（前面步骤读取的关键文件内容，可直接使用，无需重复 read_file）");
-                sb.AppendLine("> ⚠️ 以下内容来自前面步骤的 read_file 结果，这些文件在之前步骤中**未被修改**。已被修改过的文件已自动排除。");
-                sb.AppendLine();
-                sb.AppendLine(context.CodeMemory);
-                sb.AppendLine();
-            }
+            // 第4层：当前步骤信息（每步不同，变化最大）
+            sb.AppendLine($"当前步骤 ({step.Index}/{plan.Steps.Count}): {step.Title}");
+            sb.AppendLine($"步骤详情: {step.Description}");
+            sb.AppendLine();
 
             // ── 注入前面步骤已读取的文件内容缓存（所有模式通用），避免重复 read_file 调用 ──
             if (BuiltInTools != null)

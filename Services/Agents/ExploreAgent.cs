@@ -328,13 +328,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static string BuildExplorePrompt(string userMessage, AgentContext context)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("## 探索任务");
-            sb.AppendLine(userMessage);
-            sb.AppendLine();
 
+            // ── 缓存优化：稳定性高的内容放前面 ──
+
+            // 第1层：工作区路径（会话内不变，最稳定）
             if (!string.IsNullOrEmpty(context.SolutionPath))
             {
-                // ── 提取工作区根目录（处理 .sln 文件 vs 文件夹项目）──
                 string workspaceRoot = context.SolutionPath;
                 bool isSlnFile = false;
                 try
@@ -360,6 +359,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine();
             }
 
+            // 第2层：附加文件上下文（用户提供，会话内稳定）
             if (!string.IsNullOrEmpty(context.FileContext))
             {
                 // RAG-MARK: no-truncate — 不再截断文件上下文，完整提供给 ExploreAgent
@@ -369,6 +369,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine();
             }
 
+            // 第3层：当前计划信息（同步骤内不变）
             if (context.ActivePlan != null)
             {
                 sb.AppendLine("## 当前计划信息");
@@ -376,6 +377,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine($"当前步骤: {context.ActivePlan.CurrentStepIndex}/{context.ActivePlan.Steps.Count}");
                 sb.AppendLine();
             }
+
+            // 第4层：探索任务（每问必变，放最后）
+            sb.AppendLine("## 探索任务");
+            sb.AppendLine(userMessage);
+            sb.AppendLine();
 
             sb.AppendLine(AiPrompts.ExploreAgentInstructions);
 
