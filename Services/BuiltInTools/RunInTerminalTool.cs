@@ -107,6 +107,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     vcvarsWarning = "⚠️ 未找到 vcvars64.bat，cmake --build 可能因缺少 MSVC 环境而失败。建议使用 build_solution 工具。\n\n";
             }
 
+            // ── 检测并剥离 AI 不必要的 cmd /c "..." 2>&1 包装 ──
+            // run_in_terminal 已并发捕获 stdout 和 stderr，AI 有时会额外包装
+            // cmd /c "..." 2>&1 试图合并 stderr，但这会导致：(1) NormalizeUnixToPowerShell
+            // 正则误改 /c 为 \c 破坏 cmd 开关；(2) PowerShell -Command 内嵌双引号解析错误。
+            // 示例：cmd /c "F:\a.exe 2>&1" → 直接执行 F:\a.exe（stderr 已单独捕获）
+            string? unwrappedCommand = TryUnwrapCmdC(command);
+            if (unwrappedCommand != null)
+            {
+                Logger.Info($"[RunInTerminal] 剥离冗余 cmd /c 包装: {command.Truncate(100)} → {unwrappedCommand.Truncate(100)}");
+                command = unwrappedCommand;
+            }
+
             command = NormalizeUnixToPowerShell(command);
 
             // 如果命令被修正过，构建警告前缀（附加到输出开头提醒 AI 下次注意）
@@ -138,12 +150,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         WorkingDirectory = workspaceRoot ?? Directory.GetCurrentDirectory(),
                     };
                 }
+                else if (command.StartsWith("cmd ", StringComparison.OrdinalIgnoreCase)
+                         || command.StartsWith("cmd.exe ", StringComparison.OrdinalIgnoreCase))
+                {
+                    // ── 命令本身以 cmd /c 开头：直接通过 cmd.exe 执行，避免 PowerShell 嵌套引号问题 ──
+                    // 提取 cmd 的参数部分（去掉 "cmd " 或 "cmd.exe " 前缀）
+                    string cmdArgs = command.Substring(command.IndexOf(' ') + 1).Trim();
+                    psi = new ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = cmdArgs,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        WorkingDirectory = workspaceRoot ?? Directory.GetCurrentDirectory(),
+                    };
+                }
                 else
                 {
+                    // ── 普通命令：通过 PowerShell 执行，需转义内嵌双引号 ──
+                    // 将命令中的 " 转义为 PowerShell 可识别的 `" 或使用单引号
+                    string escapedCommand = EscapeForPowerShell(command);
                     psi = new ProcessStartInfo
                     {
                         FileName = "powershell.exe",
-                        Arguments = $"-NoProfile -Command \"{command}\"",
+                        Arguments = $"-NoProfile -Command \"{escapedCommand}\"",
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
                         UseShellExecute = false,
@@ -407,8 +439,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             // 匹配类似 ./path/to/file 或 /absolute/path 的模式
             result = System.Text.RegularExpressions.Regex.Replace(
                 result, @"(?<![a-zA-Z])(\./)([^\s;|]+)", @".\$2");
+            // ⚠️ 至少匹配 2 层路径（如 /usr/bin），避免误改 cmd /c、cmd /k 等 Windows 开关
             result = System.Text.RegularExpressions.Regex.Replace(
-                result, @"(?<![a-zA-Z:\)\(])(/[a-zA-Z0-9_\-\.]+)+", m =>
+                result, @"(?<![a-zA-Z:\)\(])(/[a-zA-Z0-9_\-\.]+){2,}", m =>
                     m.Value.Replace('/', '\\'));
 
             // `./script` → `.\script`
@@ -430,6 +463,59 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             var pattern = $@"(^|\||;\s*){System.Text.RegularExpressions.Regex.Escape(oldWord)}";
             return System.Text.RegularExpressions.Regex.Replace(
                 command, pattern, $"$1{newWord}", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
+        /// <summary>
+        /// 尝试剥离 AI 不必要的 cmd /c "..." 2>&1 包装。
+        /// run_in_terminal 已并发捕获 stdout 和 stderr，无需通过 cmd /c + 2>&1 合并。
+        /// 如果命令是纯 cmd /c "某程序" 2>&1 模式（只是为了合并 stderr），
+        /// 返回内部命令；否则返回 null。
+        /// </summary>
+        /// <remarks>
+        /// 仅剥离「仅合并 stderr，无其他 cmd 特性」的包装。
+        /// 如果 cmd /c 内部使用了 || / && / set 等 cmd 特性，保留原命令。
+        /// </remarks>
+        private static string? TryUnwrapCmdC(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command)) return null;
+
+            string trimmed = command.Trim();
+
+            // 匹配: cmd /c "..." 或 cmd /c "... 2>&1" 或 cmd.exe /c "..." 2>&1
+            var match = System.Text.RegularExpressions.Regex.Match(
+                trimmed,
+                @"^cmd(?:\.exe)?\s+/c\s+""([^""]+)""(\s*2>&1)?$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (!match.Success) return null;
+
+            string innerCommand = match.Groups[1].Value.Trim();
+
+            // 安全检查：如果内部命令使用了 cmd 特性（||, &&, set, if, for, %VAR%），保留
+            if (System.Text.RegularExpressions.Regex.IsMatch(innerCommand,
+                @"\|\||&&|(?<!\%)set\s+|%[a-zA-Z_][a-zA-Z0-9_]*%|if\s+exist|for\s+%|call\s+",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                return null;
+            }
+
+            return innerCommand;
+        }
+
+        /// <summary>
+        /// 将命令字符串中的双引号转义为 PowerShell 可安全解析的形式。
+        /// 在 PowerShell -Command 参数中，内嵌双引号需要特殊处理：
+        /// - 将 " 替换为 `"（反引号+双引号），PowerShell 会将其识别为转义双引号
+        /// - 或者改用单引号包裹（但如果命令本身含单引号则不宜）
+        /// </summary>
+        private static string EscapeForPowerShell(string command)
+        {
+            if (string.IsNullOrEmpty(command)) return command;
+            if (!command.Contains("\"")) return command;
+
+            // PowerShell 中，用 \"\" 或 `" 转义双引号
+            // 使用 \" 替换 "（在 -Command 的引号字符串中，\" 被识别为转义引号）
+            return command.Replace("\"", "\\\"");
         }
     }
 }
