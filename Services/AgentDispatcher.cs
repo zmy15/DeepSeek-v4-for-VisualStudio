@@ -438,9 +438,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "方法", "method",
                 "改一下", "修改一下", "完善", "改进", "测试", "单元测试", "生成", "编写" };
 
-            // Git 操作类关键词 → 路由到 Edit Agent（git 操作属于代码修改范畴）
-            var gitKeywords = new[] { "推送", "推送到", "git push", "提交更改", "提交代码",
-                "commit", "暂存", "git add", "stash", "分支", "切换分支",
+            // Git 只读探索类关键词 → 路由到 Explore Agent（status/diff/log）
+            var gitExploreKeywords = new[] { "git status", "git log", "git diff",
+                "查看git", "看下git", "git情况", "git 状态", "git状态",
+                "当前分支", "当前状态", "分支情况", "提交历史", "变更情况",
+                "看看git", "看git", "git 什么状态", "git什么状态" };
+
+            // Git 写操作类关键词 → 路由到 Edit Agent（push/commit/branch 等）
+            var gitEditKeywords = new[] { "推送", "推送到", "git push", "提交更改", "提交代码",
+                "commit", "暂存", "git add", "stash", "切换分支",
                 "git branch", "git checkout", "拉取", "git pull", "合并分支",
                 "git merge", "回退", "git reset", "cherry-pick", "rebase",
                 "推上去", "推代码", "提交上去", "推到" };
@@ -458,7 +464,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 userMessage.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
             bool hasBuildKeyword = buildKeywords.Any(k =>
                 userMessage.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
-            bool hasGitKeyword = gitKeywords.Any(k =>
+            bool hasGitExploreKeyword = gitExploreKeywords.Any(k =>
+                userMessage.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
+            bool hasGitEditKeyword = gitEditKeywords.Any(k =>
                 userMessage.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
 
             // ── 构建修复关键词 → 直接路由到 Build Agent ──
@@ -473,14 +481,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 };
             }
 
-            // ── Git 操作关键词 → 路由到 Edit Agent ──
-            if (hasGitKeyword)
+            // ── Git 只读探索关键词 → 路由到 Explore Agent ──
+            if (hasGitExploreKeyword)
+            {
+                return new AgentRoutingResult
+                {
+                    TargetAgent = AgentType.Explore,
+                    Confidence = "high",
+                    Reason = "检测到 Git 只读探索关键词，路由到 Explore Agent（git status/diff/log 可用）",
+                    NeedsPlanning = false,
+                };
+            }
+
+            // ── Git 写操作关键词 → 路由到 Edit Agent ──
+            if (hasGitEditKeyword)
             {
                 return new AgentRoutingResult
                 {
                     TargetAgent = AgentType.Edit,
                     Confidence = "high",
-                    Reason = "检测到 Git 操作关键词，路由到 Edit Agent（git 工具可用）",
+                    Reason = "检测到 Git 写操作关键词，路由到 Edit Agent（git 工具可用）",
                     NeedsPlanning = false,
                 };
             }

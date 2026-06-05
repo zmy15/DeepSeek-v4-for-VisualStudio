@@ -238,6 +238,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // 子代理委派 + Agent 移交工具（仅用于显示，无需真实 handler）
                 new RunSubagentTool(_ => Task.FromResult(string.Empty)),
                 new RequestHandoffTool(_ => Task.CompletedTask),
+                new GitTool(),
             };
         }
 
@@ -329,7 +330,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     or "replace_string_in_file" or "multi_replace_string_in_file" or "create_file" or "delete_file"
                     or "apply_patch" or "create_directory"
                     or "run_in_terminal" or "get_terminal_output" or "VisualStudio_askQuestions"
-                    or "runSubagent" or "request_handoff" or "memory" => true,
+                    or "runSubagent" or "request_handoff" or "memory" or "git" => true,
                 _ => false
             };
         }

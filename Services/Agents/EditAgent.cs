@@ -171,17 +171,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
                 }
-                else
+                else if (context.ActivePlan.ChangedFiles.Count > 0 || HasBuildWarningsInLogs())
                 {
-                    // ── 移交 Ask Agent 生成最终总结（包含文件变更统计、缓存命中率等）──
+                    // ── 有文件变更或编译问题 → Handoff 生成总结 ──
                     result.Handoff = BuildSummaryHandoff(context.ActivePlan);
 
-                    // ── 如果最终编译存在警告/失败，叠加 Handoff 到 Build Agent ──
                     if (HasBuildWarningsInLogs())
                     {
                         result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
                     }
                 }
+                // else: 无文件变更且无编译问题（纯 git 操作等）→ 跳过 Handoff，直接返回
             }
             else
             {
@@ -198,17 +198,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
                 }
-                else
+                else if (plan.ChangedFiles.Count > 0 || HasBuildWarningsInLogs())
                 {
-                    // ── 移交 Ask Agent 生成最终总结（包含文件变更统计、缓存命中率等）──
+                    // ── 有文件变更或编译问题 → Handoff 生成总结 ──
                     result.Handoff = BuildSummaryHandoff(plan);
 
-                    // ── 如果最终编译存在警告/失败，叠加 Handoff 到 Build Agent ──
                     if (HasBuildWarningsInLogs())
                     {
                         result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
                     }
                 }
+                // else: 无文件变更且无编译问题（纯 git 操作等）→ 跳过 Handoff，直接返回
             }
 
             result.Logs.AddRange(_logs);
@@ -1349,6 +1349,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 @"all\s+changes?\s+(?:are\s+)?done",
                 @"no\s+(?:further\s+)?changes?\s+(?:needed|required)",
                 @"nothing\s+to\s+(?:change|modify|edit)",
+                // Git 操作完成语（避免格式重试）
+                @"已推送|推送成功|推送完成|push.*(?:success|done|ok)",
+                @"已提交|提交成功|commit.*(?:success|done|ok)",
+                @"已暂存|stash.*(?:success|done)",
+                @"切换.*成功|已切换到|checkout.*success",
+                @"(?:git\s+)?操作.*(?:完成|成功|已执行)",
             };
 
             foreach (var pattern in noChangesPatterns)
