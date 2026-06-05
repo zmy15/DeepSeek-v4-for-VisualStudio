@@ -200,13 +200,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 检测是否为 Edit Agent 移交的摘要生成请求。
-        /// 当 context 中带有已完成的计划且包含文件变更时，认为是摘要 Handoff。
+        /// 当 context 中带有已完成的计划时，认为是摘要 Handoff。
+        /// 即使 ChangedFiles 为空（如仅执行了 git add/commit 等版本控制操作），
+        /// 也应生成摘要告知用户执行结果，而非进入普通问答模式。
         /// </summary>
         private static bool IsSummaryHandoff(AgentContext context)
         {
             return context.ActivePlan != null
-                && context.ActivePlan.IsCompleted
-                && context.ActivePlan.ChangedFiles.Count > 0;
+                && context.ActivePlan.IsCompleted;
         }
 
         /// <summary>
