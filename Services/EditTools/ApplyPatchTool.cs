@@ -409,6 +409,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 // ── 缩进适配：AI 输出的缩进可能与目标文件不一致 ──
                 // 参考: parser.ts transformIndentation + additionalIndentation 逻辑
                 AdaptChunkIndentation(chunk, contextLines, fileLines, matchedLine);
+
+                // ── 去重防御：移除 InsLines 尾部与原始文件后置上下文重复的闭合符号 ──
+                // ReconstructFile 会保留原始文件的后续上下文行。如果 AI 在 + 行中
+                // 包含了 } ) ] 等闭合符号，而原始文件中同样的闭合符号也被保留，
+                // 就会产生 } } 重复。此处在匹配完成后，对比 InsLines 尾部的闭合
+                // 符号与原始文件将被保留的行，移除重复部分。
+                TrimTrailingDuplicateClosingTokens(chunk, fileLines);
             }
 
             if (failedHunks.Count > 0)
@@ -513,6 +520,57 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             };
 
             return (chunk, contextLines.ToArray());
+        }
+
+        /// <summary>
+        /// 移除 InsLines 尾部与原始文件后置上下文重复的闭合符号。
+        /// 
+        /// ReconstructFile 会保留原始文件的后续上下文行。如果 AI 在 + 行中包含了
+        /// } ) ] 等闭合符号，而这些符号在原始文件的后置上下文中已存在且将被保留，
+        /// 就会产生重复闭合符号（如 }} 或 )); 等）。
+        /// 
+        /// 此方法在上下文匹配完成后（已知 chunk.OrigIndex 的精确位置），
+        /// 将 InsLines 尾部的闭合符号与原始文件将被保留的行逐行对比，
+        /// 移除重复的闭合符号。
+        /// </summary>
+        /// <param name="chunk">已匹配定位的 FileChunk</param>
+        /// <param name="fileLines">原始文件行数组</param>
+        private static void TrimTrailingDuplicateClosingTokens(FileChunk chunk, string[] fileLines)
+        {
+            if (chunk.InsLines.Count == 0)
+                return;
+
+            // 原始文件中，被保留的后置上下文起始位置
+            int postChangeStart = chunk.OrigIndex + chunk.DelLines.Count;
+            if (postChangeStart >= fileLines.Length)
+                return;
+
+            // 从 InsLines 尾部向前遍历，统计连续闭合符号
+            int removeCount = 0;
+            for (int i = chunk.InsLines.Count - 1, origOffset = 0;
+                 i >= 0 && (postChangeStart + origOffset) < fileLines.Length;
+                 i--, origOffset++)
+            {
+                string insLine = chunk.InsLines[i];
+                if (!IsClosingToken(insLine))
+                    break;
+
+                string origLine = fileLines[postChangeStart + origOffset];
+                if (string.Equals(insLine.Trim(), origLine.Trim(), StringComparison.Ordinal))
+                {
+                    removeCount++;
+                }
+                else
+                {
+                    // 闭合符号不匹配 → 此符号是 AI 有意添加的，保留
+                    break;
+                }
+            }
+
+            if (removeCount > 0)
+            {
+                chunk.InsLines.RemoveRange(chunk.InsLines.Count - removeCount, removeCount);
+            }
         }
 
         private static bool IsClosingToken(string line)
