@@ -267,7 +267,7 @@ window._showCopyFeedback=function(msgIndex){
         btn.classList.remove('copied');
         btn.textContent='📋';
     },2000);
-}
+};
 
 // ═══════════════════════════════════════════════
 //  流式更新批处理引擎（性能优化核心）
