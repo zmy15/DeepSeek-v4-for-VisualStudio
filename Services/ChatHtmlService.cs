@@ -220,6 +220,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             AppendJsonString(sb, L["chat.html.retryButton"]);
             sb.Append(",\"retryTitle\":");
             AppendJsonString(sb, L["chat.html.retryButtonTitle"]);
+            sb.Append(",\"copyLabel\":");
+            AppendJsonString(sb, L["chat.html.copyButtonTitle"]);
             sb.Append('}');
             return sb.ToString();
         }
@@ -786,6 +788,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 ? $"<button id='retry-btn-{idx}' class='msg-action-btn retry-btn' onclick='window.__retryMessage({idx})' title='{L["chat.html.retryButtonTitle"]}'>↻</button>"
                 : "";
 
+            string copyBtnHtml = !isStreaming && !string.IsNullOrEmpty(msg.Content)
+                ? $"<button id='copy-btn-{idx}' class='msg-action-btn copy-btn' onclick='window.__copyMessage({idx})' title='{L["chat.html.copyButtonTitle"]}'>📋</button>"
+                : "";
+
             // ── 分支导航统一放在用户气泡下方，不在此处渲染 ──
 
             // Copilot Chat 风格：左对齐，AI 标签
@@ -797,6 +803,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             sb.Append($"<div class='msg-content' id='msg-body-{idx}'>{bodyHtml}</div>");
             sb.Append(streamingCursor);
             sb.Append(retryBtnHtml);
+            sb.Append(copyBtnHtml);
             sb.Append("</div>");
             sb.Append("</div>");
         }

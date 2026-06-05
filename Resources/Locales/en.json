@@ -210,6 +210,7 @@
   "chat.html.retryButtonTitle": "Regenerate response",
   "chat.html.editButton": "Edit",
   "chat.html.editButtonTitle": "Edit this message",
+  "chat.html.copyButtonTitle": "Copy this response",
   "chat.html.handoffButton": "Start Implementation",
   "chat.html.handoffButtonTitle": "Handoff plan to Edit Agent for execution",
   "chat.html.cacheHit": "hit",

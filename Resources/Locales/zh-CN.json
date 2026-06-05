@@ -210,6 +210,7 @@
   "chat.html.retryButtonTitle": "重新生成回答",
   "chat.html.editButton": "编辑",
   "chat.html.editButtonTitle": "编辑此消息",
+  "chat.html.copyButtonTitle": "复制此回复",
   "chat.html.handoffButton": "开始实现",
   "chat.html.handoffButtonTitle": "将计划移交给 Edit Agent 执行",
   "chat.html.cacheHit": "命中",

@@ -241,6 +241,33 @@ window.__skipQuestions=function(requestId){
 window.__executeHandoff=function(targetAgent,label){
     window.__sendToHost({type:'executeHandoff',targetAgent:targetAgent,label:label});
 };
+window.__copyMessage=function(msgIndex){
+    var container=document.getElementById('msg-body-'+msgIndex);
+    if(!container)return;
+    var text=container.innerText||container.textContent||'';
+    var ok=false;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(function(){window._showCopyFeedback(msgIndex);});
+        return;
+    }else{
+        var ta=document.createElement('textarea');
+        ta.value=text;ta.style.cssText='position:fixed;opacity:0';
+        document.body.appendChild(ta);ta.select();
+        try{document.execCommand('copy');ok=true;}catch(e){}
+        document.body.removeChild(ta);
+    }
+    if(ok)window._showCopyFeedback(msgIndex);
+};
+window._showCopyFeedback=function(msgIndex){
+    var btn=document.getElementById('copy-btn-'+msgIndex);
+    if(!btn)return;
+    btn.classList.add('copied');
+    btn.textContent='✓';
+    setTimeout(function(){
+        btn.classList.remove('copied');
+        btn.textContent='📋';
+    },2000);
+}
 
 // ═══════════════════════════════════════════════
 //  流式更新批处理引擎（性能优化核心）
@@ -311,6 +338,17 @@ window.__executeHandoff=function(targetAgent,label){
                                 retryBtn.onclick=function(){window.__retryMessage(msg.i);};
                                 var msgBody=document.getElementById('msg-body-'+msg.i);
                                 if(msgBody)msgBody.parentNode.insertBefore(retryBtn,msgBody.nextSibling);
+                            }
+                            // 注入复制按钮
+                            if(msgDiv&&!document.getElementById('copy-btn-'+msg.i)){
+                                var copyBtn=document.createElement('button');
+                                copyBtn.id='copy-btn-'+msg.i;
+                                copyBtn.className='msg-action-btn copy-btn';
+                                copyBtn.textContent='📋';
+                                copyBtn.title=msg.copyLabel||'Copy this response';
+                                copyBtn.onclick=function(){window.__copyMessage(msg.i);};
+                                var msgBody2=document.getElementById('msg-body-'+msg.i);
+                                if(msgBody2)msgBody2.parentNode.insertBefore(copyBtn,msgBody2.nextSibling);
                             }
                             // 高亮代码块
                             if(msgDiv&&window.hljs)decorateCodeBlocks(msgDiv);
