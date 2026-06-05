@@ -178,6 +178,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
                 catch (Exception ex) { Logger.Warn($"[Skill] RestoreSystemContext 失败: {ex.Message}"); }
 
+                // ── 冻结不可变前缀（v1.1.9 缓存优化）──
+                //     将 system prompt + skill context 冻结为 messages[0]，
+                //     确保整个会话期间前缀不变，DeepSeek V4 自动前缀缓存可持续命中。
+                _contextManager.FreezeSystemPrompt();
+
                 // ── 记忆上下文 ──
                 try
                 {

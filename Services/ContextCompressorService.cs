@@ -16,8 +16,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// 压缩策略：
     /// 1. 保留最近 N 轮完整消息（由 PreserveRecentTurns 控制）
     /// 2. 更早的轮次按批压缩为摘要文本
-    /// 3. 压缩摘要以 system 消息形式注入到对话中
+    /// 3. 压缩摘要由 ConversationContextManager 注入到动态上下文块（messages[1]）中
+    ///    而非作为独立的 system 消息，以保护 messages[0] 的前缀缓存稳定性
     /// 4. 支持多次渐进压缩（压缩后的摘要可被再次压缩）
+    /// 
+    /// ── 缓存对齐策略（v1.1.9）──
+    /// 压缩摘要不再作为独立的 system 消息注入，而是合并到动态上下文块中。
+    /// 这样 messages[0]（冻结的系统提示词）和对话历史的前缀在压缩前后保持不变，
+    /// DeepSeek V4 的自动前缀缓存可以持续命中。
+    /// 参考：CodeWhale compaction.rs Cache-Aligned Summary Path
     /// </summary>
     public class ContextCompressorService : IContextCompressorService
     {

@@ -30,6 +30,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         options.ReasoningEffort);
                 }
 
+                // ── 注入前缀缓存管理器（v1.1.9 前缀缓存优化）──
+                var prefixCache = sp.GetService<IPrefixCacheManager>() as PrefixCacheManager;
+                if (prefixCache != null)
+                {
+                    service.PrefixCache = prefixCache;
+                }
+
                 return service;
             });
 
@@ -45,6 +52,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             // ── 上下文管理 ──
             services.AddSingleton<IConversationContextManager, ConversationContextManager>();
+            services.AddSingleton<IPrefixCacheManager, PrefixCacheManager>();
             services.AddSingleton<IContextCompressorService>(sp =>
             {
                 // ContextCompressorService 可选 LLM 摘要器（通过 DeepSeekApiService）

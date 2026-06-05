@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace DeepSeek_v4_for_VisualStudio.Models
@@ -613,6 +615,76 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         [JsonPropertyName("parameters")]
         public object Parameters { get; set; } = new { type = "object", properties = new Dictionary<string, object>() };
+    }
+
+    /// <summary>
+    /// 工具 Schema 规范化器 — 确保工具定义的序列化形式稳定，保障前缀缓存命中率。
+    /// 
+    /// 两个核心优化：
+    /// 1. 按工具名称排序：消除工具注册顺序对 API 请求前缀的影响
+    /// 2. 字段过滤：仅序列化 API 实际需要的字段（type, function.name, function.description, function.parameters）
+    ///    排除内部元数据字段，避免无关变化导致缓存失效
+    ///    
+    /// 参考：CodeWhale prefix_cache.rs:316-331 的 Schema 规范化
+    /// </summary>
+    public static class ToolSchemaNormalizer
+    {
+        /// <summary>
+        /// API 相关的工具字段（用于规范 JSON 序列化）。
+        /// 仅包含 DeepSeek API / OpenAI API 实际使用的字段。
+        /// </summary>
+        private static readonly JsonSerializerOptions CanonicalJsonOptions = new()
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+            WriteIndented = false,
+        };
+
+        /// <summary>
+        /// 规范化工具列表：按名称排序，返回新列表（不修改原始对象）。
+        /// 调用方应在发送 API 请求前使用此方法处理工具列表。
+        /// </summary>
+        /// <param name="tools">原始工具列表</param>
+        /// <returns>按名称排序后的新列表</returns>
+        public static List<ToolDefinition> NormalizeForApi(IEnumerable<ToolDefinition>? tools)
+        {
+            if (tools == null)
+                return new List<ToolDefinition>();
+
+            return tools
+                .OrderBy(t => t.Function?.Name ?? string.Empty, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        /// <summary>
+        /// 将工具列表序列化为规范的 JSON 字符串（用于 SHA-256 指纹计算）。
+        /// 仅包含 API 相关字段：type, function.name, function.description, function.parameters。
+        /// 按工具名称排序，确保序列化结果稳定。
+        /// </summary>
+        /// <param name="tools">原始工具列表</param>
+        /// <returns>规范 JSON 字符串</returns>
+        public static string SerializeForFingerprint(IEnumerable<ToolDefinition>? tools)
+        {
+            if (tools == null || !tools.Any())
+                return "[]";
+
+            // 按名称排序后，仅投影 API 相关字段
+            var canonicalList = tools
+                .OrderBy(t => t.Function?.Name ?? string.Empty, StringComparer.Ordinal)
+                .Select(t => new
+                {
+                    type = t.Type ?? "function",
+                    function = new
+                    {
+                        name = t.Function?.Name ?? string.Empty,
+                        description = t.Function?.Description ?? string.Empty,
+                        parameters = t.Function?.Parameters
+                    }
+                })
+                .ToList();
+
+            return JsonSerializer.Serialize(canonicalList, CanonicalJsonOptions);
+        }
     }
 
     /// <summary>

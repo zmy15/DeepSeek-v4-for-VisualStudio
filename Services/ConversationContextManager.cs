@@ -37,6 +37,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>系统提示词（独立存储，不参与 turn 管理）</summary>
         private string? _systemPrompt;
 
+        /// <summary>
+        /// 已冻结的系统提示词（session 初始化时由 SetFixedSystemPrompt() 设置）。
+        /// 一旦冻结，整个会话期间不再改变，保障 messages[0] 前缀稳定性，
+        /// 使 DeepSeek V4 的自动前缀缓存可以持续命中。
+        /// </summary>
+        private string? _fixedSystemPrompt;
+
         /// <summary>搜索结果上下文（独立存储，注入为 system 消息）</summary>
         private string? _searchContext;
 
@@ -63,6 +70,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>压缩标记：是否正在压缩中</summary>
         private bool _isCompressing;
+
+        /// <summary>
+        /// 前缀缓存稳定性管理器（可选注入）。
+        /// 用于监控 system prompt 和 tool catalog 的 SHA-256 指纹变化，
+        /// 保障 DeepSeek V4 自动前缀缓存命中率。
+        /// </summary>
+        private PrefixCacheManager? _prefixCacheManager;
 
         /// <summary>Token 预算上限（默认 900K，DeepSeek V4 上下文窗口为 1M，留 100K 给输出）</summary>
         public int TokenBudget { get; set; } = 900_000;
@@ -97,13 +111,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>获取 RAG 上下文</summary>
         public string? RagContext => _ragContext;
 
+        /// <summary>获取前缀缓存管理器（null = 未注入）</summary>
+        public PrefixCacheManager? PrefixCache => _prefixCacheManager;
+
         #region Core API — 添加消息
 
         /// <summary>
         /// 设置系统提示词。
+        /// 如果已通过 FreezeSystemPrompt() 冻结，则忽略此次调用并记录警告，
+        /// 防止意外覆盖不可变前缀导致 DeepSeek V4 缓存失效。
         /// </summary>
         public void SetSystemPrompt(string? prompt)
         {
+            if (_fixedSystemPrompt != null)
+            {
+                Logger.Warn($"[ContextManager] SetSystemPrompt() 被调用但 system prompt 已冻结 — 忽略。" +
+                    $"当前冻结长度={_fixedSystemPrompt.Length} 字符, 新 prompt 长度={prompt?.Length ?? 0} 字符。" +
+                    $"如需更换 system prompt，请先调用 Clear() 然后重新 FreezeSystemPrompt()。");
+                return;
+            }
             _systemPrompt = prompt;
         }
 
@@ -158,6 +184,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             _compressor = compressor;
         }
+
+        /// <summary>
+        /// 注入前缀缓存管理器。
+        /// 设置后，BuildApiMessages 时会自动检查前缀稳定性并记录漂移事件。
+        /// </summary>
+        public void SetPrefixCache(PrefixCacheManager? prefixCache)
+        {
+            _prefixCacheManager = prefixCache;
+        }
+
+        /// <summary>
+        /// 冻结系统提示词为不可变前缀。
+        /// 应在会话初始化时调用一次。冻结后整个会话期间不应再调用 SetSystemPrompt()。
+        /// 
+        /// 这是前缀缓存优化的核心：messages[0] 的内容在冻结后永远不会改变，
+        /// 确保 DeepSeek V4 的自动前缀缓存在每次请求时都能命中。
+        /// 
+        /// 冻结内容 = systemPrompt + skillContext（若存在则以换行连接）
+        /// </summary>
+        public void FreezeSystemPrompt()
+        {
+            _fixedSystemPrompt = BuildFinalSystemPrompt();
+            Logger.Info($"[ContextManager] System prompt 已冻结为不可变前缀 ({_fixedSystemPrompt?.Length ?? 0} 字符)");
+        }
+
+        /// <summary>
+        /// 获取已冻结的系统提示词（null = 尚未冻结）。
+        /// </summary>
+        public string? GetFixedSystemPrompt() => _fixedSystemPrompt;
 
         /// <summary>
         /// 添加用户消息。
@@ -272,6 +327,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 构建发送给 DeepSeek API 的完整消息列表。
         /// 正确处理 reasoning_content 回传规则。
         /// 
+        /// ── 前缀缓存优化（v1.1.9）──
+        /// 消息结构遵循"固定前缀 + 动态块 + 追加历史"三层模型：
+        ///   messages[0] = 冻结的不可变系统提示词（整个会话固定不变）
+        ///   messages[1] = 动态上下文块（压缩摘要 + 搜索 + RAG + 记忆，合并为一条 system 消息）
+        ///   messages[2..] = 对话历史（仅追加，不修改）
+        /// 
+        /// 这样 messages[0] 的 KV cache 在每次请求时都能命中，动态变化被隔离到 messages[1]。
+        /// 
         /// DeepSeek V4 规则：
         /// - 如果 assistant 消息没有 tool_calls：reasoning_content 不应回传（会被 API 忽略）
         /// - 如果 assistant 消息有 tool_calls：reasoning_content 必须回传（否则 400 错误）
@@ -281,42 +344,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             var messages = new List<ChatApiMessage>();
 
-            // ── 1. 组装最终系统提示词 ──
-            string? finalSystemPrompt = BuildFinalSystemPrompt();
-            if (!string.IsNullOrWhiteSpace(finalSystemPrompt))
+            // ── 1. 不可变前缀：冻结的系统提示词（messages[0]，整个会话不改变）──
+            string? fixedPrompt = _fixedSystemPrompt;
+            if (!string.IsNullOrWhiteSpace(fixedPrompt))
             {
-                messages.Add(new ChatApiMessage { Role = "system", Content = finalSystemPrompt });
+                messages.Add(new ChatApiMessage { Role = "system", Content = fixedPrompt });
             }
-
-            // ── 2. 注入压缩摘要（早期对话的压缩版本） ──
-            if (_compressor != null)
+            else
             {
-                string compressedText = _compressor.GetCompressedContextText();
-                if (!string.IsNullOrWhiteSpace(compressedText))
+                // 回退：尚未冻结时使用动态拼接（兼容旧调用路径）
+                string? fallbackPrompt = BuildFinalSystemPrompt();
+                if (!string.IsNullOrWhiteSpace(fallbackPrompt))
                 {
-                    messages.Add(new ChatApiMessage { Role = "system", Content = compressedText });
+                    messages.Add(new ChatApiMessage { Role = "system", Content = fallbackPrompt });
                 }
             }
 
-            // ── 3. 注入搜索上下文（作为独立的 system 消息） ──
-            if (!string.IsNullOrWhiteSpace(_searchContext))
+            // ── 2. 动态上下文块：将压缩摘要、搜索、RAG、记忆合并为一条 system 消息 ──
+            //     合并为单条消息可将动态变化隔离到一个位置，保护对话历史前缀的缓存命中
+            string? dynamicBlock = BuildDynamicContextBlock();
+            if (!string.IsNullOrWhiteSpace(dynamicBlock))
             {
-                messages.Add(new ChatApiMessage { Role = "system", Content = _searchContext });
+                messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock });
             }
 
-            // ── 4. 注入 RAG 检索上下文（作为独立的 system 消息） ──
-            if (!string.IsNullOrWhiteSpace(_ragContext))
-            {
-                messages.Add(new ChatApiMessage { Role = "system", Content = _ragContext });
-            }
-
-            // ── 5. 注入记忆上下文（作为独立的 system 消息） ──
-            if (!string.IsNullOrWhiteSpace(_memoryContext))
-            {
-                messages.Add(new ChatApiMessage { Role = "system", Content = _memoryContext });
-            }
-
-            // ── 6. 遍历对话历史，正确构建消息 ──
+            // ── 3. 遍历对话历史，正确构建消息 ──
             foreach (var entry in _entries)
             {
                 // 跳过没有内容的条目（除非有 tool_calls）
@@ -357,12 +409,64 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 messages.Add(apiMsg);
             }
 
+            // ── 4. 前缀缓存漂移检测（若有 PrefixCacheManager 注入）──
+            //     注意：此处仅记录日志，不阻止请求。实际指纹对比需要 tool 列表，
+            //     由调用方（DeepSeekApiService）在发送前完成。
+            if (_prefixCacheManager != null && _prefixCacheManager.IsPinned)
+            {
+                string? currentFixedPrompt = _fixedSystemPrompt ?? BuildFinalSystemPrompt();
+                if (!string.IsNullOrWhiteSpace(currentFixedPrompt))
+                {
+                    string spFp = PrefixCacheManager.ComputeSystemPromptFingerprint(currentFixedPrompt);
+                    if (spFp != _prefixCacheManager.PinnedCombinedFingerprint?.Split('|').FirstOrDefault())
+                    {
+                        Logger.Warn($"[PrefixCache] System prompt 指纹与 pinned 基准不匹配，缓存可能失效");
+                    }
+                }
+            }
+
             return messages;
+        }
+
+        /// <summary>
+        /// 构建动态上下文块：合并压缩摘要、搜索上下文、RAG 上下文、记忆上下文。
+        /// 所有动态内容合并为一段文本，作为单条 system 消息注入。
+        /// 这样将可变内容隔离在一个位置，保护 messages[0] 和对话历史前缀的缓存稳定性。
+        /// </summary>
+        private string? BuildDynamicContextBlock()
+        {
+            var parts = new List<string>();
+
+            // 压缩摘要
+            if (_compressor != null)
+            {
+                string compressedText = _compressor.GetCompressedContextText();
+                if (!string.IsNullOrWhiteSpace(compressedText))
+                    parts.Add(compressedText);
+            }
+
+            // 搜索上下文
+            if (!string.IsNullOrWhiteSpace(_searchContext))
+                parts.Add(_searchContext);
+
+            // RAG 检索上下文
+            if (!string.IsNullOrWhiteSpace(_ragContext))
+                parts.Add(_ragContext);
+
+            // 记忆上下文
+            if (!string.IsNullOrWhiteSpace(_memoryContext))
+                parts.Add(_memoryContext);
+
+            if (parts.Count == 0)
+                return null;
+
+            return string.Join("\n\n", parts);
         }
 
         /// <summary>
         /// 构建仅包含最近 N 轮的 API 消息列表（用于 Agent 子调用）。
         /// 以 user 消息为轮次边界，保留完整的 tool 调用链。
+        /// 前缀结构同 BuildApiMessages()：messages[0] = 冻结 prompt，messages[1] = 动态块。
         /// </summary>
         /// <param name="maxTurns">保留的最大轮次数</param>
         public List<ChatApiMessage> BuildApiMessagesRecentTurns(int maxTurns)
@@ -387,30 +491,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             }
 
-            // 构建截断后的消息列表
+            // 构建截断后的消息列表（前缀结构与 BuildApiMessages 一致）
             var messages = new List<ChatApiMessage>();
 
-            // 系统消息始终保留
-            string? finalSystemPrompt = BuildFinalSystemPrompt();
-            if (!string.IsNullOrWhiteSpace(finalSystemPrompt))
-                messages.Add(new ChatApiMessage { Role = "system", Content = finalSystemPrompt });
-
-            // 压缩摘要始终保留
-            if (_compressor != null)
+            // ── 1. 不可变前缀 ──
+            string? fixedPrompt = _fixedSystemPrompt;
+            if (!string.IsNullOrWhiteSpace(fixedPrompt))
+                messages.Add(new ChatApiMessage { Role = "system", Content = fixedPrompt });
+            else
             {
-                string compressedText = _compressor.GetCompressedContextText();
-                if (!string.IsNullOrWhiteSpace(compressedText))
-                    messages.Add(new ChatApiMessage { Role = "system", Content = compressedText });
+                string? fallbackPrompt = BuildFinalSystemPrompt();
+                if (!string.IsNullOrWhiteSpace(fallbackPrompt))
+                    messages.Add(new ChatApiMessage { Role = "system", Content = fallbackPrompt });
             }
 
-            if (!string.IsNullOrWhiteSpace(_searchContext))
-                messages.Add(new ChatApiMessage { Role = "system", Content = _searchContext });
+            // ── 2. 动态上下文块 ──
+            string? dynamicBlock = BuildDynamicContextBlock();
+            if (!string.IsNullOrWhiteSpace(dynamicBlock))
+                messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock });
 
-            // RAG 上下文始终保留
-            if (!string.IsNullOrWhiteSpace(_ragContext))
-                messages.Add(new ChatApiMessage { Role = "system", Content = _ragContext });
-
-            // 从 startEntryIdx 开始构建
+            // ── 3. 从 startEntryIdx 开始构建对话历史 ──
             for (int i = startEntryIdx; i < _entries.Count; i++)
             {
                 var entry = _entries[i];
@@ -451,11 +551,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             var clone = new ConversationContextManager
             {
                 _systemPrompt = _systemPrompt,
+                _fixedSystemPrompt = _fixedSystemPrompt,
                 _searchContext = _searchContext,
                 _skillContext = _skillContext,
                 _ragContext = _ragContext,
+                _memoryContext = _memoryContext,
                 _compressor = _compressor,
+                _prefixCacheManager = _prefixCacheManager,
                 _estimatedTokens = _estimatedTokens,
+                _calibrationFactor = _calibrationFactor,
                 TokenBudget = TokenBudget,
                 AutoTrimTurns = AutoTrimTurns,
             };
@@ -929,10 +1033,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             _entries.Clear();
             _estimatedTokens = 0;
             _systemPrompt = null;
+            _fixedSystemPrompt = null;
             _searchContext = null;
             _skillContext = null;
             _ragContext = null;
+            _memoryContext = null;
             _compressor?.Clear();
+            _prefixCacheManager?.Reset();
         }
 
         /// <summary>

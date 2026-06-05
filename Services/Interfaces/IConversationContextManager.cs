@@ -28,6 +28,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         void SetRagContext(string? ragContext);
         void SetMemoryContext(string? memoryContext);
         void SetCompressor(ContextCompressorService? compressor);
+        void SetPrefixCache(PrefixCacheManager? prefixCache);
+
+        // ── 前缀冻结（v1.1.9 前缀缓存优化）──
+        /// <summary>
+        /// 冻结系统提示词为不可变前缀。调用后 messages[0] 在整个会话期间保持不变。
+        /// </summary>
+        void FreezeSystemPrompt();
 
         // ── 消息管理 ──
         void AddUserMessage(string content);

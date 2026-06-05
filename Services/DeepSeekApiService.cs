@@ -26,6 +26,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private string _reasoningEffort = "high";
 
         /// <summary>
+        /// 前缀缓存稳定性管理器（可选注入）。
+        /// 设置后，每次 ChatStreamAsync 调用前会自动检查前缀指纹并记录漂移。
+        /// </summary>
+        public PrefixCacheManager? PrefixCache { get; set; }
+
+        /// <summary>
         /// 最近一次 API 调用的 Usage 信息（含 Cache 命中统计）。
         /// 流式调用结束后更新，非流式调用后立即可用。
         /// </summary>
@@ -151,9 +157,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string? toolChoice = null,
             double? temperature = null)
         {
+            // ── 工具 Schema 规范化：按名称排序，消除注册顺序对缓存的影响 ──
+            //     参考 CodeWhale prefix_cache.rs:316-331
+            List<ToolDefinition>? normalizedTools = ToolSchemaNormalizer.NormalizeForApi(tools);
+
             // toolChoice 优先级: 显式传入 > 有 tools 时 auto > null(不发送)
             string? effectiveToolChoice = toolChoice
-                ?? (tools != null && tools.Count > 0 ? "auto" : null);
+                ?? (normalizedTools != null && normalizedTools.Count > 0 ? "auto" : null);
 
             var request = new DeepSeekChatRequest
             {
@@ -162,7 +172,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Stream = true,
                 Thinking = new ThinkingControl { Type = _thinkingEnabled ? "enabled" : "disabled" },
                 ReasoningEffort = _thinkingEnabled ? _reasoningEffort : null,
-                Tools = tools,
+                Tools = normalizedTools,
                 ToolChoice = effectiveToolChoice,
                 MaxTokens = maxTokens,
                 Temperature = temperature
@@ -263,6 +273,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             // ── 记录请求元数据 ──
             Logger.Info($"[API] 发送请求: {requestBodyBytes.Length / 1024}KB, 消息数={request.Messages.Count}, 工具数={tools?.Count ?? 0}, maxTokens={maxTokens}");
+
+            // ── 前缀缓存稳定性检查（v1.1.9）──
+            //     在发送前对比 system prompt + tool catalog 的 SHA-256 指纹，
+            //     检测前缀漂移并记录日志，保障 V4 自动前缀缓存命中率可观测。
+            if (PrefixCache != null)
+            {
+                string? systemPrompt = request.Messages.Count > 0 && request.Messages[0].Role == "system"
+                    ? request.Messages[0].Content
+                    : null;
+                PrefixCache.CheckCurrentPrefix(systemPrompt, normalizedTools);
+            }
 
             // ── HTTP 层重试（指数退避：1s, 2s, 4s；最多 3 次额外重试）──
             HttpResponseMessage? response = null;
