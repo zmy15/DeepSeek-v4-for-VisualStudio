@@ -438,6 +438,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "方法", "method",
                 "改一下", "修改一下", "完善", "改进", "测试", "单元测试", "生成", "编写" };
 
+            // Git 操作类关键词 → 路由到 Edit Agent（git 操作属于代码修改范畴）
+            var gitKeywords = new[] { "推送", "推送到", "git push", "提交更改", "提交代码",
+                "commit", "暂存", "git add", "stash", "分支", "切换分支",
+                "git branch", "git checkout", "拉取", "git pull", "合并分支",
+                "git merge", "回退", "git reset", "cherry-pick", "rebase",
+                "推上去", "推代码", "提交上去", "推到" };
+
             // 构建修复类关键词（优先级高于普通修改）
             var buildKeywords = new[] { "编译不过", "编译失败", "编译错误", "构建失败",
                 "build error", "build failed", "生成失败", "生成错误", "链接错误",
@@ -451,6 +458,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 userMessage.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
             bool hasBuildKeyword = buildKeywords.Any(k =>
                 userMessage.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
+            bool hasGitKeyword = gitKeywords.Any(k =>
+                userMessage.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
 
             // ── 构建修复关键词 → 直接路由到 Build Agent ──
             if (hasBuildKeyword)
@@ -460,6 +469,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     TargetAgent = AgentType.Build,
                     Confidence = "high",
                     Reason = "检测到构建/编译错误关键词，路由到 Build Agent 进行诊断修复",
+                    NeedsPlanning = false,
+                };
+            }
+
+            // ── Git 操作关键词 → 路由到 Edit Agent ──
+            if (hasGitKeyword)
+            {
+                return new AgentRoutingResult
+                {
+                    TargetAgent = AgentType.Edit,
+                    Confidence = "high",
+                    Reason = "检测到 Git 操作关键词，路由到 Edit Agent（git 工具可用）",
                     NeedsPlanning = false,
                 };
             }

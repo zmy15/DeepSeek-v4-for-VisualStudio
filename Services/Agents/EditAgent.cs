@@ -98,6 +98,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "get_errors",
             "runSubagent",
             "build_solution",      // 允许探索阶段编译验证当前代码状态
+            "git",                 // 允许探索阶段使用 git 查看状态/历史
         };
 
         protected override AgentDefinition CreateDefinition(AgentType agentType)
