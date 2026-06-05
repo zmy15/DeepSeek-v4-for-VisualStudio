@@ -263,9 +263,11 @@ window._showCopyFeedback=function(msgIndex){
     if(!btn)return;
     btn.classList.add('copied');
     btn.textContent='✓';
+    btn.style.position='';
     setTimeout(function(){
         btn.classList.remove('copied');
         btn.textContent='📋';
+        btn.style.position='';
     },2000);
 };
 
@@ -343,7 +345,7 @@ window._showCopyFeedback=function(msgIndex){
                             if(msgDiv&&!document.getElementById('copy-btn-'+msg.i)){
                                 var copyBtn=document.createElement('button');
                                 copyBtn.id='copy-btn-'+msg.i;
-                                copyBtn.className='msg-action-btn copy-btn';
+                                copyBtn.className='msg-action-btn copy-msg-btn';
                                 copyBtn.textContent='📋';
                                 copyBtn.title=msg.copyLabel||'Copy this response';
                                 copyBtn.onclick=function(){window.__copyMessage(msg.i);};

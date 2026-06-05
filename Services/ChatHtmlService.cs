@@ -789,7 +789,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 : "";
 
             string copyBtnHtml = !isStreaming && !string.IsNullOrEmpty(msg.Content)
-                ? $"<button id='copy-btn-{idx}' class='msg-action-btn copy-btn' onclick='window.__copyMessage({idx})' title='{L["chat.html.copyButtonTitle"]}'>📋</button>"
+                ? $"<button id='copy-btn-{idx}' class='msg-action-btn copy-msg-btn' onclick='window.__copyMessage({idx})' title='{L["chat.html.copyButtonTitle"]}'>📋</button>"
                 : "";
 
             // ── 分支导航统一放在用户气泡下方，不在此处渲染 ──
