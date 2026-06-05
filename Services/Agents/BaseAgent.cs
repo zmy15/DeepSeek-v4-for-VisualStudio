@@ -355,7 +355,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             const int safetyLimit = 200;
             bool loopDetected = false;
 
-            int round = 0;
+            int round = BuiltInTools?.CurrentRound ?? 0;
             while (!loopDetected)
             {
                 round++;
@@ -890,10 +890,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // ── 汇总累计 Cache 统计（日志）──
             LogTotalCacheHitRate(round);
-
-            // ── 重置轮次，避免后续非循环调用受残留轮次影响 ──
-            if (BuiltInTools != null)
-                BuiltInTools.CurrentRound = 0;
 
             return contentBuilder.ToString().Trim();
         }

@@ -328,12 +328,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 正确处理 reasoning_content 回传规则。
         /// 
         /// ── 前缀缓存优化（v1.1.9）──
-        /// 消息结构遵循"固定前缀 + 动态块 + 追加历史"三层模型：
+        /// 消息结构遵循"固定前缀 + 对话历史 + 动态块"三层模型：
         ///   messages[0] = 冻结的不可变系统提示词（整个会话固定不变）
-        ///   messages[1] = 动态上下文块（压缩摘要 + 搜索 + RAG + 记忆，合并为一条 system 消息）
-        ///   messages[2..] = 对话历史（仅追加，不修改）
+        ///   messages[1..N-1] = 对话历史（仅追加，不修改）→ 前缀缓存可覆盖到此
+        ///   messages[N] = 动态上下文块（压缩摘要 + 搜索 + RAG + 记忆）
+        ///   messages[N+1] = 用户消息（调用方追加）
         /// 
-        /// 这样 messages[0] 的 KV cache 在每次请求时都能命中，动态变化被隔离到 messages[1]。
+        /// 将动态块放在对话历史之后、用户消息之前，使前缀缓存可以从 messages[0]
+        /// 一直延伸到对话历史的末尾。动态块的变化只影响它自身及之后的消息，
+        /// 对话历史的前缀在每次请求间保持稳定。
         /// 
         /// DeepSeek V4 规则：
         /// - 如果 assistant 消息没有 tool_calls：reasoning_content 不应回传（会被 API 忽略）
@@ -360,15 +363,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             }
 
-            // ── 2. 动态上下文块：将压缩摘要、搜索、RAG、记忆合并为一条 system 消息 ──
-            //     合并为单条消息可将动态变化隔离到一个位置，保护对话历史前缀的缓存命中
-            string? dynamicBlock = BuildDynamicContextBlock();
-            if (!string.IsNullOrWhiteSpace(dynamicBlock))
-            {
-                messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock });
-            }
-
-            // ── 3. 遍历对话历史，正确构建消息 ──
+            // ── 2. 遍历对话历史，正确构建消息 ──
+            //     历史位于系统提示词之后，使前缀缓存可连续命中所有不变的对话消息
             foreach (var entry in _entries)
             {
                 // 跳过没有内容的条目（除非有 tool_calls）
@@ -407,6 +403,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
 
                 messages.Add(apiMsg);
+            }
+
+            // ── 3. 动态上下文块：放在对话历史之后、用户消息之前 ──
+            //     将压缩摘要、搜索、RAG、记忆合并为一条 system 消息，放在历史末尾。
+            //     这样对话历史的前缀完全稳定，动态变化只影响这一条及其后的用户消息。
+            string? dynamicBlock = BuildDynamicContextBlock();
+            if (!string.IsNullOrWhiteSpace(dynamicBlock))
+            {
+                messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock });
             }
 
             // ── 4. 前缀缓存漂移检测（若有 PrefixCacheManager 注入）──
@@ -466,7 +471,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 构建仅包含最近 N 轮的 API 消息列表（用于 Agent 子调用）。
         /// 以 user 消息为轮次边界，保留完整的 tool 调用链。
-        /// 前缀结构同 BuildApiMessages()：messages[0] = 冻结 prompt，messages[1] = 动态块。
+        /// 前缀结构同 BuildApiMessages()：messages[0] = 冻结 prompt，历史在中间，动态块在末尾。
         /// </summary>
         /// <param name="maxTurns">保留的最大轮次数</param>
         public List<ChatApiMessage> BuildApiMessagesRecentTurns(int maxTurns)
@@ -505,12 +510,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     messages.Add(new ChatApiMessage { Role = "system", Content = fallbackPrompt });
             }
 
-            // ── 2. 动态上下文块 ──
-            string? dynamicBlock = BuildDynamicContextBlock();
-            if (!string.IsNullOrWhiteSpace(dynamicBlock))
-                messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock });
-
-            // ── 3. 从 startEntryIdx 开始构建对话历史 ──
+            // ── 2. 从 startEntryIdx 开始构建对话历史 ──
             for (int i = startEntryIdx; i < _entries.Count; i++)
             {
                 var entry = _entries[i];
@@ -539,6 +539,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 messages.Add(apiMsg);
             }
+
+            // ── 3. 动态上下文块（放在历史之后）──
+            string? dynamicBlock = BuildDynamicContextBlock();
+            if (!string.IsNullOrWhiteSpace(dynamicBlock))
+                messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock });
 
             return messages;
         }

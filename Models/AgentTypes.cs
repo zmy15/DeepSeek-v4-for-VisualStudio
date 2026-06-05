@@ -177,6 +177,15 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// </summary>
         [JsonIgnore]
         public List<string>? DiscoveredFiles { get; set; }
+
+        /// <summary>
+        /// 代码记忆 — 跨步骤持久化的关键代码片段。
+        /// 每个步骤完成后，从文件读取缓存中提取未被修改的关键文件内容存入此处。
+        /// 后续步骤可直接使用这些代码片段，无需重复 read_file。
+        /// 格式: Markdown 代码块，按文件分组，总量控制在 ~12KB 以内。
+        /// </summary>
+        [JsonIgnore]
+        public string? CodeMemory { get; set; }
     }
 
     /// <summary>

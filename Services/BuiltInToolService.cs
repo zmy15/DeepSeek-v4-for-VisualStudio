@@ -29,7 +29,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private readonly ConcurrentDictionary<string, FileReadCacheEntry> _fileReadCache = new(StringComparer.OrdinalIgnoreCase);
 
         private int _currentRound;
-        private int _roundThreshold = 5;
+        private int _roundThreshold = 10;
 
         /// <summary>
         /// 当前 API 请求的轮次号（由 Agent 工具循环设置）。
@@ -188,6 +188,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             var snapshot = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var kvp in _fileReadCache)
                 snapshot[kvp.Key] = kvp.Value.FullContent;
+            return snapshot;
+        }
+
+        /// <summary>
+        /// 获取文件读取缓存的快照（含轮次信息，用于 LRU 淘汰排序）。
+        /// </summary>
+        public Dictionary<string, int> GetFileReadCacheRoundSnapshot()
+        {
+            var snapshot = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in _fileReadCache)
+                snapshot[kvp.Key] = kvp.Value.LastReadRound;
             return snapshot;
         }
 

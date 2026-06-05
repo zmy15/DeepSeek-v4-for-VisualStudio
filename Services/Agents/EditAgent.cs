@@ -316,6 +316,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                     context.AccumulatedContext.Length - maxAccumulatedChars);
                         }
                         AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.contextAccumulated"], context.AccumulatedContext.Length));
+
+                        // ── 更新代码记忆：从文件读取缓存中提取关键文件内容 ──
+                        UpdateCodeMemory(context, plan);
                     }
                 }
 
@@ -1488,6 +1491,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine();
             }
 
+            // ── 注入代码记忆（跨步骤持久化的关键代码片段）──
+            if (!string.IsNullOrEmpty(context.CodeMemory))
+            {
+                sb.AppendLine("## 📋 代码记忆（前面步骤读取的关键文件内容，可直接使用，无需重复 read_file）");
+                sb.AppendLine("> ⚠️ 以下内容来自前面步骤的 read_file 结果，这些文件在之前步骤中**未被修改**。已被修改过的文件已自动排除。");
+                sb.AppendLine();
+                sb.AppendLine(context.CodeMemory);
+                sb.AppendLine();
+            }
+
             // ── 注入前面步骤已读取的文件内容缓存（所有模式通用），避免重复 read_file 调用 ──
             if (BuiltInTools != null)
             {
@@ -1514,11 +1527,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         sb.AppendLine("> ⚠️ 以下文件内容来自前面步骤的读取缓存，这些文件在之前步骤中**未被修改**，内容仍然有效。已被修改过的文件已自动排除。");
                         sb.AppendLine();
 
-                        const int maxFilesToInclude = 15;
-                        const int maxCharsPerFile = 4000; // 每个文件最多注入 4KB
+                        const int maxFilesToInclude = 10;
+                        const int maxCharsPerFile = 2500; // 每个文件最多注入 2.5KB
                         int included = 0;
                         long totalChars = 0;
-                        const long maxTotalChars = 30000; // 总计最多 30KB
+                        const long maxTotalChars = 20000; // 总计最多 20KB
 
                         foreach (var kvp in safeFiles)
                         {
@@ -1690,6 +1703,97 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // 如果没匹配到任何文件，返回全部（让 AI 自己决定）
             return relevant.Count > 0 ? relevant : fileCache;
+        }
+
+        /// <summary>
+        /// 更新代码记忆 — 使用 LRU + 头文件加权淘汰算法。
+        /// 
+        /// 评分公式: score = (currentRound - lastReadRound) / typeWeight
+        ///   - 分数越低（越近读取）优先级越高
+        ///   - typeWeight: .h/.hpp = 2.0, 其他 = 1.0
+        ///   - 已被修改的文件直接淘汰（内容过时）
+        /// 
+        /// 效果：
+        /// - 最近读取的文件优先保留
+        /// - 头文件更难被淘汰（2倍权重）
+        /// - 旧头文件不再需要的自然淘汰
+        /// - 近期频繁访问的 cpp 也能进入记忆
+        /// </summary>
+        private void UpdateCodeMemory(AgentContext context, AgentTaskPlan plan)
+        {
+            if (BuiltInTools == null) return;
+
+            var fileCache = BuiltInTools.GetFileReadCacheSnapshot();
+            var roundCache = BuiltInTools.GetFileReadCacheRoundSnapshot();
+            if (fileCache.Count == 0) return;
+
+            int currentRound = BuiltInTools.CurrentRound;
+            if (currentRound <= 0) currentRound = int.MaxValue; // 无轮次信息时平等对待
+
+            var modifiedPaths = new HashSet<string>(
+                plan.ChangedFiles.Select(c => NormalizePath(c.FilePath)),
+                StringComparer.OrdinalIgnoreCase);
+
+            // ── 构建候选列表：排除已修改文件，计算 LRU 分数 ──
+            var candidates = new List<(string Path, string Content, double Score)>();
+            foreach (var kvp in fileCache)
+            {
+                if (modifiedPaths.Contains(NormalizePath(kvp.Key))) continue;
+
+                string ext = System.IO.Path.GetExtension(kvp.Key).ToLowerInvariant();
+                double typeWeight = (ext == ".h" || ext == ".hpp") ? 2.0 : 1.0;
+
+                int lastRound = roundCache.TryGetValue(kvp.Key, out int lr) ? lr : 0;
+                int roundsAgo = lastRound > 0 && currentRound > lastRound
+                    ? currentRound - lastRound
+                    : 0;
+
+                // 分数 = 距今轮数 / 类型权重（越小越优先）
+                double score = roundsAgo / typeWeight;
+                candidates.Add((kvp.Key, kvp.Value, score));
+            }
+
+            // ── 按分数升序排列（最近读取的头文件排最前）──
+            candidates.Sort((a, b) => a.Score.CompareTo(b.Score));
+
+            // ── 按优先级填充 CodeMemory，12KB 封顶 ──
+            var sb = new System.Text.StringBuilder();
+            const int maxTotalChars = 12000;
+            const int maxHeaderChars = 3000;
+            const int maxImplChars = 1500;
+            int totalChars = 0;
+
+            foreach (var (path, content, score) in candidates)
+            {
+                if (totalChars >= maxTotalChars) break;
+
+                string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+                int maxChars = (ext == ".h" || ext == ".hpp") ? maxHeaderChars : maxImplChars;
+
+                string snippet = content;
+                if (snippet.Length > maxChars)
+                    snippet = snippet.Substring(0, maxChars) + "\n// ... (截断)";
+
+                int estimatedChars = snippet.Length + System.IO.Path.GetFileName(path).Length + 60;
+                if (totalChars + estimatedChars > maxTotalChars && totalChars > 0)
+                    break; // 放不下这个文件，跳过（不截得更短）
+
+                sb.AppendLine($"### 📄 `{System.IO.Path.GetFileName(path)}`");
+                sb.AppendLine("```cpp");
+                sb.AppendLine(snippet.TrimEnd());
+                sb.AppendLine("```");
+                sb.AppendLine();
+                totalChars += estimatedChars;
+            }
+
+            context.CodeMemory = sb.Length > 0 ? sb.ToString().TrimEnd() : null;
+
+            if (!string.IsNullOrEmpty(context.CodeMemory))
+            {
+                AddLog("INFO", string.Format(
+                    LocalizationService.Instance["agent.log.codeMemoryUpdated"] ?? "代码记忆已更新 ({0} 字符, {1} 个文件)",
+                    context.CodeMemory.Length, candidates.Count(c => context.CodeMemory!.Contains(System.IO.Path.GetFileName(c.Path)))));
+            }
         }
 
         #endregion
