@@ -555,6 +555,7 @@
   "agent.log.planPhaseDesign": "Phase 3/3: Design — Create implementation plan...",
   "agent.log.planDone": "Plan created: {0} step(s) → \"{1}\"",
   "agent.log.planMdSaved": "📄 plan.md saved: {0}",
+  "agent.log.planDiscoveryCompressed": "🔧 Discovery context compressed for alignment: {0} → {1} chars",
   "agent.log.planStepsExtractedFromMd": "🔄 Extracted {0} steps from plan.md (JSON parse fallback) → {1}",
   "agent.plan.noValidSteps": "Plan generation failed: no valid steps",
   "agent.plan.discoverError": "Discovery phase error: {0}, continuing planning",

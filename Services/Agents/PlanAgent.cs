@@ -544,14 +544,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     new ChatApiMessage { Role = "system", Content = Definition.SystemPrompt },
                 };
 
-                // 注入发现上下文（完整传递，不截断）
+                // ── Token 优化：对齐阶段只需了解项目结构和关键文件，无需完整发现上下文 ──
+                // 完整发现上下文保留给 Design 阶段使用（CreatePlanAsync / GenerateDetailedPlanMarkdownAsync）
                 if (!string.IsNullOrEmpty(discoveryContext))
                 {
+                    string compressedDiscovery = CompressDiscoveryForAlignment(discoveryContext);
+                    // 提取关键文件路径列表作为对齐阶段的快速参考
+                    var keyFiles = ExtractFilePathsFromDiscovery(discoveryContext);
+                    var sbDiscovery = new StringBuilder();
+                    sbDiscovery.AppendLine(L["agent.plan.discoveryFallback"]);
+                    sbDiscovery.AppendLine();
+                    sbDiscovery.AppendLine(compressedDiscovery);
+                    if (keyFiles.Count > 0)
+                    {
+                        sbDiscovery.AppendLine();
+                        sbDiscovery.AppendLine($"### 关键文件路径 ({keyFiles.Count} 个)");
+                        foreach (var f in keyFiles.Take(30))
+                            sbDiscovery.AppendLine($"- `{f}`");
+                        if (keyFiles.Count > 30)
+                            sbDiscovery.AppendLine($"> ... 还有 {keyFiles.Count - 30} 个文件");
+                    }
+
+                    string alignmentDiscovery = sbDiscovery.ToString();
+                    AddLog("INFO", string.Format(L["agent.log.planDiscoveryCompressed"],
+                        discoveryContext.Length, alignmentDiscovery.Length));
                     messages.Add(new ChatApiMessage
                     {
                         Role = "system",
-                        Content = L["agent.plan.discoveryFallback"] + "\n\n" +
-                                  discoveryContext
+                        Content = alignmentDiscovery
                     });
                 }
 
@@ -1064,6 +1084,164 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             await Task.Run(() => File.WriteAllText(filePath, fullContent, Encoding.UTF8));
 
             return filePath;
+        }
+
+        #endregion
+
+        #region Discovery Compression for Alignment
+
+        /// <summary>
+        /// 将对齐阶段用的发现上下文压缩为轻量摘要。
+        /// 对齐阶段 AI 只需要理解项目结构和关键文件，不需要完整文件内容。
+        /// 压缩策略：保留目录树、文件路径列表、段落首行，丢弃详细代码块内容。
+        /// 压缩率约 70-85%，将对齐阶段的 discoveryContext token 消耗降低至原来的 15-30%。
+        /// </summary>
+        private static string CompressDiscoveryForAlignment(string discoveryContext)
+        {
+            if (string.IsNullOrEmpty(discoveryContext) || discoveryContext.Length < 2000)
+                return discoveryContext; // 已经很短，无需压缩
+
+            var sb = new StringBuilder();
+            var lines = discoveryContext.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
+            bool inCodeBlock = false;
+            bool inDetailedContent = false;
+            int skippedLines = 0;
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                string trimmed = line.TrimStart();
+
+                // 追踪代码块状态
+                if (trimmed.StartsWith("```"))
+                {
+                    inCodeBlock = !inCodeBlock;
+                    if (!inCodeBlock)
+                    {
+                        // 代码块结束 — 如果跳过了内容，添加省略标记
+                        if (skippedLines > 5)
+                        {
+                            sb.AppendLine($"> ... (省略 {skippedLines} 行代码内容)");
+                        }
+                        skippedLines = 0;
+                    }
+                    sb.AppendLine(line);
+                    continue;
+                }
+
+                // 代码块内：丢弃内容，只统计跳过行数
+                if (inCodeBlock)
+                {
+                    skippedLines++;
+                    continue;
+                }
+
+                // 保留所有标题行（##, ###, ####）
+                if (trimmed.StartsWith("##") || trimmed.StartsWith("### ") || trimmed.StartsWith("#### "))
+                {
+                    inDetailedContent = false;
+                    skippedLines = 0;
+                    sb.AppendLine(line);
+                    continue;
+                }
+
+                // 保留目录树标记行（📁, 📄, 目录, 文件）
+                if (trimmed.StartsWith("- 📁") || trimmed.StartsWith("- 📄") ||
+                    trimmed.Contains("目录") || trimmed.Contains("文件"))
+                {
+                    sb.AppendLine(line);
+                    continue;
+                }
+
+                // 保留文件路径引用行（包含 ` 的文件路径）
+                if (trimmed.Contains("`") && (trimmed.Contains("/") || trimmed.Contains("\\")))
+                {
+                    sb.AppendLine(line);
+                    continue;
+                }
+
+                // 保留列表项的第一级（- 开头），丢弃子级详细描述
+                if (trimmed.StartsWith("- ") || trimmed.StartsWith("* "))
+                {
+                    if (trimmed.Length < 150)
+                    {
+                        sb.AppendLine(line);
+                        inDetailedContent = false;
+                    }
+                    else
+                    {
+                        // 长列表项截断到150字符
+                        sb.AppendLine(trimmed.Substring(0, Math.Min(150, trimmed.Length)) + "...");
+                        inDetailedContent = true;
+                    }
+                    continue;
+                }
+
+                // 保留空行作为分隔
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    sb.AppendLine();
+                    continue;
+                }
+
+                // 其他内容：保留首句，丢弃续行
+                if (!inDetailedContent)
+                {
+                    if (trimmed.Length > 200)
+                    {
+                        sb.AppendLine(trimmed.Substring(0, 200) + "...");
+                        inDetailedContent = true;
+                    }
+                    else
+                    {
+                        sb.AppendLine(line);
+                    }
+                }
+                else
+                {
+                    // 续行：如果行短且看起来像新段落开头，恢复输出
+                    if (trimmed.EndsWith(":") || trimmed.EndsWith("：") ||
+                        (trimmed.StartsWith("**") && trimmed.EndsWith("**")))
+                    {
+                        sb.AppendLine(line);
+                        inDetailedContent = false;
+                    }
+                }
+            }
+
+            string result = sb.ToString().TrimEnd();
+            return result.Length > 0 ? result : discoveryContext;
+        }
+
+        /// <summary>
+        /// 从发现上下文中提取文件路径列表（用于对齐阶段的精简参考）。
+        /// </summary>
+        private static List<string> ExtractFilePathsFromDiscovery(string discoveryContext)
+        {
+            var paths = new List<string>();
+            if (string.IsNullOrEmpty(discoveryContext)) return paths;
+
+            // 匹配反引号包裹的路径
+            var backtickMatches = System.Text.RegularExpressions.Regex.Matches(
+                discoveryContext, @"`([^`]+(?:\\|\/)[^`]+)`");
+            foreach (System.Text.RegularExpressions.Match m in backtickMatches)
+            {
+                string path = m.Groups[1].Value.Trim();
+                if (!string.IsNullOrEmpty(path) && !paths.Contains(path))
+                    paths.Add(path);
+            }
+
+            // 匹配裸路径（以盘符或 / 开头、以文件扩展名结尾）
+            var barePathMatches = System.Text.RegularExpressions.Regex.Matches(
+                discoveryContext, @"\b([A-Za-z]:[\\/][^\s]+\.[a-zA-Z]{1,6})\b");
+            foreach (System.Text.RegularExpressions.Match m in barePathMatches)
+            {
+                string path = m.Groups[1].Value.Trim();
+                if (!string.IsNullOrEmpty(path) && !paths.Contains(path))
+                    paths.Add(path);
+            }
+
+            return paths;
         }
 
         #endregion

@@ -555,6 +555,7 @@
   "agent.log.planPhaseDesign": "阶段 3/3: 设计 — 创建实现计划...",
   "agent.log.planDone": "计划创建完成: {0} 个步骤 → \"{1}\"",
   "agent.log.planMdSaved": "📄 plan.md 已保存: {0}",
+  "agent.log.planDiscoveryCompressed": "🔧 发现上下文已压缩用于对齐阶段: {0} → {1} 字符",
   "agent.log.planStepsExtractedFromMd": "🔄 从 plan.md 提取了 {0} 个步骤（JSON 解析回退方案）→ {1}",
   "agent.plan.noValidSteps": "计划生成失败：无有效步骤",
   "agent.plan.discoverError": "发现阶段出错: {0}，继续规划",
