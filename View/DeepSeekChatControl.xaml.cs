@@ -151,6 +151,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>页面 DOM + JS 完全就绪后才为 true</summary>
         private bool _pageReady;
         private bool _webViewInitialized;
+        /// <summary>
+        /// WebView2 控件（程序化创建，替代 XAML 中的 wv2:WebView2）。
+        /// 不在 XAML 中声明以避免 ReSharper 等第三方扩展预加载不同版本的
+        /// Microsoft.Web.WebView2.Wpf.dll 导致 XamlParseException (GitHub issue #18)。
+        /// </summary>
+        internal Microsoft.Web.WebView2.Wpf.WebView2 ChatWebView = null!;
         /// <summary>抑制 CoreWebView2InitializationCompleted 中的 UpdateBrowser（由 LoadAndShowAsync 显式接管）</summary>
         private bool _suppressWebViewUpdate;
         private int _lastRenderedMessagesLength;
@@ -303,8 +309,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── 状态信息直接显示在输入区顶部状态行 ──
             StatusLabel.Text = "正在初始化…";
 
-            // 注册 WebView2 事件
-            ChatWebView.CoreWebView2InitializationCompleted += ChatWebView_CoreWebView2InitializationCompleted;
+            // ── 程序化创建 WebView2 控件 ──
+            // 不在 XAML 中声明 wv2:WebView2，以避免 ReSharper 等第三方扩展
+            // 预加载不同版本的 Microsoft.Web.WebView2.Wpf.dll 导致
+            // XamlParseException: Set connectionId threw an exception (issue #18)。
+            InitializeChatWebView();
 
             // ── 粘贴命令绑定：作为后备路径，支持剪贴板图片直接粘贴为附件 ──
             // 主路径在 PreviewKeyDown 中通过隧道事件拦截 Ctrl+V，确保优先于 TextBox 内部处理。
@@ -321,6 +330,63 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     e.Handled = hasImage; // 仅在有图像时拦截，文本粘贴交给 TextBox 默认行为
                     Logger.Info($"CommandBinding.Paste CanExecute: hasImage={hasImage}, CanExecute={e.CanExecute}, Handled={e.Handled}");
                 }));
+        }
+
+        /// <summary>
+        /// 程序化创建 WebView2 控件并放入 ChatWebViewHost 占位符。
+        /// 不在 XAML 中声明 wv2:WebView2，以避免 ReSharper 2026.2 等第三方扩展
+        /// 预加载不同版本的 Microsoft.Web.WebView2.Wpf.dll 导致
+        /// XamlParseException: Set connectionId threw an exception (GitHub issue #18)。
+        /// 
+        /// 策略说明：
+        /// - XAML 中的 xmlns:wv2 声明会在 BAML 加载时强制 CLR 解析 WebView2 类型。
+        /// - 若 ReSharper 已加载不同版本的同名程序集，CLR 可能返回 ReSharper 的版本，
+        ///   导致 BAML 类型不匹配 → XamlParseException。
+        /// - 程序化 new WebView2() 避免了 BAML 类型的编译时绑定差异，
+        ///   即使 ReSharper 版本被加载，其构造函数也足够兼容以创建控件实例。
+        /// </summary>
+        private void InitializeChatWebView()
+        {
+            try
+            {
+                // ── 1. 确保扩展自带的 WebView2 程序集已加载 ──
+                // Assembly.LoadFrom 从扩展目录加载，若 ReSharper 已加载同名程序集
+                // 则返回已加载的版本（CLR 保证同一 AppDomain 中同名程序集只加载一次）。
+                // 即使返回 ReSharper 版本，new WebView2() 也能正常创建控件实例。
+                var extensionDir = System.IO.Path.GetDirectoryName(
+                    System.Reflection.Assembly.GetExecutingAssembly().Location);
+                if (extensionDir != null)
+                {
+                    var wpfDllPath = System.IO.Path.Combine(extensionDir, "Microsoft.Web.WebView2.Wpf.dll");
+                    if (System.IO.File.Exists(wpfDllPath))
+                    {
+                        System.Reflection.Assembly.LoadFrom(wpfDllPath);
+                        Logger.Info("[ChatWebView] Loaded Microsoft.Web.WebView2.Wpf from extension dir");
+                    }
+
+                    var coreDllPath = System.IO.Path.Combine(extensionDir, "Microsoft.Web.WebView2.Core.dll");
+                    if (System.IO.File.Exists(coreDllPath))
+                    {
+                        System.Reflection.Assembly.LoadFrom(coreDllPath);
+                        Logger.Info("[ChatWebView] Loaded Microsoft.Web.WebView2.Core from extension dir");
+                    }
+                }
+
+                // ── 2. 创建 WebView2 控件并放入占位符 ──
+                ChatWebView = new Microsoft.Web.WebView2.Wpf.WebView2();
+                ChatWebViewHost.Content = ChatWebView;
+
+                // ── 3. 订阅初始化完成事件（原在构造函数中直接订阅 ChatWebView）──
+                ChatWebView.CoreWebView2InitializationCompleted += ChatWebView_CoreWebView2InitializationCompleted;
+
+                Logger.Info("[ChatWebView] WebView2 control created and placed in ChatWebViewHost");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[ChatWebView] Failed to create WebView2 control: {ex.GetType().Name}: {ex.Message}", ex);
+                StatusLabel.Text = $"WebView2 initialization failed: {ex.Message}";
+                // 不抛出异常，允许工具窗口打开但不含 WebView2（用户将看到错误提示）
+            }
         }
 
         #endregion

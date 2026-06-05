@@ -3,7 +3,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
              mc:Ignorable="d"
              d:DesignHeight="450" d:DesignWidth="600">
     <UserControl.Resources>
@@ -212,9 +211,12 @@
         </Border>
 
         <!-- ═══ WebView2 聊天显示区 (Chromium) ═══ -->
-        <wv2:WebView2 Grid.Row="1"
-                      x:Name="ChatWebView"
-                      Margin="0" />
+        <!-- WebView2 is created programmatically in InitializeChatWebView() to avoid
+             XamlParseException caused by assembly version conflicts with ReSharper.
+             See GitHub issue #18. -->
+        <ContentControl Grid.Row="1"
+                        x:Name="ChatWebViewHost"
+                        Margin="0" />
 
         <!-- ═══ Diff 预览全局控制栏 ═══ -->
         <Border Grid.Row="2"

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="DeepSeek_v4_for_VisualStudio.7a5b2771-22cb-4337-b445-8d97e3189b64" Version="1.1.8" Language="en-US" Publisher="zmy15" />
+    <Identity Id="DeepSeek_v4_for_VisualStudio.7a5b2771-22cb-4337-b445-8d97e3189b64" Version="1.1.9" Language="en-US" Publisher="zmy15" />
     <DisplayName>DeepSeek Chat for Visual Studio</DisplayName>
     <Description xml:space="preserve">DeepSeek AI chat integration for Visual Studio 2022.</Description>
     <Icon>Resources/icon.png</Icon>
