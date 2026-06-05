@@ -730,12 +730,18 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- 左侧：审批模式下拉框 -->
-                <ComboBox x:Name="ApprovalModeComboBox"
-                          Grid.Column="0"
-                          MinWidth="130"
-                          Height="22"
-                          SelectionChanged="ApprovalModeComboBox_SelectionChanged" />
+                <!-- 左侧：审批模式 -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <TextBlock Text="审批模式:"
+                               Foreground="#D4D4D4"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               Margin="0,0,6,0" />
+                    <ComboBox x:Name="ApprovalModeComboBox"
+                              MinWidth="130"
+                              Height="22"
+                              SelectionChanged="ApprovalModeComboBox_SelectionChanged" />
+                </StackPanel>
 
                 <!-- 右侧：余额和 Token 显示 -->
                 <Border Grid.Column="2"
