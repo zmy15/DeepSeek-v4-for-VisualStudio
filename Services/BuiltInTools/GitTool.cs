@@ -73,7 +73,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         /// <summary>只读操作 — 自动放行，无需审批</summary>
         private static readonly HashSet<string> ReadOnlyOps = new(StringComparer.OrdinalIgnoreCase)
         {
-            "status", "diff", "log",
+            "status", "diff", "log", "show",
         };
 
         /// <summary>写操作 — 需要审批</summary>
@@ -91,7 +91,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         /// <summary>所有有效操作</summary>
         private static readonly HashSet<string> AllOps = new(StringComparer.OrdinalIgnoreCase)
         {
-            "status", "diff", "log", "add", "commit", "branch",
+            "status", "diff", "log", "show", "add", "commit", "branch",
             "checkout", "pull", "push", "stash", "reset",
         };
 
@@ -126,7 +126,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                                 description = L["tool.git.param.operation"],
                                 @enum = new[]
                                 {
-                                    "status", "diff", "log", "add", "commit",
+                                    "status", "diff", "log", "show", "add", "commit",
                                     "branch", "checkout", "pull", "push", "stash", "reset"
                                 }
                             },
@@ -162,6 +162,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 "status" => L["tool.git.displayStatus"],
                 "diff" => L["tool.git.displayDiff"],
                 "log" => L["tool.git.displayLog"],
+                "show" => L["tool.git.displayShow"],
                 "add" => L["tool.git.displayAdd"],
                 "commit" => L["tool.git.displayCommit"],
                 "branch" => L["tool.git.displayBranch"],
@@ -277,6 +278,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         int clamped = count < 1 ? 1 : (count > 50 ? 50 : count);
                         sb.Append($" -{clamped}");
                         if (!string.IsNullOrEmpty(path)) sb.Append($" -- \"{EscapeArg(path)}\"");
+                        return sb.ToString();
+                    }
+
+                case "show":
+                    {
+                        string commit = GetStringArg(args, "branch"); // reuse branch param for commit hash
+                        string path = GetStringArg(args, "path");
+                        var sb = new StringBuilder("show");
+                        if (!string.IsNullOrEmpty(commit))
+                            sb.Append($" {EscapeArg(commit)}");
+                        else
+                            sb.Append(" HEAD");
+                        if (!string.IsNullOrEmpty(path))
+                            sb.Append($" -- \"{EscapeArg(path)}\"");
                         return sb.ToString();
                     }
 

@@ -1079,10 +1079,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                         AddLog("INFO", $"[{Definition.Name}] → ExploreAgent: {ctx.Description}");
 
-                        // ── 转发 ExploreAgent 日志到父 Agent，让用户看到探索进度 ──
+                        // ── 转发 ExploreAgent 日志到父 Agent，但只写 _logs 不触发事件
+                        //    避免三重日志：Explore 已通过自身事件输出到 UI
                         Action<AgentLogEntry> forwardLog = (entry) =>
                         {
-                            AddLog(entry.Level, $"[Explore] {entry.Message.Truncate(200)}");
+                            _logs.Add(new AgentLogEntry
+                            {
+                                Level = entry.Level,
+                                Message = $"[Explore] {entry.Message.Truncate(200)}"
+                            });
+                            // 也写入 Logger 以便调试
+                            Logger.Info($"[{Definition.Name}][Explore] {entry.Message.Truncate(200)}");
                         };
                         ExploreAgent.LogEntryAdded += forwardLog;
                         AgentResult exploreResult;
@@ -1185,7 +1192,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // - branch 无参数（list）→ 只读
                 // - stash mode=list → 只读
                 // - reset + path（unstage）→ 只读
-                bool isReadOnly = operation is "status" or "diff" or "log"
+                bool isReadOnly = operation is "status" or "diff" or "log" or "show"
                     || (operation == "branch" && string.IsNullOrEmpty(branch) && !delete)
                     || (operation == "stash" && string.Equals(stashMode, "list", StringComparison.OrdinalIgnoreCase))
                     || (operation == "reset" && !string.IsNullOrEmpty(resetPath));
@@ -1641,7 +1648,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private void OnExploreLog(AgentLogEntry entry)
         {
-            AddLog(entry.Level, $"[Explore] {entry.Message}");
+            // 直接写入 _logs 不触发事件，避免 UI 重复显示
+            // ExploreAgent 的日志已通过自身事件输出到 UI
+            _logs.Add(new AgentLogEntry
+            {
+                Level = entry.Level,
+                Message = $"[Explore] {entry.Message}"
+            });
         }
 
         private void OnExploreFileChange(AgentFileChangeEventArgs args)
@@ -1805,7 +1818,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 or "create_directory"        // 同上
                 or "file_search"             // 同上
                 or "grep_search"             // 同上
-                or "git";                    // 写操作需要用户审批
+                or "git"                     // 写操作需要用户审批
+                or "runSubagent";            // 子代理可能需要用户审批（如 Explore 用 git）
         }
 
         /// <summary>

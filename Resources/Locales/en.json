@@ -1340,6 +1340,7 @@
   "tool.git.displayStatus": "🔍 git status",
   "tool.git.displayDiff": "📊 git diff",
   "tool.git.displayLog": "📜 git log",
+  "tool.git.displayShow": "🔍 git show",
   "tool.git.displayAdd": "📝 git add",
   "tool.git.displayCommit": "💾 git commit",
   "tool.git.displayBranch": "🌿 git branch",
