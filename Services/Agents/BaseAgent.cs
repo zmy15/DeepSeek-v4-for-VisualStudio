@@ -1161,8 +1161,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // 设置 Agent 类型供 GitTool 运行时校验（ExploreAgent 只能执行只读操作）
                 GitTool.CurrentAgentType = Definition.Type;
 
-                // 只读操作: status / diff / log → 自动放行
-                bool isReadOnly = operation is "status" or "diff" or "log";
+                // 解析额外参数以细化操作分类
+                string branch = string.Empty;
+                string stashMode = string.Empty;
+                string resetPath = string.Empty;
+                bool delete = false;
+                try
+                {
+                    using var doc2 = System.Text.Json.JsonDocument.Parse(argumentsJson);
+                    if (doc2.RootElement.TryGetProperty("branch", out var bProp))
+                        branch = bProp.GetString() ?? string.Empty;
+                    if (doc2.RootElement.TryGetProperty("mode", out var mProp))
+                        stashMode = mProp.GetString() ?? string.Empty;
+                    if (doc2.RootElement.TryGetProperty("path", out var pProp))
+                        resetPath = pProp.GetString() ?? string.Empty;
+                    if (doc2.RootElement.TryGetProperty("delete", out var dProp) && dProp.ValueKind == System.Text.Json.JsonValueKind.True)
+                        delete = true;
+                }
+                catch { }
+
+                // 细化的只读判断：
+                // - status/diff/log 始终只读
+                // - branch 无参数（list）→ 只读
+                // - stash mode=list → 只读
+                // - reset + path（unstage）→ 只读
+                bool isReadOnly = operation is "status" or "diff" or "log"
+                    || (operation == "branch" && string.IsNullOrEmpty(branch) && !delete)
+                    || (operation == "stash" && string.Equals(stashMode, "list", StringComparison.OrdinalIgnoreCase))
+                    || (operation == "reset" && !string.IsNullOrEmpty(resetPath));
 
                 if (!isReadOnly && !string.IsNullOrWhiteSpace(operation))
                 {

@@ -207,10 +207,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             // ── 运行时 Agent 权限校验 ──
             // ExploreAgent 只能执行只读操作；EditAgent/BuildAgent 无限制
-            if (CurrentAgentType == AgentType.Explore && !ReadOnlyOps.Contains(operation))
+            if (CurrentAgentType == AgentType.Explore)
             {
-                Logger.Warn($"[GitTool] ExploreAgent 尝试执行写操作被拒绝: git {operation}");
-                return string.Format(L["tool.git.agentBlocked"], operation, "Explore");
+                bool isReadOnly = ReadOnlyOps.Contains(operation)
+                    // branch 无参数（list）→ 只读
+                    || (operation == "branch" && string.IsNullOrEmpty(GetStringArg(args, "branch")) && !GetBoolArg(args, "delete"))
+                    // stash mode=list → 只读
+                    || (operation == "stash" && string.Equals(GetStringArg(args, "mode"), "list", StringComparison.OrdinalIgnoreCase))
+                    // reset + path（unstage）→ 只读
+                    || (operation == "reset" && !string.IsNullOrEmpty(GetStringArg(args, "path")));
+
+                if (!isReadOnly)
+                {
+                    Logger.Warn($"[GitTool] ExploreAgent 尝试执行写操作被拒绝: git {operation}");
+                    return string.Format(L["tool.git.agentBlocked"], operation, "Explore");
+                }
             }
 
             // ── 构建 git 命令行 ──
