@@ -106,6 +106,12 @@ public class BuiltInToolsTests
         new AskQuestionsTool().Name.Should().Be("VisualStudio_askQuestions");
     }
 
+    [Fact]
+    public void GitTool_HasCorrectName()
+    {
+        new GitTool().Name.Should().Be("git");
+    }
+
     #endregion
 
     #region All Definitions Are Valid
@@ -302,6 +308,7 @@ public class BuiltInToolsTests
             new RunInTerminalTool(),
             new GetTerminalOutputTool(),
             new AskQuestionsTool(),
+            new GitTool(),
         };
     }
 

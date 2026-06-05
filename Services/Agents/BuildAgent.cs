@@ -55,6 +55,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "get_terminal_output",
             // 任务管理
             "manage_todo_list",
+            // Git 版本控制
+            "git",
             // 记忆
             "memory",
         };

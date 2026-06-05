@@ -1,5 +1,6 @@
 ﻿using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
+using DeepSeek_v4_for_VisualStudio.Services.BuiltInTools;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Concurrent;
@@ -1142,6 +1143,63 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 };
             }
 
+            // ── Git 工具审批（写操作需审批，只读操作自动放行）──
+            if (toolName == "git" && BuiltInTools != null)
+            {
+                string operation = string.Empty;
+                string purpose = string.Empty;
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(argumentsJson);
+                    if (doc.RootElement.TryGetProperty("operation", out var opProp))
+                        operation = opProp.GetString()?.ToLowerInvariant() ?? string.Empty;
+                    if (doc.RootElement.TryGetProperty("purpose", out var purProp))
+                        purpose = purProp.GetString() ?? string.Empty;
+                }
+                catch { }
+
+                // 设置 Agent 类型供 GitTool 运行时校验（ExploreAgent 只能执行只读操作）
+                GitTool.CurrentAgentType = Definition.Type;
+
+                // 只读操作: status / diff / log → 自动放行
+                bool isReadOnly = operation is "status" or "diff" or "log";
+
+                if (!isReadOnly && !string.IsNullOrWhiteSpace(operation))
+                {
+                    string gitOpDesc = operation switch
+                    {
+                        "add" => "暂存文件",
+                        "commit" => "提交更改",
+                        "branch" => "分支操作",
+                        "checkout" => "切换分支",
+                        "pull" => "拉取远程更改",
+                        "push" => "推送到远程",
+                        "stash" => "暂存工作区",
+                        "reset" => "回退更改",
+                        _ => $"git {operation}"
+                    };
+
+                    string approvalCmd = $"git {operation}";
+                    string approvalTitle = operation == "push"
+                        ? $"⚠️ 确认 git push 操作"
+                        : $"确认 git {operation}: {gitOpDesc}";
+
+                    bool approved = await RequestPermissionAsync(
+                        approvalTitle,
+                        approvalCmd,
+                        "git_operation",
+                        purpose,
+                        string.IsNullOrEmpty(purpose) ? $"AI 请求执行 git {operation} 操作" : purpose);
+
+                    if (!approved)
+                    {
+                        AddLog("WARN", $"用户拒绝了 git {operation} 操作");
+                        return $"⏭️ 用户跳过了 git 操作: git {operation}";
+                    }
+                    AddLog("INFO", $"用户批准了 git {operation} 操作");
+                }
+            }
+
             // ── 终端命令需要用户审批 ──
             if (toolName == "run_in_terminal" && BuiltInTools != null)
             {
@@ -1720,7 +1778,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 or "list_dir"                // 同上
                 or "create_directory"        // 同上
                 or "file_search"             // 同上
-                or "grep_search";            // 同上
+                or "grep_search"             // 同上
+                or "git";                    // 写操作需要用户审批
         }
 
         /// <summary>

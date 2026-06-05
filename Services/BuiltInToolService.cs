@@ -140,6 +140,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Register(new RunInTerminalTool());
             Register(new GetTerminalOutputTool());
 
+            // Git 工具
+            Register(new GitTool());
+
             // 交互工具
             Register(new AskQuestionsTool());
 

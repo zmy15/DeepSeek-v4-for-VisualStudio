@@ -77,6 +77,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "get_terminal_output",
             "create_and_run_task",
             "build_solution",
+            // Git 版本控制
+            "git",
             // 子代理委派与移交
             "runSubagent",
             "request_handoff",
