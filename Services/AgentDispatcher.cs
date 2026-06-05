@@ -395,6 +395,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         }
                     }
 
+                    // ── Ask 反向补正：AI 路由到 Ask 时，如果启发式规则对原始消息
+                    // （不含对话上下文）判定为 Edit/Build，说明用户消息本身包含明确的
+                    // 代码修改意图（如"修复"/"改"/"fix"）。对话上下文可能让 AI 误以为
+                    // 用户在 Ask 对话中追问，但实际用户是要执行修改操作。
+                    // 此时以启发式结果为准，避免代码修改请求被当作纯问答处理。
+                    if (routing.TargetAgent == AgentType.Ask)
+                    {
+                        var heuristic = HeuristicRoute(userMessage);
+                        if (heuristic.TargetAgent != AgentType.Ask)
+                        {
+                            Logger.Info($"[AgentDispatcher] 🔄 Ask 反向补正: AI→Ask (置信度:{routing.Confidence}), "
+                                + $"启发式→{heuristic.TargetAgent}, 采用启发式结果 "
+                                + $"(原因: 原始消息含代码修改意图关键词)");
+                            return heuristic;
+                        }
+                    }
+
                     return routing;
                 }
             }
