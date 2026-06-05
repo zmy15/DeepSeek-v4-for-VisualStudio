@@ -41,6 +41,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         List<ChatApiMessage> BuildApiMessagesRecentTurns(int maxTurns);
         string GetDebugSummary();
 
+        // ── Token 估算校准 ──
+        /// <summary>
+        /// 使用 API 返回的实际 prompt_tokens 校准本地字符级估算。
+        /// 应在每次 Chat API 调用完成后调用，以逐步修正估算偏差。
+        /// </summary>
+        /// <param name="actualPromptTokens">API usage 中的实际 prompt_tokens</param>
+        void CalibrateFromApiUsage(long actualPromptTokens);
+
         // ── 工具方法 ──
         void Clear();
     }

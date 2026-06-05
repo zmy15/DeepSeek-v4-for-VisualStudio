@@ -49,8 +49,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>记忆上下文（独立存储，注入为 system 消息）</summary>
         private string? _memoryContext;
 
-        /// <summary>当前 Token 估算计数器</summary>
+        /// <summary>当前 Token 估算计数器（字符级原始估算，未校准）</summary>
         private int _estimatedTokens;
+
+        /// <summary>Token 估算校准系数（基于 API 实际 usage 的指数移动平均，1.0 = 无校准）</summary>
+        private double _calibrationFactor = 1.0;
+
+        /// <summary>校准样本权重（EMA α 值，0.15 约等于最近 ~7 次调用的加权）</summary>
+        private const double CalibrationAlpha = 0.15;
 
         /// <summary>上下文压缩服务（可选注入）</summary>
         private ContextCompressorService? _compressor;
@@ -70,14 +76,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>获取消息总条数</summary>
         public int MessageCount => _entries.Count;
 
-        /// <summary>获取估算 Token 数</summary>
-        public int EstimatedTokens => _estimatedTokens;
+        /// <summary>获取校准后的估算 Token 数（= 原始估算 × 校准系数）</summary>
+        public int EstimatedTokens => (int)(_estimatedTokens * _calibrationFactor);
+
+        /// <summary>获取原始字符级估算 Token 数（未校准），用于内部计算和校准对比</summary>
+        public int RawEstimatedTokens => _estimatedTokens;
 
         /// <summary>上下文是否为空（无任何用户消息）</summary>
         public bool IsEmpty => !_entries.Any(e => e.Role == "user");
 
-        /// <summary>获取上下文使用率（0.0 ~ 1.0）</summary>
-        public double UsageRatio => TokenBudget > 0 ? (double)_estimatedTokens / TokenBudget : 0;
+        /// <summary>获取上下文使用率（0.0 ~ 1.0，基于校准后估算）</summary>
+        public double UsageRatio => TokenBudget > 0 ? (double)EstimatedTokens / TokenBudget : 0;
 
         /// <summary>获取上下文使用百分比</summary>
         public double UsagePercent => UsageRatio * 100;
@@ -577,10 +586,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 当估算 Token 超过预算时，自动修剪最旧的轮次（旧行为，无压缩服务时使用）。
+        /// 使用校准后估算值作为阈值比较，确保在 API 真实 token 消耗接近预算时触发。
         /// </summary>
         public void AutoTrimIfNeeded()
         {
-            while (_estimatedTokens > TokenBudget && TurnCount > AutoTrimTurns + 1)
+            while (EstimatedTokens > TokenBudget && TurnCount > AutoTrimTurns + 1)
             {
                 TrimOldestTurn();
             }
@@ -588,7 +598,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 当估算 Token 超过预算时，自动压缩最旧的轮次（新行为，有压缩服务时使用）。
-        /// 同步版本：使用基于规则的本地压缩。
+        /// 同步版本：使用基于规则的本地压缩。使用校准后估算值作为阈值比较。
         /// </summary>
         public void AutoCompressIfNeeded()
         {
@@ -600,7 +610,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             int targetBudget = (int)(TokenBudget * threshold);
 
-            while (_estimatedTokens > targetBudget
+            while (EstimatedTokens > targetBudget
                 && TurnCount > preserveTurns + minToCompress)
             {
                 _isCompressing = true;
@@ -772,7 +782,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             var stats = new ContextStats
             {
-                EstimatedTokens = _estimatedTokens,
+                EstimatedTokens = EstimatedTokens,
                 TokenBudget = TokenBudget,
                 MessageCount = MessageCount,
                 TurnCount = TurnCount,
@@ -788,6 +798,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 .Sum(e => EstimateTokens(e.Content));
 
             return stats;
+        }
+
+        /// <summary>
+        /// 使用 API 返回的实际 prompt_tokens 校准本地字符级估算。
+        /// 使用指数移动平均 (EMA) 平滑校准系数，避免单次波动。
+        /// 应在每次 Chat API 调用完成后调用。
+        /// </summary>
+        /// <param name="actualPromptTokens">API usage 中的实际 prompt_tokens</param>
+        public void CalibrateFromApiUsage(long actualPromptTokens)
+        {
+            if (actualPromptTokens <= 0 || _estimatedTokens <= 0) return;
+
+            // 计算本次调用的实际/估算比率
+            double ratio = (double)actualPromptTokens / _estimatedTokens;
+
+            // 合理性检查：比率在 0.2 ~ 10 之间才参与校准（过滤异常值）
+            if (ratio < 0.2 || ratio > 10.0) return;
+
+            // 指数移动平均：newFactor = oldFactor * (1 - α) + ratio * α
+            _calibrationFactor = _calibrationFactor * (1 - CalibrationAlpha) + ratio * CalibrationAlpha;
+
+            Logger.Info($"[ContextCalibration] API prompt_tokens={actualPromptTokens}, " +
+                        $"rawEstimate={_estimatedTokens}, ratio={ratio:F3}, " +
+                        $"newFactor={_calibrationFactor:F3}");
         }
 
         #endregion

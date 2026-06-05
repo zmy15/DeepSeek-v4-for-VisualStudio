@@ -146,6 +146,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private System.Windows.Threading.DispatcherTimer? _balanceTimer;
         private BalanceResponse? _lastBalance;
 
+        // ── Token 估算校准 ──
+        private long _lastCalibratedPromptTokens; // 上次校准时的 prompt_tokens，避免重复校准
+
         // ── 增量渲染状态（对标 Turbo ucChat） ──
         private bool _browserInitialized;
         /// <summary>页面 DOM + JS 完全就绪后才为 true</summary>
@@ -618,6 +621,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 仅刷新消费显示（不重新请求余额 API），在流式生成完成后调用。
         /// 基于缓存的 _lastBalance 重建完整标签，避免字符串解析。
+        /// 同时使用 API 返回的实际 prompt_tokens 校准上下文估算。
         /// </summary>
         private void RefreshConsumptionDisplay()
         {
@@ -626,6 +630,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Dispatcher.Invoke(() => RefreshConsumptionDisplay());
                 return;
             }
+
+            // ── 使用 API 实际 usage 校准上下文 Token 估算 ──
+            CalibrateContextIfNeeded();
 
             var balanceLabel = BalanceLabel;
             var balanceBar = BalanceBar;
@@ -646,6 +653,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     balanceBar.Visibility = System.Windows.Visibility.Visible;
                 }
             }
+        }
+
+        /// <summary>
+        /// 若 API 返回了新的 usage 数据，使用实际 prompt_tokens 校准上下文估算器。
+        /// 只在 prompt_tokens 发生变化时校准一次，避免重复校准。
+        /// </summary>
+        private void CalibrateContextIfNeeded()
+        {
+            var usage = _apiService?.LastUsage;
+            if (usage == null) return;
+
+            long currentPromptTokens = usage.PromptTokens;
+            if (currentPromptTokens <= 0 || currentPromptTokens == _lastCalibratedPromptTokens)
+                return;
+
+            _lastCalibratedPromptTokens = currentPromptTokens;
+            _contextManager.CalibrateFromApiUsage(currentPromptTokens);
         }
 
         /// <summary>
