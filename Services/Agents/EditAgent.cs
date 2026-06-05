@@ -750,6 +750,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     "create_file",
                     "run_in_terminal",
                     "get_terminal_output",
+                    "git",                   // 解决冲突后重试推送等 git 操作
                 };
 
                 // ── 将验证专用指令作为额外 system 消息注入，保持 messages[0] 不变 ──
