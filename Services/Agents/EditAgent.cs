@@ -171,9 +171,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
                 }
-                else if (context.ActivePlan.ChangedFiles.Count > 0 || HasBuildWarningsInLogs())
+                else
                 {
-                    // ── 有文件变更或编译问题 → Handoff 生成总结 ──
+                    // ── 移交 Ask Agent 生成最终总结 ──
                     result.Handoff = BuildSummaryHandoff(context.ActivePlan);
 
                     if (HasBuildWarningsInLogs())
@@ -181,7 +181,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
                     }
                 }
-                // else: 无文件变更且无编译问题（纯 git 操作等）→ 跳过 Handoff，直接返回
             }
             else
             {
@@ -198,9 +197,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
                 }
-                else if (plan.ChangedFiles.Count > 0 || HasBuildWarningsInLogs())
+                else
                 {
-                    // ── 有文件变更或编译问题 → Handoff 生成总结 ──
+                    // ── 移交 Ask Agent 生成最终总结 ──
                     result.Handoff = BuildSummaryHandoff(plan);
 
                     if (HasBuildWarningsInLogs())
@@ -208,7 +207,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
                     }
                 }
-                // else: 无文件变更且无编译问题（纯 git 操作等）→ 跳过 Handoff，直接返回
             }
 
             result.Logs.AddRange(_logs);
@@ -1352,9 +1350,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // Git 操作完成语（避免格式重试）
                 @"已推送|推送成功|推送完成|push.*(?:success|done|ok)",
                 @"已提交|提交成功|commit.*(?:success|done|ok)",
-                @"已暂存|stash.*(?:success|done)",
+                @"已暂存|已添加|add.*(?:success|done|ok)|暂存.*成功",
+                @"stash.*(?:success|done)",
                 @"切换.*成功|已切换到|checkout.*success",
                 @"(?:git\s+)?操作.*(?:完成|成功|已执行)",
+                // 短回复兜底：非代码的简短完成确认（<100字符，不含代码块标记）
+                @"^(?:OK|Done|完成|好了|搞定|成功|已执行|已处理)[。！!.\s]*$",
             };
 
             foreach (var pattern in noChangesPatterns)
