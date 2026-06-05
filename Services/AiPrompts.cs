@@ -22,6 +22,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         public static string DefaultSystemPrompt => L["system.defaultSystemPrompt"];
 
+        /// <summary>
+        /// 英文版默认系统提示词（始终返回英文，不受当前语言设置影响）。
+        /// 用于在选项页中展示英文版 System Prompt。
+        /// </summary>
+        public static string DefaultSystemPromptEn => L.GetValueForLocale("system.defaultSystemPrompt", "en");
+
         #endregion
 
         #region UI Messages

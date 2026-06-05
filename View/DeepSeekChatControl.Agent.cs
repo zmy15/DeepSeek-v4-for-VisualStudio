@@ -141,7 +141,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
 
                 // ── 系统提示词 ──
-                string systemPrompt = _options?.SystemPrompt ?? string.Empty;
+                string systemPrompt = _options?.GetEffectiveSystemPrompt() ?? string.Empty;
                 if (_agentDispatcher != null)
                 {
                     string askAgentPrompt = _agentDispatcher.AskAgent.Definition.SystemPrompt;

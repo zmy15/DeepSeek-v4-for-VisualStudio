@@ -56,6 +56,8 @@
   "settings.apiKey.description": "DeepSeek API 密钥，从 https://platform.deepseek.com/api_keys 获取",
   "settings.systemPrompt.displayName": "System Prompt",
   "settings.systemPrompt.description": "系统提示词，定义 AI 助手的行为角色",
+  "settings.systemPromptEn.displayName": "System Prompt (English)",
+  "settings.systemPromptEn.description": "英文版系统提示词。当界面语言设置为英文时使用。",
   "settings.selectedModel.displayName": "Selected Model",
   "settings.selectedModel.description": "使用的 DeepSeek 模型",
   "settings.enableThinking.displayName": "Enable Deep Thinking",
