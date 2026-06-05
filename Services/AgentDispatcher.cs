@@ -97,7 +97,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
-        /// 向 Agent 注入工具服务（BuiltInToolService 和 McpManagerService）。
+        /// 向 Agent 注入工具服务（BuiltInToolService 和 McpManagerService）并绑定事件。
+        /// 在属性 getter 中调用，确保 Agent 首次创建时就完成事件绑定，
+        /// 避免子 Agent（如 ExploreAgent 被 AskAgent 的 runSubagent 调用）事件未绑定的问题。
         /// </summary>
         private void InjectToolServices(BaseAgent agent)
         {
@@ -105,6 +107,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 agent.BuiltInTools = _builtInToolService;
             if (agent.McpManager == null && _mcpManager != null)
                 agent.McpManager = _mcpManager;
+
+            // ── 绑定事件（-= 防止重复订阅）──
+            // 必须在 Agent 首次创建时就绑定，因为 Agent 可能作为子 Agent 被调用
+            // （如 ExploreAgent 通过 runSubagent 被 AskAgent 调用），
+            // 此时 EnsureAgent(AgentType.Explore) 尚未被调用，事件未绑定会导致权限请求无法响应。
+            agent.PermissionRequested -= OnAgentPermissionRequested;
+            agent.PermissionRequested += OnAgentPermissionRequested;
+            agent.QuestionsRequested -= OnAgentQuestionsRequested;
+            agent.QuestionsRequested += OnAgentQuestionsRequested;
+            agent.LogEntryAdded -= OnAgentLogEntryAdded;
+            agent.LogEntryAdded += OnAgentLogEntryAdded;
+            agent.FileChangeNotified -= OnAgentFileChangeNotified;
+            agent.FileChangeNotified += OnAgentFileChangeNotified;
         }
 
         /// <summary>
@@ -797,18 +812,49 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
+        /// 在所有 Agent 实例中查找拥有指定 requestId 的待处理权限请求。
+        /// 遍历所有已创建的 Agent（包括子 Agent），不限于当前活跃的顶层 Agent。
+        /// 解决子 Agent（如 ExploreAgent 通过 runSubagent 被调用时）权限请求无法被路由到正确 Agent 的问题。
+        /// </summary>
+        private BaseAgent? FindAgentWithPendingPermission(string requestId)
+        {
+            var agents = new BaseAgent?[] { _askAgent, _exploreAgent, _planAgent, _editAgent, _buildAgent };
+            foreach (var agent in agents)
+            {
+                if (agent?.TryGetPendingPermission(requestId) != null)
+                    return agent;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// 响应权限请求。
+        /// 在所有 Agent 实例中查找待处理请求，而不仅限于当前活跃的顶层 Agent。
+        /// 解决子 Agent 权限请求被错误路由到父 Agent 导致的死锁问题。
         /// </summary>
         public void RespondToPermission(string requestId, bool approved)
         {
-            GetActiveAgent()?.RespondToPermission(requestId, approved);
+            var agent = FindAgentWithPendingPermission(requestId) ?? GetActiveAgent();
+            agent?.RespondToPermission(requestId, approved);
         }
 
         /// <summary>
         /// 响应提问回答（VisualStudio_askQuestions）。
+        /// 在所有 Agent 实例中查找待处理请求，而不仅限于当前活跃的顶层 Agent。
         /// </summary>
         public void RespondToQuestions(string requestId, string answersJson)
         {
+            // 同样需要查找正确的 Agent（与权限请求同理）
+            var agents = new BaseAgent?[] { _askAgent, _exploreAgent, _planAgent, _editAgent, _buildAgent };
+            foreach (var agent in agents)
+            {
+                if (agent?.TryGetPendingQuestion(requestId) != null)
+                {
+                    agent.RespondToQuestions(requestId, answersJson);
+                    return;
+                }
+            }
+            // 回退：尝试活跃 Agent
             GetActiveAgent()?.RespondToQuestions(requestId, answersJson);
         }
 
@@ -820,8 +866,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <param name="filePaths">待删除的文件绝对路径列表</param>
         public async Task RespondToFileDeletePermissionAsync(string requestId, bool approved, List<string> filePaths)
         {
-            // 先完成权限响应（解除 Agent 的等待）
-            GetActiveAgent()?.RespondToPermission(requestId, approved);
+            // 先完成权限响应（解除 Agent 的等待）— 使用正确的 Agent 查找
+            var agent = FindAgentWithPendingPermission(requestId) ?? GetActiveAgent();
+            agent?.RespondToPermission(requestId, approved);
 
             if (approved && filePaths != null && filePaths.Count > 0)
             {
