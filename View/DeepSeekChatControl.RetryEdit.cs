@@ -354,20 +354,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         ?? string.Format(LocalizationService.Instance["agent.result.taskCompletedSuccess"],
                             plan.Steps.Count(s => s.Status == AgentStepStatus.Completed), plan.Steps.Count);
 
-                    // ── 更新现有的流式思考气泡为最终内容 ──
-                    lock (_lock)
-                    {
-                        if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count)
-                        {
-                            var msg = _messages[_agentStreamingMsgIndex];
-                            msg.Content = finalContent;
-                            msg.IsStreaming = false;
-                            msg.IsRendered = true;
-                            // ── 持久化任务计划 JSON，重启后可重建任务面板 ──
-                            try { msg.PlanJson = JsonSerializer.Serialize(plan, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
-                        }
-                    }
-
                     // ── 追加 Cache 命中率统计（使用累计值，非单轮）──
                     string cacheFooter = string.Empty;
                     try
@@ -384,8 +370,34 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     catch { }
 
+                    // ── 将 Cache 统计 HTML 追加到最终内容末尾，确保持久化后可恢复显示 ──
+                    string persistedContent = finalContent;
+                    if (!string.IsNullOrEmpty(cacheFooter))
+                    {
+                        persistedContent = finalContent + "\n\n" + cacheFooter;
+                    }
+
+                    // ── 更新现有的流式思考气泡为最终内容 ──
+                    lock (_lock)
+                    {
+                        if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count)
+                        {
+                            var msg = _messages[_agentStreamingMsgIndex];
+                            msg.Content = persistedContent;
+                            msg.IsStreaming = false;
+                            msg.IsRendered = true;
+                            // ── 持久化任务计划 JSON，重启后可重建任务面板 ──
+                            try { msg.PlanJson = JsonSerializer.Serialize(plan, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
+                            // ── 持久化 Handoff JSON，会话切换后可重建"开始执行"按钮 ──
+                            if (_pendingHandoff != null)
+                            {
+                                try { msg.HandoffJson = JsonSerializer.Serialize(_pendingHandoff, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
+                            }
+                        }
+                    }
+
                     // ── 强制刷新 DOM 显示最终结果 ──
-                    BatchStreamingUpdate(_agentStreamingMsgIndex, finalContent, string.Empty, isComplete: true);
+                    BatchStreamingUpdate(_agentStreamingMsgIndex, persistedContent, string.Empty, isComplete: true);
 
                     // ── 发送最终渲染：extraFooter 中注入执行过程 HTML + 缓存统计（纯 HTML，不经过 Markdown 转义）──
                     string combinedFooter = thinkingDetailsHtml + cacheFooter;
@@ -402,6 +414,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     StatusLabel.Text = LocalizationService.Instance["status.ready"];
                 }
+
+                // ── 同步 Agent 响应到树和上下文管理器，持久化保存 ──
+                // 修复 Plan→Edit 切换后变更总结和 Token 统计丢失的问题。
+                // RunAgentWorkflowAsync 有相同的调用，ExecuteAgentHandoffAsync 此前缺失。
+                await SyncAgentResponseToTreeAndContextAsync();
+
+                // ── 刷新右下角余额/Token 显示 ──
+                RefreshConsumptionDisplay();
             }
             catch (Exception ex)
             {
