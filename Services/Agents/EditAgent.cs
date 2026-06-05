@@ -659,8 +659,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
                     else
                     {
-                        // 新文件：所有行都是新增
-                        realAdded = r.AppliedEdits.Count;
+                        // 新文件（未在 originalContents 中）：读取实际文件内容计算行数
+                        if (File.Exists(r.FilePath))
+                        {
+                            string content = File.ReadAllText(r.FilePath);
+                            realAdded = CountLines(content);
+                        }
+                        else if (!string.IsNullOrEmpty(r.FinalContent))
+                        {
+                            realAdded = CountLines(r.FinalContent);
+                        }
+                        else
+                        {
+                            realAdded = r.AppliedEdits.Count > 0 ? r.AppliedEdits.Count : 1;
+                        }
                     }
 
                     return new FileChangeSummary
@@ -673,7 +685,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 })
                 .Concat(plan.ChangedFiles)
                 .GroupBy(c => NormalizePath(c.FilePath), StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.First())
+                .Select(g => g.OrderByDescending(c => c.LinesAdded + c.LinesRemoved).First())
                 .ToList();
 
             var L = LocalizationService.Instance;
@@ -2359,7 +2371,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         }
                         else if (toolName == "create_file")
                         {
-                            linesAdded = 1; // 至少标记为有变更
+                            // 读取实际文件内容计算行数
+                            if (File.Exists(filePath))
+                            {
+                                string content = File.ReadAllText(filePath);
+                                linesAdded = CountLines(content);
+                            }
+                            else
+                            {
+                                linesAdded = 1; // 文件不存在时至少标记为有变更
+                            }
                         }
 
                         string fileName = System.IO.Path.GetFileName(filePath);
