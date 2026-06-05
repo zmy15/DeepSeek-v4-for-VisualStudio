@@ -57,7 +57,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _agentDispatcher.ContextManager = _contextManager;
             _agentDispatcher.PermissionRequested += OnAgentPermissionRequested;
             _agentDispatcher.QuestionsRequested += OnAgentQuestionsRequested;
-            Logger.Info("Agent 调度器初始化成功（多 Agent 模式：Ask / Plan / Explore / Edit）");
+            Logger.Info("Agent 调度器初始化成功（多 Agent 模式：Ask / Plan / Explore / Edit / Build）");
 
             // 初始化 Agent 模式徽章（默认隐藏 Ask 模式）
             UpdateAgentModeBadge();

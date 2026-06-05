@@ -145,7 +145,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 Name = "Explore",
                 Description = "快速只读代码库探索和问答子代理。" +
                     "优先使用而非手动链接多个搜索和文件读取操作，避免污染主对话。" +
-                    "支持并行调用。指定详细程度: quick, medium, 或 thorough。",
+                    "支持并行调用。支持 Git 只读操作（status/diff/log）。" +
+                    "指定详细程度: quick, medium, 或 thorough。",
                 ArgumentHint = "描述要搜索的内容和期望的详细程度 (quick/medium/thorough)",
                 UserInvocable = true,
                 AllowedTools = new List<string>(DefaultReadTools),
