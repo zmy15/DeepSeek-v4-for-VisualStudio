@@ -44,8 +44,33 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [LocalizedCategory("settings.category.api")]
         [LocalizedDisplayName("settings.systemPrompt.displayName")]
         [LocalizedDescription("settings.systemPrompt.description")]
+        [Editor(typeof(System.ComponentModel.Design.MultilineStringEditor), typeof(UITypeEditor))]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
         public string SystemPrompt { get; set; } = AiPrompts.DefaultSystemPrompt;
+
+        [LocalizedCategory("settings.category.api")]
+        [LocalizedDisplayName("settings.systemPromptEn.displayName")]
+        [LocalizedDescription("settings.systemPromptEn.description")]
+        [Editor(typeof(System.ComponentModel.Design.MultilineStringEditor), typeof(UITypeEditor))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public string SystemPromptEn { get; set; } = AiPrompts.DefaultSystemPromptEn;
+
+        /// <summary>
+        /// 根据当前语言设置获取有效的 System Prompt。
+        /// - 英文模式（Language == "en"）：优先使用 SystemPromptEn，为空时回退英文默认值。
+        /// - 中文/自动模式：优先使用 SystemPrompt，为空时回退当前语言默认值。
+        /// </summary>
+        public string GetEffectiveSystemPrompt()
+        {
+            bool isEnglish = string.Equals(Language, "en", StringComparison.OrdinalIgnoreCase);
+            if (isEnglish)
+            {
+                string enPrompt = SystemPromptEn ?? string.Empty;
+                return !string.IsNullOrWhiteSpace(enPrompt) ? enPrompt : AiPrompts.DefaultSystemPromptEn;
+            }
+            string prompt = SystemPrompt ?? string.Empty;
+            return !string.IsNullOrWhiteSpace(prompt) ? prompt : AiPrompts.DefaultSystemPrompt;
+        }
 
         [LocalizedCategory("settings.category.model")]
         [LocalizedDisplayName("settings.selectedModel.displayName")]

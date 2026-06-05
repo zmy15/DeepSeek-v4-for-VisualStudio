@@ -56,6 +56,8 @@
   "settings.apiKey.description": "DeepSeek API key. Obtain from https://platform.deepseek.com/api_keys",
   "settings.systemPrompt.displayName": "System Prompt",
   "settings.systemPrompt.description": "System prompt that defines the AI assistant's behavior and role",
+  "settings.systemPromptEn.displayName": "System Prompt (English)",
+  "settings.systemPromptEn.description": "English version of the system prompt. Used when UI language is set to English.",
   "settings.selectedModel.displayName": "Selected Model",
   "settings.selectedModel.description": "The DeepSeek model to use",
   "settings.enableThinking.displayName": "Enable Deep Thinking",

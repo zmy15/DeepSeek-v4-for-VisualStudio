@@ -196,6 +196,55 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 获取指定 locale 下某个 key 的值（不切换当前语言）。
+        /// 用于获取英文版 System Prompt 等跨语言场景。
+        /// </summary>
+        /// <param name="key">字符串键。</param>
+        /// <param name="localeCode">目标语言代码，如 "en" 或 "zh-CN"。</param>
+        /// <returns>本地化字符串；未找到时返回 "[key]"。</returns>
+        public string GetValueForLocale(string key, string localeCode)
+        {
+            if (string.IsNullOrEmpty(key)) return string.Empty;
+            if (string.IsNullOrEmpty(localeCode)) return this[key];
+
+            localeCode = NormalizeLanguageCode(localeCode);
+
+            // 如果目标语言就是当前语言，直接返回
+            if (string.Equals(localeCode, CurrentLanguage, StringComparison.OrdinalIgnoreCase))
+                return this[key];
+
+            // 加载目标 locale 的 JSON 并查找
+            string filePath = GetResourceFilePath(localeCode);
+            if (!File.Exists(filePath))
+            {
+                // 尝试嵌入资源
+                string? json = LoadFromEmbeddedResource(localeCode);
+                if (json != null)
+                {
+                    try
+                    {
+                        var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                        if (dict != null && dict.TryGetValue(key, out var embeddedValue))
+                            return embeddedValue;
+                    }
+                    catch { }
+                }
+                return $"[{key}]";
+            }
+
+            try
+            {
+                string json = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
+                var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                if (dict != null && dict.TryGetValue(key, out var value))
+                    return value;
+            }
+            catch { }
+
+            return $"[{key}]";
+        }
+
+        /// <summary>
         /// 获取所有已加载的字符串键（用于调试）。
         /// </summary>
         public IReadOnlyCollection<string> Keys
