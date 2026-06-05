@@ -207,6 +207,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
+        /// 使用预构建消息列表调用 AI（支持 toolChoice 和 temperature 参数）。
+        /// 
+        /// 🔑 缓存关键：与 CallAiLongAsync 不同，此方法直接使用传入的 messages，
+        /// 不通过 BuildContextAwareMessages 重建。这使得跨阶段的对话延续成为可能——
+        /// 对齐阶段的 tool call 历史可以直接传递给设计阶段，DeepSeek Prefix Cache
+        /// 可以匹配整个对齐对话前缀，而非仅匹配 system prompt。
+        /// </summary>
+        /// <param name="messages">预构建的完整消息列表（含 system + 历史 + user）</param>
+        /// <param name="ct">取消令牌</param>
+        /// <param name="maxTokens">最大输出 token 数</param>
+        /// <param name="toolChoice">工具调用策略（"none" 禁用工具）</param>
+        /// <param name="temperature">采样温度（0.0 = 确定性输出）</param>
+        protected async Task<string> CallAiWithMessagesAsync(
+            List<ChatApiMessage> messages,
+            CancellationToken ct,
+            int maxTokens = 4096,
+            string? toolChoice = null,
+            double? temperature = null)
+        {
+            var sb = new StringBuilder();
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, toolChoice, temperature))
+            {
+                if (IsContentChunk(chunk))
+                    sb.Append(chunk);
+            }
+            LogCacheHitRate();
+            return sb.ToString().Trim();
+        }
+
+        /// <summary>
         /// 使用 ConversationContextManager 构建的消息列表调用 AI。
         /// 正确处理 reasoning_content 回传规则。
         /// </summary>
