@@ -638,13 +638,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // ── 构建额外的 system 消息（发现上下文），放在历史之后、用户消息之前 ──
             // 这样 messages[0]（Agent System Prompt）保持稳定，可被 DeepSeek Prefix Cache 命中
+            //
+            // 🔑 缓存关键：discoveryContext 的包装头必须与 GenerateDetailedPlanMarkdownAsync
+            // 使用完全相同的 i18n key（plan.md.codebaseFindings），确保两个 API 调用之间的
+            // 发现上下文系统消息前缀完全一致，从而命中 DeepSeek Prefix Cache。
             var extraSystemMessages = new List<ChatApiMessage>();
             if (!string.IsNullOrEmpty(discoveryContext))
             {
                 extraSystemMessages.Add(new ChatApiMessage
                 {
                     Role = "system",
-                    Content = LocalizationService.Instance["agent.plan.discoveryFallback"] + "\n\n" + discoveryContext
+                    Content = L["plan.md.codebaseFindings"] + "\n\n" + discoveryContext
                 });
             }
             if (!string.IsNullOrEmpty(context.FileContext))
@@ -669,6 +673,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // ── 诊断：记录原始响应用于调试 JSON 解析失败 ──
             string rawResponse = json;
+            string rawPreview = rawResponse.Length > 500
+                ? rawResponse.Substring(0, 500) + "..."
+                : rawResponse;
+            AddLog("INFO", $"[Plan] JSON raw response (first 500 chars): {rawPreview}");
             // 先剥离 DSML/XML 标签（DeepSeek V4 可能在 toolChoice=none 时仍泄露工具调用意图到 content）
             json = StripDsmlContent(json);
             json = ExtractJsonFromMarkdown(json);
@@ -676,8 +684,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 早期检测：AI 是否返回了 JSON 格式的数据 ──
             if (!json.TrimStart().StartsWith("{"))
             {
-                string truncated = rawResponse.Length > 300
-                    ? rawResponse.Substring(0, 300) + "..."
+                string truncated = rawResponse.Length > 500
+                    ? rawResponse.Substring(0, 500) + "..."
                     : rawResponse;
                 AddLog("WARN", string.Format(L["agent.plan.noJsonInResponse"], truncated));
 
@@ -687,11 +695,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 try
                 {
+                    // 重试时注入额外的 system 消息，明确告知无工具可用
+                    var retryExtraMessages = new List<ChatApiMessage>
+                    {
+                        new ChatApiMessage
+                        {
+                            Role = "system",
+                            Content = "⚠️ CRITICAL: You are in tool_choice=none mode. You have ZERO tools available. " +
+                                      "Do NOT output DSML, function_calls, tool_calls, XML invoke tags, or any " +
+                                      "tool invocation syntax. Your ONLY valid output is a raw JSON object."
+                        }
+                    };
+
                     string retryResponse = await CallAiLongAsync(
                         Definition.SystemPrompt,
                         "⚠️ 严格指令：你只能输出 JSON 对象。不要调用任何工具（你无法调用工具）。" +
-                        "不要输出任何 markdown、分析文字、代码块标记、XML标签或解释。直接以 { 字符开始，输出纯 JSON。违反此规则将导致系统故障。",
-                        null,  // 不传发现上下文到重试，减少干扰
+                        "不要输出任何 DSML、function_calls、tool_calls、XML invoke 标签、markdown、分析文字、" +
+                        "代码块标记、或解释。直接以 { 字符开始，输出纯 JSON。违反此规则将导致系统故障。",
+                        retryExtraMessages,  // 注入反工具调用 system 消息
                         ct,
                         maxTokens: 4096,
                         toolChoice: "none",
@@ -737,16 +758,45 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     plan.Intent = AgentIntent.CodeChange;
                     return plan;
                 }
+
+                // JSON 解析成功但 steps 为空 → 尝试从原始文本中提取步骤
+                if (plan != null && plan.Steps.Count == 0)
+                {
+                    AddLog("WARN", "[Plan] JSON parsed but steps array is empty. Attempting text-based step extraction...");
+                    var extractedSteps = ExtractStepsFromRawAiText(rawResponse);
+                    if (extractedSteps.Count > 0)
+                    {
+                        plan.Steps = extractedSteps;
+                        plan.Title = plan.Title ?? extractedSteps[0].Title;
+                        plan.Intent = AgentIntent.CodeChange;
+                        AddLog("INFO", $"[Plan] Extracted {extractedSteps.Count} steps from raw AI text (JSON steps were empty).");
+                        return plan;
+                    }
+                }
             }
             catch (Exception ex)
             {
                 // ── 诊断日志：记录原始响应片段以便排查 ──
-                string truncated = rawResponse.Length > 300
-                    ? rawResponse.Substring(0, 300) + "..."
+                string truncated = rawResponse.Length > 500
+                    ? rawResponse.Substring(0, 500) + "..."
                     : rawResponse;
                 var L2 = LocalizationService.Instance;
                 AddLog("WARN", string.Format(L2["agent.plan.jsonParseFailed"], ex.Message));
                 AddLog("INFO", string.Format(L2["agent.log.planJsonRawResponse"], truncated));
+
+                // ── JSON 解析异常 → 尝试从原始文本中提取步骤作为最后手段 ──
+                AddLog("INFO", "[Plan] JSON deserialization threw exception. Attempting text-based step extraction from raw response...");
+                var fallbackSteps = ExtractStepsFromRawAiText(rawResponse);
+                if (fallbackSteps.Count > 0)
+                {
+                    AddLog("INFO", $"[Plan] Extracted {fallbackSteps.Count} steps from raw AI text after JSON parse failure.");
+                    return new AgentTaskPlan
+                    {
+                        Intent = AgentIntent.CodeChange,
+                        Title = fallbackSteps[0].Title,
+                        Steps = fallbackSteps,
+                    };
+                }
             }
 
             // 回退：单步计划
@@ -938,6 +988,117 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
+        /// 从 AI 原始文本响应中提取步骤（JSON 解析失败时的兜底方案）。
+        /// 支持的格式比 ExtractStepsFromPlanMarkdown 更宽松：
+        ///   - "Step 1: ..." 或 "步骤 1: ..."（不要求 Markdown 标题）
+        ///   - 编号列表 "1. ..." "2. ..."
+        ///   - 破折号列表 "- ..."
+        ///   - "### Step N" 或 "## 步骤 N"（Markdown 格式，委托给 ExtractStepsFromPlanMarkdown）
+        /// </summary>
+        /// <param name="rawText">AI 原始响应文本（含可能的 DSML/XML 污染）</param>
+        /// <returns>提取的步骤列表</returns>
+        private static List<AgentStep> ExtractStepsFromRawAiText(string rawText)
+        {
+            var steps = new List<AgentStep>();
+            if (string.IsNullOrWhiteSpace(rawText)) return steps;
+
+            // 先尝试用已有的 Markdown 步骤提取器
+            steps = ExtractStepsFromPlanMarkdown(rawText);
+            if (steps.Count > 0) return steps;
+
+            // ── 宽松模式 1: "Step N: Title" 或 "步骤 N: Title"（纯文本）──
+            var stepLinePattern = new System.Text.RegularExpressions.Regex(
+                @"(?:步骤|Step)\s*(\d+)[：:]\s*(.+)$",
+                System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            var matches = stepLinePattern.Matches(rawText);
+            if (matches.Count > 0)
+            {
+                for (int i = 0; i < matches.Count; i++)
+                {
+                    var m = matches[i];
+                    if (!int.TryParse(m.Groups[1].Value, out int idx))
+                        idx = i + 1;
+                    string title = m.Groups[2].Value.Trim();
+                    title = System.Text.RegularExpressions.Regex.Replace(title, @"[\*\#]+", "").Trim();
+                    if (title.Length < 3) continue;
+
+                    steps.Add(new AgentStep
+                    {
+                        Index = idx,
+                        Title = title,
+                        Description = title,
+                        RequiresApproval = false,
+                    });
+                }
+            }
+
+            // ── 宽松模式 2: 编号列表 "N. Title" ──
+            if (steps.Count == 0)
+            {
+                var numberedPattern = new System.Text.RegularExpressions.Regex(
+                    @"^(\d+)[\.\)、]\s*(.+)$",
+                    System.Text.RegularExpressions.RegexOptions.Multiline);
+
+                matches = numberedPattern.Matches(rawText);
+                // 至少需要 2 个匹配才算有效步骤列表
+                if (matches.Count >= 2)
+                {
+                    for (int i = 0; i < matches.Count; i++)
+                    {
+                        var m = matches[i];
+                        if (!int.TryParse(m.Groups[1].Value, out int idx))
+                            idx = i + 1;
+                        string title = m.Groups[2].Value.Trim();
+                        title = System.Text.RegularExpressions.Regex.Replace(title, @"[\*\#]+", "").Trim();
+                        if (title.Length < 5) continue;
+
+                        steps.Add(new AgentStep
+                        {
+                            Index = idx,
+                            Title = title,
+                            Description = title,
+                            RequiresApproval = false,
+                        });
+                    }
+                }
+            }
+
+            // ── 宽松模式 3: 破折号列表 "- Title"（至少 2 个）──
+            if (steps.Count == 0)
+            {
+                var dashPattern = new System.Text.RegularExpressions.Regex(
+                    @"^[\-\*]\s+(.+)$",
+                    System.Text.RegularExpressions.RegexOptions.Multiline);
+
+                matches = dashPattern.Matches(rawText);
+                if (matches.Count >= 2)
+                {
+                    for (int i = 0; i < matches.Count; i++)
+                    {
+                        string title = matches[i].Groups[1].Value.Trim();
+                        title = System.Text.RegularExpressions.Regex.Replace(title, @"[\*\#]+", "").Trim();
+                        if (title.Length < 5) continue;
+
+                        steps.Add(new AgentStep
+                        {
+                            Index = i + 1,
+                            Title = title,
+                            Description = title,
+                            RequiresApproval = false,
+                        });
+                    }
+                }
+            }
+
+            // 重新编号确保连续
+            for (int i = 0; i < steps.Count; i++)
+                steps[i].Index = i + 1;
+
+            return steps;
+        }
+
+        /// <summary>
         /// 使用 AI 将 JSON 计划展开为详细的 Markdown 计划文档（plan.md）。
         /// 包含：要实现的功能、实现方案、详细步骤、涉及文件、类/接口/方法设计、依赖关系、验证步骤。
         /// </summary>
@@ -1017,8 +1178,77 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 maxTokens: 16384, toolChoice: "none");
             AddLog("INFO", L["agent.log.planMdGenerated"]);
 
-            // 如果 AI 返回了代码块包裹的内容，去掉包裹
+            // ── 后处理：剥离 DSML/工具调用泄露 ──
+            // DeepSeek V4 即使在 toolChoice=none 时也可能将工具调用意图泄露到 content 字段，
+            // 导致 plan.md 内容被 DSML/XML 标签污染。此处先剥离再检测。
+            string rawMarkdown = markdown;
+            markdown = StripDsmlContent(markdown);
             markdown = markdown.Trim();
+
+            // ── 检测空内容：剥离 DSML 后内容过短 → AI 返回了工具调用而非计划文档 ──
+            if (markdown.Length < 200)
+            {
+                string rawPreview = rawMarkdown.Length > 500
+                    ? rawMarkdown.Substring(0, 500) + "..."
+                    : rawMarkdown;
+                AddLog("WARN", $"[Plan] plan.md content is too short after DSML stripping ({markdown.Length} chars). Raw preview: {rawPreview}");
+                AddLog("INFO", "[Plan] Retrying plan.md generation with stricter anti-tool-call prompt...");
+
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    // 重试：不传发现上下文（已在首次调用的 system messages 中），
+                    // 使用更严格的反工具调用 system 消息覆盖
+                    var retryExtraMessages = new List<ChatApiMessage>
+                    {
+                        new ChatApiMessage
+                        {
+                            Role = "system",
+                            Content = L["plan.md.jsonPlan"] + "\n```json\n" + planJson + "\n```"
+                        },
+                        new ChatApiMessage
+                        {
+                            Role = "system",
+                            Content = "⚠️ CRITICAL: You are in tool_choice=none mode. You have NO tools available. " +
+                                      "Do NOT output any function calls, DSML tags, XML tags, tool invocations, " +
+                                      "or code blocks that look like tool usage. Output ONLY the implementation plan " +
+                                      "in clean Markdown format as instructed below."
+                        }
+                    };
+
+                    string retryMd = await CallAiLongAsync(
+                        Definition.SystemPrompt,
+                        "⚠️ RETRY: Your previous response contained tool call syntax instead of a plan document. " +
+                        "Re-read the instructions and output ONLY a clean Markdown implementation plan. " +
+                        "No DSML, no XML, no tool calls, no function invocations — just the plan document.",
+                        retryExtraMessages, ct,
+                        maxTokens: 16384, toolChoice: "none");
+
+                    retryMd = StripDsmlContent(retryMd);
+                    retryMd = retryMd.Trim();
+
+                    if (retryMd.Length >= 200)
+                    {
+                        markdown = retryMd;
+                        AddLog("INFO", $"[Plan] plan.md retry succeeded ({markdown.Length} chars).");
+                    }
+                    else
+                    {
+                        AddLog("WARN", $"[Plan] plan.md retry also returned short content ({retryMd.Length} chars). Using best available.");
+                        markdown = retryMd.Length > markdown.Length ? retryMd : markdown;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception retryEx)
+                {
+                    AddLog("WARN", $"[Plan] plan.md retry failed: {retryEx.Message}. Using original ({markdown.Length} chars).");
+                }
+            }
+
+            // 如果 AI 返回了代码块包裹的内容，去掉包裹
             if (markdown.StartsWith("```markdown") || markdown.StartsWith("```md"))
             {
                 int start = markdown.IndexOf('\n') + 1;
