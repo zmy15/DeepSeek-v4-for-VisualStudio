@@ -1171,8 +1171,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // ── 同步最终内容并强制刷新，确保增量内容已推送 ──
                     BatchStreamingUpdate(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: true);
 
-                    // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染（含 Markdown HTML）──
-                    PostStreamEnd(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), cacheFooterHtml);
+                    // ── 仅在无待处理 Handoff 时立即发送最终渲染（含缓存卡片）──
+                    //     有待处理 Handoff 时，延迟到 Handoff 链完成后统一发送，
+                    //     避免 UI 提前冻结，让用户看到 Handoff 链的实时进度。 ──
+                    bool hasPendingHandoff = _pendingHandoff != null && _activeAgent != null && _agentFactory != null;
+                    if (!hasPendingHandoff)
+                    {
+                        PostStreamEnd(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), cacheFooterHtml);
+                    }
 
                     if (capturedSearchResults.Count > 0)
                     {
@@ -1188,7 +1194,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // ── 主流程移交处理：request_handoff 触发的 _pendingHandoff 在此执行 ──
                     // ── 支持 Handoff 链：Ask→Edit→Build→Ask，自动跟进 AutoSend 移交，
                     //     遇到 ShowContinueOn 时注入按钮并中断链，等待用户点击。 ──
-                    if (_pendingHandoff != null && _activeAgent != null && _agentFactory != null)
+                    if (hasPendingHandoff)
                     {
                         var currentHandoff = _pendingHandoff;
                         _pendingHandoff = null; // 防止重复执行
@@ -1253,6 +1259,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 // ── 刷新上下文中的对话历史 ──
                                 handoffContext.ConversationHistory = _contextManager.GetConversationHistory();
 
+                                // ── 更新 UI：显示当前 Handoff 执行状态 ──
+                                string statusMsg = $"\n\n⏳ **{currentHandoff.TargetAgent} Agent** 正在执行...";
+                                string interimContent = mergedContentBuilder.ToString() + statusMsg;
+                                string interimReasoning = mergedReasoningBuilder.ToString();
+                                assistantMsg.Content = interimContent;
+                                BatchStreamingUpdate(assistantMsgIndex, interimContent, interimReasoning, isComplete: false);
+
                                 // ── 执行当前 Handoff ──
                                 Logger.Info($"[MainFlow] 执行 Handoff → {currentHandoff.TargetAgent}");
                                 var handoffResult = await _activeAgent.ExecuteHandoffAsync(
@@ -1285,6 +1298,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                                 _contextManager.AddAssistantMessage(handoffContent);
                                 Logger.Info($"[MainFlow] Handoff 链 #{handoffChainRounds} 完成: → {currentHandoff.TargetAgent}, 内容长度={handoffContent.Length}");
+
+                                // ── 每步完成后更新 UI：移除"正在执行"提示，展示已累积的结果 ──
+                                assistantMsg.Content = mergedContentBuilder.ToString();
+                                assistantMsg.ReasoningContent = mergedReasoningBuilder.ToString();
+                                BatchStreamingUpdate(assistantMsgIndex, mergedContentBuilder.ToString(), mergedReasoningBuilder.ToString(), isComplete: false);
 
                                 // ── 检查是否有下一个 Handoff ──
                                 if (handoffResult.Handoff != null)
