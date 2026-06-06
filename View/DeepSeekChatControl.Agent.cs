@@ -1302,14 +1302,43 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         return;
                     }
 
+                    // ── 诊断：记录问题详情 ──
+                    try
+                    {
+                        var questionHeaders = request.Questions.Select(q => q.Header.Truncate(50));
+                        Logger.Info($"[Agent] 准备注入问题 UI: RequestId={request.RequestId}, 问题数={request.Questions.Count}, 标题=[{string.Join(", ", questionHeaders)}]");
+                        Logger.Info($"[Agent] 问题 JSON 长度: {System.Text.Json.JsonSerializer.Serialize(request.Questions).Length} 字符");
+                    }
+                    catch { }
+
                     string js = ChatHtmlService.BuildAskQuestionsJs(request);
                     StatusLabel.Text = string.Format(LocalizationService.Instance["status.questionsWaiting"],
                         request.Questions.Count);
-                    await ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
+
+                    string result = await ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
+                    Logger.Info($"[Agent] 问题 UI JS 执行完成, 返回: {result?.Truncate(200) ?? "(null)"}");
+
+                    // ── 验证：检查 DOM 中是否真的创建了问题元素 ──
+                    string verifyJs = "document.getElementById('agent-questions') ? 'EXISTS' : 'MISSING';";
+                    string verifyResult = await ChatWebView.CoreWebView2.ExecuteScriptAsync(verifyJs);
+                    if (verifyResult?.Contains("MISSING") == true)
+                    {
+                        Logger.Warn("[Agent] ⚠️ 问题 UI 注入后验证失败: DOM 中未找到 #agent-questions 元素!");
+                        // 检查可能的原因
+                        string containerCheck = await ChatWebView.CoreWebView2.ExecuteScriptAsync(
+                            "var c=document.getElementById('chat-container');" +
+                            "var f=typeof window.__insertBeforeTaskPanel;" +
+                            "JSON.stringify({containerExists:!!c, insertFnType:f});");
+                        Logger.Info($"[Agent] DOM 诊断: {containerCheck}");
+                    }
+                    else
+                    {
+                        Logger.Info($"[Agent] ✅ 问题 UI 已成功注入 DOM (verify={verifyResult})");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warn($"[Agent] 问题 UI 注入失败: {ex.Message}");
+                    Logger.Warn($"[Agent] 问题 UI 注入失败: {ex.Message}\n{ex.StackTrace}");
                     _activeAgent?.RespondToQuestions(request.RequestId, "{}");
                 }
             });

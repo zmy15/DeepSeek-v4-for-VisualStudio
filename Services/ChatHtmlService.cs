@@ -1187,23 +1187,29 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
 
             return $@"
 (function(){{
-    var existing=document.getElementById('agent-questions');
-    if(existing)existing.remove();
+    try{{
+        var existing=document.getElementById('agent-questions');
+        if(existing)existing.remove();
 
-    var div=document.createElement('div');
-    div.id='agent-questions';
-    div.style.cssText='border:1px solid #4fc1ff;border-radius:8px;background:#1a2a3a;padding:12px;margin:8px 0;animation:fadeIn .3s';
+        var div=document.createElement('div');
+        div.id='agent-questions';
+        div.style.cssText='border:1px solid #4fc1ff;border-radius:8px;background:#1a2a3a;padding:12px;margin:8px 0;animation:fadeIn .3s';
 
-    div.innerHTML=
-        '<div style=""color:#4fc1ff;font-size:12px;font-weight:600;margin-bottom:8px"">'+{EscapeJsString(LocalizationService.Instance["chat.html.questionsTitle"])}+'</div>'+{EscapeJsString(questionsHtml.ToString())}+
-        '<div style=""display:flex;gap:8px;margin-top:8px"">'+
-        '<button id=""agent-questions-submit"" onclick=""window.__answerQuestions(\'{safeRequestId}\')"" style=""background:#0e639c;color:#fff;border:none;border-radius:4px;padding:6px 20px;cursor:pointer;font-size:12px;font-weight:600"">'+{EscapeJsString(LocalizationService.Instance["chat.html.submitAnswer"])}+'</button>'+
-        '<button onclick=""window.__skipQuestions(\'{safeRequestId}\')"" style=""background:#3c3c3c;color:#aaa;border:1px solid #555;border-radius:4px;padding:6px 16px;cursor:pointer;font-size:12px"">'+{EscapeJsString(LocalizationService.Instance["chat.html.skip"])}+'</button>'+
-        '</div>';
+        div.innerHTML=
+            '<div style=""color:#4fc1ff;font-size:12px;font-weight:600;margin-bottom:8px"">'+{EscapeJsString(LocalizationService.Instance["chat.html.questionsTitle"])}+'</div>'+{EscapeJsString(questionsHtml.ToString())}+
+            '<div style=""display:flex;gap:8px;margin-top:8px"">'+
+            '<button id=""agent-questions-submit"" onclick=""window.__answerQuestions(\'{safeRequestId}\')"" style=""background:#0e639c;color:#fff;border:none;border-radius:4px;padding:6px 20px;cursor:pointer;font-size:12px;font-weight:600"">'+{EscapeJsString(LocalizationService.Instance["chat.html.submitAnswer"])}+'</button>'+
+            '<button onclick=""window.__skipQuestions(\'{safeRequestId}\')"" style=""background:#3c3c3c;color:#aaa;border:1px solid #555;border-radius:4px;padding:6px 16px;cursor:pointer;font-size:12px"">'+{EscapeJsString(LocalizationService.Instance["chat.html.skip"])}+'</button>'+
+            '</div>';
 
-    var container=document.getElementById('chat-container');
-    if(container)window.__insertBeforeTaskPanel(div);
-    window.__scrollToBottom('smooth');
+        var container=document.getElementById('chat-container');
+        if(!container){{window.__sendToHost({{type:'diagnostic',msg:'questions:chat-container not found'}});return;}}
+        window.__insertBeforeTaskPanel(div);
+        window.__scrollToBottom('smooth');
+        window.__sendToHost({{type:'diagnostic',msg:'questions:injected OK'}});
+    }}catch(e){{
+        window.__sendToHost({{type:'diagnostic',msg:'questions:JS error: '+e.message}});
+    }}
 }})();";
         }
 

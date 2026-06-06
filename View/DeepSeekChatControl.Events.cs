@@ -1734,6 +1734,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                         });
                     }
+                    // ── 诊断消息（来自 JS try-catch / DOM 检查）──
+                    else if (type == "diagnostic")
+                    {
+                        string msg = obj.TryGetProperty("msg", out var diagProp)
+                            ? diagProp.GetString() ?? string.Empty : string.Empty;
+                        Logger.Info($"[WebMessage] JS diagnostic: {msg}");
+                    }
                     else if (type == "fileDeleteConfirm")
                     {
                         string requestId = obj.TryGetProperty("requestId", out var delReqIdProp)
