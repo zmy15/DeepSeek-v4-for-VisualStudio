@@ -238,6 +238,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             CurrentPlan = plan;
             _agentCts = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
 
+            // ── P0-6: 新计划开始，重置跨计划状态（防止前一个计划的 CodeMemory/AccumulatedContext 泄漏）──
+            context.CodeMemory = null;
+            context.AccumulatedContext = null;
+
             // ═══════════════════════════════════════════════════════════════
             // 缓存策略：将 BuiltInToolService 已读取的文件同步到 AgentContext
             // 全局缓存，避免后续步骤重复 read_file（以后会被 RAG 替代）
@@ -251,6 +255,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         context.FileReadCache[kvp.Key] = kvp.Value;
                     AddLog("INFO", LocalizationService.Instance.Format("agent.log.editCachedFiles", builtInCache.Count));
                 }
+            }
+
+            // ── P0-1: 预填充 CodeMemory，让步骤1也能受益于探索阶段已读取的文件 ──
+            if (string.IsNullOrEmpty(context.CodeMemory) && BuiltInTools != null)
+            {
+                var initialModifiedPaths = new HashSet<string>(
+                    plan.ChangedFiles.Select(c => NormalizePath(c.FilePath)),
+                    StringComparer.OrdinalIgnoreCase);
+                RefreshCodeMemory(context, initialModifiedPaths);
             }
 
             // ── 防重守卫：如果计划已完成，跳过重复执行 ──
@@ -1594,10 +1607,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     // 过滤出与当前步骤可能相关的文件（基于步骤标题/描述中的文件名关键词）
                     var relevantFiles = FilterRelevantCachedFiles(fileCache, step);
+
+                    // ── P1-2: 收集 CodeMemory 中已包含的文件名，避免双重注入 ──
+                    var codeMemoryFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    if (!string.IsNullOrEmpty(context.CodeMemory))
+                    {
+                        var cmMatches = System.Text.RegularExpressions.Regex.Matches(
+                            context.CodeMemory, @"### 📄 `([^`]+)`");
+                        foreach (System.Text.RegularExpressions.Match m in cmMatches)
+                            codeMemoryFileNames.Add(m.Groups[1].Value);
+                    }
+
                     var safeFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var kvp in relevantFiles)
                     {
-                        if (!modifiedPaths.Contains(NormalizePath(kvp.Key)))
+                        if (!modifiedPaths.Contains(NormalizePath(kvp.Key))
+                            && !codeMemoryFileNames.Contains(System.IO.Path.GetFileName(kvp.Key)))
                             safeFiles[kvp.Key] = kvp.Value;
                     }
 
@@ -1787,93 +1812,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 更新代码记忆 — 使用 LRU + 头文件加权淘汰算法。
-        /// 
-        /// 评分公式: score = (currentRound - lastReadRound) / typeWeight
-        ///   - 分数越低（越近读取）优先级越高
-        ///   - typeWeight: .h/.hpp = 2.0, 其他 = 1.0
-        ///   - 已被修改的文件直接淘汰（内容过时）
-        /// 
-        /// 效果：
-        /// - 最近读取的文件优先保留
-        /// - 头文件更难被淘汰（2倍权重）
-        /// - 旧头文件不再需要的自然淘汰
-        /// - 近期频繁访问的 cpp 也能进入记忆
+        /// <summary>
+        /// 更新代码记忆 — 委托给 BaseAgent.RefreshCodeMemory。
+        /// 从文件读取缓存中提取未被修改的关键文件内容，供后续步骤直接使用。
         /// </summary>
         private void UpdateCodeMemory(AgentContext context, AgentTaskPlan plan)
         {
             if (BuiltInTools == null) return;
 
-            var fileCache = BuiltInTools.GetFileReadCacheSnapshot();
-            var roundCache = BuiltInTools.GetFileReadCacheRoundSnapshot();
-            if (fileCache.Count == 0) return;
-
-            int currentRound = BuiltInTools.CurrentRound;
-            if (currentRound <= 0) currentRound = int.MaxValue; // 无轮次信息时平等对待
-
             var modifiedPaths = new HashSet<string>(
                 plan.ChangedFiles.Select(c => NormalizePath(c.FilePath)),
                 StringComparer.OrdinalIgnoreCase);
 
-            // ── 构建候选列表：排除已修改文件，计算 LRU 分数 ──
-            var candidates = new List<(string Path, string Content, double Score)>();
-            foreach (var kvp in fileCache)
+            // 提取计划步骤关键词用于语义加分
+            var stepKeywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var step in plan.Steps)
             {
-                if (modifiedPaths.Contains(NormalizePath(kvp.Key))) continue;
-
-                string ext = System.IO.Path.GetExtension(kvp.Key).ToLowerInvariant();
-                double typeWeight = (ext == ".h" || ext == ".hpp") ? 2.0 : 1.0;
-
-                int lastRound = roundCache.TryGetValue(kvp.Key, out int lr) ? lr : 0;
-                int roundsAgo = lastRound > 0 && currentRound > lastRound
-                    ? currentRound - lastRound
-                    : 0;
-
-                // 分数 = 距今轮数 / 类型权重（越小越优先）
-                double score = roundsAgo / typeWeight;
-                candidates.Add((kvp.Key, kvp.Value, score));
+                string text = $"{step.Title} {step.Description}".ToLowerInvariant();
+                foreach (var word in text.Split(new[] { ' ', '(', ')', '（', '）', '、', '，', '/', '\\', '_', '-', '.' },
+                    StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (word.Length > 2)
+                        stepKeywords.Add(word);
+                }
             }
 
-            // ── 按分数升序排列（最近读取的头文件排最前）──
-            candidates.Sort((a, b) => a.Score.CompareTo(b.Score));
-
-            // ── 按优先级填充 CodeMemory，12KB 封顶 ──
-            var sb = new System.Text.StringBuilder();
-            const int maxTotalChars = 12000;
-            const int maxHeaderChars = 3000;
-            const int maxImplChars = 1500;
-            int totalChars = 0;
-
-            foreach (var (path, content, score) in candidates)
-            {
-                if (totalChars >= maxTotalChars) break;
-
-                string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
-                int maxChars = (ext == ".h" || ext == ".hpp") ? maxHeaderChars : maxImplChars;
-
-                string snippet = content;
-                if (snippet.Length > maxChars)
-                    snippet = snippet.Substring(0, maxChars) + "\n// ... (截断)";
-
-                int estimatedChars = snippet.Length + System.IO.Path.GetFileName(path).Length + 60;
-                if (totalChars + estimatedChars > maxTotalChars && totalChars > 0)
-                    break; // 放不下这个文件，跳过（不截得更短）
-
-                sb.AppendLine($"### 📄 `{System.IO.Path.GetFileName(path)}`");
-                sb.AppendLine("```cpp");
-                sb.AppendLine(snippet.TrimEnd());
-                sb.AppendLine("```");
-                sb.AppendLine();
-                totalChars += estimatedChars;
-            }
-
-            context.CodeMemory = sb.Length > 0 ? sb.ToString().TrimEnd() : null;
-
-            if (!string.IsNullOrEmpty(context.CodeMemory))
-            {
-                AddLog("INFO", string.Format(
-                    LocalizationService.Instance["agent.log.codeMemoryUpdated"] ?? "代码记忆已更新 ({0} 字符, {1} 个文件)",
-                    context.CodeMemory!.Length, candidates.Count(c => context.CodeMemory!.Contains(System.IO.Path.GetFileName(c.Path)))));
-            }
+            RefreshCodeMemory(context, modifiedPaths, stepKeywords);
         }
 
         #endregion

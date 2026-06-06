@@ -1112,12 +1112,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             ExploreAgent.McpManager = this.McpManager;
 
                         // ── 构建 ExploreAgent 上下文 ──
+                        // 为 ExploreAgent 创建 FileReadCache 副本，避免共享同一实例导致
+                        // "集合已修改；可能无法执行枚举操作" 异常。
+                        var exploreFileCache = Context?.FileReadCache != null
+                            ? new Dictionary<string, string>(Context.FileReadCache, StringComparer.OrdinalIgnoreCase)
+                            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
                         var exploreCtx = new AgentContext
                         {
                             SolutionPath = ctx.WorkspaceRoot ?? Context?.SolutionPath,
                             CancellationToken = ct,
                             ContextManager = Context?.ContextManager,
-                            FileReadCache = Context?.FileReadCache ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                            FileReadCache = exploreFileCache,
                             DiscoveredFiles = Context?.DiscoveredFiles,
                         };
 
@@ -2816,6 +2822,178 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (string.IsNullOrEmpty(filePath)) return filePath;
             return filePath.Replace('/', '\\').Trim().TrimEnd('\\');
         }
+
+        #region CodeMemory — 跨步骤代码记忆
+
+        /// <summary>
+        /// 语言感知的文件类型权重表。
+        /// 头文件/接口类文件加权，在 LRU 淘汰中更难被移除。
+        /// 未列出的扩展名默认权重 1.0。
+        /// </summary>
+        protected static readonly Dictionary<string, double> CodeMemoryTypeWeights = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // C/C++ headers — 被多个源文件引用，高价值
+            { ".h", 2.0 }, { ".hpp", 2.0 }, { ".hxx", 2.0 }, { ".h++", 2.0 },
+            // Interface / type-definition files in other languages
+            { ".cs", 1.5 },   // C# — 接口与实现在同一扩展名，适度加权
+            { ".ts", 1.3 },   // TypeScript — 类型定义重要
+            { ".d.ts", 1.5 }, // TypeScript 声明文件
+            // Build / config files — 影响全局
+            { ".csproj", 1.8 }, { ".props", 1.8 }, { ".targets", 1.8 },
+            { ".sln", 1.5 }, { ".slnx", 1.5 },
+            { ".json", 1.2 }, { ".yaml", 1.2 }, { ".yml", 1.2 },
+            { ".cmake", 1.3 }, { ".mak", 1.3 },
+            // Others at default 1.0
+        };
+
+        /// <summary>
+        /// 从文件读取缓存刷新跨步骤代码记忆（供所有 Agent 调用）。
+        /// 使用 LRU + 类型权重 + 步骤关键词加分的淘汰算法。
+        /// 总量控制在 ~12KB 以内。
+        /// </summary>
+        /// <param name="context">执行上下文</param>
+        /// <param name="modifiedPaths">已修改文件路径集合（这些文件被排除）</param>
+        /// <param name="stepKeywords">步骤关键词（可选，匹配到的文件获加分）</param>
+        protected void RefreshCodeMemory(
+            AgentContext context,
+            HashSet<string> modifiedPaths,
+            HashSet<string>? stepKeywords = null)
+        {
+            if (BuiltInTools == null) return;
+
+            var fileCache = BuiltInTools.GetFileReadCacheSnapshot();
+            var roundCache = BuiltInTools.GetFileReadCacheRoundSnapshot();
+            if (fileCache.Count == 0) return;
+
+            int currentRound = BuiltInTools.CurrentRound;
+            bool noRoundInfo = currentRound <= 0;
+            if (noRoundInfo) currentRound = int.MaxValue;
+
+            // ── 构建候选列表：排除已修改文件，计算加权 LRU 分数 ──
+            var candidates = new List<(string Path, string Content, double Score)>();
+            bool allScoresZero = true;
+
+            foreach (var kvp in fileCache)
+            {
+                if (modifiedPaths.Contains(NormalizePath(kvp.Key))) continue;
+
+                string ext = Path.GetExtension(kvp.Key).ToLowerInvariant();
+                double typeWeight = CodeMemoryTypeWeights.TryGetValue(ext, out double w) ? w : 1.0;
+
+                int lastRound = roundCache.TryGetValue(kvp.Key, out int lr) ? lr : 0;
+                int roundsAgo = (lastRound > 0 && currentRound > lastRound)
+                    ? currentRound - lastRound
+                    : 0;
+
+                // 分数 = 距今轮数 / 类型权重（越小越优先）
+                double score = roundsAgo / typeWeight;
+                if (roundsAgo > 0) allScoresZero = false;
+
+                // ── P1-4: 首轮退化 tiebreaker ──
+                // 当所有文件 roundsAgo=0 时，小文件优先（更高的信息密度）
+                if (roundsAgo == 0)
+                {
+                    score = (kvp.Value.Length / 1000.0) / typeWeight;
+                }
+
+                // ── P2-9: 步骤关键词加分 ──
+                if (stepKeywords != null && stepKeywords.Count > 0)
+                {
+                    string fileName = Path.GetFileName(kvp.Key).ToLowerInvariant();
+                    if (stepKeywords.Any(kw => fileName.Contains(kw)))
+                    {
+                        score -= 0.5; // 负值提升排名
+                    }
+                }
+
+                candidates.Add((kvp.Key, kvp.Value, score));
+            }
+
+            // ── 按分数升序排列（分数越低越优先）──
+            candidates.Sort((a, b) => a.Score.CompareTo(b.Score));
+
+            // ── 按优先级填充 CodeMemory，12KB 封顶 ──
+            var sb = new StringBuilder();
+            const int maxTotalChars = 12000;
+            const int maxHeaderChars = 3000;
+            const int maxImplChars = 1500;
+            int totalChars = 0;
+
+            foreach (var (path, content, score) in candidates)
+            {
+                if (totalChars >= maxTotalChars) break;
+
+                string ext = Path.GetExtension(path).ToLowerInvariant();
+                bool isHeader = ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".h++";
+                int maxChars = isHeader ? maxHeaderChars : maxImplChars;
+
+                string snippet = content;
+                if (snippet.Length > maxChars)
+                    snippet = snippet.Substring(0, maxChars) + "\n// ... (截断)";
+
+                int estimatedChars = snippet.Length + Path.GetFileName(path).Length + 60;
+                if (totalChars + estimatedChars > maxTotalChars && totalChars > 0)
+                    break;
+
+                sb.AppendLine($"### 📄 `{Path.GetFileName(path)}`");
+                sb.AppendLine("```cpp");
+                sb.AppendLine(snippet.TrimEnd());
+                sb.AppendLine("```");
+                sb.AppendLine();
+                totalChars += estimatedChars;
+            }
+
+            // ── P2-7: 贪心填空 — 用小文件填充剩余空间 ──
+            if (totalChars < maxTotalChars && totalChars > 0)
+            {
+                int remaining = maxTotalChars - totalChars;
+                var includedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var nameMatches = Regex.Matches(sb.ToString(), @"### 📄 `([^`]+)`");
+                foreach (Match m in nameMatches)
+                    includedNames.Add(m.Groups[1].Value);
+
+                foreach (var (path, content, score) in candidates)
+                {
+                    if (includedNames.Contains(Path.GetFileName(path))) continue;
+
+                    string ext = Path.GetExtension(path).ToLowerInvariant();
+                    bool isHeader = ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".h++";
+                    int maxChars = isHeader ? maxHeaderChars : maxImplChars;
+                    int available = Math.Min(maxChars, remaining - 60);
+                    if (available <= 100) continue; // 太小无意义
+
+                    string snippet = content.Length > available
+                        ? content.Substring(0, available) + "\n// ..."
+                        : content;
+                    sb.AppendLine($"### 📄 `{Path.GetFileName(path)}`");
+                    sb.AppendLine("```cpp");
+                    sb.AppendLine(snippet.TrimEnd());
+                    sb.AppendLine("```");
+                    sb.AppendLine();
+                    totalChars += snippet.Length + 60;
+                    includedNames.Add(Path.GetFileName(path));
+                    if (totalChars >= maxTotalChars) break;
+                }
+            }
+
+            context.CodeMemory = sb.Length > 0 ? sb.ToString().TrimEnd() : null;
+
+            // ── P2-8: 精确计数（用正则提取文件名，避免 Contains 误匹配）──
+            if (!string.IsNullOrEmpty(context.CodeMemory))
+            {
+                var includedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var nameMatches = Regex.Matches(context.CodeMemory!, @"### 📄 `([^`]+)`");
+                foreach (Match m in nameMatches)
+                    includedNames.Add(m.Groups[1].Value);
+
+                int fileCount = candidates.Count(c => includedNames.Contains(Path.GetFileName(c.Path)));
+                AddLog("INFO", string.Format(
+                    LocalizationService.Instance["agent.log.codeMemoryUpdated"] ?? "代码记忆已更新 ({0} 字符, {1} 个文件)",
+                    context.CodeMemory!.Length, fileCount));
+            }
+        }
+
+        #endregion
 
         /// <summary>
         /// 判断两次工具调用结果是否实质相同（用于循环检测）。
