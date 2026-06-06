@@ -63,7 +63,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private BuiltInToolService? _builtInToolService;
         private SkillService? _skillService;
         private SkillDiscoveryResult? _skillDiscoveryResult;
-        private AgentDispatcher? _agentDispatcher;
+        private AgentFactory? _agentFactory;
+        private BaseAgent? _activeAgent;
+        private AgentTaskPlan? _activePlan;
         private CancellationTokenSource? _currentStreamingCts;
 
         /// <summary>
@@ -723,12 +725,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _webSearchService?.Dispose();
             _mcpManager?.Dispose();
 
-            if (_agentDispatcher != null)
+            if (_agentFactory != null)
             {
-                _agentDispatcher.PermissionRequested -= OnAgentPermissionRequested;
-                _agentDispatcher.QuestionsRequested -= OnAgentQuestionsRequested;
-                _agentDispatcher.Dispose();
-                _agentDispatcher = null;
+                if (_activeAgent != null)
+                {
+                    UnbindAgentEvents(_activeAgent);
+                }
+                _agentFactory.Dispose();
+                _agentFactory = null;
+                _activeAgent = null;
             }
 
             SaveCurrentSession();
@@ -1050,7 +1055,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 if (AgentModeBadge == null || AgentModeText == null) return;
 
-                var agentType = _agentDispatcher?.ActiveAgentType ?? Models.AgentType.Ask;
+                var agentType = _activeAgent?.Definition.Type ?? Models.AgentType.Ask;
 
                 // Ask 模式为默认，隐藏徽章
                 if (agentType == Models.AgentType.Ask)

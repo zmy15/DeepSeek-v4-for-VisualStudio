@@ -195,15 +195,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string agentRoutedUserText = userText ?? string.Empty;
                 AgentRoutingResult? explicitRoute = null;
                 string? agentSkillInstructions = null;
-                if (_agentDispatcher != null && !string.IsNullOrEmpty(userText) && userText.StartsWith("@"))
+                if (!string.IsNullOrEmpty(userText) && userText.StartsWith("@"))
                 {
                     // 提取 @agent 后的内容：格式 @agent [/skill] [message]
                     var atParts = userText.Substring(1).Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
                     string agentName = atParts.Length > 0 ? atParts[0] : string.Empty;
                     agentRoutedUserText = atParts.Length > 1 ? atParts[1] : string.Empty;
 
-                    // 显式路由到指定 Agent
-                    explicitRoute = await _agentDispatcher.RouteAsync($"@{agentName}");
+                    // 显式路由到指定 Agent（UI 层简单解析）
+                    explicitRoute = ParseExplicitAgentRoute(agentName);
 
                     // ── @agent /skill 组合：先解析技能指令，注入到 Agent 工作流 ──
                     if (!string.IsNullOrWhiteSpace(agentRoutedUserText) && agentRoutedUserText.StartsWith("/"))
@@ -211,16 +211,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         string? skillResult = await ResolveSlashCommandAsync(agentRoutedUserText);
                         if (skillResult == null)
                         {
-                            // 内置命令已直接执行（help/create-skill/refresh-skills），无需继续
                             lock (_lock) { _isGenerating = false; }
                             UpdateButtonsState();
                             return;
                         }
                         if (!string.IsNullOrEmpty(skillResult))
                         {
-                            // 技能指令将在 Agent 工作流中作为 system 消息注入
                             agentSkillInstructions = skillResult;
-                            Logger.Info($"[AgentDispatcher] @agent /skill 组合: Agent={explicitRoute.TargetAgent}, Skill 指令已解析 ({skillResult.Length} 字符)");
+                            Logger.Info($"[Agent] @agent /skill 组合: Agent={explicitRoute.TargetAgent}, Skill 指令已解析 ({skillResult.Length} 字符)");
                         }
                     }
 
@@ -231,16 +229,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         UpdateButtonsState();
                         return;
                     }
-                    Logger.Info($"[AgentDispatcher] @agent 显式路由: → {explicitRoute.TargetAgent}, 消息: \"{agentRoutedUserText}\""
+                    Logger.Info($"[Agent] @agent 显式路由: → {explicitRoute.TargetAgent}, 消息: \"{agentRoutedUserText}\""
                         + (agentSkillInstructions != null ? " [含Skill指令]" : ""));
                 }
 
-                // 多 Agent 路由
-                if (_agentDispatcher != null && !string.IsNullOrEmpty(userText) && !userText.StartsWith("/"))
+                // 所有非斜杠命令消息统一走 Agent 工作流（从 AskAgent 起始）
+                if (_activeAgent != null && _agentFactory != null && !string.IsNullOrEmpty(userText) && !userText.StartsWith("/"))
                 {
-                    // ── 构建对话上下文摘要，帮助路由 AI 理解"进行修复"等短消息的指代 ──
-                    string? conversationContext = BuildRoutingContext(userText, fileContext, parseResults);
-                    var routing = explicitRoute ?? await _agentDispatcher.RouteAsync(userText, conversationContext);
+                    var routing = explicitRoute ?? new AgentRoutingResult
+                    {
+                        TargetAgent = AgentType.Ask,
+                        Confidence = "high",
+                        Reason = "统一入口 AskAgent",
+                        NeedsPlanning = false,
+                    };
 
                     // ── 上下文感知意图覆盖：当存在待处理计划时的特殊路由 ──
                     routing = OverrideRoutingForPlanContext(userText, routing);
@@ -579,7 +581,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         // 内置工作区工具
                         if (_builtInToolService != null)
                         {
-                            var allowedTools = _agentDispatcher?.ActiveAgentAllowedTools;
+                            var allowedTools = _activeAgent?.Definition.AllowedTools;
                             var builtInDefs = _builtInToolService.GetFilteredToolDefinitions(allowedTools);
                             allDefs.AddRange(builtInDefs);
                         }
@@ -587,7 +589,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         // MCP 外部工具
                         if (_mcpManager != null && _mcpManager.AllTools.Count > 0)
                         {
-                            var allowedTools = _agentDispatcher?.ActiveAgentAllowedTools;
+                            var allowedTools = _activeAgent?.Definition.AllowedTools;
                             var mcpDefs = _mcpManager.GetFilteredToolDefinitions(allowedTools);
                             allDefs.AddRange(mcpDefs);
                         }
@@ -596,7 +598,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         {
                             toolDefs = allDefs;
                             Logger.Info($"[MCP] 本轮携带 {toolDefs.Count} 个工具定义"
-                                + (_agentDispatcher?.ActiveAgentAllowedTools != null ? " (已按 Agent 白名单过滤)" : ""));
+                                + (_activeAgent?.Definition.AllowedTools != null ? " (已按 Agent 白名单过滤)" : ""));
                         }
 
                         var apiService = _apiService!;
@@ -827,7 +829,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                                         if (!string.IsNullOrWhiteSpace(cmd))
                                         {
-                                            var activeAgent = _agentDispatcher?.GetActiveAgent();
+                                            var activeAgent = _activeAgent;
                                             if (activeAgent != null)
                                             {
                                                 bool approved = await activeAgent.RequestTerminalApprovalAsync(cmd, exp, purpose);
@@ -865,7 +867,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                         var exploreProgressLines = new List<string>();
                                         if (acc.FunctionName == "runSubagent")
                                         {
-                                            var exploreAgent = _agentDispatcher?.ExploreAgent;
+                                            var exploreAgent = _agentFactory?.ExploreAgent;
                                             if (exploreAgent != null)
                                             {
                                                 exploreProgressHandler = (entry) =>
@@ -900,9 +902,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                             ?? "❌ 内置工具未返回结果";
 
                                         // ── 清理 runSubagent 进度订阅 ──
-                                        if (exploreProgressHandler != null && _agentDispatcher?.ExploreAgent != null)
+                                        if (exploreProgressHandler != null && _agentFactory?.ExploreAgent != null)
                                         {
-                                            _agentDispatcher.ExploreAgent.LogEntryAdded -= exploreProgressHandler;
+                                            _agentFactory.ExploreAgent.LogEntryAdded -= exploreProgressHandler;
                                         }
                                     }
                                     else
@@ -1184,7 +1186,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _contextManager.AddAssistantMessage(contentBuffer.ToString(), reasoningBuffer.Length > 0 ? reasoningBuffer.ToString() : null);
 
                     // ── 主流程移交处理：request_handoff 触发的 _pendingHandoff 在此执行 ──
-                    if (_pendingHandoff != null && _agentDispatcher != null)
+                    if (_pendingHandoff != null && _activeAgent != null && _agentFactory != null)
                     {
                         Logger.Info($"[MainFlow] 执行移交 → {_pendingHandoff.TargetAgent} ({_pendingHandoff.Label})");
                         var handoff = _pendingHandoff;
@@ -1203,7 +1205,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         {
                             try
                             {
-                                var handoffResult = await _agentDispatcher.ExecuteHandoffAsync(handoff, handoffContext);
+                                var handoffResult = await _activeAgent.ExecuteHandoffAsync(handoff, handoffContext, _activePlan, _agentFactory);
                                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                                 // 移交结果由 Agent 流程的 RunAgentWorkflowAsync 后续处理
                                 Logger.Info($"[MainFlow] 移交执行完成: → {handoff.TargetAgent}");
@@ -1386,9 +1388,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             string systemPrompt = _options?.GetEffectiveSystemPrompt() ?? string.Empty;
 
-            if (_agentDispatcher != null)
+            if (_agentFactory != null)
             {
-                string askAgentPrompt = _agentDispatcher.AskAgent.Definition.SystemPrompt;
+                string askAgentPrompt = _agentFactory.AskAgent?.Definition?.SystemPrompt ?? string.Empty;
                 if (!string.IsNullOrWhiteSpace(askAgentPrompt))
                     systemPrompt = string.IsNullOrWhiteSpace(systemPrompt) ? askAgentPrompt : systemPrompt + "\n\n" + askAgentPrompt;
                 systemPrompt += "\n\n" + AiPrompts.MultiAgentSystemPromptFragment;
@@ -1695,7 +1697,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (_builtInToolService == null) return;
 
-            var exploreAgent = _agentDispatcher?.ExploreAgent;
+            var exploreAgent = _agentFactory?.ExploreAgent;
             if (exploreAgent != null)
             {
                 // 同步工具服务
@@ -1734,7 +1736,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 Logger.Info($"[MainFlow] 🔄 移交请求: {request.SourceAgent} → {request.TargetAgent} (原因: {request.Reason})");
                 // ── 防御：记录当前活跃 Agent 类型，确保移交链路可追溯 ──
-                var activeType = _agentDispatcher?.ActiveAgentType;
+                var activeType = _activeAgent?.Definition.Type;
                 Logger.Info($"[MainFlow] 当前活跃 Agent: {activeType}, Handoff 来源: {request.SourceAgent} → 目标: {request.TargetAgent}");
                 // 构建 AgentHandoff 并设置 _pendingHandoff，主流程将在本轮工具调用后执行移交
                 string label = request.TargetAgent switch
@@ -2019,5 +2021,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         #endregion
+
+        /// <summary>
+        /// 解析用户显式指定的 Agent（如 "@edit" → AgentType.Edit）。
+        /// 从 AgentDispatcher.ParseExplicitAgentRoute 搬过来，保留在 UI 层。
+        /// </summary>
+        private static AgentRoutingResult ParseExplicitAgentRoute(string agentName)
+        {
+            AgentType target = agentName.ToLowerInvariant() switch
+            {
+                "ask" or "问答" => AgentType.Ask,
+                "plan" or "规划" => AgentType.Plan,
+                "edit" or "修改" => AgentType.Edit,
+                "explore" or "探索" => AgentType.Explore,
+                "build" or "构建" or "编译" => AgentType.Build,
+                _ => AgentType.Ask,
+            };
+
+            return new AgentRoutingResult
+            {
+                TargetAgent = target,
+                Confidence = "high",
+                Reason = $"用户显式指定 @{agentName}",
+                NeedsPlanning = target == AgentType.Plan,
+                IsExplicit = true,
+            };
+        }
     }
 }

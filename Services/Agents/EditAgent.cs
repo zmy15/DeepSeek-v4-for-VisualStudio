@@ -1299,7 +1299,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             if (confirmed)
             {
-                await AgentDispatcher.DeleteFilesViaEnvDTEAsync(resolvedDeletions);
+                await AgentFactory.DeleteFilesViaEnvDTEAsync(resolvedDeletions);
                 AddLog("INFO", LocalizationService.Instance.Format("agent.log.editDeletionsDone", resolvedDeletions.Count));
 
                 foreach (string deletedPath in resolvedDeletions)

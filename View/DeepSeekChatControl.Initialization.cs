@@ -40,12 +40,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _apiService = new DeepSeekApiService(_options.ApiKey, _options.SelectedModel);
             _apiService.ConfigureThinking(_options.IsThinkingEnabled, _options.ReasoningEffort);
 
-            // ── 初始化/重建 Agent 调度器（ApiService 重建时必须同步重建）──
-            if (_agentDispatcher != null)
+            // ── 初始化/重建 Agent 工厂（ApiService 重建时必须同步重建）──
+            if (_agentFactory != null)
             {
-                _agentDispatcher.PermissionRequested -= OnAgentPermissionRequested;
-                _agentDispatcher.QuestionsRequested -= OnAgentQuestionsRequested;
-                _agentDispatcher.Dispose();
+                _agentFactory.Dispose();
             }
 
             // ── 创建内置工具服务 ──
@@ -53,11 +51,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _memoryService = new MemoryService();
             _builtInToolService = new BuiltInToolService(_mcpManager, _webSearchService, buildService, _memoryService);
 
-            _agentDispatcher = new AgentDispatcher(_apiService, _builtInToolService, _mcpManager);
-            _agentDispatcher.ContextManager = _contextManager;
-            _agentDispatcher.PermissionRequested += OnAgentPermissionRequested;
-            _agentDispatcher.QuestionsRequested += OnAgentQuestionsRequested;
-            Logger.Info("Agent 调度器初始化成功（多 Agent 模式：Ask / Plan / Explore / Edit / Build）");
+            _agentFactory = new AgentFactory(_apiService, _builtInToolService, _mcpManager);
+            // 默认活跃 Agent 为 AskAgent
+            _activeAgent = _agentFactory.AskAgent;
+            _activeAgent.PermissionRequested += OnAgentPermissionRequested;
+            _activeAgent.QuestionsRequested += OnAgentQuestionsRequested;
+            Logger.Info("Agent 工厂初始化成功（多 Agent 模式：Ask / Plan / Explore / Edit / Build）");
 
             // 初始化 Agent 模式徽章（默认隐藏 Ask 模式）
             UpdateAgentModeBadge();
@@ -302,8 +301,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 await _mcpManager.InitializeAsync(enabledConfigs, cts.Token);
 
-                // ── 将 MCP 管理器注入到 Agent 调度器 ──
-                _agentDispatcher?.UpdateMcpManager(_mcpManager);
+                // ── 将 MCP 管理器注入到 Agent 工厂 ──
+                _agentFactory?.UpdateMcpManager(_mcpManager);
 
                 var toolCount = _mcpManager.AllTools.Count;
                 if (toolCount > 0)

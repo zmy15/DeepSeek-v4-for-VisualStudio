@@ -1643,7 +1643,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             ? reqIdProp.GetString() ?? string.Empty : string.Empty;
                         bool approved = obj.TryGetProperty("approved", out var apprProp)
                             && apprProp.GetBoolean();
-                        _agentDispatcher?.RespondToPermission(requestId, approved);
+                        var permAgent = _agentFactory?.FindAgentWithPendingPermission(requestId) ?? _activeAgent;
+                        permAgent?.RespondToPermission(requestId, approved);
 
                         // 移除权限 UI
                         _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
@@ -1665,7 +1666,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         string requestId = obj.TryGetProperty("requestId", out var termReqIdProp)
                             ? termReqIdProp.GetString() ?? string.Empty : string.Empty;
-                        _agentDispatcher?.RespondToPermission(requestId, true);
+                        var termPermAgent = _agentFactory?.FindAgentWithPendingPermission(requestId) ?? _activeAgent;
+                        termPermAgent?.RespondToPermission(requestId, true);
 
                         // 移除审批 UI
                         _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
@@ -1687,7 +1689,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         string requestId = obj.TryGetProperty("requestId", out var termSkipReqIdProp)
                             ? termSkipReqIdProp.GetString() ?? string.Empty : string.Empty;
-                        _agentDispatcher?.RespondToPermission(requestId, false);
+                        var skipPermAgent = _agentFactory?.FindAgentWithPendingPermission(requestId) ?? _activeAgent;
+                        skipPermAgent?.RespondToPermission(requestId, false);
 
                         // 移除审批 UI
                         _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
@@ -1712,7 +1715,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             ? qReqIdProp.GetString() ?? string.Empty : string.Empty;
                         string answers = obj.TryGetProperty("answers", out var ansProp)
                             ? ansProp.GetString() ?? "{}" : "{}";
-                        _agentDispatcher?.RespondToQuestions(requestId, answers);
+                        var questionAgent = _agentFactory?.FindAgentWithPendingQuestion(requestId) ?? _activeAgent;
+                        questionAgent?.RespondToQuestions(requestId, answers);
 
                         // 移除问题 UI
                         _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
@@ -1738,17 +1742,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             && confProp.GetBoolean();
 
                         // 按 RequestId 精确查找待处理的权限请求（支持并发权限场景）
-                        var pendingPermission = _agentDispatcher?.TryGetPendingPermission(requestId);
+                        var filePermAgent = _agentFactory?.FindAgentWithPendingPermission(requestId);
+                        var pendingPermission = filePermAgent?.TryGetPendingPermission(requestId);
                         List<string> filePaths = pendingPermission?.FilePaths ?? new List<string>();
 
                         if (confirmed && filePaths.Count > 0)
                         {
-                            // 通过 EnvDTE 执行实际删除
-                            await AgentDispatcher.DeleteFilesViaEnvDTEAsync(filePaths);
+                            await AgentFactory.DeleteFilesViaEnvDTEAsync(filePaths);
                         }
 
                         // 完成权限响应（解除 Agent 等待）
-                        _agentDispatcher?.RespondToPermission(requestId, confirmed);
+                        (filePermAgent ?? _activeAgent)?.RespondToPermission(requestId, confirmed);
 
                         // 移除文件删除确认 UI
                         _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>

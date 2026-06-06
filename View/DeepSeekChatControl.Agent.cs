@@ -142,9 +142,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 // ── 系统提示词 ──
                 string systemPrompt = _options?.GetEffectiveSystemPrompt() ?? string.Empty;
-                if (_agentDispatcher != null)
+                if (_agentFactory != null)
                 {
-                    string askAgentPrompt = _agentDispatcher.AskAgent.Definition.SystemPrompt;
+                    string askAgentPrompt = _agentFactory.AskAgent.Definition.SystemPrompt;
                     if (!string.IsNullOrWhiteSpace(askAgentPrompt))
                         systemPrompt = string.IsNullOrWhiteSpace(systemPrompt) ? askAgentPrompt : systemPrompt + "\n\n" + askAgentPrompt;
                     systemPrompt += "\n\n" + AiPrompts.MultiAgentSystemPromptFragment;
@@ -210,13 +210,52 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 绑定活跃 Agent 的事件到 UI 处理器。
+        /// </summary>
+        private void BindAgentEvents(BaseAgent agent)
+        {
+            if (agent == null) return;
+            agent.LogEntryAdded += OnAgentLogEntryAdded;
+            agent.FileChangeNotified += OnAgentFileChangeNotified;
+            agent.PermissionRequested += OnAgentPermissionRequested;
+            agent.QuestionsRequested += OnAgentQuestionsRequested;
+        }
+
+        /// <summary>
+        /// 解绑活跃 Agent 的事件。
+        /// </summary>
+        private void UnbindAgentEvents(BaseAgent agent)
+        {
+            if (agent == null) return;
+            agent.LogEntryAdded -= OnAgentLogEntryAdded;
+            agent.FileChangeNotified -= OnAgentFileChangeNotified;
+            agent.PermissionRequested -= OnAgentPermissionRequested;
+            agent.QuestionsRequested -= OnAgentQuestionsRequested;
+        }
+
+        /// <summary>
+        /// 切换到新的活跃 Agent：解绑旧 Agent 事件，绑定新 Agent 事件，更新上下文。
+        /// </summary>
+        private void SwitchActiveAgent(BaseAgent newAgent, AgentContext context)
+        {
+            if (_activeAgent != null)
+                UnbindAgentEvents(_activeAgent);
+
+            _activeAgent = newAgent;
+            _activeAgent.Context = context;
+
+            BindAgentEvents(_activeAgent);
+            Logger.Info($"[Agent] 切换活跃 Agent: → {_activeAgent.Definition.Type}");
+        }
+
+        /// <summary>
         /// Agent 工作流主入口：分解任务 → 显示步骤计划 → 逐步执行 → 显示变更摘要。
         /// 注意：此方法在后台线程中调用，访问 UI 前必须切换到主线程。
         /// </summary>
         private async Task RunAgentWorkflowAsync(string userText, string fileContext = "",
             AgentRoutingResult? routing = null)
         {
-            if (_agentDispatcher == null) return;
+            if (_activeAgent == null || _agentFactory == null) return;
 
             try
             {
@@ -303,7 +342,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         Timestamp = DateTime.Now,
                         IsStreaming = true,
                         IsRendered = false,
-                        AgentType = routing?.TargetAgent ?? _agentDispatcher.ActiveAgentType,
+                        AgentType = routing?.TargetAgent ?? _activeAgent?.Definition.Type ?? AgentType.Ask,
                     };
                     lock (_lock)
                     {
@@ -320,23 +359,21 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 UpdateBrowser();
                 await TaskScheduler.Default;
 
-                var editAgent = _agentDispatcher.EditAgent;
-                editAgent.PlanUpdated += OnAgentPlanUpdated;
-                _agentDispatcher.PlanUpdated += OnAgentDispatcherPlanUpdated;
-                _agentDispatcher.LogEntryAdded += OnAgentLogEntryAdded;
-                _agentDispatcher.FileChangeNotified += OnAgentFileChangeNotified;
+                // ── 绑定事件到活跃 Agent ──
+                BindAgentEvents(_activeAgent);
+                if (_agentFactory.EditAgent is EditAgent editAgent)
+                    editAgent.PlanUpdated += OnAgentPlanUpdated;
 
                 AgentResult agentResult;
                 try
                 {
-                    agentResult = await _agentDispatcher.ExecuteAsync(userText, context, routing);
+                    agentResult = await _activeAgent.ExecuteAsync(userText, context);
                 }
                 finally
                 {
-                    editAgent.PlanUpdated -= OnAgentPlanUpdated;
-                    _agentDispatcher.PlanUpdated -= OnAgentDispatcherPlanUpdated;
-                    _agentDispatcher.LogEntryAdded -= OnAgentLogEntryAdded;
-                    _agentDispatcher.FileChangeNotified -= OnAgentFileChangeNotified;
+                    UnbindAgentEvents(_activeAgent);
+                    if (_agentFactory.EditAgent is EditAgent ea)
+                        ea.PlanUpdated -= OnAgentPlanUpdated;
                 }
 
                 // 仅在 AutoSend 为 true 时自动执行 Handoff；否则由用户通过 UI 按钮显式触发
@@ -347,20 +384,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     await TaskScheduler.Default;
 
-                    editAgent.PlanUpdated += OnAgentPlanUpdated;
-                    _agentDispatcher.PlanUpdated += OnAgentDispatcherPlanUpdated;
-                    _agentDispatcher.LogEntryAdded += OnAgentLogEntryAdded;
-                    _agentDispatcher.FileChangeNotified += OnAgentFileChangeNotified;
+                    // ── 切换到目标 Agent 并执行 Handoff ──
+                    var nextAgent = _agentFactory.GetAgent(agentResult.Handoff.TargetAgent);
+                    SwitchActiveAgent(nextAgent, context);
+                    if (_agentFactory.EditAgent is EditAgent ea2)
+                        ea2.PlanUpdated += OnAgentPlanUpdated;
                     try
                     {
-                        agentResult = await _agentDispatcher.ExecuteHandoffAsync(agentResult.Handoff, context);
+                        agentResult = await _activeAgent.ExecuteHandoffAsync(agentResult.Handoff, context, _activePlan, _agentFactory);
                     }
                     finally
                     {
-                        editAgent.PlanUpdated -= OnAgentPlanUpdated;
-                        _agentDispatcher.PlanUpdated -= OnAgentDispatcherPlanUpdated;
-                        _agentDispatcher.LogEntryAdded -= OnAgentLogEntryAdded;
-                        _agentDispatcher.FileChangeNotified -= OnAgentFileChangeNotified;
+                        if (_agentFactory.EditAgent is EditAgent ea3)
+                            ea3.PlanUpdated -= OnAgentPlanUpdated;
                     }
                 }
                 else if (agentResult.Handoff != null && agentResult.Handoff.ShowContinueOn)
@@ -599,7 +635,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             finally
             {
-                _agentDispatcher.ActivePlan = null;
+                _activePlan = null;
             }
 
             // ── 将 Agent 响应同步到树和上下文管理器（修复上下文丢失问题）──
@@ -1136,7 +1172,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (ChatWebView.CoreWebView2 == null)
                 {
                     Logger.Warn($"[Agent] CoreWebView2 未就绪，自动拒绝权限请求: {request.Title}");
-                    _agentDispatcher?.RespondToPermission(request.RequestId, false);
+                    _activeAgent?.RespondToPermission(request.RequestId, false);
                     return;
                 }
 
@@ -1145,7 +1181,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (approvalMode == Models.ApprovalMode.AllowAll)
                 {
                     Logger.Info($"[Agent] 审批模式=全部放行，自动批准: {request.Title}");
-                    _agentDispatcher?.RespondToPermission(request.RequestId, true);
+                    _activeAgent?.RespondToPermission(request.RequestId, true);
                     return;
                 }
 
@@ -1156,7 +1192,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     if (!isDangerous)
                     {
                         Logger.Info($"[Agent] 审批模式=智能拦截，安全命令自动放行: {request.Title}");
-                        _agentDispatcher?.RespondToPermission(request.RequestId, true);
+                        _activeAgent?.RespondToPermission(request.RequestId, true);
                         return;
                     }
                     Logger.Info($"[Agent] 审批模式=智能拦截，检测到危险命令，需要审批: {request.Command}");
@@ -1186,7 +1222,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 catch (Exception ex)
                 {
                     Logger.Warn($"[Agent] 权限 UI 注入失败: {ex.Message}");
-                    _agentDispatcher?.RespondToPermission(request.RequestId, false);
+                    _activeAgent?.RespondToPermission(request.RequestId, false);
                 }
             });
         }
@@ -1212,7 +1248,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 catch (Exception ex)
                 {
                     Logger.Warn($"[Agent] 问题 UI 注入失败: {ex.Message}");
-                    _agentDispatcher?.RespondToQuestions(request.RequestId, "{}");
+                    _activeAgent?.RespondToQuestions(request.RequestId, "{}");
                 }
             });
         }

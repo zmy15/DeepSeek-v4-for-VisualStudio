@@ -72,7 +72,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <param name="label">按钮标签（用于日志）</param>
         private async Task ExecuteAgentHandoffAsync(string targetAgent, string label)
         {
-            if (_agentDispatcher == null) return;
+            if (_activeAgent == null || _agentFactory == null) return;
 
             // ── 重启恢复: _pendingHandoff 在 VS 重启/会话切换后为 null，
             // 但 HandoffJson 已持久化到 ChatMessage 中，需从此恢复。 ──
@@ -170,7 +170,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 };
 
                 // ── 恢复 Plan: 从持久化的 PlanJson 中重建 ActivePlan ──
-                // PlanAgent 执行完毕后 _agentDispatcher.ActivePlan 已在 RunAgentWorkflowAsync 的
+                // PlanAgent 执行完毕后 _activePlan 已在 RunAgentWorkflowAsync 的
                 // finally 块中被清空，但计划 JSON 已持久化到 ChatMessage.PlanJson 中。
                 // 必须在 Handoff 前恢复，否则 EditAgent 将回退到单步计划。
                 AgentTaskPlan? restoredPlan = null;
@@ -200,7 +200,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (restoredPlan != null)
                 {
-                    _agentDispatcher.ActivePlan = restoredPlan;
+                    _activePlan = restoredPlan;
 
                     // 重建 PlanFilePath（用于 ExecuteHandoffAsync 加载 plan.md）
                     // 与 PlanAgent.SavePlanMarkdownAsync 保持相同的路径计算逻辑
@@ -226,23 +226,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     Logger.Info($"[AgentHandoff] 从 PlanJson 恢复了计划: {restoredPlan.Steps.Count} 个步骤");
                 }
 
-                var editAgent = _agentDispatcher.EditAgent;
+                // ── 切换到 EditAgent 并绑定事件 ──
+                var editAgent = _agentFactory.EditAgent;
+                SwitchActiveAgent(editAgent, context);
                 editAgent.PlanUpdated += OnAgentPlanUpdated;
-                _agentDispatcher.PlanUpdated += OnAgentDispatcherPlanUpdated;
-                _agentDispatcher.LogEntryAdded += OnAgentLogEntryAdded;
-                _agentDispatcher.FileChangeNotified += OnAgentFileChangeNotified;
 
                 AgentResult agentResult;
                 try
                 {
-                    agentResult = await _agentDispatcher.ExecuteHandoffAsync(_pendingHandoff, context);
+                    agentResult = await _activeAgent.ExecuteHandoffAsync(_pendingHandoff, context, _activePlan, _agentFactory);
                 }
                 finally
                 {
                     editAgent.PlanUpdated -= OnAgentPlanUpdated;
-                    _agentDispatcher.PlanUpdated -= OnAgentDispatcherPlanUpdated;
-                    _agentDispatcher.LogEntryAdded -= OnAgentLogEntryAdded;
-                    _agentDispatcher.FileChangeNotified -= OnAgentFileChangeNotified;
                 }
 
                 _pendingHandoff = null; // 消费后清空原始 Handoff（Plan→Edit）
@@ -260,18 +256,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     await TaskScheduler.Default;
 
-                    _agentDispatcher.PlanUpdated += OnAgentDispatcherPlanUpdated;
-                    _agentDispatcher.LogEntryAdded += OnAgentLogEntryAdded;
-                    _agentDispatcher.FileChangeNotified += OnAgentFileChangeNotified;
+                    // ── 切换并执行链式 Handoff ──
+                    var chainAgent = _agentFactory.GetAgent(nextHandoff.TargetAgent);
+                    SwitchActiveAgent(chainAgent, context);
                     try
                     {
-                        agentResult = await _agentDispatcher.ExecuteHandoffAsync(nextHandoff, context);
+                        agentResult = await _activeAgent.ExecuteHandoffAsync(nextHandoff, context, _activePlan, _agentFactory);
                     }
                     finally
                     {
-                        _agentDispatcher.PlanUpdated -= OnAgentDispatcherPlanUpdated;
-                        _agentDispatcher.LogEntryAdded -= OnAgentLogEntryAdded;
-                        _agentDispatcher.FileChangeNotified -= OnAgentFileChangeNotified;
+                        // 事件已在 SwitchActiveAgent 中解绑旧 Agent
                     }
                 }
 
@@ -1095,7 +1089,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string userContent = userMsg.Content ?? string.Empty;
                 string enrichedContent = BuildRetryEnrichedContent(userMsg, userContent);
 
-                if (_agentDispatcher != null && !string.IsNullOrEmpty(userContent) && !userContent.StartsWith("/"))
+                if (_activeAgent != null && _agentFactory != null && !string.IsNullOrEmpty(userContent) && !userContent.StartsWith("/"))
                 {
                     // ── 保留原始 @agent 显式路由，避免重试时重新判断 ──
                     AgentRoutingResult routing;
@@ -1113,7 +1107,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     else
                     {
-                        routing = await _agentDispatcher.RouteAsync(enrichedContent);
+                        routing = new AgentRoutingResult { TargetAgent = AgentType.Ask, Confidence = "high", Reason = "重试默认 AskAgent", NeedsPlanning = false };
                     }
 
                     bool needsAgent = routing.TargetAgent != AgentType.Ask

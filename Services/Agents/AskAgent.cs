@@ -38,8 +38,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public static readonly string[] AskTools = new[]
         {
-            "runSubagent",       // 委派探索任务给 ExploreAgent
+            "runSubagent",        // 委派探索任务给 ExploreAgent
             "fetch_webpage",      // 联网搜索（无需代码库访问）
+            "request_handoff",    // 移交任务给其他 Agent（Edit/Plan/Explore/Build）
             "memory",             // 记忆管理
         };
 
@@ -57,14 +58,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 SubAgents = new List<AgentType>(),
                 Handoffs = new List<AgentHandoff>
                 {
-                    new AgentHandoff
-                    {
-                        Label = LocalizationService.Instance["agent.ask.handoffExploreLabel"],
-                        TargetAgent = AgentType.Explore,
-                        Prompt = LocalizationService.Instance["agent.ask.handoffExplorePrompt"],
-                        AutoSend = false,
-                        ShowContinueOn = true,
-                    },
                     new AgentHandoff
                     {
                         Label = LocalizationService.Instance["agent.ask.handoffEditLabel"],
@@ -115,7 +108,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 + "- 用户说出明确的偏好或习惯时 → 主动记录到用户记忆\n"
                 + "- 发现重要的项目特定信息时 → 记录到仓库记忆\n"
                 + "- 长时间任务中积累的中间上下文 → 记录到会话记忆\n"
-                + "- 开始新对话时前先 `memory view` 查看用户记忆和仓库记忆，了解已有知识";
+                + "- 开始新对话时前先 `memory view` 查看用户记忆和仓库记忆，了解已有知识\n\n"
+                + "## 任务移交（request_handoff 工具）\n"
+                + "当用户的请求超出你的职责范围（纯问答）时，使用 `request_handoff` 工具移交给更合适的 Agent：\n"
+                + "- **需要修改代码/修复 bug/添加功能** → 移交给 `Edit` Agent\n"
+                + "- **需要设计架构/规划方案/分析技术选型** → 移交给 `Plan` Agent\n"
+                + "- **遇到编译错误/构建失败需要修复** → 移交给 `Build` Agent\n"
+                + "- **Git 写操作（commit/push/分支切换/stash 等）** → 移交给 `Edit` Agent\n"
+                + "- **执行终端命令（dotnet build/npm install 等）** → 移交给 `Edit` Agent\n"
+                + "- **探索代码库 / Git 只读查询（status/diff/log）** → 不要移交！使用 `runSubagent` 委派给 Explore 子代理即可\n"
+                + "- 你**不需要**提前判断用户意图，在对话中自然地发现问题后移交即可\n"
+                + "- 简单问答/概念解释/技术讨论 → 你直接回答，不要移交";
         }
 
         #endregion

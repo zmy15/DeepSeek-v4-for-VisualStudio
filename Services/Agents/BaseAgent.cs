@@ -1479,7 +1479,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 将 HandoffRequest（AI 通过 request_handoff 工具发起的 JSON 移交）
-        /// 转换为 AgentHandoff（AgentDispatcher 使用的移交格式）。
+        /// 转换为 AgentHandoff（供 UI 层使用的移交格式）。
         /// </summary>
         protected AgentHandoff ConvertHandoffRequestToHandoff(HandoffRequest request)
         {
@@ -1503,6 +1503,86 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 AutoSend = request.AutoSend,
                 ShowContinueOn = !request.AutoSend,
             };
+        }
+
+        /// <summary>
+        /// 执行 Handoff：从当前 Agent 移交到目标 Agent。
+        /// 构建 Handoff prompt（含计划上下文 + plan.md），调用目标 Agent 的 ExecuteAsync。
+        /// 
+        /// 从 AgentDispatcher.ExecuteHandoffAsync 搬过来，由 BaseAgent 统一提供。
+        /// </summary>
+        /// <param name="handoff">移交定义</param>
+        /// <param name="context">执行上下文</param>
+        /// <param name="activePlan">当前活跃计划（可选，注入到 prompt 中）</param>
+        /// <param name="agentFactory">AgentFactory 引用，用于获取目标 Agent 实例</param>
+        public async Task<AgentResult> ExecuteHandoffAsync(
+            AgentHandoff handoff,
+            AgentContext context,
+            AgentTaskPlan? activePlan = null,
+            AgentFactory? agentFactory = null)
+        {
+            Logger.Info($"[{Definition.Name}] Handoff: → {handoff.TargetAgent} ({handoff.Label})");
+
+            BaseAgent targetAgent;
+            if (agentFactory != null)
+                targetAgent = agentFactory.GetAgent(handoff.TargetAgent);
+            else
+                throw new InvalidOperationException("AgentFactory 引用为空，无法获取目标 Agent");
+
+            targetAgent.Context = context;
+
+            // ── 构建 Handoff prompt（包含完整计划上下文）──
+            var sb = new StringBuilder();
+            sb.AppendLine(handoff.Prompt);
+            sb.AppendLine();
+
+            // ── 🔄 Handoff 上下文提示：避免重复探索 ──
+            sb.AppendLine(AiPrompts.HandoffContextPrompt);
+            sb.AppendLine();
+
+            if (activePlan != null)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"## 任务计划: {activePlan.Title}");
+                sb.AppendLine($"共 {activePlan.Steps.Count} 个步骤：");
+                sb.AppendLine();
+
+                foreach (var s in activePlan.Steps)
+                {
+                    sb.AppendLine($"### 步骤 {s.Index}: {s.Title}");
+                    sb.AppendLine(s.Description);
+                    sb.AppendLine();
+                }
+            }
+
+            // ── 注入 plan.md 内容（如果存在）──
+            string? planFilePath = context.PlanFilePath ?? activePlan?.PlanFilePath;
+            if (!string.IsNullOrEmpty(planFilePath) && File.Exists(planFilePath))
+            {
+                try
+                {
+                    string planMd = await Task.Run(() => File.ReadAllText(planFilePath));
+                    if (planMd.Length > 0)
+                    {
+                        sb.AppendLine("## 📄 详细计划文档 (plan.md)");
+                        sb.AppendLine(planMd);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[{Definition.Name}] 读取 plan.md 失败: {ex.Message}");
+                }
+            }
+
+            string handoffMessage = sb.ToString();
+            // ── 保留 context 中已有的 ActivePlan，仅在非 null 时覆盖 ──
+            context.ActivePlan = activePlan ?? context.ActivePlan;
+            // ── 刷新 ConversationHistory ──
+            if (context.ContextManager != null)
+                context.ConversationHistory = context.ContextManager.GetConversationHistory();
+            context.IsPlanningMode = true; // Handoff 后进入 Planning 模式执行
+
+            return await targetAgent.ExecuteAsync(handoffMessage, context);
         }
 
         /// <summary>

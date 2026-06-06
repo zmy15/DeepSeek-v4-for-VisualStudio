@@ -5,37 +5,37 @@ using System.Text;
 
 namespace DeepSeek_v4_for_VisualStudio.Tests.Integration;
 
-public class AgentDispatcherTests
+public class AgentFactoryTests
 {
     [Fact]
     public void Constructor_WithValidApiService_CreatesSuccessfully()
     {
         var apiService = new DeepSeekApiService("test-key");
 
-        var dispatcher = new AgentDispatcher(apiService);
+        var factory = new AgentFactory(apiService);
 
-        dispatcher.Should().NotBeNull();
-        dispatcher.ActiveAgentType.Should().Be(AgentType.Ask);
+        factory.Should().NotBeNull();
     }
 
     [Fact]
     public void AskAgent_IsCreatedLazily()
     {
         var apiService = new DeepSeekApiService("test-key");
-        var dispatcher = new AgentDispatcher(apiService);
+        var factory = new AgentFactory(apiService);
 
-        var agent = dispatcher.AskAgent;
+        var agent = factory.AskAgent;
 
         agent.Should().NotBeNull();
+        agent.Definition.Type.Should().Be(AgentType.Ask);
     }
 
     [Fact]
     public void ExploreAgent_IsCreatedLazily()
     {
         var apiService = new DeepSeekApiService("test-key");
-        var dispatcher = new AgentDispatcher(apiService);
+        var factory = new AgentFactory(apiService);
 
-        var agent = dispatcher.ExploreAgent;
+        var agent = factory.ExploreAgent;
 
         agent.Should().NotBeNull();
     }
@@ -44,9 +44,9 @@ public class AgentDispatcherTests
     public void PlanAgent_IsCreatedLazily()
     {
         var apiService = new DeepSeekApiService("test-key");
-        var dispatcher = new AgentDispatcher(apiService);
+        var factory = new AgentFactory(apiService);
 
-        var agent = dispatcher.PlanAgent;
+        var agent = factory.PlanAgent;
 
         agent.Should().NotBeNull();
     }
@@ -55,52 +55,42 @@ public class AgentDispatcherTests
     public void EditAgent_IsCreatedLazily()
     {
         var apiService = new DeepSeekApiService("test-key");
-        var dispatcher = new AgentDispatcher(apiService);
+        var factory = new AgentFactory(apiService);
 
-        var agent = dispatcher.EditAgent;
+        var agent = factory.EditAgent;
 
         agent.Should().NotBeNull();
-        // EditAgent 现在使用 ApplyPatchTool / InsertEditTool / ReplaceStringTool / MultiReplaceStringTool（懒加载）
     }
 
     [Fact]
-    public void ActiveAgentAllowedTools_WhenNoActiveAgent_ReturnsNull()
+    public void GetAgent_ByType_ReturnsCorrectAgent()
     {
         var apiService = new DeepSeekApiService("test-key");
-        var dispatcher = new AgentDispatcher(apiService);
+        var factory = new AgentFactory(apiService);
 
-        // 未执行任何 Agent 时，GetActiveAgent 返回 null
-        dispatcher.ActiveAgentAllowedTools.Should().BeNull();
+        var askAgent = factory.GetAgent(AgentType.Ask);
+        var editAgent = factory.GetAgent(AgentType.Edit);
+
+        askAgent.Should().BeOfType<AskAgent>();
+        editAgent.Should().BeOfType<EditAgent>();
     }
 
     [Fact]
-    public void SetMcpManager_WithNull_DoesNotThrow()
+    public void UpdateMcpManager_WithNull_DoesNotThrow()
     {
         var apiService = new DeepSeekApiService("test-key");
-        var dispatcher = new AgentDispatcher(apiService);
+        var factory = new AgentFactory(apiService);
 
-        var act = () => dispatcher.SetMcpManager(null);
+        var act = () => factory.UpdateMcpManager(null!);
 
         act.Should().NotThrow();
-    }
-
-    [Fact]
-    public void ContextManager_CanBeSetAndRead()
-    {
-        var apiService = new DeepSeekApiService("test-key");
-        var dispatcher = new AgentDispatcher(apiService);
-        var contextManager = new ConversationContextManager();
-
-        dispatcher.ContextManager = contextManager;
-
-        dispatcher.ContextManager.Should().Be(contextManager);
     }
 
     [Fact]
     public void ActivePlan_CanBeSetAndRead()
     {
         var apiService = new DeepSeekApiService("test-key");
-        var dispatcher = new AgentDispatcher(apiService);
+        var factory = new AgentFactory(apiService);
         var plan = new AgentTaskPlan
         {
             Title = "Test Plan",
@@ -110,16 +100,15 @@ public class AgentDispatcherTests
             }
         };
 
-        dispatcher.ActivePlan = plan;
+        factory.ActivePlan = plan;
 
-        dispatcher.ActivePlan.Should().Be(plan);
-        dispatcher.ActivePlan!.Title.Should().Be("Test Plan");
+        factory.ActivePlan.Should().Be(plan);
+        factory.ActivePlan!.Title.Should().Be("Test Plan");
     }
 
     [Fact]
-    public async Task ExecuteAsync_WithMockHttp_CallsApi()
+    public async Task ExecuteAsync_AskAgent_ReturnsResult()
     {
-        // Arrange: 模拟一个简单响应的 API
         var sseLines = new[]
         {
             "data: {\"id\":\"chatcmpl-99\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Mocked response\"}}]}\n",
@@ -129,7 +118,7 @@ public class AgentDispatcherTests
         var handler = new TestHttpMessageHandler(sseLines, HttpStatusCode.OK);
         var httpClient = new HttpClient(handler);
         var apiService = new DeepSeekApiService(httpClient);
-        var dispatcher = new AgentDispatcher(apiService);
+        var factory = new AgentFactory(apiService);
 
         var context = new AgentContext
         {
@@ -137,10 +126,9 @@ public class AgentDispatcherTests
             CancellationToken = CancellationToken.None,
         };
 
-        // Act
-        var result = await dispatcher.ExecuteAsync("Test question", context);
+        var askAgent = factory.AskAgent;
+        var result = await askAgent.ExecuteAsync("Test question", context);
 
-        // Assert: AgentDispatcher 应返回结果（即使 mock 响应不完整）
         result.Should().NotBeNull();
     }
 }
