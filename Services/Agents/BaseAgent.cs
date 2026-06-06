@@ -1872,13 +1872,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private void OnExploreLog(AgentLogEntry entry)
         {
-            // 直接写入 _logs 不触发事件，避免 UI 重复显示
-            // ExploreAgent 的日志已通过自身事件输出到 UI
-            _logs.Add(new AgentLogEntry
-            {
-                Level = entry.Level,
-                Message = $"[Explore] {entry.Message}"
-            });
+            // 转发 ExploreAgent 日志到父 Agent，触发 LogEntryAdded 以便 UI 实时刷新进度
+            // 由于 RegisterExploreAgent 只订阅一次（构造函数中），不会出现并行重复订阅问题
+            AddLog(entry.Level, $"[Explore] {entry.Message}");
         }
 
         private void OnExploreFileChange(AgentFileChangeEventArgs args)
