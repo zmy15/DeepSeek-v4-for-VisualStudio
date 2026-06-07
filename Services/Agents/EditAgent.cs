@@ -2952,9 +2952,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 try
                 {
                     await MemoryService.ViewAsync(MemoryScope.Session, fileName, sessionId, context.SolutionPath);
-                    // 文件已存在，使用 str_replace 更新
-                    await MemoryService.StrReplaceAsync(MemoryScope.Session, fileName,
-                        "（步骤执行中...）", stepSummary, sessionId, context.SolutionPath);
+                    // 文件已存在，先删除再重新创建（内容可能已更新）
+                    await MemoryService.DeleteAsync(MemoryScope.Session, fileName, sessionId, context.SolutionPath);
+                    await MemoryService.CreateAsync(MemoryScope.Session, fileName,
+                        stepSummary, sessionId, context.SolutionPath);
                 }
                 catch (FileNotFoundException)
                 {
@@ -2991,12 +2992,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
             catch (Exception ex)
             {
-                // 文件可能已存在，尝试更新
+                // 文件可能已存在，删除旧文件后重新创建
                 try
                 {
                     string sessionId = BuiltInTools?.CurrentSessionId;
-                    await MemoryService.StrReplaceAsync(MemoryScope.Session, "plan-final-summary.md",
-                        "（计划执行中...）", BuildFinalPlanSummaryMarkdown(plan),
+                    await MemoryService.DeleteAsync(MemoryScope.Session, "plan-final-summary.md",
+                        sessionId, context.SolutionPath);
+                    await MemoryService.CreateAsync(MemoryScope.Session, "plan-final-summary.md",
+                        BuildFinalPlanSummaryMarkdown(plan),
                         sessionId, context.SolutionPath);
                 }
                 catch
