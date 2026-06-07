@@ -906,7 +906,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                         }
 
                                         toolResult = await _builtInToolService.ExecuteBuiltInToolAsync(
-                                            acc.FunctionName!, acc.ArgumentsBuilder.ToString(), _solutionPath)
+                                            acc.FunctionName!, acc.ArgumentsBuilder.ToString(), _solutionPath,
+                                            streamingCts.Token)
                                             ?? "❌ 内置工具未返回结果";
 
                                         // ── 清理 runSubagent 进度订阅 ──
@@ -1214,7 +1215,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             SolutionPath = _solutionPath,
                             ConversationHistory = _contextManager.GetConversationHistory(),
                             ContextManager = _contextManager,
-                            CancellationToken = CancellationToken.None,
+                            CancellationToken = GetStreamingToken(),
                         };
 
                         // ── 累积 Handoff 链的内容和推理 ──

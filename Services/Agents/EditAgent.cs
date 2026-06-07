@@ -383,7 +383,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         if (BuiltInTools != null)
                         {
                             finalBuildResult = await BuiltInTools.ExecuteBuiltInToolAsync(
-                                "build_solution", "{}", context.SolutionPath)
+                                "build_solution", "{}", context.SolutionPath,
+                                _agentCts?.Token ?? context.CancellationToken)
                                 ?? LocalizationService.Instance["agent.log.editBuildToolNoResult"];
                         }
                         else
@@ -480,7 +481,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (BuiltInTools != null)
                 {
                     buildResult = await BuiltInTools.ExecuteBuiltInToolAsync(
-                        "build_solution", "{}", context.SolutionPath)
+                        "build_solution", "{}", context.SolutionPath, ct)
                         ?? LocalizationService.Instance["agent.log.editBuildToolNoResult"];
                 }
                 else

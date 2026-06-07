@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
@@ -32,6 +33,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         /// <summary>生成工具执行结果的简短摘要（用于聊天 UI）</summary>
         public abstract string GetResultSummary(string toolResult);
+
+        /// <summary>
+        /// 当前执行的取消令牌。由 BuiltInToolService 在执行前注入。
+        /// 工具可在耗时操作中检查此令牌以响应停止按钮。
+        /// </summary>
+        public CancellationToken CancellationToken { get; set; } = CancellationToken.None;
 
         #region Shared Helpers
 

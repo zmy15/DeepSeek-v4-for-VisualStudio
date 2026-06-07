@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
@@ -349,8 +350,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 执行内置工具调用。返回工具执行结果文本。如果工具不是内置的，返回 null。
         /// </summary>
+        /// <param name="cancellationToken">可选取消令牌，传递给工具以支持停止按钮中断</param>
         public async Task<string?> ExecuteBuiltInToolAsync(
-            string toolName, string argumentsJson, string? workspaceRoot = null)
+            string toolName, string argumentsJson, string? workspaceRoot = null,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -361,6 +364,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     .Deserialize<Dictionary<string, JsonElement>>(argumentsJson)
                     ?? new Dictionary<string, JsonElement>();
 
+                tool.CancellationToken = cancellationToken;
                 return await tool.ExecuteAsync(args, workspaceRoot);
             }
             catch (Exception ex)

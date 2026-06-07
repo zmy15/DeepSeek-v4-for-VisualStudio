@@ -1476,7 +1476,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         approvalCmd,
                         "git_operation",
                         purpose,
-                        string.IsNullOrEmpty(purpose) ? $"AI 请求执行 git {operation} 操作" : purpose);
+                        string.IsNullOrEmpty(purpose) ? $"AI 请求执行 git {operation} 操作" : purpose,
+                        ct);
 
                     if (!approved)
                     {
@@ -1510,7 +1511,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 if (!string.IsNullOrWhiteSpace(command))
                 {
-                    bool approved = await RequestTerminalApprovalAsync(command, explanation, purpose);
+                    bool approved = await RequestTerminalApprovalAsync(command, explanation, purpose, ct);
                     if (!approved)
                         return $"⏭️ 用户跳过了终端命令: {command}";
                 }
@@ -1537,7 +1538,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (!string.IsNullOrWhiteSpace(filePath))
                 {
                     var paths = new List<string> { filePath };
-                    bool approved = await RequestFileDeleteConfirmationAsync(paths, explanation, purpose);
+                    bool approved = await RequestFileDeleteConfirmationAsync(paths, explanation, purpose, ct);
                     if (!approved)
                         return $"⏭️ 用户取消了文件删除: {System.IO.Path.GetFileName(filePath)}";
                 }
@@ -1557,7 +1558,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 if (!string.IsNullOrWhiteSpace(questionsJson))
                 {
-                    return await RequestAskQuestionsAsync(questionsJson);
+                    return await RequestAskQuestionsAsync(questionsJson, ct);
                 }
                 return LocalizationService.Instance["service.baseAgent.missingQuestions"];
             }
@@ -1579,7 +1580,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         $"AI 正在尝试{operation}当前项目之外的路径：\n\n`{targetPath}`\n\n⚠️ 该路径不在当前工作区 `{workspaceRoot}` 内。",
                         "file_access_outside_workspace",
                         "",
-                        $"AI 请求{operation}项目外部路径 `{targetPath}` 以完成任务");
+                        $"AI 请求{operation}项目外部路径 `{targetPath}` 以完成任务",
+                        ct);
                     if (!approved)
                     {
                         AddLog("WARN", LocalizationService.Instance.Format("agent.log.permissionDenied", targetPath));
@@ -1621,7 +1623,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         $"即将{operation}项目配置文件 `{fileName}`\n\n路径: {targetPath}\n\n⚠️ 修改项目文件可能影响构建配置和项目结构。",
                         "file_write",
                         "",
-                        filePurpose);
+                        filePurpose,
+                        ct);
                     if (!approved)
                     {
                         AddLog("WARN", LocalizationService.Instance.Format("agent.log.projectModDenied", fileName));
@@ -1652,7 +1655,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 2. 内置工具（回退）──
             if (BuiltInTools != null && BuiltInToolService.IsBuiltInTool(toolName))
             {
-                string? result = await BuiltInTools.ExecuteBuiltInToolAsync(toolName, argumentsJson, workspaceRoot);
+                string? result = await BuiltInTools.ExecuteBuiltInToolAsync(toolName, argumentsJson, workspaceRoot, ct);
                 if (result != null)
                     return result;
             }
@@ -2879,7 +2882,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <param name="actionType">操作类型</param>
         /// <param name="detail">可选额外详情（如文件写入时展示变更内容预览）</param>
         /// <param name="purpose">操作目的（告诉用户为什么要执行此操作）</param>
-        public async Task<bool> RequestPermissionAsync(string title, string command, string actionType = "command", string detail = "", string purpose = "")
+        public async Task<bool> RequestPermissionAsync(string title, string command, string actionType = "command", string detail = "", string purpose = "", CancellationToken ct = default)
         {
             var request = new AgentPermissionRequest
             {
@@ -2893,14 +2896,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // 将请求注册到并发字典（支持多工具并行场景）
             _pendingPermissions[request.RequestId] = request;
-            PermissionRequested?.Invoke(request);
-            AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.waitingPermission"], title));
 
-            bool approved = await request.ResponseTcs.Task;
-            // 清理：如果该请求仍在字典中则移除（可能已被 RespondToPermission 移除）
-            _pendingPermissions.TryRemove(request.RequestId, out _);
-            AddLog("INFO", $"{LocalizationService.Instance["agent.log.permissionResult"]}: {(approved ? "✅ 允许" : "❌ 拒绝")} → {title}");
-            return approved;
+            // ── 注册取消回调：停止按钮按下时自动拒绝权限，避免永久阻塞 ──
+            CancellationTokenRegistration ctr = default;
+            if (ct.CanBeCanceled)
+                ctr = ct.Register(() => request.ResponseTcs?.TrySetResult(false));
+
+            try
+            {
+                PermissionRequested?.Invoke(request);
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.waitingPermission"], title));
+
+                bool approved = await request.ResponseTcs.Task;
+                // 清理：如果该请求仍在字典中则移除（可能已被 RespondToPermission 移除）
+                _pendingPermissions.TryRemove(request.RequestId, out _);
+                AddLog("INFO", $"{LocalizationService.Instance["agent.log.permissionResult"]}: {(approved ? "✅ 允许" : "❌ 拒绝")} → {title}");
+                return approved;
+            }
+            finally
+            {
+                ctr.Dispose();
+            }
         }
 
         /// <summary>
@@ -2910,7 +2926,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <param name="explanation">命令用途说明（告诉用户这条命令在做什么，如"编译项目检查错误"）</param>
         /// <param name="purpose">操作目的（告诉用户为什么要执行，如"验证代码修改后能否正常编译"）</param>
         /// <returns>true 表示用户允许执行，false 表示跳过</returns>
-        public async Task<bool> RequestTerminalApprovalAsync(string command, string explanation, string purpose = "")
+        public async Task<bool> RequestTerminalApprovalAsync(string command, string explanation, string purpose = "", CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(command))
                 return false;
@@ -2927,15 +2943,28 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // 将请求注册到并发字典（支持多工具并行场景）
             _pendingPermissions[request.RequestId] = request;
-            PermissionRequested?.Invoke(request);
-            AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.waitingTerminalApproval"], command));
 
-            bool approved = await request.ResponseTcs.Task;
-            // 清理
-            _pendingPermissions.TryRemove(request.RequestId, out _);
-            AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.terminalApprovalResult"],
-                approved ? "✅ 允许" : "⏭️ 跳过", command));
-            return approved;
+            // ── 注册取消回调 ──
+            CancellationTokenRegistration ctr = default;
+            if (ct.CanBeCanceled)
+                ctr = ct.Register(() => request.ResponseTcs?.TrySetResult(false));
+
+            try
+            {
+                PermissionRequested?.Invoke(request);
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.waitingTerminalApproval"], command));
+
+                bool approved = await request.ResponseTcs.Task;
+                // 清理
+                _pendingPermissions.TryRemove(request.RequestId, out _);
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.terminalApprovalResult"],
+                    approved ? "✅ 允许" : "⏭️ 跳过", command));
+                return approved;
+            }
+            finally
+            {
+                ctr.Dispose();
+            }
         }
 
         /// <summary>
@@ -2975,7 +3004,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         /// <param name="questionsJson">问题列表的 JSON 字符串</param>
         /// <returns>用户答案的 JSON 字符串，或超时/取消时的空字符串</returns>
-        public async Task<string> RequestAskQuestionsAsync(string questionsJson)
+        public async Task<string> RequestAskQuestionsAsync(string questionsJson, CancellationToken ct = default)
         {
             try
             {
@@ -2994,32 +3023,44 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // 将请求注册到并发字典（支持多工具并行场景）
                 _pendingQuestions[request.RequestId] = request;
 
-                // ── 诊断：记录事件订阅状态 ──
-                int handlerCount = QuestionsRequested?.GetInvocationList().Length ?? 0;
-                Logger.Info($"[Agent:{Definition.Name}] QuestionsRequested 事件订阅数: {handlerCount}, RequestId={request.RequestId}");
+                // ── 注册取消回调：停止按钮按下时自动返回空答案，避免永久阻塞 ──
+                CancellationTokenRegistration ctr = default;
+                if (ct.CanBeCanceled)
+                    ctr = ct.Register(() => request.ResponseTcs?.TrySetResult("[]"));
 
-                if (handlerCount == 0)
+                try
                 {
-                    // ── 无 UI 处理器订阅 → 无法向用户展示问题，立即返回空答案避免永久阻塞 ──
-                    Logger.Warn($"[Agent:{Definition.Name}] ⚠️ QuestionsRequested 事件无订阅者！" +
-                        $"无法向用户展示 {questions.Count} 个问题。请检查 Agent 事件绑定链。" +
-                        $"当前活跃 Agent: {Definition.Type}, RequestId={request.RequestId}");
+                    // ── 诊断：记录事件订阅状态 ──
+                    int handlerCount = QuestionsRequested?.GetInvocationList().Length ?? 0;
+                    Logger.Info($"[Agent:{Definition.Name}] QuestionsRequested 事件订阅数: {handlerCount}, RequestId={request.RequestId}");
+
+                    if (handlerCount == 0)
+                    {
+                        // ── 无 UI 处理器订阅 → 无法向用户展示问题，立即返回空答案避免永久阻塞 ──
+                        Logger.Warn($"[Agent:{Definition.Name}] ⚠️ QuestionsRequested 事件无订阅者！" +
+                            $"无法向用户展示 {questions.Count} 个问题。请检查 Agent 事件绑定链。" +
+                            $"当前活跃 Agent: {Definition.Type}, RequestId={request.RequestId}");
+                        _pendingQuestions.TryRemove(request.RequestId, out _);
+                        return "[]"; // 返回空答案，让 AI 知道用户未回答
+                    }
+
+                    QuestionsRequested!.Invoke(request);
+                    AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.waitingAnswers"],
+                        questions.Count, questions[0].Header.Truncate(60)));
+
+                    // 无限等待用户回答（不设超时），用户提交或跳过时通过 ResponseTcs 唤醒
+                    string answers = await request.ResponseTcs.Task;
+
+                    // 清理
                     _pendingQuestions.TryRemove(request.RequestId, out _);
-                    return "[]"; // 返回空答案，让 AI 知道用户未回答
+                    AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.answersReceived"],
+                        answers.Truncate(200)));
+                    return answers;
                 }
-
-                QuestionsRequested!.Invoke(request);
-                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.waitingAnswers"],
-                    questions.Count, questions[0].Header.Truncate(60)));
-
-                // 无限等待用户回答（不设超时），用户提交或跳过时通过 ResponseTcs 唤醒
-                string answers = await request.ResponseTcs.Task;
-
-                // 清理
-                _pendingQuestions.TryRemove(request.RequestId, out _);
-                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.answersReceived"],
-                    answers.Truncate(200)));
-                return answers;
+                finally
+                {
+                    ctr.Dispose();
+                }
             }
             catch (Exception ex)
             {
@@ -3057,7 +3098,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <param name="reason">删除原因说明（告诉用户为什么删除这些文件）</param>
         /// <param name="purpose">操作目的（告诉用户删除后能达到什么效果）</param>
         /// <returns>true 表示用户确认删除，false 表示取消</returns>
-        public async Task<bool> RequestFileDeleteConfirmationAsync(List<string> filePaths, string reason = "", string purpose = "")
+        public async Task<bool> RequestFileDeleteConfirmationAsync(List<string> filePaths, string reason = "", string purpose = "", CancellationToken ct = default)
         {
             if (filePaths == null || filePaths.Count == 0)
                 return false;
@@ -3080,14 +3121,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // 将请求注册到并发字典（支持多工具并行场景）
             _pendingPermissions[request.RequestId] = request;
-            PermissionRequested?.Invoke(request);
-            AddLog("INFO", $"{LocalizationService.Instance["agent.log.waitingDeleteConfirm"]}: {title}");
 
-            bool approved = await request.ResponseTcs.Task;
-            // 清理
-            _pendingPermissions.TryRemove(request.RequestId, out _);
-            AddLog("INFO", LocalizationService.Instance.Format("agent.log.fileDeleteConfirm", approved ? "✅ 确认删除" : "❌ 取消", title));
-            return approved;
+            // ── 注册取消回调 ──
+            CancellationTokenRegistration ctr = default;
+            if (ct.CanBeCanceled)
+                ctr = ct.Register(() => request.ResponseTcs?.TrySetResult(false));
+
+            try
+            {
+                PermissionRequested?.Invoke(request);
+                AddLog("INFO", $"{LocalizationService.Instance["agent.log.waitingDeleteConfirm"]}: {title}");
+
+                bool approved = await request.ResponseTcs.Task;
+                // 清理
+                _pendingPermissions.TryRemove(request.RequestId, out _);
+                AddLog("INFO", LocalizationService.Instance.Format("agent.log.fileDeleteConfirm", approved ? "✅ 确认删除" : "❌ 取消", title));
+                return approved;
+            }
+            finally
+            {
+                ctr.Dispose();
+            }
         }
 
         /// <summary>

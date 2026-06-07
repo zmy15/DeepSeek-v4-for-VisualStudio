@@ -77,10 +77,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             try
             {
                 Logger.Info($"[BuiltInTool] build_solution 开始 (workspaceRoot={workspaceRoot ?? "(null)"})");
-                // ── 使用 10 分钟超时 CTS，避免构建无限挂起 ──
+                // ── 使用 10 分钟超时 CTS，同时链接外部取消令牌以响应停止按钮 ──
                 // 内部 BuildService 各路径也有各自的超时保护（5分钟），
                 // 此处作为外层兜底，同时使取消操作可被外部令牌触发。
-                using var buildCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                using var buildCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    CancellationToken, timeoutCts.Token);
                 string result = await _buildService.BuildAsync(workspaceRoot, buildCts.Token);
                 // 只输出一行摘要：构建成功/失败 + 结果长度（完整结果由 Agent 层日志输出）
                 string oneLine = result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
