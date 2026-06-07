@@ -428,11 +428,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     catch { }
 
                     // ── 将 Cache 统计 HTML 追加到最终内容末尾，确保持久化后可恢复显示 ──
+                    // 注意：cacheFooter 是原始 HTML，不应嵌入 msg.Content（Markdown 渲染会转义），
+                    //       而是通过 PostStreamEnd 的 extraFooterHtml 参数发送。
                     string persistedContent = finalContent;
-                    if (!string.IsNullOrEmpty(cacheFooter))
-                    {
-                        persistedContent = finalContent + "\n\n" + cacheFooter;
-                    }
 
                     // ── 更新现有的流式思考气泡为最终内容 ──
                     lock (_lock)
