@@ -46,11 +46,22 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     catch
                     {
-                        // 增量更新失败时回退到全量刷新
+                        // ExecuteScriptAsync 失败时改用 PostWebMessageAsString 追加（避免 NavigateToString 全量刷新导致页面闪烁/滚动）
+                        try
+                        {
+                            string appendJson = $"{{\"type\":\"appendHtml\",\"html\":{jsFragment}}}";
+                            ChatWebView.CoreWebView2.PostWebMessageAsString(appendJson);
+                            _lastRenderedMessagesLength = allMessages.Length;
+                            return;
+                        }
+                        catch
+                        {
+                            // PostWebMessageAsString 也失败时才回退到全量刷新（极少情况）
+                        }
                     }
                 }
 
-                // ── 全量刷新路径 ──
+                // ── 全量刷新路径（仅首次初始化或 PostWebMessageAsString 也失败时）──
                 string html = ChatHtmlService.BuildInitialPage(_messages);
                 ChatWebView.CoreWebView2.NavigateToString(html);
                 _browserInitialized = true;
