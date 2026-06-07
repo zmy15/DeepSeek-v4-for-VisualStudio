@@ -193,14 +193,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     int reqActualEnd = Math.Min(reqEndLine, cachedTotalLines);
                     if (cachedEntry.IsRangeCovered(reqStartLine, reqActualEnd))
                     {
-                        // 请求范围已被之前读取覆盖 → 拦截重复读取
-                        int cachedLineCount = cachedTotalLines;
-                        int cachedCharCount = cachedFull.Length;
+                        // ── 请求范围已被缓存覆盖 → 直接从缓存返回内容，避免重复磁盘读取 ──
+                        //     修复：之前返回 "已缓存，请勿重复读取" 警告，导致不同 Explore 子代理
+                        //     （串行执行时）无法获取前一个子代理已读取的文件内容。
+                        //     现在直接返回缓存中的实际内容，带 cached="true" 标记，
+                        //     既避免磁盘 I/O，又确保后续子代理能获得所需数据。
+                        string cachedRangedContent = FormatLinesFromFullContent(cachedFull, reqStartLine, reqActualEnd);
+                        int cacheShownStart = reqStartLine;
+                        int cacheShownEnd = reqActualEnd;
+                        bool cacheTruncated = cacheShownEnd < cachedTotalLines;
                         string roundHint = CurrentRound > 0 && lastRound > 0 && lastRound <= CurrentRound
-                            ? $"  (距今 {roundsSinceLastRead} 轮，还需 {Math.Max(0, RoundThreshold - roundsSinceLastRead)} 轮后可重读)"
-                            : "";
-                        return Task.FromResult(
-                            LocalizationService.Instance.Format("tool.readFile.cachedWarningFull", Path.GetFileName(filePath), cachedLineCount, cachedCharCount, reqStartLine, reqActualEnd, roundHint));
+                            ? $" (from cache, {roundsSinceLastRead} rounds ago)"
+                            : " (from cache)";
+                        var cachedSb = new StringBuilder();
+                        cachedSb.AppendLine($"<file path=\"{filePath}\" total_lines=\"{cachedTotalLines}\" shown_lines=\"{cacheShownStart}-{cacheShownEnd}\" truncated=\"{cacheTruncated.ToString().ToLowerInvariant()}\" cached=\"true\" cache_note=\"{roundHint}\">");
+                        cachedSb.Append(cachedRangedContent);
+                        if (cacheTruncated)
+                            cachedSb.AppendLine($"\n[TRUNCATED] Showing lines {cacheShownStart}-{cacheShownEnd} of {cachedTotalLines}. To continue, call read_file with path=\"{filePath}\" start_line={cacheShownEnd + 1}");
+                        cachedSb.Append("</file>");
+                        return Task.FromResult(cachedSb.ToString());
                     }
 
                     // 请求范围未被覆盖 → 从缓存中提取新范围，更新已读范围

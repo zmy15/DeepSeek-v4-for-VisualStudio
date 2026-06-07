@@ -317,6 +317,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine();
             sb.AppendLine(L["agent.plan.discoveryUnifiedTail"]);
 
+            // ── 并行子代理策略 ──
+            sb.AppendLine();
+            sb.AppendLine("## 并行探索策略");
+            sb.AppendLine("- 需要探索多个独立区域时，在一次回复中同时调用多个 runSubagent（最多 3 个并行）");
+            sb.AppendLine("- **为每个子代理分配不同的探索区域**，避免重复探索相同的文件或目录");
+            sb.AppendLine("- 例如：子代理 1 探索存储层，子代理 2 探索执行引擎，子代理 3 探索索引结构");
+            sb.AppendLine("- 如果文件已被之前子代理读取（cached=\"true\"），直接使用缓存内容，无需重复读取");
+            sb.AppendLine("- 探索完成后汇总所有子代理的发现，形成完整的分析报告");
+
             return sb.ToString();
         }
 

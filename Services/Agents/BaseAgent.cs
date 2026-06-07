@@ -128,6 +128,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>AI 通过 request_handoff 工具发起的待处理移交请求</summary>
         public HandoffRequest? PendingHandoffRequest { get; protected set; }
 
+        /// <summary>
+        /// 并行子代理执行信号量 — 限制同时运行的 Explore 子代理数量（默认 3）。
+        /// 避免过多子代理同时读取文件导致 token 浪费和缓存冲突。
+        /// </summary>
+        private static readonly SemaphoreSlim SubagentConcurrencyLimiter = new(3, 3);
+
         protected BaseAgent(DeepSeekApiService apiService, AgentType agentType)
         {
             _apiService = apiService ?? throw new ArgumentNullException(nameof(apiService));
@@ -1147,6 +1153,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                         AddLog("INFO", $"[{Definition.Name}] → ExploreAgent: {ctx.Description}");
 
+                        // ── 并行子代理限流：获取信号量，限制同时运行的 Explore 子代理数量 ──
+                        await SubagentConcurrencyLimiter.WaitAsync(ct);
+
                         // ── 不再通过 LogEntryAdded 事件转发 Explore 日志（并行 runSubagent 会导致重复订阅）
                         //    改为在 Explore 完成后从 exploreResult.Logs 批量导入。 ──
                         AgentResult? exploreResult = null;
@@ -1156,6 +1165,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         }
                         finally
                         {
+                            SubagentConcurrencyLimiter.Release();
                             // ── 导入 ExploreAgent 的日志到父 Agent 的 _logs ──
                             if (exploreResult != null && exploreResult.Logs.Count > 0)
                             {

@@ -241,6 +241,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 清空所有文件读取缓存。
+        /// 在每次 runSubagent 调用前使用，确保不同 Explore 子代理之间文件读取缓存隔离，
+        /// 避免子代理 A 读取的文件被子代理 B 的缓存拦截。
+        /// </summary>
+        public void InvalidateFileReadCache()
+        {
+            _fileReadCache.Clear();
+        }
+
+        /// <summary>
         /// 批量使文件读取缓存失效。
         /// </summary>
         public void InvalidateFileReadCache(IEnumerable<string> filePaths)
