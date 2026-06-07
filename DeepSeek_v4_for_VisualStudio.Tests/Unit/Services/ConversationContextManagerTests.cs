@@ -62,11 +62,13 @@ public class ConversationContextManagerTests
 
         var messages = _manager.BuildApiMessages();
 
-        messages.Should().HaveCount(2);
+        // messages[0] = SharedImmutablePrefix, messages[1] = user, last = custom system prompt
+        messages.Should().HaveCount(3);
         messages[0].Role.Should().Be("system");
-        messages[0].Content.Should().Be("You are helpful.");
         messages[1].Role.Should().Be("user");
         messages[1].Content.Should().Be("Hi");
+        messages[messages.Count - 1].Role.Should().Be("system");
+        messages[messages.Count - 1].Content.Should().Be("You are helpful.");
     }
 
     [Fact]

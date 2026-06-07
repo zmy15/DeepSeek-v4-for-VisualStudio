@@ -399,14 +399,15 @@ public class PlanAgentTests
     {
         var agent = new PlanAgent(_apiService);
 
-        // Simulate ExploreAgent adding a log through the internal explore agent
+        AgentLogEntry? forwardedEntry = null;
+        agent.LogEntryAdded += entry => forwardedEntry = entry;
+
+        // Simulate ExploreAgent adding a log — PlanAgent should forward via LogEntryAdded
         RaiseLogEntryAddedPublic(agent.ExploreAgent!, new AgentLogEntry { Level = "INFO", Message = "探索完成" });
 
-        // OnExploreLog adds to _logs with [Explore] prefix but does NOT fire LogEntryAdded
-        // (by design, to avoid duplicate UI output)
-        var logs = agent.GetLogs();
-        logs.Should().NotBeEmpty();
-        logs.Should().Contain(l => l.Message.Contains("[Explore]") && l.Message.Contains("探索完成"));
+        forwardedEntry.Should().NotBeNull();
+        forwardedEntry!.Message.Should().Be("探索完成");
+        forwardedEntry!.Level.Should().Be("INFO");
     }
 
     #endregion

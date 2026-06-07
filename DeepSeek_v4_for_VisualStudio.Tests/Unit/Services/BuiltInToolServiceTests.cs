@@ -214,7 +214,8 @@ public class BuiltInToolServiceTests
     {
         var text = BuiltInToolService.GetToolCallDisplayText("unknown_tool", "{}");
 
-        text.Should().Contain("🔧");
+        text.Should().NotBeNullOrEmpty();
+        text.Should().Contain("unknown_tool");
     }
 
     [Fact]
