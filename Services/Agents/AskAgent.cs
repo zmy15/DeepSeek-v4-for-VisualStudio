@@ -147,6 +147,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
+            // ── 清理上次执行的移交状态，防止跨调用污染 ──
+            PendingHandoffRequest = null;
+
             // ── 检测是否为 Edit Agent 的摘要 Handoff ──
             if (IsSummaryHandoff(context))
             {

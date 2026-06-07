@@ -99,6 +99,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
+            // ── 清理上次执行的移交状态，防止跨调用污染 ──
+            PendingHandoffRequest = null;
+
             var L = LocalizationService.Instance;
             AddLog("INFO", string.Format(L["agent.log.planStarted"], userMessage.Truncate(100)));
 

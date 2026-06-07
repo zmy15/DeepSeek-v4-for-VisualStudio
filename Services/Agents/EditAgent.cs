@@ -156,9 +156,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
-            // ── 清空上次执行的日志和推理内容 ──
+            // ── 清空上次执行的日志、推理内容和移交状态 ──
             _logs.Clear();
             _accumulatedReasoning = null;
+            PendingHandoffRequest = null;
 
             var result = new AgentResult
             {
@@ -167,54 +168,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             };
 
             // ── 如果有 ActivePlan，执行计划 ──
+            AgentTaskPlan plan;
             if (context.ActivePlan != null && context.ActivePlan.Steps.Count > 0)
             {
-                await ExecutePlanAsync(context.ActivePlan, context);
-                result.Plan = context.ActivePlan;
-                result.FileChanges = context.ActivePlan.ChangedFiles;
-
-                // ── AI 通过 request_handoff 工具主动请求移交（优先于程序化移交）──
-                if (PendingHandoffRequest != null)
-                {
-                    result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
-                }
-                else
-                {
-                    // ── 移交 Ask Agent 生成最终总结 ──
-                    result.Handoff = BuildSummaryHandoff(context.ActivePlan);
-
-                    if (HasBuildWarningsInLogs())
-                    {
-                        result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
-                    }
-                }
+                plan = context.ActivePlan;
+                await ExecutePlanAsync(plan, context);
             }
             else
             {
                 // ── 没有计划，作为单步代码修改执行 ──
                 AddLog("INFO", LocalizationService.Instance["agent.log.editNoPlan"]);
-                var plan = CreateSingleStepPlan(userMessage);
+                plan = CreateSingleStepPlan(userMessage);
                 context.ActivePlan = plan; // 确保 Handoff 时 AskAgent 可检测到已完成计划
                 await ExecutePlanAsync(plan, context);
-                result.Plan = plan;
-                result.FileChanges = plan.ChangedFiles;
-
-                // ── AI 通过 request_handoff 工具主动请求移交（优先于程序化移交）──
-                if (PendingHandoffRequest != null)
-                {
-                    result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
-                }
-                else
-                {
-                    // ── 移交 Ask Agent 生成最终总结 ──
-                    result.Handoff = BuildSummaryHandoff(plan);
-
-                    if (HasBuildWarningsInLogs())
-                    {
-                        result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
-                    }
-                }
             }
+
+            result.Plan = plan;
+            result.FileChanges = plan.ChangedFiles;
+
+            // ── 确定 Handoff 目标（AI 动态移交优先于程序化移交）──
+            result.Handoff = ResolveHandoff(plan);
 
             // ── 传递累积累的推理内容供 UI 渲染思考面板 ──
             if (!string.IsNullOrEmpty(_accumulatedReasoning))
@@ -2156,6 +2129,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private void NotifyPlanUpdated()
         {
             try { PlanUpdated?.Invoke(CurrentPlan!); } catch { }
+        }
+
+        /// <summary>
+        /// 确定 Handoff 目标：AI 通过 request_handoff 动态移交优先，
+        /// 否则默认移交 Ask Agent 生成总结，若有编译警告则移交 Build Agent。
+        /// </summary>
+        private AgentHandoff ResolveHandoff(AgentTaskPlan plan)
+        {
+            // ── AI 动态移交优先 ──
+            if (PendingHandoffRequest != null)
+                return ConvertHandoffRequestToHandoff(PendingHandoffRequest);
+
+            // ── 有编译警告 → Build Agent ──
+            if (HasBuildWarningsInLogs())
+                return Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build)
+                    ?? BuildSummaryHandoff(plan);
+
+            // ── 默认 → Ask Agent 生成总结 ──
+            return BuildSummaryHandoff(plan);
         }
 
         /// <summary>

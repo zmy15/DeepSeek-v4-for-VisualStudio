@@ -113,6 +113,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 清空上次执行的日志，防止旧日志干扰判断 ──
             _logs.Clear();
 
+            // ── 清理上次执行的移交状态，防止跨调用污染 ──
+            PendingHandoffRequest = null;
+
             var L = LocalizationService.Instance;
             AddLog("INFO", string.Format(L["agent.log.buildStarted"], userMessage.Truncate(100)));
 

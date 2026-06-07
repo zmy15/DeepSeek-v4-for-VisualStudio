@@ -406,6 +406,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (_agentFactory.EditAgent is EditAgent editAgent)
                     editAgent.PlanUpdated += OnAgentPlanUpdated;
 
+                // ── 显式路由时注入系统消息：告知 AI 用户已显式指定 Agent，不要移交 ──
+                if (routing?.IsExplicit == true)
+                {
+                    string doNotHandoffMsg = string.Format(
+                        LocalizationService.Instance["agent.explicitRoute.doNotHandoff"],
+                        routing.TargetAgent);
+                    _contextManager.AddCustomMessage("system", doNotHandoffMsg);
+                    Logger.Info($"[Agent] 显式路由 @{routing.TargetAgent}: 已注入禁止移交指令");
+                }
+
                 AgentResult agentResult;
                 try
                 {
@@ -418,18 +428,44 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         ea.PlanUpdated -= OnAgentPlanUpdated;
                 }
 
-                // 仅在 AutoSend 为 true 时自动执行 Handoff；否则由用户通过 UI 按钮显式触发
-                if (agentResult.Handoff != null && agentResult.Handoff.AutoSend)
+                // ── Handoff 链式执行：自动跟进 AutoSend 移交，最多 10 层防止无限循环 ──
+                // ShowContinueOn 移交保存到 _pendingHandoff，稍后渲染时注入按钮等待用户点击。
+                const int maxHandoffChainDepth = 10;
+                int handoffChainDepth = 0;
+                bool handoffChainCompleted = false;
+                string mergedReasoning = agentResult.ReasoningContent ?? string.Empty;
+
+                while (agentResult.Handoff != null && !handoffChainCompleted)
                 {
-                    // ── 保存移交前的推理内容，防止被 Handoff 结果覆盖 ──
-                    string preHandoffReasoning = agentResult.ReasoningContent ?? string.Empty;
+                    handoffChainDepth++;
+                    if (handoffChainDepth > maxHandoffChainDepth)
+                    {
+                        Logger.Warn($"[Agent] Handoff 链达到最大深度 {maxHandoffChainDepth}，强制终止");
+                        break;
+                    }
+
+                    if (agentResult.Handoff.ShowContinueOn)
+                    {
+                        // ── 需要用户确认：保存引用，注入按钮，中断链 ──
+                        _pendingHandoff = agentResult.Handoff;
+                        Logger.Info($"[Agent] Handoff 链中断 (ShowContinueOn)，等待用户点击 → {agentResult.Handoff.TargetAgent}");
+                        handoffChainCompleted = true;
+                        break;
+                    }
+
+                    if (!agentResult.Handoff.AutoSend)
+                    {
+                        // ── 既非 AutoSend 也非 ShowContinueOn：静默终止 ──
+                        break;
+                    }
+
+                    // ── AutoSend：自动链式移交 ──
+                    Logger.Info($"[Agent] Handoff 链 #{handoffChainDepth}: → {agentResult.Handoff.TargetAgent} ({agentResult.Handoff.Label})");
 
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                     StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentSwitched"], agentResult.Handoff.TargetAgent);
-
                     await TaskScheduler.Default;
 
-                    // ── 切换到目标 Agent 并执行 Handoff ──
                     var nextAgent = _agentFactory.GetAgent(agentResult.Handoff.TargetAgent);
                     SwitchActiveAgent(nextAgent, context);
                     if (_agentFactory.EditAgent is EditAgent ea2)
@@ -444,19 +480,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             ea3.PlanUpdated -= OnAgentPlanUpdated;
                     }
 
-                    // ── 合并移交前和移交后的推理内容 ──
-                    if (!string.IsNullOrEmpty(preHandoffReasoning))
-                    {
-                        agentResult.ReasoningContent = string.IsNullOrEmpty(agentResult.ReasoningContent)
-                            ? preHandoffReasoning
-                            : preHandoffReasoning + "\n\n" + agentResult.ReasoningContent;
-                    }
+                    // ── 合并推理内容 ──
+                    if (!string.IsNullOrEmpty(agentResult.ReasoningContent))
+                        mergedReasoning = mergedReasoning + "\n\n" + agentResult.ReasoningContent;
                 }
-                else if (agentResult.Handoff != null && agentResult.Handoff.ShowContinueOn)
-                {
-                    // ── 非自动 Handoff：保存引用，稍后在渲染完成后注入"开始实现"按钮 ──
-                    _pendingHandoff = agentResult.Handoff;
-                }
+
+                agentResult.ReasoningContent = mergedReasoning;
 
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 

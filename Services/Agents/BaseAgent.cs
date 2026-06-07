@@ -1766,14 +1766,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         protected AgentHandoff ConvertHandoffRequestToHandoff(HandoffRequest request)
         {
+            var L = LocalizationService.Instance;
             string label = request.TargetAgent switch
             {
-                AgentType.Ask => "生成总结",
-                AgentType.Edit => "执行修改",
-                AgentType.Plan => "制定计划",
-                AgentType.Build => "诊断修复",
-                AgentType.Explore => "探索代码库",
-                _ => "移交任务"
+                AgentType.Ask => L["agent.edit.handoffAskLabel"],
+                AgentType.Edit => L["agent.ask.handoffEditLabel"],
+                AgentType.Plan => L["agent.ask.handoffPlanLabel"],
+                AgentType.Build => L["agent.ask.handoffBuildLabel"],
+                AgentType.Explore => L["agent.ask.handoffExploreLabel"],
+                _ => L["agent.handoff.defaultLabel"]
             };
 
             string prompt = $"[移交自 {request.SourceAgent}] {request.Reason}\n\n{request.TaskDescription}";
@@ -1885,7 +1886,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 刷新 ConversationHistory ──
             if (context.ContextManager != null)
                 context.ConversationHistory = context.ContextManager.GetConversationHistory();
-            context.IsPlanningMode = true; // Handoff 后进入 Planning 模式执行
+            // ── Planning 模式仅对 Edit/Build 等执行类 Agent 生效 ──
+            if (handoff.TargetAgent == AgentType.Edit || handoff.TargetAgent == AgentType.Build)
+                context.IsPlanningMode = true;
 
             return await targetAgent.ExecuteAsync(handoffMessage, context);
         }
