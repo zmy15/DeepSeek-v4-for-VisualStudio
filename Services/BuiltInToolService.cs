@@ -456,6 +456,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 为 MCP 外部工具生成显示文本。
+        /// 所有 MCP 工具统一加 🔌 MCP 前缀以区分内置工具。
         /// OCR 工具额外提示参数格式。
         /// </summary>
         private static string GetMcpToolCallDisplayText(string toolName, Dictionary<string, JsonElement> args)
@@ -477,19 +478,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 ocrHint = LocalizationService.Instance.Format("tool.service.ocrParam", paramSummary);
             }
 
+            string result;
             if (!string.IsNullOrEmpty(filePath))
             {
                 string fname = Path.GetFileName(filePath);
-                return LocalizationService.Instance.Format("tool.service.callingToolWithFile", toolName, fname, ocrHint);
+                result = LocalizationService.Instance.Format("tool.service.callingToolWithFile", toolName, fname, ocrHint);
             }
-            if (!string.IsNullOrEmpty(url))
-                return LocalizationService.Instance.Format("tool.service.callingToolWithUrl", toolName, TruncateText(url, 50), ocrHint);
-            if (!string.IsNullOrEmpty(query))
-                return LocalizationService.Instance.Format("tool.service.callingToolWithQuery", toolName, TruncateText(query, 50), ocrHint);
-            if (!string.IsNullOrEmpty(inputData))
-                return LocalizationService.Instance.Format("tool.service.callingToolWithInput", toolName, TruncateText(inputData, 50), ocrHint);
+            else if (!string.IsNullOrEmpty(url))
+                result = LocalizationService.Instance.Format("tool.service.callingToolWithUrl", toolName, TruncateText(url, 50), ocrHint);
+            else if (!string.IsNullOrEmpty(query))
+                result = LocalizationService.Instance.Format("tool.service.callingToolWithQuery", toolName, TruncateText(query, 50), ocrHint);
+            else if (!string.IsNullOrEmpty(inputData))
+                result = LocalizationService.Instance.Format("tool.service.callingToolWithInput", toolName, TruncateText(inputData, 50), ocrHint);
+            else
+                result = LocalizationService.Instance.Format("tool.service.callingToolGeneric", toolName, ocrHint);
 
-            return LocalizationService.Instance.Format("tool.service.callingToolGeneric", toolName, ocrHint);
+            // ── MCP 标注：将内置工具的 🔧 替换为 🔌 MCP ──
+            return result.Replace("🔧", "🔌 MCP");
         }
 
         #endregion

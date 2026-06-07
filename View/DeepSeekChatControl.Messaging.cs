@@ -763,6 +763,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 if (string.IsNullOrEmpty(acc.FunctionName)) continue;
                                 string displayText = BuiltInToolService.GetToolCallDisplayText(
                                     acc.FunctionName!, acc.ArgumentsBuilder.ToString());
+                                if (_mcpManager?.AllTools.Any(t => string.Equals(t.Name, acc.FunctionName, StringComparison.OrdinalIgnoreCase)) == true)
+                                    displayText = displayText.Replace("🔧", "🔌 MCP");
                                 toolCallLines.Add($"- {displayText} ⏳");
                             }
 
@@ -772,6 +774,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 if (string.IsNullOrEmpty(acc.FunctionName)) continue;
                                 string displayText = BuiltInToolService.GetToolCallDisplayText(
                                     acc.FunctionName!, acc.ArgumentsBuilder.ToString());
+                                if (_mcpManager?.AllTools.Any(t => string.Equals(t.Name, acc.FunctionName, StringComparison.OrdinalIgnoreCase)) == true)
+                                    displayText = displayText.Replace("🔧", "🔌 MCP");
                                 toolCallHistory.Add((round, displayText));
                             }
                             while (toolCallHistory.Count > 20)
@@ -936,6 +940,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 var acc = accValues[i];
                                 string displayText = BuiltInToolService.GetToolCallDisplayText(
                                     acc.FunctionName!, acc.ArgumentsBuilder.ToString());
+                                if (_mcpManager?.AllTools.Any(t => string.Equals(t.Name, acc.FunctionName, StringComparison.OrdinalIgnoreCase)) == true)
+                                    displayText = displayText.Replace("🔧", "🔌 MCP");
                                 string summary = i < toolResultSummaries.Count ? toolResultSummaries[i] : "完成";
                                 completedLines.Add($"- {displayText} → {summary}");
                             }

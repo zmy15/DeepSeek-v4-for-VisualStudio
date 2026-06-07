@@ -882,6 +882,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         var tc = toolCalls[idx];
                         string summary = BuiltInToolService.GetToolCallDisplayText(tc.Function.Name, tc.Function.Arguments);
+                        // MCP 工具标注：即使与内置工具同名，也标注来源
+                        if (McpManager != null && McpManager.AllTools.Any(t => string.Equals(t.Name, tc.Function.Name, StringComparison.OrdinalIgnoreCase)))
+                            summary = summary.Replace("🔧", "🔌 MCP");
                         onToolCall?.Invoke(summary);
                     }
 
@@ -890,6 +893,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         var tc = toolCalls[idx];
                         string summary = BuiltInToolService.GetToolCallDisplayText(tc.Function.Name, tc.Function.Arguments);
+                        if (McpManager != null && McpManager.AllTools.Any(t => string.Equals(t.Name, tc.Function.Name, StringComparison.OrdinalIgnoreCase)))
+                            summary = summary.Replace("🔧", "🔌 MCP");
                         toolCallHistory.Add((round, summary));
                     }
                     // 保留最近 20 条记录防止内存增长
