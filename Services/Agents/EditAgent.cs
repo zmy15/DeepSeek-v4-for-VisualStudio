@@ -383,6 +383,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 NotifyPlanUpdated();
 
+                // ── Toast 通知：任务完成或中断 ──
+                NotifyPlanCompletionViaToast(plan);
+
                 // ── 清理 Plan Agent 生成的 plan.md ──
                 await CleanupPlanMarkdownAsync(plan, context);
             }
@@ -2129,6 +2132,46 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private void NotifyPlanUpdated()
         {
             try { PlanUpdated?.Invoke(CurrentPlan!); } catch { }
+        }
+
+        /// <summary>
+        /// 通过 Toast 通知用户计划执行结果。
+        /// </summary>
+        private void NotifyPlanCompletionViaToast(AgentTaskPlan plan)
+        {
+            try
+            {
+                var toastService = CompositionRoot.GetServiceOrDefault<ToastNotificationService>();
+                if (toastService == null)
+                    return;
+
+                int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+                int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
+                int total = plan.Steps.Count;
+
+                if (plan.IsCancelled)
+                {
+                    toastService.Show(
+                        "DeepSeek V4",
+                        $"任务已取消 — 已完成 {completed}/{total} 个步骤");
+                }
+                else if (plan.IsCompleted && failed == 0)
+                {
+                    toastService.Show(
+                        "DeepSeek V4",
+                        $"✅ 任务完成 — {completed}/{total} 个步骤全部成功");
+                }
+                else if (plan.IsCompleted && failed > 0)
+                {
+                    toastService.Show(
+                        "DeepSeek V4",
+                        $"⚠️ 任务完成 — {completed}/{total} 个步骤成功，{failed} 个失败");
+                }
+            }
+            catch
+            {
+                // Toast 通知失败不应影响主流程
+            }
         }
 
         /// <summary>

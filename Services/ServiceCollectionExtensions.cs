@@ -97,6 +97,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 持久化服务（适配器包装静态类） ──
             services.AddSingleton<IChatPersistenceService, ChatPersistenceServiceAdapter>();
 
+            // ── Toast 通知服务 ──
+            services.AddSingleton<ToastNotificationService>();
+
             // ── Agent 工厂 ──
             services.AddSingleton<AgentFactory>(sp =>
             {
