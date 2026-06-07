@@ -498,7 +498,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             //     注意：此处仅记录日志，不阻止请求。实际指纹对比需要 tool 列表，
             //     由调用方（DeepSeekApiService）在发送前完成。
             //     由于 messages[0] 现在是 SharedImmutablePrefix（跨 Agent 不变），
-            //     只有在 tool 集变化时才会触发漂移（正常现象，re-pin 后恢复）。
+            //     且 PrefixCacheManager 已将 tool 集变化降级为 Info（非漂移），
+            //     只有 system prompt 真正变化时才会产生 Warning。tool 集变化是
+            //     多 Agent 架构中的正常行为，不再触发漂移告警。
             if (_prefixCacheManager != null && _prefixCacheManager.IsPinned)
             {
                 string spFp = PrefixCacheManager.ComputeSystemPromptFingerprint(sharedPrefix);

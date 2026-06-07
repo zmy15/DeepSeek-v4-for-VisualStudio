@@ -140,8 +140,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// 检查当前前缀是否与 pinned 基准一致，并记录漂移信息。
+        /// 检查当前前缀是否与 pinned 基准一致，并记录变化信息。
         /// 应在每次构建 API 请求前调用。
+        /// 
+        /// 两级处理策略：
+        /// - system prompt 变化 → ⚠️ Warning + 完全 re-pin（真正的缓存失效风险）
+        /// - 仅 tool 集变化 → ℹ️ Info + 静默更新 tool 指纹（多 Agent/多阶段架构正常行为）
         /// </summary>
         /// <param name="currentSystemPromptFingerprint">当前 system prompt 指纹</param>
         /// <param name="currentToolCatalogFingerprint">当前 tool catalog 指纹</param>
@@ -181,10 +185,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 };
             }
 
-            // ── 检测到漂移 ──
+            // ── 检测到变化 ──
+            //     区分两个层级：
+            //     - system prompt 变化 → ⚠️ Warning（真正的缓存失效风险）
+            //     - 仅 tool 集变化 → ℹ️ Info（多 Agent/多阶段架构中的正常行为）
             var driftInfo = new PrefixDriftInfo
             {
-                HasDrift = true,
+                HasDrift = spChanged,        // 只有 system prompt 漂移才算真正的 drift
                 SystemPromptChanged = spChanged,
                 ToolCatalogChanged = toolChanged,
                 PreviousSystemPromptFingerprint = _pinnedSystemPromptFingerprint,
@@ -195,17 +202,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 CombinedFingerprint = currentCombinedFingerprint,
             };
 
-            // 自动 re-pin 到新基准，避免同一变化被反复报告
-            Pin(currentSystemPromptFingerprint, currentToolCatalogFingerprint, currentCombinedFingerprint);
+            if (spChanged)
+            {
+                // system prompt 变化 → 完全 re-pin，发出 Warning
+                Pin(currentSystemPromptFingerprint, currentToolCatalogFingerprint, currentCombinedFingerprint);
 
-            string cause = spChanged && toolChanged ? "system prompt 和 tool 集均变化"
-                : spChanged ? "system prompt 变化"
-                : "tool 集变化";
+                string cause = toolChanged ? "system prompt 和 tool 集均变化" : "system prompt 变化";
+                Logger.Warn($"[PrefixCache] ⚠️ 前缀漂移检测: {cause} | " +
+                            $"旧指纹={TruncateFingerprint(driftInfo.PreviousCombinedFingerprint)} → " +
+                            $"新指纹={TruncateFingerprint(currentCombinedFingerprint)} | " +
+                            $"已自动 re-pin。稳定性={StabilityRatio:P1} ({_stableChecks}/{_totalChecks})");
+            }
+            else
+            {
+                // 仅 tool 集变化 → 静默更新 tool 指纹和组合指纹，不改变稳定性计数
+                _pinnedToolCatalogFingerprint = currentToolCatalogFingerprint;
+                _pinnedCombinedFingerprint = ComputeCombinedFingerprint(_pinnedSystemPromptFingerprint!, currentToolCatalogFingerprint);
+                _stableChecks++;  // tool 变化不算漂移，计为稳定
 
-            Logger.Warn($"[PrefixCache] ⚠️ 前缀漂移检测: {cause} | " +
-                        $"旧指纹={TruncateFingerprint(driftInfo.PreviousCombinedFingerprint)} → " +
-                        $"新指纹={TruncateFingerprint(currentCombinedFingerprint)} | " +
-                        $"已自动 re-pin。稳定性={StabilityRatio:P1} ({_stableChecks}/{_totalChecks})");
+                Logger.Info($"[PrefixCache] 🔧 tool 集更新（非漂移）: " +
+                            $"旧 tool 指纹={TruncateFingerprint(driftInfo.PreviousToolCatalogFingerprint)} → " +
+                            $"新 tool 指纹={TruncateFingerprint(currentToolCatalogFingerprint)} | " +
+                            $"system prompt 保持稳定 ✅");
+            }
 
             return driftInfo;
         }
@@ -239,7 +258,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// </summary>
     public class PrefixDriftInfo
     {
-        /// <summary>是否检测到前缀漂移</summary>
+        /// <summary>
+        /// 是否检测到前缀漂移。
+        /// 仅 system prompt 变化时设为 true；仅 tool 集变化不算漂移（多 Agent 架构中的正常行为）。
+        /// </summary>
         public bool HasDrift { get; set; }
 
         /// <summary>是否为首次 pin（非漂移）</summary>
