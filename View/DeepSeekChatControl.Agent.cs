@@ -851,7 +851,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     new ChatApiMessage { Role = "user", Content = userPrompt },
                 };
 
-                var rawResponse = await _apiService.CompleteAsync(messages, CancellationToken.None);
+                var rawResponse = await _apiService.CompleteAsync(messages, CancellationToken.None, responseFormat: "json_object");
 
                 if (string.IsNullOrWhiteSpace(rawResponse))
                 {

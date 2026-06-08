@@ -317,12 +317,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 调用 AI 进行长回答（用于代码生成、分析等）。
         /// </summary>
-        protected async Task<string> CallAiLongAsync(string systemPrompt, string userPrompt, CancellationToken ct, int maxTokens = 4096, double? temperature = null)
+        protected async Task<string> CallAiLongAsync(string systemPrompt, string userPrompt, CancellationToken ct, int maxTokens = 4096, double? temperature = null, string? responseFormat = null)
         {
             var messages = BuildContextAwareMessages(systemPrompt, userPrompt);
 
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, temperature: temperature))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, temperature: temperature, responseFormat: responseFormat))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -344,12 +344,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             CancellationToken ct,
             int maxTokens = 4096,
             string? toolChoice = null,
-            double? temperature = null)
+            double? temperature = null,
+            string? responseFormat = null)
         {
             var messages = BuildContextAwareMessages(systemPrompt, userPrompt, extraSystemMessages);
 
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, toolChoice, temperature))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, toolChoice, temperature, responseFormat))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -361,10 +362,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 带对话历史的 AI 调用。
         /// </summary>
-        protected async Task<string> CallAiWithHistoryAsync(List<ChatApiMessage> history, CancellationToken ct, int maxTokens = 4096)
+        protected async Task<string> CallAiWithHistoryAsync(List<ChatApiMessage> history, CancellationToken ct, int maxTokens = 4096, string? responseFormat = null)
         {
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(history, null, ct, maxTokens))
+            await foreach (var chunk in _apiService.ChatStreamAsync(history, null, ct, maxTokens, responseFormat: responseFormat))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -386,15 +387,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <param name="maxTokens">最大输出 token 数</param>
         /// <param name="toolChoice">工具调用策略（"none" 禁用工具）</param>
         /// <param name="temperature">采样温度（0.0 = 确定性输出）</param>
+        /// <param name="responseFormat">JSON Output 模式: "json_object" 启用，null 不启用</param>
         protected async Task<string> CallAiWithMessagesAsync(
             List<ChatApiMessage> messages,
             CancellationToken ct,
             int maxTokens = 4096,
             string? toolChoice = null,
-            double? temperature = null)
+            double? temperature = null,
+            string? responseFormat = null)
         {
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, toolChoice, temperature))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, toolChoice, temperature, responseFormat))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);
@@ -407,11 +410,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 使用 ConversationContextManager 构建的消息列表调用 AI。
         /// 正确处理 reasoning_content 回传规则。
         /// </summary>
-        protected async Task<string> CallAiWithContextAsync(ConversationContextManager ctxManager, CancellationToken ct, int maxTokens = 4096)
+        protected async Task<string> CallAiWithContextAsync(ConversationContextManager ctxManager, CancellationToken ct, int maxTokens = 4096, string? responseFormat = null)
         {
             var messages = ctxManager.BuildApiMessages();
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, null, ct, maxTokens, responseFormat: responseFormat))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);

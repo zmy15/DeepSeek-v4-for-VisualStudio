@@ -151,7 +151,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     Definition.SystemPrompt,
                     splitPrompt,
                     ct,
-                    maxTokens: 2048);
+                    maxTokens: 2048,
+                    responseFormat: "json_object");
 
                 // ── 解析 AI 返回的步骤 ──
                 var steps = ParseStepsFromAiResponse(aiResult, userMessage);

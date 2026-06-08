@@ -238,7 +238,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
             int? maxTokens = null,
             string? toolChoice = null,
-            double? temperature = null)
+            double? temperature = null,
+            string? responseFormat = null)
         {
             // ── 工具 Schema 规范化：按名称排序，消除注册顺序对缓存的影响 ──
             //     参考 CodeWhale prefix_cache.rs:316-331
@@ -258,7 +259,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Tools = normalizedTools,
                 ToolChoice = effectiveToolChoice,
                 MaxTokens = maxTokens,
-                Temperature = temperature
+                Temperature = temperature,
+                ResponseFormat = responseFormat == "json_object"
+                    ? new ResponseFormat { Type = "json_object" }
+                    : null
             };
 
             // ── 消息清理：防止无效消息导致 HTTP 400 ──
@@ -644,10 +648,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         /// <param name="messages">消息列表</param>
         /// <param name="cancellationToken">取消令牌</param>
+        /// <param name="responseFormat">JSON Output 模式: "json_object" 启用，null 不启用</param>
         /// <returns>AI 返回的完整文本内容</returns>
         public async Task<string> CompleteAsync(
             IEnumerable<ChatApiMessage> messages,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            string? responseFormat = null)
         {
             var request = new DeepSeekChatRequest
             {
@@ -656,6 +662,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Stream = false,
                 Thinking = new ThinkingControl { Type = "disabled" },
                 ReasoningEffort = null,
+                ResponseFormat = responseFormat == "json_object"
+                    ? new ResponseFormat { Type = "json_object" }
+                    : null
             };
 
             // Defensive check for non-streaming path as well

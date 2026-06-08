@@ -569,7 +569,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             AddLog("INFO", L["agent.log.planGeneratingJson"]);
             string json = await CallAiWithMessagesAsync(
                 messages, ct,
-                maxTokens: 8192, toolChoice: "none", temperature: 0.0);
+                maxTokens: 8192, toolChoice: "none", temperature: 0.0, responseFormat: "json_object");
             AddLog("INFO", L["agent.log.planJsonReceived"]);
 
             // ── 诊断：记录原始响应用于调试 JSON 解析失败 ──
@@ -617,7 +617,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     string retryResponse = await CallAiWithMessagesAsync(
                         retryMessages, ct,
-                        maxTokens: 4096, toolChoice: "none", temperature: 0.0);
+                        maxTokens: 4096, toolChoice: "none", temperature: 0.0, responseFormat: "json_object");
 
                     retryResponse = StripDsmlContent(retryResponse);
                     retryResponse = ExtractJsonFromMarkdown(retryResponse);

@@ -51,6 +51,24 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [JsonPropertyName("temperature")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public double? Temperature { get; set; }
+
+        /// <summary>
+        /// DeepSeek JSON Output 模式。设置为 {"type": "json_object"} 可确保模型输出合法 JSON。
+        /// 使用前提: system/user prompt 中必须包含 "json" 字样和期望的 JSON 格式样例。
+        /// 参考: https://api-docs.deepseek.com/zh-cn/guides/json_mode
+        /// </summary>
+        [JsonPropertyName("response_format")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public ResponseFormat? ResponseFormat { get; set; }
+    }
+
+    /// <summary>
+    /// DeepSeek JSON Output 模式的 response_format 参数。
+    /// </summary>
+    public class ResponseFormat
+    {
+        [JsonPropertyName("type")]
+        public string Type { get; set; } = "json_object";
     }
 
     public class ThinkingControl
