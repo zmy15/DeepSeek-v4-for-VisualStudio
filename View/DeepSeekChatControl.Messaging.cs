@@ -242,6 +242,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     // ── 预分类任务规模，Large 任务提前路由到 Plan Agent ──
                     var taskSize = Services.Agents.EditAgent.ClassifyTaskSize(userText);
+                    Logger.Info($"[TaskSize] \"{userText.Truncate(60)}\" → {taskSize}");
 
                     var routing = explicitRoute ?? new AgentRoutingResult
                     {

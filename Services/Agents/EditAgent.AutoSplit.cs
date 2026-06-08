@@ -24,6 +24,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             if (string.IsNullOrWhiteSpace(userMessage)) return TaskSize.Small;
 
+            var msg = userMessage.Trim();
+
+            // ════════════════════════════════════════════════════════
+            // 第0层：简单操作预检 — 构建/验证/git 等明确的小任务直接返回 Small
+            // ════════════════════════════════════════════════════════
+            if (IsTrivialTask(msg))
+            {
+                Logger.Info($"[TaskSize] 简单操作预检命中 → Small: \"{msg.Truncate(60)}\"");
+                return TaskSize.Small;
+            }
+
             // ════════════════════════════════════════════════════════
             // 第1层：Large 任务关键词（新功能、架构级变更）
             // ════════════════════════════════════════════════════════
@@ -31,28 +42,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 // 中文 — 大型任务信号
                 "新功能", "新增功能", "新模块", "新系统", "从头实现",
-                "架构", "重新设计", "重构整个", "整体重构", "大改",
+                "架构", "重新设计", "重构整个", "整体重构",
                 "设计一个", "搭建一个", "构建一个", "开发一个",
-                "完整实现", "全部实现", "所有", "整套",
+                "完整实现", "全部实现", "整套",
                 "从零开始", "重新实现", "重建",
                 // 英文
                 "new feature", "new module", "new system", "implement a",
                 "build a", "create a", "from scratch", "architecture",
-                "redesign", "restructure", "overhaul", "complete",
+                "redesign", "restructure", "overhaul",
             };
 
             int largeHits = largeKeywords.Count(k =>
-                userMessage.Contains(k, StringComparison.OrdinalIgnoreCase));
+                msg.Contains(k, StringComparison.OrdinalIgnoreCase));
 
             // 消息 >500 字符 + 至少 1 个 Large 关键词 → Large
-            bool isVeryLongMessage = userMessage.Length > 500;
+            bool isVeryLongMessage = msg.Length > 500;
 
             // 明确提到 6+ 个文件名 → Large
             int fileRefCount = System.Text.RegularExpressions.Regex.Matches(
-                userMessage, @"\b\w+\.(cs|ts|js|py|java|cpp|h|hpp|xml|json|yaml|yml|md|csproj|sln)\b").Count;
+                msg, @"\b\w+\.(cs|ts|js|py|java|cpp|h|hpp|xml|json|yaml|yml|md|csproj|sln)\b").Count;
 
-            if (largeHits >= 2 || (isVeryLongMessage && largeHits >= 1) || fileRefCount >= 6)
+            // ── Large 判定需要更强的信号组合 ──
+            // 条件 A: ≥3 个 Large 关键词（从 2 提高到 3）
+            // 条件 B: 长消息 + ≥2 个 Large 关键词（从 1 提高到 2）
+            // 条件 C: ≥8 个文件引用（从 6 提高到 8）
+            if (largeHits >= 3 || (isVeryLongMessage && largeHits >= 2) || fileRefCount >= 8)
+            {
+                Logger.Info($"[TaskSize] Large: hits={largeHits}, long={isVeryLongMessage}, files={fileRefCount}, msg=\"{msg.Truncate(60)}\"");
                 return TaskSize.Large;
+            }
 
             // ════════════════════════════════════════════════════════
             // 第2层：Medium 任务关键词（多文件/多步骤，但非架构级）
@@ -69,12 +87,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             };
 
             int mediumHits = mediumKeywords.Count(k =>
-                userMessage.Contains(k, StringComparison.OrdinalIgnoreCase));
+                msg.Contains(k, StringComparison.OrdinalIgnoreCase));
 
-            bool isLongMessage = userMessage.Length > 200;
+            bool isLongMessage = msg.Length > 200;
 
-            // 3+ 文件引用 → Medium
-            if (fileRefCount >= 3 && fileRefCount < 6) return TaskSize.Medium;
+            // 3-7 个文件引用 → Medium
+            if (fileRefCount >= 3 && fileRefCount < 8) return TaskSize.Medium;
 
             // 2+ 关键词 → Medium
             if (mediumHits >= 2) return TaskSize.Medium;
@@ -86,6 +104,52 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 默认：Small
             // ════════════════════════════════════════════════════════
             return TaskSize.Small;
+        }
+
+        /// <summary>
+        /// 简单操作预检：纯构建、验证、git 推送、编译检查等明确的小任务，直接返回 Small。
+        /// 避免这类单步骤、无代码修改的任务被误判为 Medium/Large 而走 Plan Agent。
+        /// </summary>
+        private static bool IsTrivialTask(string userMessage)
+        {
+            // ── 纯构建/验证/编译 ──
+            var buildOnlyPatterns = new[]
+            {
+                "验证编译", "编译验证", "编译并提交", "提交推送",
+                "构建并推送", "构建推送", "build and push", "commit and push",
+                "编译通过", "编译检查", "构建验证",
+            };
+            if (buildOnlyPatterns.Any(p => userMessage.Contains(p, StringComparison.OrdinalIgnoreCase)))
+                return true;
+
+            // ── 纯 git 操作（提交/推送/合并）──
+            var gitOnlyPatterns = new[]
+            {
+                "提交推送", "commit and push", "提交并推送",
+                "git push", "git commit",
+            };
+            // 要排除含代码修改意图的 git 操作
+            bool hasCodeIntent = userMessage.Contains("修改", StringComparison.OrdinalIgnoreCase)
+                || userMessage.Contains("添加", StringComparison.OrdinalIgnoreCase)
+                || userMessage.Contains("修复", StringComparison.OrdinalIgnoreCase)
+                || userMessage.Contains("实现", StringComparison.OrdinalIgnoreCase)
+                || userMessage.Contains("创建", StringComparison.OrdinalIgnoreCase)
+                || userMessage.Contains("change", StringComparison.OrdinalIgnoreCase)
+                || userMessage.Contains("implement", StringComparison.OrdinalIgnoreCase);
+
+            if (!hasCodeIntent && gitOnlyPatterns.Any(p =>
+                userMessage.Contains(p, StringComparison.OrdinalIgnoreCase)))
+                return true;
+
+            // ── 短消息且无文件名引用 → 大概率是简单任务 ──
+            bool isVeryShort = userMessage.Length <= 20;
+            int fileRefCount = System.Text.RegularExpressions.Regex.Matches(
+                userMessage, @"\b\w+\.(cs|ts|js|py|java|cpp|h|hpp|xml|json|yaml|yml|md|csproj|sln)\b").Count;
+
+            if (isVeryShort && fileRefCount == 0 && !hasCodeIntent)
+                return true;
+
+            return false;
         }
 
         #endregion
