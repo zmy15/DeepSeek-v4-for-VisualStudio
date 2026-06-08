@@ -1422,7 +1422,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (ChatWebView.CoreWebView2 == null)
                 {
                     Logger.Warn($"[Agent] CoreWebView2 未就绪，自动拒绝权限请求: {request.Title}");
-                    _activeAgent?.RespondToPermission(request.RequestId, false);
+                    var permAgent = _agentFactory?.FindAgentWithPendingPermission(request.RequestId) ?? _activeAgent;
+                    permAgent?.RespondToPermission(request.RequestId, false);
                     return;
                 }
 
@@ -1431,7 +1432,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (approvalMode == Models.ApprovalMode.AllowAll)
                 {
                     Logger.Info($"[Agent] 审批模式=全部放行，自动批准: {request.Title}");
-                    _activeAgent?.RespondToPermission(request.RequestId, true);
+                    var permAgent = _agentFactory?.FindAgentWithPendingPermission(request.RequestId) ?? _activeAgent;
+                    permAgent?.RespondToPermission(request.RequestId, true);
                     return;
                 }
 
@@ -1442,7 +1444,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     if (!isDangerous)
                     {
                         Logger.Info($"[Agent] 审批模式=智能拦截，安全命令自动放行: {request.Title}");
-                        _activeAgent?.RespondToPermission(request.RequestId, true);
+                        var permAgent = _agentFactory?.FindAgentWithPendingPermission(request.RequestId) ?? _activeAgent;
+                        permAgent?.RespondToPermission(request.RequestId, true);
                         return;
                     }
                     Logger.Info($"[Agent] 审批模式=智能拦截，检测到危险命令，需要审批: {request.Command}");
@@ -1472,7 +1475,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 catch (Exception ex)
                 {
                     Logger.Warn($"[Agent] 权限 UI 注入失败: {ex.Message}");
-                    _activeAgent?.RespondToPermission(request.RequestId, false);
+                    var permAgent = _agentFactory?.FindAgentWithPendingPermission(request.RequestId) ?? _activeAgent;
+                    permAgent?.RespondToPermission(request.RequestId, false);
                 }
             });
         }
@@ -1492,7 +1496,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     if (ChatWebView.CoreWebView2 == null)
                     {
                         Logger.Warn($"[Agent] CoreWebView2 未就绪，无法注入问题 UI (共 {request.Questions.Count} 个问题)，自动跳过");
-                        _activeAgent?.RespondToQuestions(request.RequestId, "[]");
+                        var questionAgent = _agentFactory?.FindAgentWithPendingQuestion(request.RequestId) ?? _activeAgent;
+                        questionAgent?.RespondToQuestions(request.RequestId, "[]");
                         return;
                     }
 
@@ -1533,7 +1538,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 catch (Exception ex)
                 {
                     Logger.Warn($"[Agent] 问题 UI 注入失败: {ex.Message}\n{ex.StackTrace}");
-                    _activeAgent?.RespondToQuestions(request.RequestId, "{}");
+                    var questionAgent = _agentFactory?.FindAgentWithPendingQuestion(request.RequestId) ?? _activeAgent;
+                    questionAgent?.RespondToQuestions(request.RequestId, "{}");
                 }
             });
         }

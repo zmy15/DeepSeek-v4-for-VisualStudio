@@ -1304,14 +1304,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     }
                                 };
                                 targetAgent.LogEntryAdded += onAgentLog;
+                                // ── 绑定权限和提问事件，确保 Handoff 目标 Agent 的终端审批/提问 UI 能正常显示 ──
+                                targetAgent.PermissionRequested += OnAgentPermissionRequested;
+                                targetAgent.QuestionsRequested += OnAgentQuestionsRequested;
+                                Logger.Info($"[MainFlow] Handoff 目标 Agent 事件已绑定: {currentHandoff.TargetAgent} (PermissionRequested + QuestionsRequested)");
 
                                 // ── 执行当前 Handoff ──
                                 Logger.Info($"[MainFlow] 执行 Handoff → {currentHandoff.TargetAgent}");
                                 var handoffResult = await _activeAgent.ExecuteHandoffAsync(
                                     currentHandoff, handoffContext, _activePlan, _agentFactory);
 
-                                // ── 解绑日志事件 ──
+                                // ── 解绑所有事件 ──
                                 targetAgent.LogEntryAdded -= onAgentLog;
+                                targetAgent.PermissionRequested -= OnAgentPermissionRequested;
+                                targetAgent.QuestionsRequested -= OnAgentQuestionsRequested;
 
                                 // ── 构建当前 Handoff 结果内容 ──
                                 string handoffContent;
