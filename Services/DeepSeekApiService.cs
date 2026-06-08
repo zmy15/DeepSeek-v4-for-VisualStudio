@@ -510,6 +510,47 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             var contentBatch = new StringBuilder(512);
             const int ContentFlushThreshold = 100;
 
+            // ── 本地函数：输出缓存诊断 + 磁盘转储 ──
+            void FlushCacheDiagnostics()
+            {
+                try
+                {
+                    if (LastUsage == null) return;
+                    int hit = LastUsage.PromptCacheHitTokens;
+                    int miss = LastUsage.PromptCacheMissTokens;
+                    int cacheableTotal = hit + miss;
+                    if (cacheableTotal <= 0)
+                    {
+                        Logger.Info($"[Cache] ⚪ API调用完成: 无可缓存数据 (prompt {LastUsage.PromptTokens:N0} tokens)");
+                        return;
+                    }
+
+                    double rate = (double)hit / cacheableTotal;
+                    string level = rate >= 0.95 ? "🟢" : rate >= 0.70 ? "🟡" : rate >= 0.30 ? "🟠" : "🔴";
+
+                    const int bytesPerToken = 3;
+                    int msg0TokenEstimate = msg0Length / bytesPerToken;
+                    string missBoundary;
+                    if (msg0Length > 0 && hit >= msg0TokenEstimate * 0.8)
+                        missBoundary = $"✅ messages[0] 命中 → miss 在对话历史/动态块之后";
+                    else if (msg0Length > 0)
+                        missBoundary = $"🔴 messages[0] 未完全命中！命中={hit} tokens, messages[0]≈{msg0TokenEstimate} tokens → SharedImmutablePrefix 可能已变化";
+                    else
+                        missBoundary = "（无分段数据）";
+
+                    Logger.Info($"[Cache] {level} API调用完成: 命中率={rate * 100:F1}% (命中 {hit:N0} / 未命中 {miss:N0} / 可缓存 {cacheableTotal:N0} / prompt {LastUsage.PromptTokens:N0} tokens)\n" +
+                        $"        ↳ 边界: {missBoundary}");
+
+                    DumpRequestToDisk(requestJson, requestBodyBytes.Length,
+                        hit, miss, cacheableTotal, rate,
+                        request.Messages.Count, tools?.Count ?? 0);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[Cache] 缓存诊断输出异常: {ex.Message}");
+                }
+            }
+
             // ── 取消令牌注册：当 ct 触发时释放底层流，使 ReadLineAsync 立即抛出异常 ──
             // .NET Framework 4.7.2 的 ReadLineAsync 不接受 CancellationToken，
             // 通过释放流来实现同样的中断效果。释放 SslStream 可能抛出
@@ -537,6 +578,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         yield return contentBatch.ToString();
                         contentBatch.Clear();
                     }
+                    // ── 在 [DONE] 处立即输出缓存诊断 + 磁盘转储 ──
+                    FlushCacheDiagnostics();
                     yield break;
                 }
 
@@ -598,48 +641,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (contentBatch.Length > 0)
                 yield return contentBatch.ToString();
 
-            // ── 流结束后记录本次 API 调用的 Cache 命中率 + 前缀边界诊断 ──
-            try
-            {
-                if (LastUsage != null)
-                {
-                    int hit = LastUsage.PromptCacheHitTokens;
-                    int miss = LastUsage.PromptCacheMissTokens;
-                    int cacheableTotal = hit + miss;
-                    if (cacheableTotal > 0)
-                    {
-                        double rate = (double)hit / cacheableTotal;
-                        string level = rate >= 0.95 ? "🟢" : rate >= 0.70 ? "🟡" : rate >= 0.30 ? "🟠" : "🔴";
-
-                        // ── 边界诊断：仅 messages 参与缓存，判断 messages[0] 是否命中 ──
-                        const int bytesPerToken = 3;
-                        int msg0TokenEstimate = msg0Length / bytesPerToken;
-                        string missBoundary;
-                        if (msg0Length > 0 && hit >= msg0TokenEstimate * 0.8)
-                            missBoundary = $"✅ messages[0] 命中 → miss 在对话历史/动态块之后";
-                        else if (msg0Length > 0)
-                            missBoundary = $"🔴 messages[0] 未完全命中！命中={hit} tokens, messages[0]≈{msg0TokenEstimate} tokens → SharedImmutablePrefix 可能已变化";
-                        else
-                            missBoundary = "（无分段数据）";
-
-                        Logger.Info($"[Cache] {level} API调用完成: 命中率={rate * 100:F1}% (命中 {hit:N0} / 未命中 {miss:N0} / 可缓存 {cacheableTotal:N0} / prompt {LastUsage.PromptTokens:N0} tokens)\n" +
-                            $"        ↳ 边界: {missBoundary}");
-
-                        // ── 磁盘转储：写入完整请求体 + 缓存统计，供离线分析 ──
-                        DumpRequestToDisk(requestJson, requestBodyBytes.Length,
-                            hit, miss, cacheableTotal, rate,
-                            request.Messages.Count, tools?.Count ?? 0);
-                    }
-                    else
-                    {
-                        Logger.Info($"[Cache] ⚪ API调用完成: 无可缓存数据 (prompt {LastUsage.PromptTokens:N0} tokens)");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn($"[Cache] 流结束后命中率记录异常: {ex.Message}");
-            }
+            // ── 流正常结束（无 [DONE] 时）输出缓存诊断 ──
+            FlushCacheDiagnostics();
             } // using(response) — 重试块闭合
         }
 
