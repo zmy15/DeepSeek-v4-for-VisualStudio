@@ -673,7 +673,6 @@
     "plan.format.stepItem":  "### 步骤 {0}: {1}",
     "plan.format.seePanel":  "📌 详细步骤请查看下方任务面板。",
     "plan.format.readyToExecute":  "✅ 计划就绪，是否开始执行？",
-    "plan.format.stepItem":  "{0} **步骤 {1}**: {2}",
     "agent.log.explorePhase1":  "🔍 阶段 1/2: 快速扫描项目顶层结构…",
     "agent.log.explorePhase1Label":  "项目结构概览",
     "agent.log.explorePhase1Done":  "结构扫描完成 ({0} 字符)",

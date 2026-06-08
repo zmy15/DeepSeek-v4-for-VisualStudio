@@ -673,7 +673,7 @@
     "plan.format.stepCount":  "{0} step(s) total:",
     "plan.format.seePanel":  "📌 See the task panel below for detailed steps.",
     "plan.format.readyToExecute":  "✅ Plan is ready. Start execution?",
-    "plan.format.stepItem":  "{0} **Step {1}**: {2}",
+    "plan.format.stepItem":  "### Step {0}: {1}",
     "agent.log.explorePhase1":  "🔍 Phase 1/2: Quick project structure scan…",
     "agent.log.explorePhase1Label":  "Project Structure Overview",
     "agent.log.explorePhase1Done":  "Structure scan complete ({0} chars)",
