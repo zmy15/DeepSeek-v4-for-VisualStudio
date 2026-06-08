@@ -25,10 +25,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     {
         public AskAgent(DeepSeekApiService apiService) : base(apiService, AgentType.Ask) { }
 
-        /// <summary>
-        /// ExploreAgent 引用，由 AgentDispatcher 注入。
-        /// </summary>
-        public new ExploreAgent? ExploreAgent { get; set; }
+        // ExploreAgent 引用由基类 BaseAgent.ExploreAgent 提供，
+        // 由 AgentFactory 统一注入。不再使用 new 隐藏基类属性，
+        // 避免 BaseAgent.ExecuteToolAsync 中 ExploreHandler 注入失败。
 
         #region Agent Definition
 
