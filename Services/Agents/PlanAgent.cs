@@ -552,7 +552,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 messages = new List<ChatApiMessage>(alignmentMessages);
                 messages.AddRange(extraSystemMessages);
                 messages.Add(new ChatApiMessage { Role = "user", Content = planPrompt });
-                AddLog("INFO", "[Plan] 复用对齐阶段对话上下文，延续 DeepSeek Prefix Cache");
+                AddLog("INFO", LocalizationService.Instance["agent.log.planReuseAlignment"]);
             }
             else
             {

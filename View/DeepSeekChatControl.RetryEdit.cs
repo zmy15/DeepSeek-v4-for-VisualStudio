@@ -121,7 +121,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     try
                     {
                         await ChatWebView.CoreWebView2.ExecuteScriptAsync(
-                            "var btns=document.querySelectorAll('.handoff-btn');btns.forEach(function(b){b.disabled=true;b.textContent='⏳ 执行中...';b.style.opacity='0.6';});");
+                            $"var btns=document.querySelectorAll('.handoff-btn');btns.forEach(function(b){{b.disabled=true;b.textContent='{LocalizationService.Instance["chat.html.executing"]}';b.style.opacity='0.6';}});");
                     }
                     catch { }
                 }

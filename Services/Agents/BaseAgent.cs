@@ -1830,13 +1830,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (activePlan != null)
             {
                 sb.AppendLine();
-                sb.AppendLine($"## 任务计划: {activePlan.Title}");
-                sb.AppendLine($"共 {activePlan.Steps.Count} 个步骤：");
+                sb.AppendLine(string.Format(LocalizationService.Instance["plan.format.title"], activePlan.Title));
+                sb.AppendLine(string.Format(LocalizationService.Instance["plan.format.stepCount"], activePlan.Steps.Count));
                 sb.AppendLine();
 
                 foreach (var s in activePlan.Steps)
                 {
-                    sb.AppendLine($"### 步骤 {s.Index}: {s.Title}");
+                    sb.AppendLine(string.Format(LocalizationService.Instance["plan.format.stepItem"], s.Index, s.Title));
                     sb.AppendLine(s.Description);
                     sb.AppendLine();
                 }
