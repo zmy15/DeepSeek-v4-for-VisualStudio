@@ -137,6 +137,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return;
             }
 
+            // ── 单轮 Cache 统计快照：本次问答开始时的累计值 ──
+            _apiService?.TakeCacheSnapshot();
+
             InitializeContextServices();
 
             // 解析上传的文件
@@ -1170,12 +1173,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         break;
                     }
 
-                    // ── 汇总本轮 Cache 统计（跨所有轮次，从 _apiService 读取累计值）──
-                    long totalCacheHitTokens = _apiService?.TotalCacheHitTokens ?? 0;
-                    long totalCacheMissTokens = _apiService?.TotalCacheMissTokens ?? 0;
-                    long totalPromptTokens = _apiService?.TotalPromptTokens ?? 0;
-                    long totalCompletionTokens = _apiService?.TotalCompletionTokens ?? 0;
-                    LogTotalCacheHitRate(round, totalCacheHitTokens, totalCacheMissTokens, totalPromptTokens, totalCompletionTokens);
+                    // ── 汇总本轮 Cache 统计（本次问答的增量，非 Session 累计）──
+                    var cacheDelta = _apiService?.GetCacheDelta() ?? (0, 0, 0, 0);
+                    LogTotalCacheHitRate(round, cacheDelta.Hit, cacheDelta.Miss, cacheDelta.Prompt, cacheDelta.Completion);
 
                     // 流式完成
                     assistantMsg.ReasoningContent = reasoningBuffer.ToString();
@@ -1186,8 +1186,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     // ── 构建 Cache 命中率统计卡片 HTML ──
                     string cacheFooterHtml = ChatHtmlService.BuildCacheHitFooterHtml(
-                        totalCacheHitTokens, totalCacheMissTokens,
-                        totalPromptTokens, totalCompletionTokens, round);
+                        cacheDelta.Hit, cacheDelta.Miss,
+                        cacheDelta.Prompt, cacheDelta.Completion, round);
 
                     // ── 同步最终内容并强制刷新，确保增量内容已推送 ──
                     BatchStreamingUpdate(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: true);
@@ -1447,17 +1447,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                         BatchStreamingUpdate(assistantMsgIndex, finalContent, finalReasoning, isComplete: true);
 
-                        // ── 重建最终 Cache 命中率卡片（含全对话累计值 + Handoff 链轮次）──
-                        long finalTotalHit = _apiService?.TotalCacheHitTokens ?? 0;
-                        long finalTotalMiss = _apiService?.TotalCacheMissTokens ?? 0;
-                        long finalTotalPrompt = _apiService?.TotalPromptTokens ?? 0;
-                        long finalTotalCompletion = _apiService?.TotalCompletionTokens ?? 0;
+                        // ── 重建最终 Cache 命中率卡片（本次问答增量 + Handoff 链轮次）──
+                        var finalDelta = _apiService?.GetCacheDelta() ?? (0, 0, 0, 0);
                         int totalRounds = round + handoffChainRounds;
 
-                        LogTotalCacheHitRate(totalRounds, finalTotalHit, finalTotalMiss, finalTotalPrompt, finalTotalCompletion);
+                        LogTotalCacheHitRate(totalRounds, finalDelta.Hit, finalDelta.Miss, finalDelta.Prompt, finalDelta.Completion);
 
                         string finalCacheFooterHtml = ChatHtmlService.BuildCacheHitFooterHtml(
-                            finalTotalHit, finalTotalMiss, finalTotalPrompt, finalTotalCompletion, totalRounds);
+                            finalDelta.Hit, finalDelta.Miss, finalDelta.Prompt, finalDelta.Completion, totalRounds);
 
                         PostStreamEnd(assistantMsgIndex, finalContent, finalReasoning, finalCacheFooterHtml);
                     }

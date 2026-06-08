@@ -74,6 +74,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (_activeAgent == null || _agentFactory == null) return;
 
+            // ── 单轮 Cache 统计快照：本次 Handoff 执行开始时的累计值 ──
+            _apiService?.TakeCacheSnapshot();
+
             // ── 重启恢复: _pendingHandoff 在 VS 重启/会话切换后为 null，
             // 但 HandoffJson 已持久化到 ChatMessage 中，需从此恢复。 ──
             if (_pendingHandoff == null)
@@ -411,18 +414,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         ?? string.Format(LocalizationService.Instance["agent.result.taskCompletedSuccess"],
                             plan.Steps.Count(s => s.Status == AgentStepStatus.Completed), plan.Steps.Count);
 
-                    // ── 追加 Cache 命中率统计（使用累计值，非单轮）──
+                    // ── 追加 Cache 命中率统计（本次 Handoff 增量，非 Session 累计）──
                     string cacheFooter = string.Empty;
                     try
                     {
-                        long totalHit = _apiService?.TotalCacheHitTokens ?? 0;
-                        long totalMiss = _apiService?.TotalCacheMissTokens ?? 0;
-                        long totalPrompt = _apiService?.TotalPromptTokens ?? 0;
-                        long totalComp = _apiService?.TotalCompletionTokens ?? 0;
-                        if (totalHit + totalMiss > 0)
+                        var delta = _apiService?.GetCacheDelta() ?? (0, 0, 0, 0);
+                        if (delta.Hit + delta.Miss > 0)
                         {
                             cacheFooter = ChatHtmlService.BuildCacheHitFooterHtml(
-                                totalHit, totalMiss, totalPrompt, totalComp, roundCount: 1);
+                                delta.Hit, delta.Miss, delta.Prompt, delta.Completion, roundCount: 1);
                         }
                     }
                     catch { }
@@ -1330,17 +1330,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // ── 记录 Cache 命中率 ──
                 LogCacheHitRate();
 
-                // ── 构建 Cache 命中率统计卡片 HTML（使用累计值，与主流程一致）──
+                // ── 构建 Cache 命中率统计卡片 HTML（本次重试增量）──
                 string cacheFooterHtml = string.Empty;
                 {
-                    long totalHit = _apiService?.TotalCacheHitTokens ?? 0;
-                    long totalMiss = _apiService?.TotalCacheMissTokens ?? 0;
-                    long totalPrompt = _apiService?.TotalPromptTokens ?? 0;
-                    long totalComp = _apiService?.TotalCompletionTokens ?? 0;
-                    if (totalHit + totalMiss > 0)
+                    var delta = _apiService?.GetCacheDelta() ?? (0, 0, 0, 0);
+                    if (delta.Hit + delta.Miss > 0)
                     {
                         cacheFooterHtml = ChatHtmlService.BuildCacheHitFooterHtml(
-                            totalHit, totalMiss, totalPrompt, totalComp, roundCount: 1);
+                            delta.Hit, delta.Miss, delta.Prompt, delta.Completion, roundCount: 1);
                     }
                 }
 

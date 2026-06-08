@@ -99,6 +99,43 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Interlocked.Exchange(ref _totalCompletionTokens, completionTokens);
         }
 
+        // ── 单轮统计快照（用于显示"本次问答"的 Cache 命中率，而非整个 Session 累计值）──
+        private long _snapshotCacheHitTokens;
+        private long _snapshotCacheMissTokens;
+        private long _snapshotPromptTokens;
+        private long _snapshotCompletionTokens;
+
+        /// <summary>
+        /// 对当前累计值拍摄快照，后续调用 <see cref="GetCacheDelta"/> 可获取自快照以来的增量。
+        /// 应在每次用户消息/Agent 工作流开始时调用。
+        /// </summary>
+        public void TakeCacheSnapshot()
+        {
+            Interlocked.Exchange(ref _snapshotCacheHitTokens, Interlocked.Read(ref _totalCacheHitTokens));
+            Interlocked.Exchange(ref _snapshotCacheMissTokens, Interlocked.Read(ref _totalCacheMissTokens));
+            Interlocked.Exchange(ref _snapshotPromptTokens, Interlocked.Read(ref _totalPromptTokens));
+            Interlocked.Exchange(ref _snapshotCompletionTokens, Interlocked.Read(ref _totalCompletionTokens));
+        }
+
+        /// <summary>
+        /// 获取自上次快照以来的 Cache 统计增量（本次问答的 Token 消耗）。
+        /// 返回 (hitTokens, missTokens, promptTokens, completionTokens)。
+        /// </summary>
+        public (long Hit, long Miss, long Prompt, long Completion) GetCacheDelta()
+        {
+            long currentHit = Interlocked.Read(ref _totalCacheHitTokens);
+            long currentMiss = Interlocked.Read(ref _totalCacheMissTokens);
+            long currentPrompt = Interlocked.Read(ref _totalPromptTokens);
+            long currentCompletion = Interlocked.Read(ref _totalCompletionTokens);
+
+            long deltaHit = currentHit - Interlocked.Read(ref _snapshotCacheHitTokens);
+            long deltaMiss = currentMiss - Interlocked.Read(ref _snapshotCacheMissTokens);
+            long deltaPrompt = currentPrompt - Interlocked.Read(ref _snapshotPromptTokens);
+            long deltaCompletion = currentCompletion - Interlocked.Read(ref _snapshotCompletionTokens);
+
+            return (deltaHit, deltaMiss, deltaPrompt, deltaCompletion);
+        }
+
         /// <summary>
         /// 线程安全地累加一次 API 调用的 Usage 统计到累计值（Chat API）。
         /// </summary>

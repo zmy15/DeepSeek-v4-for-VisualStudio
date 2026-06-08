@@ -259,6 +259,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (_activeAgent == null || _agentFactory == null) return;
 
+            // ── 单轮 Cache 统计快照：本次问答开始时的累计值 ──
+            _apiService?.TakeCacheSnapshot();
+
             try
             {
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
@@ -593,18 +596,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                         }
                     }
-                    // ── 追加 Cache 命中率统计（使用累计值，非单轮）──
+                    // ── 追加 Cache 命中率统计（本次问答的增量，非 Session 累计）──
                     string cacheFooter = string.Empty;
                     try
                     {
-                        long totalHit = _apiService?.TotalCacheHitTokens ?? 0;
-                        long totalMiss = _apiService?.TotalCacheMissTokens ?? 0;
-                        long totalPrompt = _apiService?.TotalPromptTokens ?? 0;
-                        long totalComp = _apiService?.TotalCompletionTokens ?? 0;
-                        if (totalHit + totalMiss > 0)
+                        var delta = _apiService?.GetCacheDelta() ?? (0, 0, 0, 0);
+                        if (delta.Hit + delta.Miss > 0)
                         {
                             cacheFooter = ChatHtmlService.BuildCacheHitFooterHtml(
-                                totalHit, totalMiss, totalPrompt, totalComp, roundCount: 1);
+                                delta.Hit, delta.Miss, delta.Prompt, delta.Completion, roundCount: 1);
                         }
                     }
                     catch { }
@@ -661,18 +661,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                         }
                     }
-                    // ── 计算 Cache 命中率 ──
+                    // ── 计算 Cache 命中率（本次问答增量）──
                     string cacheFooter = string.Empty;
                     try
                     {
-                        long totalHit = _apiService?.TotalCacheHitTokens ?? 0;
-                        long totalMiss = _apiService?.TotalCacheMissTokens ?? 0;
-                        long totalPrompt = _apiService?.TotalPromptTokens ?? 0;
-                        long totalComp = _apiService?.TotalCompletionTokens ?? 0;
-                        if (totalHit + totalMiss > 0)
+                        var delta = _apiService?.GetCacheDelta() ?? (0, 0, 0, 0);
+                        if (delta.Hit + delta.Miss > 0)
                         {
                             cacheFooter = ChatHtmlService.BuildCacheHitFooterHtml(
-                                totalHit, totalMiss, totalPrompt, totalComp, roundCount: 1);
+                                delta.Hit, delta.Miss, delta.Prompt, delta.Completion, roundCount: 1);
                         }
                     }
                     catch { }
@@ -712,18 +709,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             msg.IsRendered = true;
                         }
                     }
-                    // ── 计算 Cache 命中率 ──
+                    // ── 计算 Cache 命中率（本次问答增量）──
                     string cacheFooter = string.Empty;
                     try
                     {
-                        long totalHit = _apiService?.TotalCacheHitTokens ?? 0;
-                        long totalMiss = _apiService?.TotalCacheMissTokens ?? 0;
-                        long totalPrompt = _apiService?.TotalPromptTokens ?? 0;
-                        long totalComp = _apiService?.TotalCompletionTokens ?? 0;
-                        if (totalHit + totalMiss > 0)
+                        var delta = _apiService?.GetCacheDelta() ?? (0, 0, 0, 0);
+                        if (delta.Hit + delta.Miss > 0)
                         {
                             cacheFooter = ChatHtmlService.BuildCacheHitFooterHtml(
-                                totalHit, totalMiss, totalPrompt, totalComp, roundCount: 1);
+                                delta.Hit, delta.Miss, delta.Prompt, delta.Completion, roundCount: 1);
                         }
                     }
                     catch { }
