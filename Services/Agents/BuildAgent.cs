@@ -138,7 +138,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     new ChatApiMessage { Role = "system", Content = GetSharedImmutablePrefix() },
                     new ChatApiMessage { Role = "system", Content = Definition.SystemPrompt },
-                    new ChatApiMessage { Role = "system", Content = AiPrompts.ToolsDescription },
                     new ChatApiMessage { Role = "user", Content = enhancedMessage }
                 };
 

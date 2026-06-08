@@ -489,11 +489,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (!string.IsNullOrWhiteSpace(systemPrompt))
                 messages.Add(new ChatApiMessage { Role = "system", Content = systemPrompt });
 
-            // ── 第3b层：工具可用说明（随 Agent 变化，不在 messages[0] 中）──
-            string toolsDesc = AiPrompts.ToolsDescription;
-            if (!string.IsNullOrWhiteSpace(toolsDesc))
-                messages.Add(new ChatApiMessage { Role = "system", Content = toolsDesc });
-
             // ── 第4层：当前用户消息（变化最大，放在最后）──
             messages.Add(new ChatApiMessage { Role = "user", Content = userPrompt });
 

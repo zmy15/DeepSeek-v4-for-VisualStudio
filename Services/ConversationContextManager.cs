@@ -486,14 +486,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             }
 
-            // ── 3b. 工具可用说明：随 Agent/上下文变化，不在 messages[0] 中 ──
-            //     不同 Agent 可用的工具集不同，因此工具说明动态注入而非冻结在前缀中。
-            string toolsDesc = AiPrompts.ToolsDescription;
-            if (!string.IsNullOrWhiteSpace(toolsDesc))
-            {
-                messages.Add(new ChatApiMessage { Role = "system", Content = toolsDesc });
-            }
-
             // ── 4. 动态上下文块：放在 Agent 专属提示词之后、用户消息之前 ──
             //     将压缩摘要、搜索、RAG、记忆合并为一条 system 消息，放在历史末尾。
             string? dynamicBlock = BuildDynamicContextBlock();

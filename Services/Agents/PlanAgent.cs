@@ -243,7 +243,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 new ChatApiMessage { Role = "system", Content = GetSharedImmutablePrefix() },
                 new ChatApiMessage { Role = "system", Content = Definition.SystemPrompt },
-                new ChatApiMessage { Role = "system", Content = AiPrompts.ToolsDescription },
             };
 
             // ── 缓存检查：如 ExploreAgent 已有结构缓存，注入摘要跳过重复扫描 ──
