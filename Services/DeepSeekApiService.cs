@@ -197,6 +197,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
                 catch { msgSummaries = new List<object>(); }
 
+                // 解析 requestJson 为 JsonElement，使其在 dump 序列化时使用 relaxed encoder（可读中文）
+                using var fullReqDoc = JsonDocument.Parse(requestJson);
+
                 var dump = new
                 {
                     sequence = seq,
@@ -208,7 +211,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         message_count = messageCount,
                         tool_count = toolCount,
                         messages_summary = msgSummaries,
-                        full_request_json = requestJson
+                        full_request = fullReqDoc.RootElement
                     },
                     cache = new
                     {
