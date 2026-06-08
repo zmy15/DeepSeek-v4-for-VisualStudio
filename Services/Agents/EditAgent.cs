@@ -147,9 +147,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     },
                     new AgentHandoff
                     {
-                        Label = "规划大型任务",
+                        Label = LocalizationService.Instance["agent.edit.handoffPlanLabel"],
                         TargetAgent = AgentType.Plan,
-                        Prompt = "该任务规模较大，请先深入分析需求并制定详细实现计划。",
+                        Prompt = LocalizationService.Instance["agent.edit.handoffPlanPrompt"],
                         AutoSend = true,
                         ShowContinueOn = false,
                     },
@@ -161,9 +161,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static string BuildSystemPrompt()
         {
             return LocalizationService.Instance["system.agent.editPromptFragment"]
-                + "\n\n## 🔌 MCP 外部工具\n"
-                + "你可能拥有从 MCP 服务器导入的外部工具（如部署、数据库操作、CI/CD 触发等）。\n"
-                + "这些写类工具可直接在代码修改流程中使用，帮助你完成更复杂的端到端任务。";
+                + LocalizationService.Instance["agent.edit.mcpSystemPrompt"];
         }
 
         #endregion
@@ -198,12 +196,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 // ── 没有外部计划：根据 TaskSize 决定处理策略 ──
                 var taskSize = ClassifyTaskSize(userMessage);
-                AddLog("INFO", string.Format("任务规模分类: {0}", taskSize));
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editTaskSize"], taskSize));
 
                 if (taskSize == TaskSize.Large)
                 {
                     // ── Large 任务：移交 Plan Agent 进行深入规划 ──
-                    AddLog("INFO", "Large 任务 → 移交 Plan Agent 规划");
+                    AddLog("INFO", LocalizationService.Instance["agent.log.editLargeTaskHandoff"]);
                     return BuildLargeTaskHandoffResult(userMessage);
                 }
                 else if (taskSize == TaskSize.Medium)
@@ -1124,9 +1122,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     bool confirmed = await EnsureProjectFileWriteConfirmedAsync(
                         resolvedPath,
-                        $"InsertEdit 修改项目文件: {Path.GetFileName(resolvedPath)}",
+                        string.Format(LocalizationService.Instance["agent.edit.insertEditModifyProject"], Path.GetFileName(resolvedPath)),
                         "",
-                        $"对 `{Path.GetFileName(resolvedPath)}` 进行必要的配置变更");
+                        string.Format(LocalizationService.Instance["agent.edit.projectConfigChange"], Path.GetFileName(resolvedPath)));
                     if (!confirmed)
                     {
                         AddLog("WARN", LocalizationService.Instance.Format("agent.log.editInsertEditSkipped", Path.GetFileName(resolvedPath)));
@@ -1171,7 +1169,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (!string.IsNullOrEmpty(applyResult.FinalContent))
                     {
                         bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                            resolvedPath, $"{applyResult.AppliedEdits.Count} 个编辑点", applyResult.FinalContent!);
+                            resolvedPath, string.Format(LocalizationService.Instance["agent.edit.editPoints"], applyResult.AppliedEdits.Count), applyResult.FinalContent!);
                         if (!writeAllowed)
                         {
                             AddLog("WARN", LocalizationService.Instance.Format("agent.log.editWriteSkipped", Path.GetFileName(resolvedPath)));
@@ -1268,8 +1266,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     // ── 项目文件拦截：新建/修改 .vcxproj/.sln 等前请求用户确认 ──
                     string createOpDesc = isNewFile
-                        ? $"新建项目文件: {Path.GetFileName(resolvedPath)}"
-                        : $"修改文件: {Path.GetFileName(resolvedPath)} (+{change.LinesAdded} -{change.LinesRemoved})";
+                        ? string.Format(LocalizationService.Instance["agent.edit.newProjectFile"], Path.GetFileName(resolvedPath))
+                        : string.Format(LocalizationService.Instance["agent.edit.modifyFile"], Path.GetFileName(resolvedPath), change.LinesAdded, change.LinesRemoved);
                     bool createWriteAllowed = await EnsureProjectFileWriteConfirmedAsync(resolvedPath, createOpDesc, change.NewContent ?? string.Empty);
                     if (!createWriteAllowed)
                     {
@@ -1619,7 +1617,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
 
             // 第4层：当前步骤信息（每步不同，变化最大）
-            sb.AppendLine($"当前步骤 ({step.Index}/{plan.Steps.Count}): {step.Title}");
+            sb.AppendLine(string.Format(LocalizationService.Instance["agent.step.currentStepPrompt"], step.Index, plan.Steps.Count, step.Title));
             sb.AppendLine($"步骤详情: {step.Description}");
             sb.AppendLine();
 
@@ -1645,7 +1643,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         string stepSection = ExtractPlanMdStepSection(planMd, step);
                         if (!string.IsNullOrEmpty(stepSection))
                         {
-                            sb.AppendLine($"## 📝 plan.md 步骤详情 (步骤 {step.Index})");
+                            sb.AppendLine(string.Format(LocalizationService.Instance["agent.step.planMdDetail"], step.Index));
                             sb.AppendLine(stepSection);
                             sb.AppendLine();
                         }
@@ -2193,19 +2191,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     toastService.Show(
                         "DeepSeek V4",
-                        $"任务已取消 — 已完成 {completed}/{total} 个步骤");
+                        string.Format(LocalizationService.Instance["toast.taskCancelled"], completed, total));
                 }
                 else if (plan.IsCompleted && failed == 0)
                 {
                     toastService.Show(
                         "DeepSeek V4",
-                        $"✅ 任务完成 — {completed}/{total} 个步骤全部成功");
+                        string.Format(LocalizationService.Instance["toast.taskComplete"], completed, total));
                 }
                 else if (plan.IsCompleted && failed > 0)
                 {
                     toastService.Show(
                         "DeepSeek V4",
-                        $"⚠️ 任务完成 — {completed}/{total} 个步骤成功，{failed} 个失败");
+                        string.Format(LocalizationService.Instance["toast.taskPartialComplete"], completed, total, failed));
                 }
             }
             catch
@@ -2299,7 +2297,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         : "🔄";
                     string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
                         ? step.ResultSummary!
-                        : "(无)";
+                        : LocalizationService.Instance["agent.step.noDetail"];
                     sb.AppendLine($"- {statusIcon} **步骤 {step.Index}**: {step.Title} — {summary}");
                 }
                 sb.AppendLine();
@@ -2371,11 +2369,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 构建结果
             if (HasBuildWarningsInLogs())
             {
-                sb.AppendLine("🔨 **编译**: ⚠️ 存在问题，请查看上方详情");
+                sb.AppendLine(LocalizationService.Instance["agent.log.buildWarningInSummary"]);
             }
             else
             {
-                sb.AppendLine("🔨 **编译**: ✅ 通过");
+                sb.AppendLine(LocalizationService.Instance["agent.log.buildPassInSummary"]);
             }
 
             return sb.ToString().TrimEnd();
@@ -2439,7 +2437,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                 .ToList();
                             if (completedSteps.Count > 0)
                             {
-                                additionalCtx += "\n已完成步骤: " + string.Join("; ",
+                                additionalCtx += "\n" + LocalizationService.Instance["agent.log.completedStepsPrefix"] + string.Join("; ",
                                     completedSteps.Select(s => s.Title));
                             }
                         }
@@ -2837,10 +2835,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         string fileName = System.IO.Path.GetFileName(filePath);
                         string description = toolName switch
                         {
-                            "replace_string_in_file" => $"修改 {fileName}",
-                            "multi_replace_string_in_file" => $"批量修改 {fileName}",
-                            "create_file" => $"新建 {fileName}",
-                            _ => $"操作 {fileName}",
+                            "replace_string_in_file" => string.Format(LocalizationService.Instance["agent.log.toolModifyFile"], fileName),
+                            "multi_replace_string_in_file" => string.Format(LocalizationService.Instance["agent.log.toolBatchModifyFile"], fileName),
+                            "create_file" => string.Format(LocalizationService.Instance["agent.log.toolCreateFile"], fileName),
+                            _ => string.Format(LocalizationService.Instance["agent.log.toolOperateFile"], fileName),
                         };
 
                         // 合并同一文件的多次变更
@@ -3100,7 +3098,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var sb = new StringBuilder();
             sb.AppendLine($"# 步骤 {step.Index}/{plan.Steps.Count}: {step.Title}");
             sb.AppendLine();
-            sb.AppendLine($"- **状态**: {(step.Status == AgentStepStatus.Completed ? "✅ 完成" : "❌ 失败")}");
+            sb.AppendLine($"- **状态**: {(step.Status == AgentStepStatus.Completed ? LocalizationService.Instance["agent.step.completed"] : LocalizationService.Instance["agent.step.failed"])}");
             sb.AppendLine($"- **任务**: {plan.Title}");
             if (!string.IsNullOrWhiteSpace(step.ResultSummary))
             {

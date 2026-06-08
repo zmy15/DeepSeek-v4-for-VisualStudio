@@ -57,7 +57,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 ? LocalizationService.Instance["tool.grepSearch.searching"]
                 : LocalizationService.Instance.Format("tool.grepSearch.searchingQuery", TruncateText(grepQuery, 40));
             if (!string.IsNullOrEmpty(incPattern))
-                grepDesc += $" 在 `{TruncateText(incPattern, 40)}` 中";
+                grepDesc += LocalizationService.Instance.Format("tool.grepSearch.inPattern", TruncateText(incPattern, 40));
             return grepDesc;
         }
 

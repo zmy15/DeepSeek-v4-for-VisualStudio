@@ -1071,11 +1071,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             _lastReportedStepIndex = step.Index;
                             _lastReportedStepStatus = statusKey;
                             if (step.Status == AgentStepStatus.Completed)
-                                AppendAgentThinking($"✅ 步骤 {step.Index} 完成: {step.Title}");
+                                AppendAgentThinking(string.Format(LocalizationService.Instance["agent.step.completedWithTitle"], step.Index, step.Title));
                             else if (step.Status == AgentStepStatus.Failed)
-                                AppendAgentThinking($"❌ 步骤 {step.Index} 失败: {step.ResultSummary ?? step.Title}");
+                                AppendAgentThinking(string.Format(LocalizationService.Instance["agent.step.failedWithTitle"], step.Index, step.ResultSummary ?? step.Title));
                             else if (step.Status == AgentStepStatus.InProgress)
-                                AppendAgentThinking($"🔄 步骤 {step.Index}: {step.Title}");
+                                AppendAgentThinking(string.Format(LocalizationService.Instance["agent.step.inProgressWithTitle"], step.Index, step.Title));
                         }
                     }
 

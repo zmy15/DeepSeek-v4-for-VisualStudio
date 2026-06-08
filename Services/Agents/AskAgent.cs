@@ -437,14 +437,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 sb.AppendLine(LocalizationService.Instance["agent.panel.fileChangeStats"]);
                 sb.AppendLine();
-                sb.AppendLine("| 文件 | 变更 | 说明 |");
+                sb.AppendLine(L["agent.panel.fileChangeTableHeader"]);
                 sb.AppendLine("|------|------|------|");
                 foreach (var change in mergedFiles)
                 {
                     string delta = $"{(change.LinesAdded > 0 ? $"+{change.LinesAdded}" : "")}"
                         + $"{(change.LinesRemoved > 0 ? $" -{change.LinesRemoved}" : "")}";
-                    string desc = change.Description ?? (change.LinesAdded > 0 && change.LinesRemoved == 0 ? "新增"
-                        : change.LinesRemoved > 0 && change.LinesAdded == 0 ? "删除" : "修改");
+                    string desc = change.Description ?? (change.LinesAdded > 0 && change.LinesRemoved == 0 ? L["agent.panel.fileChangeAdded"]
+                        : change.LinesRemoved > 0 && change.LinesAdded == 0 ? L["agent.panel.fileChangeDeleted"] : L["agent.panel.fileChangeModified"]);
                     if (desc.Length > 40) desc = desc.Substring(0, 37) + "...";
                     sb.AppendLine($"| `{change.FileName}` | {delta} | {desc} |");
                 }
@@ -573,13 +573,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 sb.AppendLine(LocalizationService.Instance["agent.panel.fileChangeStats"]);
                 sb.AppendLine();
-                sb.AppendLine("| 文件 | 变更 | 说明 |");
+                sb.AppendLine(L["agent.panel.fileChangeTableHeader"]);
                 sb.AppendLine("|------|------|------|");
                 foreach (var change in mergedFiles)
                 {
                     string delta = $"{(change.LinesAdded > 0 ? $"+{change.LinesAdded}" : "")}"
                         + $"{(change.LinesRemoved > 0 ? $" -{change.LinesRemoved}" : "")}";
-                    string desc = change.Description ?? (change.LinesAdded > 0 && change.LinesRemoved == 0 ? "新增" : change.LinesRemoved > 0 && change.LinesAdded == 0 ? "删除" : "修改");
+                    string desc = change.Description ?? (change.LinesAdded > 0 && change.LinesRemoved == 0 ? L["agent.panel.fileChangeAdded"] : change.LinesRemoved > 0 && change.LinesAdded == 0 ? L["agent.panel.fileChangeDeleted"] : L["agent.panel.fileChangeModified"]);
                     // 截断过长的描述
                     if (desc.Length > 40) desc = desc.Substring(0, 37) + "...";
                     sb.AppendLine($"| `{change.FileName}` | {delta} | {desc} |");
