@@ -95,22 +95,116 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 在 UI 线程上刷新 VS 主题缓存。
+        /// 使用多个 VS 颜色键采样投票，比单一键更可靠。
         /// </summary>
         public void RefreshVSThemeCache()
         {
             try
             {
                 ThreadHelper.ThrowIfNotOnUIThread();
-                var bgColor = VSColorTheme.GetThemedColor(
-                    Microsoft.VisualStudio.PlatformUI.EnvironmentColors.ToolWindowBackgroundBrushKey);
-                double brightness = (bgColor.R * 0.299 + bgColor.G * 0.587 + bgColor.B * 0.114);
-                _cachedIsVSThemeLight = brightness > 128;
-                Logger.Info($"[ThemeService] VS theme cache refreshed: IsLight={_cachedIsVSThemeLight}, brightness={brightness:F0}");
+
+                // 采样多个 VS 环境颜色键，投票决定主题
+                int lightVotes = 0;
+                int totalVotes = 0;
+
+                // ToolWindow background
+                try
+                {
+                    var c = VSColorTheme.GetThemedColor(
+                        Microsoft.VisualStudio.PlatformUI.EnvironmentColors.ToolWindowBackgroundBrushKey);
+                    double b = c.R * 0.299 + c.G * 0.587 + c.B * 0.114;
+                    totalVotes++;
+                    if (b > 128) lightVotes++;
+                    Logger.Info($"[ThemeService] ToolWindowBg: R={c.R} G={c.G} B={c.B} b={b:F0} -> {(b > 128 ? "LIGHT" : "DARK")}");
+                }
+                catch (Exception ex) { Logger.Warn($"[ThemeService] ToolWindowBg failed: {ex.Message}"); }
+
+                // System window (main IDE chrome) background
+                try
+                {
+                    var c = VSColorTheme.GetThemedColor(
+                        Microsoft.VisualStudio.PlatformUI.EnvironmentColors.SystemWindowBrushKey);
+                    double b = c.R * 0.299 + c.G * 0.587 + c.B * 0.114;
+                    totalVotes++;
+                    if (b > 128) lightVotes++;
+                    Logger.Info($"[ThemeService] SystemWindow: R={c.R} G={c.G} B={c.B} b={b:F0} -> {(b > 128 ? "LIGHT" : "DARK")}");
+                }
+                catch (Exception ex) { Logger.Warn($"[ThemeService] SystemWindow failed: {ex.Message}"); }
+
+                // Command bar gradient - toolbar area
+                try
+                {
+                    var c = VSColorTheme.GetThemedColor(
+                        Microsoft.VisualStudio.PlatformUI.EnvironmentColors.CommandBarGradientBeginBrushKey);
+                    double b = c.R * 0.299 + c.G * 0.587 + c.B * 0.114;
+                    totalVotes++;
+                    if (b > 128) lightVotes++;
+                    Logger.Info($"[ThemeService] CommandBar: R={c.R} G={c.G} B={c.B} b={b:F0} -> {(b > 128 ? "LIGHT" : "DARK")}");
+                }
+                catch (Exception ex) { Logger.Warn($"[ThemeService] CommandBar failed: {ex.Message}"); }
+
+                // 多数投票：>= 半数键判定为浅色则认为是浅色主题
+                // 如果所有键都失败，回退到检查 Windows 注册表
+                if (totalVotes > 0)
+                {
+                    _cachedIsVSThemeLight = lightVotes * 2 >= totalVotes;
+                }
+                else
+                {
+                    _cachedIsVSThemeLight = TryGetThemeFromRegistry();
+                }
+                Logger.Info($"[ThemeService] VS theme cache refreshed: IsLight={_cachedIsVSThemeLight} (votes: {lightVotes}/{totalVotes})");
             }
             catch (Exception ex)
             {
                 Logger.Warn($"[ThemeService] Failed to refresh VS theme cache: {ex.Message}");
+                _cachedIsVSThemeLight = TryGetThemeFromRegistry();
             }
+        }
+
+        /// <summary>
+        /// 从 Windows 注册表读取 VS 主题设置（作为后备方案）。
+        /// </summary>
+        private static bool TryGetThemeFromRegistry()
+        {
+            try
+            {
+                // VS 2022 主题注册表路径
+                const string basePath = @"Software\Microsoft\VisualStudio";
+                using var vsKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(basePath);
+                if (vsKey == null) return false;
+
+                // 查找 17.0 / 18.0 等 VS 版本子键
+                foreach (var subKeyName in vsKey.GetSubKeyNames())
+                {
+                    if (!subKeyName.StartsWith("17.") && !subKeyName.StartsWith("18."))
+                        continue;
+
+                    using var themeKey = vsKey.OpenSubKey(subKeyName + @"\ApplicationPrivateSettings\Microsoft\VisualStudio\Theme");
+                    if (themeKey == null) continue;
+
+                    // 读取 ColorTheme 值: "0" = use system, GUID 映射到具体主题
+                    var colorTheme = themeKey.GetValue("ColorTheme") as string;
+                    if (string.IsNullOrEmpty(colorTheme)) continue;
+
+                    // 解析 GUID 或数字
+                    // GUID: de3dbbcd-f642-433c-8353-8f1df4370aba = Light
+                    // GUID: 1ded0138-47ce-435e-84ef-9ec1f439b749 = Dark
+                    // GUID: a4d6a176-b948-4b29-8c66-53c97a1ed7d0 = Blue
+                    if (colorTheme.Contains("de3dbbcd") || colorTheme.Contains("a4d6a176"))
+                    {
+                        Logger.Info($"[ThemeService] Registry fallback: Light theme (ColorTheme={colorTheme})");
+                        return true;
+                    }
+                    Logger.Info($"[ThemeService] Registry fallback: Dark theme (ColorTheme={colorTheme})");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[ThemeService] Registry fallback failed: {ex.Message}");
+            }
+            return false; // 默认深色
         }
 
         /// <summary>
