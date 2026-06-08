@@ -76,12 +76,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _ => "🌓"
                 };
 
+                var L = LocalizationService.Instance;
+                string themeLabel = _themeService.IsLight ? L["theme.light"] : L["theme.dark"];
                 var tooltip = _themeService.UserThemeMode switch
                 {
-                    ThemeMode.Auto => $"主题: 自动 ({(_themeService.IsLight ? "浅色" : "深色")})",
-                    ThemeMode.Dark => "主题: 深色",
-                    ThemeMode.Light => "主题: 浅色",
-                    _ => "切换主题"
+                    ThemeMode.Auto => string.Format(L["theme.toggle.auto"], themeLabel),
+                    ThemeMode.Dark => L["theme.toggle.dark"],
+                    ThemeMode.Light => L["theme.toggle.light"],
+                    _ => L["theme.toggle.switch"]
                 };
                 ThemeToggleButton.ToolTip = tooltip;
             }
