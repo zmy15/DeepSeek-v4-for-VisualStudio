@@ -732,7 +732,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             catch (Exception ex)
             {
-                Logger.Error($"[AgentDispatcher] 工作流异常: {ex.Message}", ex);
+                Logger.Error($"[AgentFlow] 工作流异常: {ex.Message}", ex);
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentError"], ex.Message);
             }
@@ -1296,7 +1296,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             string msg = entry.Message ?? string.Empty;
 
             // ── 过滤纯内部日志（中英文双语匹配）──
-            if (msg.StartsWith("[TokenUsage]") || msg.StartsWith("[Retry") || msg.StartsWith("[AgentDispatcher]"))
+            if (msg.StartsWith("[TokenUsage]") || msg.StartsWith("[Retry") || msg.StartsWith("[AgentFlow]"))
                 return string.Empty;
             if (msg.Contains("上下文已累积") || msg.Contains("Planning 模式")
                 || msg.Contains("context accumulated") || msg.Contains("Planning mode"))
@@ -1478,7 +1478,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// Agent 向用户提问回调（VisualStudio_askQuestions 工具）。
-        /// 在 WebView 中注入问题 UI，等待用户回答后回调 AgentDispatcher。
+        /// 在 WebView 中注入问题 UI，等待用户回答后回调 AgentFlow。
         /// </summary>
         private void OnAgentQuestionsRequested(AgentQuestionRequest request)
         {

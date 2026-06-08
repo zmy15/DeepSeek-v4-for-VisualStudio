@@ -1323,7 +1323,7 @@
     "tool.edit.replaceString.notFound":  "无法在文件中找到 oldString。\n请确保 oldString 与文件中的文本完全一致（包括空白、缩进、换行符）。",
     "tool.edit.replaceString.multipleMatch":  "oldString 在文件中匹配到多处。请添加更多上下文（前后各至少3行）使其唯一。\n匹配位置: 第 {0} 字符处, 第 {1} 字符处",
     "═══ BuiltIn Tool Service ═══":  "═══ BuiltIn Tool Service ═══",
-    "tool.service.runSubagentNotInjected":  "❌ runSubagent: ExploreAgent 未注入。请确保 AgentDispatcher 已正确初始化。",
+    "tool.service.runSubagentNotInjected":  "❌ runSubagent: ExploreAgent 未注入。请确保 AgentFactory 已正确初始化 ExploreAgent。",
     "tool.service.executeException":  "❌ 内置工具执行异常 ({0}): {1}",
     "tool.service.callingTool":  "🔧 调用工具 `{0}`",
     "tool.service.noResult":  "（无返回结果）",

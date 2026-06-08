@@ -271,7 +271,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             if (!string.IsNullOrEmpty(agentSkillInstructions))
                             {
                                 _contextManager.AddCustomMessage("system", agentSkillInstructions);
-                                Logger.Info($"[AgentDispatcher] Skill 指令已注入 Agent 上下文 (长度: {agentSkillInstructions.Length})");
+                                Logger.Info($"[AgentFlow] Skill 指令已注入 Agent 上下文 (长度: {agentSkillInstructions.Length})");
                             }
                         }
                         int capturedUserMsgIndex = _messages.Count - 1;
@@ -293,7 +293,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                             catch (Exception ex)
                             {
-                                Logger.Error($"[AgentDispatcher] 工作流异常: {ex.Message}", ex);
+                                Logger.Error($"[AgentFlow] 工作流异常: {ex.Message}", ex);
                             }
                             finally
                             {

@@ -30,7 +30,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private ExploreAgent? _exploreAgent;
 
         /// <summary>
-        /// ExploreAgent 引用，由 AgentDispatcher 注入。
+        /// ExploreAgent 引用，由 AgentFactory 注入。
         /// 用于在发现阶段并行探索代码库。
         /// 设置时自动转发 ExploreAgent 的日志和文件变更事件。
         /// </summary>

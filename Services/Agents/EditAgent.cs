@@ -50,7 +50,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private MultiReplaceStringTool? _multiReplaceStringTool;
 
         /// <summary>
-        /// ExploreAgent 引用，由 AgentDispatcher 注入。
+        /// ExploreAgent 引用，由 AgentFactory 注入。
         /// 用于在执行代码修改前智能发现相关文件。
         /// 设置时自动转发 ExploreAgent 的日志和文件变更事件。
         /// </summary>

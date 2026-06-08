@@ -263,16 +263,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>当前执行上下文</summary>
         public AgentContext? Context { get; set; }
 
-        /// <summary>内置工具服务引用（由 AgentDispatcher 注入）</summary>
+        /// <summary>内置工具服务引用（由 AgentFactory 注入）</summary>
         public BuiltInToolService? BuiltInTools { get; set; }
 
-        /// <summary>MCP 管理器引用（由 AgentDispatcher 注入，用于执行 MCP 工具）</summary>
+        /// <summary>MCP 管理器引用（由 AgentFactory 注入，用于执行 MCP 工具）</summary>
         public McpManagerService? McpManager { get; set; }
 
         /// <summary>记忆服务引用（由 AgentFactory 注入，用于程序化读写持久化记忆）</summary>
         public IMemoryService? MemoryService { get; set; }
 
-        /// <summary>ExploreAgent 引用（由 AgentDispatcher 注入，用于 runSubagent 委派探索任务）</summary>
+        /// <summary>ExploreAgent 引用（由 AgentFactory 注入，用于 runSubagent 委派探索任务）</summary>
         public ExploreAgent? ExploreAgent { get; set; }
 
         /// <summary>日志事件</summary>
