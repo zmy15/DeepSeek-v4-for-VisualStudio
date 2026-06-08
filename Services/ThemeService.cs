@@ -103,7 +103,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 ThreadHelper.ThrowIfNotOnUIThread();
 
-                // 采样多个 VS 环境颜色键，投票决定主题
+                // 采样多个 VS 环境颜色键（ColorKey，非 BrushKey），投票决定主题
                 int lightVotes = 0;
                 int totalVotes = 0;
 
@@ -111,7 +111,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 try
                 {
                     var c = VSColorTheme.GetThemedColor(
-                        Microsoft.VisualStudio.PlatformUI.EnvironmentColors.ToolWindowBackgroundBrushKey);
+                        EnvironmentColors.ToolWindowBackgroundColorKey);
                     double b = c.R * 0.299 + c.G * 0.587 + c.B * 0.114;
                     totalVotes++;
                     if (b > 128) lightVotes++;
@@ -119,23 +119,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
                 catch (Exception ex) { Logger.Warn($"[ThemeService] ToolWindowBg failed: {ex.Message}"); }
 
-                // System window (main IDE chrome) background
+                // AccentBorder — 官方推荐的明暗判断键，各主题颜色值截然不同
                 try
                 {
                     var c = VSColorTheme.GetThemedColor(
-                        Microsoft.VisualStudio.PlatformUI.EnvironmentColors.SystemWindowBrushKey);
+                        EnvironmentColors.AccentBorderColorKey);
                     double b = c.R * 0.299 + c.G * 0.587 + c.B * 0.114;
                     totalVotes++;
                     if (b > 128) lightVotes++;
-                    Logger.Info($"[ThemeService] SystemWindow: R={c.R} G={c.G} B={c.B} b={b:F0} -> {(b > 128 ? "LIGHT" : "DARK")}");
+                    Logger.Info($"[ThemeService] AccentBorder: R={c.R} G={c.G} B={c.B} b={b:F0} -> {(b > 128 ? "LIGHT" : "DARK")}");
                 }
-                catch (Exception ex) { Logger.Warn($"[ThemeService] SystemWindow failed: {ex.Message}"); }
+                catch (Exception ex) { Logger.Warn($"[ThemeService] AccentBorder failed: {ex.Message}"); }
 
-                // Command bar gradient - toolbar area
+                // CommandBar gradient begin — 工具栏区域
                 try
                 {
                     var c = VSColorTheme.GetThemedColor(
-                        Microsoft.VisualStudio.PlatformUI.EnvironmentColors.CommandBarGradientBeginBrushKey);
+                        EnvironmentColors.CommandBarGradientBeginColorKey);
                     double b = c.R * 0.299 + c.G * 0.587 + c.B * 0.114;
                     totalVotes++;
                     if (b > 128) lightVotes++;
@@ -144,7 +144,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 catch (Exception ex) { Logger.Warn($"[ThemeService] CommandBar failed: {ex.Message}"); }
 
                 // 多数投票：>= 半数键判定为浅色则认为是浅色主题
-                // 如果所有键都失败，回退到检查 Windows 注册表
                 if (totalVotes > 0)
                 {
                     _cachedIsVSThemeLight = lightVotes * 2 >= totalVotes;
