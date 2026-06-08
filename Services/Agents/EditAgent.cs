@@ -22,14 +22,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     /// - 支持构建/运行验证步骤
     /// - 请求用户权限确认
     /// - 追踪文件变更
+    /// 
+    /// 限制策略（v1.1.10）：
+    /// - 每次编辑 ≤ 3 个文件
+    /// - 每次编辑 ≤ 500 行代码变更
+    /// - 文件修改后再次编辑前强制重新读取
     /// </summary>
-    public class EditAgent : BaseAgent
+    public partial class EditAgent : BaseAgent
     {
+        // ── 编辑限制常量 ──
+        internal const int MaxFilesPerEdit = 3;
+        internal const int MaxLinesPerEdit = 500;
+
         private CancellationTokenSource? _agentCts;
         private ExploreAgent? _exploreAgent;
 
         // ── 累积累推理/思考内容（跨步骤收集，供 UI 渲染思考面板）──
         private string? _accumulatedReasoning;
+
+        // ── 本轮已修改文件追踪（用于步骤间重读提示）──
+        private readonly HashSet<string> _lastModifiedFiles = new(StringComparer.OrdinalIgnoreCase);
 
         // ── 编辑工具（懒加载，由 EnsureEditTools 初始化）──
         private ApplyPatchTool? _applyPatchTool;
@@ -133,6 +145,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         AutoSend = true,
                         ShowContinueOn = false,
                     },
+                    new AgentHandoff
+                    {
+                        Label = "规划大型任务",
+                        TargetAgent = AgentType.Plan,
+                        Prompt = "该任务规模较大，请先深入分析需求并制定详细实现计划。",
+                        AutoSend = true,
+                        ShowContinueOn = false,
+                    },
                 },
                 SystemPrompt = BuildSystemPrompt(),
             };
@@ -176,10 +196,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
             else
             {
-                // ── 没有计划，作为单步代码修改执行 ──
-                AddLog("INFO", LocalizationService.Instance["agent.log.editNoPlan"]);
-                plan = CreateSingleStepPlan(userMessage);
-                context.ActivePlan = plan; // 确保 Handoff 时 AskAgent 可检测到已完成计划
+                // ── 没有外部计划：根据 TaskSize 决定处理策略 ──
+                var taskSize = ClassifyTaskSize(userMessage);
+                AddLog("INFO", string.Format("任务规模分类: {0}", taskSize));
+
+                if (taskSize == TaskSize.Large)
+                {
+                    // ── Large 任务：移交 Plan Agent 进行深入规划 ──
+                    AddLog("INFO", "Large 任务 → 移交 Plan Agent 规划");
+                    return BuildLargeTaskHandoffResult(userMessage);
+                }
+                else if (taskSize == TaskSize.Medium)
+                {
+                    // ── Medium 任务：AI 自主拆分步骤 ──
+                    AddLog("INFO", LocalizationService.Instance["agent.log.editAutoSplit"]);
+                    plan = await CreateAutoSplitPlanAsync(userMessage, context);
+                }
+                else
+                {
+                    // ── Small 任务：单步执行 ──
+                    AddLog("INFO", LocalizationService.Instance["agent.log.editNoPlan"]);
+                    plan = CreateSingleStepPlan(userMessage);
+                }
+                plan.Source = PlanSource.EditAgent;
+                context.ActivePlan = plan;
                 await ExecutePlanAsync(plan, context);
             }
 

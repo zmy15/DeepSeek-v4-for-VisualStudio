@@ -114,6 +114,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>是否需要先经过 Plan Agent 规划</summary>
         public bool NeedsPlanning { get; set; }
 
+        /// <summary>任务规模分类（Small / Medium / Large），用于决定路由策略</summary>
+        public TaskSize TaskSize { get; set; } = TaskSize.Small;
+
         /// <summary>路由是否是用户显式指定的</summary>
         public bool IsExplicit { get; set; }
     }

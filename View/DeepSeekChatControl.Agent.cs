@@ -505,18 +505,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 string completeJs = ChatHtmlService.BuildAgentTaskPanelCompleteJs(plan);
                                 await ChatWebView.CoreWebView2.ExecuteScriptAsync(completeJs);
                             }
-                            else if (plan.IsFromPlanAgent)
+                            else if (plan.Source != PlanSource.None)
                             {
-                                // 新创建的计划（PlanAgent 产出，所有步骤待执行）→ 创建任务面板
+                                // 新创建的计划（PlanAgent 或 EditAgent 产出，所有步骤待执行）→ 创建任务面板
                                 string createJs = ChatHtmlService.BuildAgentTaskPanelCreateJs(plan);
                                 await ChatWebView.CoreWebView2.ExecuteScriptAsync(createJs);
                                 lock (_lock) { _createdPlanIds.Add(plan.PlanId); }
-                                Logger.Info($"[Agent] 任务面板已创建: PlanId={plan.PlanId}, Steps={plan.Steps.Count}");
+                                Logger.Info($"[Agent] 任务面板已创建: PlanId={plan.PlanId}, Source={plan.Source}, Steps={plan.Steps.Count}");
                             }
                             else
                             {
-                                // 既非 PlanAgent 产出也无已执行步骤 → 不创建面板，但记录日志
-                                Logger.Info($"[Agent] 跳过面板创建: IsFromPlanAgent={plan.IsFromPlanAgent}, anyStepExecuted={anyStepExecuted}, Steps={plan.Steps.Count}");
+                                // 无计划来源也无已执行步骤 → 不创建面板，但记录日志
+                                Logger.Info($"[Agent] 跳过面板创建: Source={plan.Source}, anyStepExecuted={anyStepExecuted}, Steps={plan.Steps.Count}");
                             }
                         }
                         catch (Exception ex)
@@ -1046,9 +1046,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     string pid = plan.PlanId;
 
-                    // ── 仅更新 Plan Agent 产出的计划面板（由 RunAgentWorkflowAsync / ExecuteAgentHandoffAsync 创建）──
-                    // 独立 Edit（无 Plan 路由）不创建/更新下方面板
-                    if (plan.IsFromPlanAgent)
+                    // ── 仅更新有来源的计划面板（PlanAgent 或 EditAgent 产出）──
+                    // 独立 Edit（无拆分计划）不创建/更新下方面板
+                    if (plan.Source != PlanSource.None)
                     {
                         bool alreadyCreated;
                         lock (_lock) { alreadyCreated = _createdPlanIds.Contains(pid); }

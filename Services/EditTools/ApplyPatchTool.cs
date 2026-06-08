@@ -292,6 +292,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 return result;
             }
 
+            // ── 磁盘内容一致性校验：检测文件是否在 AI 读取后被修改 ──
+            var currentDiskContent = File.ReadAllText(filePath);
+            if (!string.Equals(currentDiskContent, fileContent, StringComparison.Ordinal))
+            {
+                // 文件在 patch 准备期间被外部修改 → 提取上下文行做快速验证
+                var allContextLines = patch.Hunks
+                    .SelectMany(h => h.Lines.Where(l => l.Type == ' ').Select(l => l.Text))
+                    .ToArray();
+                if (!EditStringMatcher.VerifyContentFreshness(currentDiskContent, allContextLines))
+                {
+                    result.Success = false;
+                    result.ErrorMessage = string.Format(
+                        "File '{0}' has been modified since you last read it. Please re-read the file with read_file and try your edit again.",
+                        Path.GetFileName(filePath));
+                    return result;
+                }
+                // 内容过时但上下文仍在 → 使用最新磁盘内容继续
+                fileContent = currentDiskContent;
+            }
+
             var fileLines = fileContent.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             var chunks = new List<(FileChunk chunk, string[] contextLines)>();
             var failedHunks = new List<PatchHunk>();

@@ -240,12 +240,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 所有非斜杠命令消息统一走 Agent 工作流（从 AskAgent 起始）
                 if (_activeAgent != null && _agentFactory != null && !string.IsNullOrEmpty(userText) && !userText.StartsWith("/"))
                 {
+                    // ── 预分类任务规模，Large 任务提前路由到 Plan Agent ──
+                    var taskSize = Services.Agents.EditAgent.ClassifyTaskSize(userText);
+
                     var routing = explicitRoute ?? new AgentRoutingResult
                     {
                         TargetAgent = AgentType.Ask,
                         Confidence = "high",
                         Reason = "统一入口 AskAgent",
-                        NeedsPlanning = false,
+                        NeedsPlanning = taskSize == TaskSize.Large,
+                        TaskSize = taskSize,
                     };
 
                     // ── 上下文感知意图覆盖：当存在待处理计划时的特殊路由 ──
@@ -1352,10 +1356,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 {
                                     var plan = handoffResult.Plan;
                                     _activePlan = plan;
-                                    Logger.Info($"[MainFlow] Handoff 链收到计划: {plan.Steps.Count} 个步骤, IsFromPlanAgent={plan.IsFromPlanAgent}");
+                                    Logger.Info($"[MainFlow] Handoff 链收到计划: {plan.Steps.Count} 个步骤, Source={plan.Source}");
 
                                     bool anyStepExecuted = plan.Steps.Any(s => s.Status != AgentStepStatus.Pending);
-                                    if (!anyStepExecuted && plan.IsFromPlanAgent)
+                                    if (!anyStepExecuted && plan.Source != PlanSource.None)
                                     {
                                         try
                                         {

@@ -22,6 +22,36 @@ namespace DeepSeek_v4_for_VisualStudio.Models
     }
 
     /// <summary>
+    /// 任务规模分类：用于决定走 Plan Agent（大型）还是 Edit Agent 直处理（中小型）。
+    /// </summary>
+    public enum TaskSize
+    {
+        /// <summary>小任务：单文件、简单修改（如改配置、修一行 bug）</summary>
+        Small,
+
+        /// <summary>中任务：跨 2-5 个文件、非结构性改动</summary>
+        Medium,
+
+        /// <summary>大任务：新功能、跨模块重构、架构变更</summary>
+        Large,
+    }
+
+    /// <summary>
+    /// 计划来源：区分计划是由 Plan Agent 产出还是 Edit Agent 自拆分。
+    /// </summary>
+    public enum PlanSource
+    {
+        /// <summary>无计划（单步执行）</summary>
+        None = 0,
+
+        /// <summary>Plan Agent 产出（生成 plan.md）</summary>
+        PlanAgent = 1,
+
+        /// <summary>Edit Agent 自拆分（不生成 plan.md，但显示面板）</summary>
+        EditAgent = 2,
+    }
+
+    /// <summary>
     /// Agent 意图类型：判断用户请求是需要修改代码还是普通问答。
     /// 保留向后兼容，同时支持多 Agent 路由。
     /// </summary>
@@ -78,6 +108,12 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>AI 执行此步骤的完整响应文本（分析结论或代码变更）</summary>
         public string? AiResponse { get; set; }
+
+        /// <summary>本步骤修改的文件数量（执行后填充）</summary>
+        public int FilesModified { get; set; }
+
+        /// <summary>本步骤变更的代码行数（+/- 合计，执行后填充）</summary>
+        public int LinesChanged { get; set; }
     }
 
     /// <summary>
@@ -126,8 +162,15 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [JsonIgnore]
         public string? PlanFilePath { get; set; }
 
-        /// <summary>标记此计划是否由 Plan Agent 产出（而非 Edit Agent 内部单步计划）。用于 UI 判断是否显示下方面板。</summary>
-        public bool IsFromPlanAgent { get; set; }
+        /// <summary>计划来源：None=单步, PlanAgent=Plan Agent 产出, EditAgent=Edit Agent 自拆分。用于 UI 判断是否显示下方面板。</summary>
+        public PlanSource Source { get; set; }
+
+        /// <summary>[向后兼容] 标记此计划是否由 Plan Agent 产出。读取时桥接到 Source，旧 JSON 反序列化兼容。</summary>
+        public bool IsFromPlanAgent
+        {
+            get => Source == PlanSource.PlanAgent;
+            set { if (value && Source == PlanSource.None) Source = PlanSource.PlanAgent; }
+        }
 
         // ═══════════════════════════════════════════════════════════════
         // 缓存策略 — 以后会被 RAG 替代

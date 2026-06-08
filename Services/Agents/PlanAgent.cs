@@ -146,7 +146,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 if (plan != null && plan.Steps.Count > 0)
                 {
-                    plan.IsFromPlanAgent = true;  // 标记为由 PlanAgent 产出，UI 层据此创建任务面板
+                    plan.Source = PlanSource.PlanAgent;  // 标记为由 PlanAgent 产出，UI 层据此创建任务面板
                     AddLog("INFO", string.Format(L["agent.log.planDone"], plan.Steps.Count, plan.Title));
                     result.Content = FormatPlanAsMarkdown(plan);
 

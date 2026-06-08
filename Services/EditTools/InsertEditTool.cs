@@ -197,6 +197,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 return result;
             }
 
+            // ── 磁盘内容一致性校验：检测文件是否在 AI 读取后被修改 ──
+            if (hasPlaceholders)
+            {
+                var contextSegments = segments
+                    .Where(s => !s.IsPlaceholder && !string.IsNullOrWhiteSpace(s.Text))
+                    .Select(s => s.Text.Trim())
+                    .ToArray();
+                if (!EditStringMatcher.VerifyContentFreshness(normalizedContent, contextSegments))
+                {
+                    result.Success = false;
+                    result.ErrorMessage = string.Format(
+                        "File '{0}' has been modified since you last read it. Please re-read the file with read_file and try your edit again.",
+                        Path.GetFileName(filePath));
+                    return result;
+                }
+            }
+
             // ── 对每个修改段进行匹配 ──
             var failedRegions = new List<string>();
             string workingContent = normalizedContent;

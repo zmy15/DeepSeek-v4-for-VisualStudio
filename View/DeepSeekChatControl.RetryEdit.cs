@@ -249,7 +249,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     context.PlanFilePath = Path.Combine(subDir, "plan.md");
 
-                    Logger.Info($"[AgentHandoff] 从 PlanJson 恢复了计划: {restoredPlan.Steps.Count} 个步骤 (PlanId={restoredPlan.PlanId}, IsFromPlanAgent={restoredPlan.IsFromPlanAgent})");
+                    Logger.Info($"[AgentHandoff] 从 PlanJson 恢复了计划: {restoredPlan.Steps.Count} 个步骤 (PlanId={restoredPlan.PlanId}, Source={restoredPlan.Source})");
                 }
                 else
                 {
@@ -380,7 +380,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 string completeJs = ChatHtmlService.BuildAgentTaskPanelCompleteJs(plan);
                                 await ChatWebView.CoreWebView2.ExecuteScriptAsync(completeJs);
                             }
-                            else if (plan.IsFromPlanAgent)
+                            else if (plan.Source != PlanSource.None)
                             {
                                 // 新创建的计划（PlanAgent 产出）→ 创建任务面板
                                 string createJs = ChatHtmlService.BuildAgentTaskPanelCreateJs(plan);
