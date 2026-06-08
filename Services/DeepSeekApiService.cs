@@ -406,6 +406,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 记录请求元数据 ──
             Logger.Info($"[API] 发送请求: {requestBodyBytes.Length / 1024}KB, 消息数={request.Messages.Count}, 工具数={tools?.Count ?? 0}, maxTokens={maxTokens}");
 
+            // ── 发送前 dump 请求体，确保 HTTP 400 等错误也能捕获 ──
+            DumpRequestToDisk(requestJson, requestBodyBytes.Length,
+                0, 0, 0, 0,
+                request.Messages.Count, tools?.Count ?? 0,
+                "(pre-send)");
+
             // ── messages 前缀分段诊断（DeepSeek 缓存仅匹配 messages 字段）──
             int msg0Length = 0;
             try
