@@ -1079,9 +1079,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         Logger.Info($"[Agent:{Definition.Name}] 🔄 检测到移交请求 → {PendingHandoffRequest.TargetAgent}，终止工具循环");
                         // ── 🔑 保存工具循环消息列表，供 Handoff 目标 Agent 复用前缀 ──
+                        //     清理不完整的历史 assistant(tool_calls)：若历史会话中某个 assistant
+                        //     的 tool_call 找不到对应 tool 结果，提前剥离 tool_calls，
+                        //     避免 ChatStreamAsync Rule 5 在不同轮次产生不同清洗结果 → 缓存断裂。
                         if (Context != null)
                         {
-                            Context.ForwardedMessages = new List<ChatApiMessage>(messages);
+                            var cleanedMessages = CleanIncompleteToolChains(messages);
+                            Context.ForwardedMessages = cleanedMessages;
                         }
                         if (contentBuilder.Length > 0)
                             contentBuilder.Append("\n\n> 🔄 任务已移交给 " + PendingHandoffRequest.TargetAgent + " Agent...");
@@ -2093,6 +2097,75 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 : "\n\n... (已截断。各步骤详情请参阅上方结构化步骤列表)";
 
             return truncated + note;
+        }
+
+        /// <summary>
+        /// 清理消息列表中不完整的工具调用链。
+        /// 与 ChatStreamAsync Rule 5 使用相同算法：对每个 assistant(tool_calls)，
+        /// 向前扫描寻找匹配的 tool 结果；遇到非 tool 消息停止。
+        /// 找不到匹配则剥离 tool_calls 和 reasoning_content，空 content 一并移除。
+        /// 
+        /// 在 Handoff (ForwardedMessages) 时调用，确保传递给目标 Agent 的消息列表
+        /// 在后续每轮 API 调用中产生一致的清洗结果，避免缓存前缀断裂。
+        /// </summary>
+        private static List<ChatApiMessage> CleanIncompleteToolChains(List<ChatApiMessage> messages)
+        {
+            // 浅克隆避免修改原始消息（与 ChatStreamAsync 保持一致）
+            var result = messages.Select(m => new ChatApiMessage
+            {
+                Role = m.Role,
+                Content = m.Content,
+                ReasoningContent = m.ReasoningContent,
+                ToolCalls = m.ToolCalls,
+                ToolCallId = m.ToolCallId,
+                Name = m.Name,
+            }).ToList();
+
+            int strippedCount = 0;
+            for (int i = 0; i < result.Count; i++)
+            {
+                var m = result[i];
+                if (m.Role != "assistant" || m.ToolCalls == null || m.ToolCalls.Count == 0)
+                    continue;
+
+                var expectedIds = new HashSet<string>(m.ToolCalls.Select(tc => tc.Id ?? ""));
+                bool hasMatch = false;
+                for (int j = i + 1; j < result.Count; j++)
+                {
+                    var next = result[j];
+                    if (next.Role == "tool" && !string.IsNullOrEmpty(next.ToolCallId)
+                        && expectedIds.Contains(next.ToolCallId))
+                    {
+                        hasMatch = true;
+                        break;
+                    }
+                    if (next.Role != "tool") break;
+                }
+
+                if (!hasMatch)
+                {
+                    var tcNames = string.Join(", ", m.ToolCalls.Select(tc => tc.Function?.Name ?? "?"));
+                    Logger.Info($"[Agent] CleanIncompleteToolChains: 剥离 assistant[{i}] tool_calls=[{tcNames}] — 无匹配 tool 结果");
+                    m.ToolCalls = null;
+                    m.ReasoningContent = null;
+                    strippedCount++;
+                }
+            }
+
+            // 移除剥离后为空的 assistant
+            int beforeRemove = result.Count;
+            result.RemoveAll(m =>
+                m.Role == "assistant"
+                && string.IsNullOrEmpty(m.Content)
+                && (m.ToolCalls == null || m.ToolCalls.Count == 0));
+            int removedEmpty = beforeRemove - result.Count;
+
+            if (strippedCount > 0 || removedEmpty > 0)
+            {
+                Logger.Info($"[Agent] CleanIncompleteToolChains: stripped={strippedCount} removedEmpty={removedEmpty} finalCount={result.Count}");
+            }
+
+            return result;
         }
 
         /// <summary>
