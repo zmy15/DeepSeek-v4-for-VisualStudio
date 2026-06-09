@@ -860,7 +860,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (tokenWindowStart > startEntryIdx)
                     startEntryIdx = tokenWindowStart;
                 if (startEntryIdx > 0)
+                {
                     CompressEntriesBeforeWindow(startEntryIdx);
+                    // ── 压缩后 _entries 中前 startEntryIdx 条已移除，索引复位到 0 ──
+                    startEntryIdx = 0;
+                }
             }
 
             // 构建截断后的消息列表（前缀结构与 BuildApiMessages 一致）
