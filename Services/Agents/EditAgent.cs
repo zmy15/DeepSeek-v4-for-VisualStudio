@@ -397,6 +397,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                         // ── 将步骤摘要写入会话记忆（供 Ask Agent 最终汇总使用）──
                         await SaveStepSummaryToMemoryAsync(step, plan, context);
+
+                        // ── v1.1.10: 检测 AI 输出中声明的后续步骤完成情况 ──
+                        DetectAndAutoCompleteLaterSteps(step, plan);
                     }
                 }
 
@@ -1116,6 +1119,96 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     "如果这些修改在后续步骤中完成则可忽略，否则可能是遗漏。",
                     mentionedFiles.Count,
                     string.Join(", ", untouched)));
+            }
+        }
+
+        /// <summary>
+        /// 从 AI 响应中检测是否声明了后续步骤也已完成（v1.1.10）。
+        /// 解析 AI 输出中的步骤完成声明（如"步骤2和3也完成了"/"also completed step 2"），
+        /// 自动将对应步骤标记为 Completed。比文件级启发式更可靠，尤其适用于同文件多步骤场景。
+        /// </summary>
+        private void DetectAndAutoCompleteLaterSteps(AgentStep completedStep, AgentTaskPlan plan)
+        {
+            if (string.IsNullOrWhiteSpace(completedStep.AiResponse)) return;
+
+            string response = completedStep.AiResponse!;
+            var autoCompletedIndices = new HashSet<int>();
+
+            // 模式1: 中文 "步骤2、3也完成了" / "步骤2和3已完成" / "也完成了步骤2,3"
+            var cnPatterns = new[]
+            {
+                @"步骤\s*(\d+(?:[、,，\s]+(?:和|及|与)?\s*\d+)*)\s*(?:也|已|同样|一并|同时)?\s*(?:完成|做完|搞定)",
+                @"(?:也|已|同样|一并|同时)\s*(?:完成|做完|搞定)了?\s*步骤\s*(\d+(?:[、,，\s]+(?:和|及|与)?\s*\d+)*)",
+            };
+            foreach (var pattern in cnPatterns)
+            {
+                foreach (System.Text.RegularExpressions.Match m in
+                    System.Text.RegularExpressions.Regex.Matches(response, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    ParseStepNumbers(m.Groups[1].Value, autoCompletedIndices);
+                }
+            }
+
+            // 模式2: 英文 "also completed step 2,3" / "steps 2 and 3 are done"
+            var enPatterns = new[]
+            {
+                @"(?:also\s+)?(?:completed?|finished?|done)\s+steps?\s*(\d+(?:[,\s]+(?:and\s+)?\d+)*)",
+                @"steps?\s*(\d+(?:[,\s]+(?:and\s+)?\d+)*)\s*(?:are\s+)?(?:also\s+)?(?:done|completed?|finished?)",
+            };
+            foreach (var pattern in enPatterns)
+            {
+                foreach (System.Text.RegularExpressions.Match m in
+                    System.Text.RegularExpressions.Regex.Matches(response, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    ParseStepNumbers(m.Groups[1].Value, autoCompletedIndices);
+                }
+            }
+
+            // 模式3: 勾号+步骤 "✅ 步骤2、3" / "✔ 步骤2 完成" / "✓ step 2 done"
+            var checkPatterns = new[]
+            {
+                @"[✅✔☑✓]\s*步骤\s*(\d+(?:[、,，\s]+(?:和|及|与)?\s*\d+)*)",
+                @"[✅✔☑✓]\s*step\s*(\d+(?:[,\s]+(?:and\s+)?\d+)*)",
+                @"步骤\s*(\d+(?:[、,，\s]+(?:和|及|与)?\s*\d+)*)\s*[✅✔☑✓]",
+                @"step\s*(\d+(?:[,\s]+(?:and\s+)?\d+)*)\s*[✅✔☑✓]",
+            };
+            foreach (var pattern in checkPatterns)
+            {
+                foreach (System.Text.RegularExpressions.Match m in
+                    System.Text.RegularExpressions.Regex.Matches(response, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    ParseStepNumbers(m.Groups[1].Value, autoCompletedIndices);
+                }
+            }
+
+            // 过滤：仅处理当前步骤之后的 Pending 步骤
+            var toAutoComplete = autoCompletedIndices
+                .Where(idx => idx > completedStep.Index && idx <= plan.Steps.Count)
+                .Select(idx => plan.Steps[idx - 1])
+                .Where(s => s.Status == AgentStepStatus.Pending)
+                .ToList();
+
+            foreach (var s in toAutoComplete)
+            {
+                s.Status = AgentStepStatus.Completed;
+                s.ResultSummary = $"(由步骤{completedStep.Index}的 AI 输出自动标记完成)";
+                AddLog("INFO", $"[EditAgent] 📋 步骤{s.Index}「{s.Title}」由 AI 声明完成，自动标记");
+            }
+
+            if (toAutoComplete.Count > 0)
+                NotifyPlanUpdated();
+        }
+
+        /// <summary>
+        /// 解析步骤编号字符串（如 "2、3、5" 或 "2,3,5" 或 "2 and 3"）并加入集合。
+        /// </summary>
+        private static void ParseStepNumbers(string text, HashSet<int> result)
+        {
+            foreach (System.Text.RegularExpressions.Match m in
+                System.Text.RegularExpressions.Regex.Matches(text, @"\d+"))
+            {
+                if (int.TryParse(m.Value, out int num) && num > 0)
+                    result.Add(num);
             }
         }
 
@@ -2258,6 +2351,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine("这是一个分析/验证步骤，不需要修改代码。");
                 sb.AppendLine("请直接输出你的分析结论、发现或建议。");
             }
+
+            // ── v1.1.10: 步骤完成声明指令 ──
+            // 如果本步骤的操作也顺带完成了后续步骤中描述的任务，请在响应末尾明确声明：
+            // "也完成了步骤X、Y" 或 "also completed step X, Y"
+            sb.AppendLine();
+            sb.AppendLine("## 📋 步骤完成声明");
+            sb.AppendLine("如果当前步骤的代码修改顺带完成了后续某个步骤的任务（如修改同一文件的不同部分），");
+            sb.AppendLine("请在响应末尾声明，格式如：\"也完成了步骤3、5\" 或 \"also completed step 3, 5\"。");
+            sb.AppendLine("系统将自动标记这些步骤为已完成，避免重复执行。");
 
             return sb.ToString();
         }
