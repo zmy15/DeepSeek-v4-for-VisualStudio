@@ -1086,13 +1086,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         Logger.Info($"[Agent:{Definition.Name}] 🔄 检测到移交请求 → {PendingHandoffRequest.TargetAgent}，终止工具循环");
                         // ── 🔑 保存工具循环消息列表，供 Handoff 目标 Agent 复用前缀 ──
-                        //     清理不完整的历史 assistant(tool_calls)：若历史会话中某个 assistant
-                        //     的 tool_call 找不到对应 tool 结果，提前剥离 tool_calls，
-                        //     避免 ChatStreamAsync Rule 5 在不同轮次产生不同清洗结果 → 缓存断裂。
+                        //     浅克隆即可，不调用 CleanIncompleteToolChains：
+                        //     - ChatStreamAsync Rule 5 在每次 API 调用时已统一处理孤儿 assistant
+                        //     - CleanIncompleteToolChains 会修改消息内容（剥离 tool_calls），
+                        //       导致 ForwardedMessages 与 DeepSeek 服务端缓存不一致 → 前缀断裂
+                        //     - Rule 5 是确定性的：相同输入前缀 → 相同输出，不会产生缓存断裂
                         if (Context != null)
                         {
-                            var cleanedMessages = CleanIncompleteToolChains(messages);
-                            Context.ForwardedMessages = cleanedMessages;
+                            Context.ForwardedMessages = new List<ChatApiMessage>(messages);
                         }
                         if (contentBuilder.Length > 0)
                             contentBuilder.Append("\n\n> 🔄 任务已移交给 " + PendingHandoffRequest.TargetAgent + " Agent...");

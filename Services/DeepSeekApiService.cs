@@ -323,6 +323,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string? lastRole = null;
             int removedCount = 0;
             int mergedCount = 0;
+            var mergedPositions = new List<string>(); // 记录合并位置用于诊断
+            int msgIndex = 0;
             foreach (var msg in request.Messages)
             {
                 // ── 规则 1：tool 消息必须有 tool_call_id ──
@@ -330,6 +332,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     Logger.Warn($"[API] 移除无效 tool 消息：缺少 tool_call_id (content={msg.Content?.Truncate(80)})");
                     removedCount++;
+                    msgIndex++;
                     continue;
                 }
 
@@ -340,6 +343,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     Logger.Warn($"[API] 移除无效 assistant 消息：无 content 且无 tool_calls");
                     removedCount++;
+                    msgIndex++;
                     continue;
                 }
 
@@ -372,6 +376,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         string existingContent = lastMsg.Content ?? string.Empty;
                         string newContent = clone.Content ?? string.Empty;
 
+                        // ── 记录合并位置（含原索引、角色、前后内容长度）──
+                        bool lastHasTc = lastMsg.ToolCalls != null && lastMsg.ToolCalls.Count > 0;
+                        bool currHasTc = clone.ToolCalls != null && clone.ToolCalls.Count > 0;
+                        mergedPositions.Add($"[{msgIndex}]{clone.Role}(lastTc={lastHasTc},curTc={currHasTc},exist={existingContent.Length},new={newContent.Length})");
+
                         if (!string.IsNullOrWhiteSpace(newContent))
                         {
                             // ── 合并内容：用分隔线连接 ──
@@ -389,19 +398,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                             lastMsg.ToolCalls = clone.ToolCalls;
 
                         mergedCount++;
+                        msgIndex++;
                         continue;
                     }
                 }
 
                 cleanedMessages.Add(clone);
                 lastRole = clone.Role;
+                msgIndex++;
             }
 
             if (removedCount > 0 || mergedCount > 0)
             {
                 var parts = new List<string>();
                 if (removedCount > 0) parts.Add($"移除了 {removedCount} 条无效消息");
-                if (mergedCount > 0) parts.Add($"合并了 {mergedCount} 条连续消息");
+                if (mergedCount > 0) parts.Add($"合并了 {mergedCount} 条连续消息 ({string.Join(", ", mergedPositions)})");
                 Logger.Warn($"[API] 消息清理完成：{string.Join("，", parts)}，剩余 {cleanedMessages.Count} 条");
                 request.Messages = cleanedMessages;
             }

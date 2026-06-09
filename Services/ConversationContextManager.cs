@@ -406,30 +406,50 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public void AddAssistantMessage(string? content, string? reasoningContent = null, List<ToolCall>? toolCalls = null)
         {
             // ── 🔑 前缀缓存优化：写时合并连续 assistant 消息 ──
-            //     如果上一条也是 assistant（无 tool_calls），合并内容而非新增条目，
+            //     如果上一条也是 assistant，合并内容而非新增条目，
             //     避免 BuildApiMessages 产生连续 assistant 消息，进而触发 ChatStreamAsync
             //     的合并逻辑修改消息内容 → 破坏 DeepSeek Prefix Cache 前缀。
+            //
+            //     覆盖两种场景：
+            //     A. 两条纯文本 assistant（均无 tool_calls）→ 合并文本
+            //     B. 前条有 tool_calls + 本条纯文本 → 合并文本到前条（保留 tool_calls）
+            //        这是 Agent 工具调用循环中的常见模式：AI 先发起工具调用，再输出文本响应
             if (_entries.Count > 0)
             {
                 var last = _entries[_entries.Count - 1];
-                if (last.Role == "assistant"
-                    && (last.ToolCalls == null || last.ToolCalls.Count == 0)
-                    && (toolCalls == null || toolCalls.Count == 0))
+                if (last.Role == "assistant")
                 {
-                    // 两条纯文本 assistant → 合并到上一条
-                    if (!string.IsNullOrWhiteSpace(content))
+                    bool lastHasTc = last.ToolCalls != null && last.ToolCalls.Count > 0;
+                    bool currHasTc = toolCalls != null && toolCalls.Count > 0;
+
+                    // 场景 A：两条都是纯文本 assistant → 合并
+                    // 场景 B：前条有 tool_calls，本条是纯文本 → 合并文本到前条（保留 tool_calls 结构）
+                    if (!currHasTc)
                     {
-                        last.Content = string.IsNullOrWhiteSpace(last.Content)
-                            ? content
-                            : last.Content + "\n\n---\n\n" + content;
+                        // 合并文本内容到前条 assistant
+                        if (!string.IsNullOrWhiteSpace(content))
+                        {
+                            last.Content = string.IsNullOrWhiteSpace(last.Content)
+                                ? content
+                                : last.Content + "\n\n---\n\n" + content;
+                        }
+                        // 如果后者有 reasoning_content，保留后者
+                        if (!string.IsNullOrWhiteSpace(reasoningContent))
+                            last.ReasoningContent = reasoningContent;
+                        _estimatedTokens += EstimateTokens(content);
+                        if (!string.IsNullOrEmpty(reasoningContent))
+                            _estimatedTokens += EstimateTokens(reasoningContent);
+
+                        // ── 诊断：记录非标准合并场景 ──
+                        if (lastHasTc)
+                        {
+                            Logger.Info($"[ContextManager] 写时合并 assistant: 前条有 tool_calls({last.ToolCalls!.Count}个), " +
+                                $"本条纯文本({content?.Length ?? 0}chars) → 合并到前条");
+                        }
+                        return;
                     }
-                    // 如果后者有 reasoning_content，保留后者
-                    if (!string.IsNullOrWhiteSpace(reasoningContent))
-                        last.ReasoningContent = reasoningContent;
-                    _estimatedTokens += EstimateTokens(content);
-                    if (!string.IsNullOrEmpty(reasoningContent))
-                        _estimatedTokens += EstimateTokens(reasoningContent);
-                    return;
+                    // 场景 C：前条纯文本 + 本条有 tool_calls → 不应合并（语义上 tool_calls 不应在文本之后）
+                    // 保持独立条目，由 BuildApiMessages 自然处理
                 }
             }
 
