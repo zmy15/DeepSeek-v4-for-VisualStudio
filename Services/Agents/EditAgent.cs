@@ -213,9 +213,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 Success = true,
             };
 
-            // ── 如果有 ActivePlan，执行计划 ──
+            // ── 如果有 ActivePlan 且未完成，执行计划 ──
+            // 如果计划已完成（如上一轮 plan→edit 已执行完毕），则视为新任务重新路由
             AgentTaskPlan plan;
-            if (context.ActivePlan != null && context.ActivePlan.Steps.Count > 0)
+            if (context.ActivePlan != null && context.ActivePlan.Steps.Count > 0
+                && !context.ActivePlan.IsCompleted)
             {
                 plan = context.ActivePlan;
                 await ExecutePlanAsync(plan, context);
