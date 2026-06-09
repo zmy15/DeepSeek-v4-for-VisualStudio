@@ -196,7 +196,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         private static void DumpRequestToDisk(string requestJson, int requestBytes,
             int hitTokens, int missTokens, int cacheableTokens, double hitRate,
-            int messageCount, int toolCount)
+            int messageCount, int toolCount, string? errorMessage = null)
         {
             try
             {
@@ -241,6 +241,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     sequence = seq,
                     timestamp = DateTime.Now.ToString("O"),
+                    error = errorMessage,
                     request = new
                     {
                         size_bytes = requestBytes,
@@ -250,7 +251,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         messages_summary = msgSummaries,
                         full_request = fullReqDoc.RootElement
                     },
-                    cache = new
+                    cache = errorMessage != null ? null : new
                     {
                         hit_tokens = hitTokens,
                         miss_tokens = missTokens,
