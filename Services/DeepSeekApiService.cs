@@ -577,18 +577,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 前缀缓存稳定性检查（v1.1.9）──
             //     在发送前对比 system prompt + tool catalog 的 SHA-256 指纹，
             //     检测前缀漂移并记录日志，保障 V4 自动前缀缓存命中率可观测。
+            //     
+            //     🔑 v1.1.11：仅对使用标准 SharedImmutablePrefix 的调用执行检查。
+            //     非标准调用（如代码变更总结、API Key 验证等）使用自定义短 prompt，
+            //     不应污染 PrefixCache 的 pinned 基准，避免导致后续正常调用误判漂移。
             if (PrefixCache != null)
             {
                 string? systemPrompt = request.Messages.Count > 0 && request.Messages[0].Role == "system"
                     ? request.Messages[0].Content
                     : null;
-                var driftInfo = PrefixCache.CheckCurrentPrefix(systemPrompt, normalizedTools);
 
-                // ── 追加诊断：记录当前请求的指纹，方便与后续请求对比 ──
-                if (!driftInfo.IsInitialPin)
+                bool isStandardPrefix = systemPrompt != null
+                    && systemPrompt == AiPrompts.SharedImmutablePrefix;
+
+                if (isStandardPrefix)
                 {
-                    string driftTag = driftInfo.HasDrift ? "⚠️ 漂移" : "✅ 稳定";
-                    Logger.Info($"[Cache] 前缀指纹状态: {driftTag} | 稳定性={PrefixCache.StabilityRatio:P1} ({PrefixCache.StableChecks}/{PrefixCache.TotalChecks})");
+                    var driftInfo = PrefixCache.CheckCurrentPrefix(systemPrompt, normalizedTools);
+
+                    if (!driftInfo.IsInitialPin)
+                    {
+                        string driftTag = driftInfo.HasDrift ? "⚠️ 漂移" : "✅ 稳定";
+                        Logger.Info($"[Cache] 前缀指纹状态: {driftTag} | 稳定性={PrefixCache.StabilityRatio:P1} ({PrefixCache.StableChecks}/{PrefixCache.TotalChecks})");
+                    }
+                }
+                else
+                {
+                    Logger.Info($"[Cache] 前缀指纹检查跳过: 非标准前缀 (len={systemPrompt?.Length ?? 0}), 不参与 PrefixCache 基准");
                 }
             }
             else
