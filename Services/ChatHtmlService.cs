@@ -740,13 +740,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             sb.Append(streamingCursor);
             sb.Append(retryBtnHtml);
             sb.Append(copyBtnHtml);
-            sb.Append("</div>");
-            // ── 缓存命中率统计卡片（实时流式发送 + 重启后从 ChatMessage.CacheFooterHtml 恢复）──
+            // ── 缓存命中率统计卡片（放在 msg-bubble 内部，紧跟消息内容下方）──
             if (!string.IsNullOrEmpty(msg.CacheFooterHtml))
             {
                 sb.Append(msg.CacheFooterHtml);
             }
-            sb.Append("</div>");
+            sb.Append("</div>");  // closes msg-bubble
+            sb.Append("</div>");  // closes msg-wrapper
         }
 
         /// <summary>
