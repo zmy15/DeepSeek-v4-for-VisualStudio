@@ -1468,6 +1468,26 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// - BlockAll：全部拦截询问
         /// - SmartBlock：检测危险命令，仅拦截危险操作
         /// </summary>
+
+        /// <summary>
+        /// 发送 Toast 通知，提醒用户 VS 中有需要操作的事项（审批/回答问题）。
+        /// </summary>
+        private static void NotifyUserActionRequired(string title, string detail)
+        {
+            try
+            {
+                var toastService = CompositionRoot.GetServiceOrDefault<ToastNotificationService>();
+                if (toastService == null) return;
+
+                string message = string.IsNullOrWhiteSpace(detail) ? "请切换到 Visual Studio 处理" : detail;
+                toastService.Show(title, message);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Agent] 发送操作提醒 Toast 失败: {ex.Message}");
+            }
+        }
+
         private void OnAgentPermissionRequested(AgentPermissionRequest request)
         {
             _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
@@ -1507,6 +1527,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 try
                 {
+                    // ── v1.1.10: Toast 通知用户需要审批 ──
+                    NotifyUserActionRequired(request.Title, request.Command);
+
                     string js;
                     if (request.ActionType == "file_delete")
                     {
@@ -1563,6 +1586,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         Logger.Info($"[Agent] 问题 JSON 长度: {System.Text.Json.JsonSerializer.Serialize(request.Questions).Length} 字符");
                     }
                     catch { }
+
+                    // ── v1.1.10: Toast 通知用户需要回答问题 ──
+                    string questionSummary = request.Questions.Count == 1
+                        ? request.Questions[0].Header.Truncate(80)
+                        : $"{request.Questions.Count} 个问题需要回答";
+                    NotifyUserActionRequired("AI 需要你的回答", questionSummary);
 
                     string js = ChatHtmlService.BuildAskQuestionsJs(request);
                     StatusLabel.Text = string.Format(LocalizationService.Instance["status.questionsWaiting"],
