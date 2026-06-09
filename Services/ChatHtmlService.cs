@@ -93,70 +93,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             return sb.ToString();
         }
 
-        /// <summary>
-        /// 构建流式更新用的 JS 脚本：更新指定索引的 AI 消息内容和思考面板。
-        /// 返回的 JS 字符串可直接传给 ExecuteScriptAsync。
-        /// </summary>
-        /// <param name="messageIndex">消息在列表中的索引（从0开始）。</param>
-        /// <param name="streamingContent">当前流式累积的正文内容（纯文本）。</param>
-        /// <param name="reasoningContent">当前流式累积的思考内容（纯文本），可为空。</param>
-        /// <param name="isComplete">是否流式已完成（完成后移除光标）。</param>
-        public static string BuildStreamingUpdateJs(int messageIndex, string streamingContent, string reasoningContent, bool isComplete)
-        {
-            return BuildStreamingUpdateJs(messageIndex, streamingContent, reasoningContent, isComplete, null);
-        }
-
-        /// <summary>
-        /// 构建流式更新 JS（含内嵌状态栏批量更新，减少 ExecuteScriptAsync 调用次数）。
-        /// </summary>
-        public static string BuildStreamingUpdateJs(int messageIndex, string streamingContent, string reasoningContent, bool isComplete,
-            string? statusText)
-        {
-            string escapedContent = EscapeJsString(streamingContent ?? string.Empty);
-            string escapedReasoning = EscapeJsString(reasoningContent ?? string.Empty);
-            string escapedStatus = EscapeJsString(statusText ?? "");
-
-            return $@"
-(function(){{
-    var container=document.getElementById('msg-body-{messageIndex}');
-    var reasoningPanel=document.getElementById('reasoning-{messageIndex}');
-    var reasoningBody=document.getElementById('reasoning-body-{messageIndex}');
-    var cursor=document.getElementById('cursor-{messageIndex}');
-
-    if(container){{
-        var text={escapedContent};
-        var textNode=container._textNode;
-        if(!textNode){{
-            textNode=document.createTextNode('');
-            container._textNode=textNode;
-            container.textContent='';
-            container.appendChild(textNode);
-        }}
-        textNode.textContent=text;
-    }}
-
-    if(reasoningPanel && reasoningBody){{
-        var rtext={escapedReasoning};
-        if(rtext.length>0){{
-            reasoningPanel.style.display='block';
-            reasoningBody.textContent=rtext;
-        }}else{{
-            reasoningPanel.style.display='none';
-        }}
-    }}
-
-    if(cursor){{
-        cursor.style.display={(isComplete ? "'none'" : "'inline-block'")};
-    }}
-
-    // ── 合并状态栏更新（避免额外的 ExecuteScriptAsync）──
-    var st=document.getElementById('status-text');
-    if(st&&{escapedStatus}.length>0)st.textContent={escapedStatus};
-
-    window.__scrollToBottom('smooth');
-}})();";
-        }
-
         #region 高性能流式消息（PostWebMessageAsString 非阻塞通道）
 
         /// <summary>
@@ -560,7 +496,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
     var saveBtn=document.createElement('button');
     saveBtn.className='inline-edit-btn-save';
-    saveBtn.textContent='✅ 确认修改';
+    saveBtn.textContent='{EscapeJsString(L["chat.html.confirmEditButton"])}';
     saveBtn.onclick=function(){{
         var textEl=document.getElementById('inline-textarea-{messageIndex}');
         var val=textEl?textEl.value:'';
@@ -570,7 +506,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
     var cancelBtn=document.createElement('button');
     cancelBtn.className='inline-edit-btn-cancel';
-    cancelBtn.textContent='❌ 取消';
+    cancelBtn.textContent='{EscapeJsString(L["chat.html.cancelButton"])}';
     cancelBtn.onclick=function(){{window.__editMessageCancel({messageIndex});}};
     actions.appendChild(cancelBtn);
 
@@ -802,10 +738,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             sb.Append(reasoningHtml);
             sb.Append($"<div class='msg-content' id='msg-body-{idx}'>{bodyHtml}</div>");
             sb.Append(streamingCursor);
+            // ── 缓存命中率统计卡片（放在操作按钮之前，消息内容下方）──
+            if (!string.IsNullOrEmpty(msg.CacheFooterHtml))
+            {
+                sb.Append(msg.CacheFooterHtml);
+            }
             sb.Append(retryBtnHtml);
             sb.Append(copyBtnHtml);
-            sb.Append("</div>");
-            sb.Append("</div>");
+            sb.Append("</div>");  // closes msg-bubble
+            sb.Append("</div>");  // closes msg-wrapper
         }
 
         /// <summary>
@@ -992,17 +933,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private static string WrapFullPage(string messagesHtml, bool hasStreamingMessage)
         {
             string autoScrollJs = hasStreamingMessage ? BuildAutoScrollJs() : "";
+            bool isLight = ThemeService.Instance.IsLight;
 
 return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
        "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
        "<style>" + PageCss + "</style>" +
-       // CSS 也改为非阻塞加载
-       "<link rel='stylesheet' href='" + HighlightJsCdnStyleDark + 
+       "<link rel='stylesheet' href='" + HighlightJsCdnStyle + 
        "' media='none' onload=\"if(this.media!=='all')this.media='all'\" />" +
        "</head><body>" +
        "<div id='chat-container'>" + messagesHtml + "</div>" +
        "<script>" +
-       // 动态创建 script 标签，异步加载 highlight.js
        "var hljsScript=document.createElement('script');" +
        "hljsScript.src='" + HighlightJsCdnScript + "';" +
        "hljsScript.onload=function(){" +
@@ -1187,23 +1127,29 @@ return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
 
             return $@"
 (function(){{
-    var existing=document.getElementById('agent-questions');
-    if(existing)existing.remove();
+    try{{
+        var existing=document.getElementById('agent-questions');
+        if(existing)existing.remove();
 
-    var div=document.createElement('div');
-    div.id='agent-questions';
-    div.style.cssText='border:1px solid #4fc1ff;border-radius:8px;background:#1a2a3a;padding:12px;margin:8px 0;animation:fadeIn .3s';
+        var div=document.createElement('div');
+        div.id='agent-questions';
+        div.style.cssText='border:1px solid #4fc1ff;border-radius:8px;background:#1a2a3a;padding:12px;margin:8px 0;animation:fadeIn .3s';
 
-    div.innerHTML=
-        '<div style=""color:#4fc1ff;font-size:12px;font-weight:600;margin-bottom:8px"">'+{EscapeJsString(LocalizationService.Instance["chat.html.questionsTitle"])}+'</div>'+{EscapeJsString(questionsHtml.ToString())}+
-        '<div style=""display:flex;gap:8px;margin-top:8px"">'+
-        '<button id=""agent-questions-submit"" onclick=""window.__answerQuestions(\'{safeRequestId}\')"" style=""background:#0e639c;color:#fff;border:none;border-radius:4px;padding:6px 20px;cursor:pointer;font-size:12px;font-weight:600"">'+{EscapeJsString(LocalizationService.Instance["chat.html.submitAnswer"])}+'</button>'+
-        '<button onclick=""window.__skipQuestions(\'{safeRequestId}\')"" style=""background:#3c3c3c;color:#aaa;border:1px solid #555;border-radius:4px;padding:6px 16px;cursor:pointer;font-size:12px"">'+{EscapeJsString(LocalizationService.Instance["chat.html.skip"])}+'</button>'+
-        '</div>';
+        div.innerHTML=
+            '<div style=""color:#4fc1ff;font-size:12px;font-weight:600;margin-bottom:8px"">'+{EscapeJsString(LocalizationService.Instance["chat.html.questionsTitle"])}+'</div>'+{EscapeJsString(questionsHtml.ToString())}+
+            '<div style=""display:flex;gap:8px;margin-top:8px"">'+
+            '<button id=""agent-questions-submit"" onclick=""window.__answerQuestions(\'{safeRequestId}\')"" style=""background:#0e639c;color:#fff;border:none;border-radius:4px;padding:6px 20px;cursor:pointer;font-size:12px;font-weight:600"">'+{EscapeJsString(LocalizationService.Instance["chat.html.submitAnswer"])}+'</button>'+
+            '<button onclick=""window.__skipQuestions(\'{safeRequestId}\')"" style=""background:#3c3c3c;color:#aaa;border:1px solid #555;border-radius:4px;padding:6px 16px;cursor:pointer;font-size:12px"">'+{EscapeJsString(LocalizationService.Instance["chat.html.skip"])}+'</button>'+
+            '</div>';
 
-    var container=document.getElementById('chat-container');
-    if(container)window.__insertBeforeTaskPanel(div);
-    window.__scrollToBottom('smooth');
+        var container=document.getElementById('chat-container');
+        if(!container){{window.__sendToHost({{type:'diagnostic',msg:'questions:chat-container not found'}});return;}}
+        window.__insertBeforeTaskPanel(div);
+        window.__scrollToBottom('smooth');
+        window.__sendToHost({{type:'diagnostic',msg:'questions:injected OK'}});
+    }}catch(e){{
+        window.__sendToHost({{type:'diagnostic',msg:'questions:JS error: '+e.message}});
+    }}
 }})();";
         }
 

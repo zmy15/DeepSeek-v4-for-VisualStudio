@@ -363,6 +363,19 @@ window._showCopyFeedback=function(msgIndex){
                     // 仅更新状态栏（避免额外通信）
                     var st=document.getElementById('status-text');
                     if(st&&msg.text)st.textContent=msg.text;
+                }else if(msg.type==='appendHtml'){
+                    // ── 增量追加 HTML（避免 NavigateToString 全量刷新导致滚动/闪烁）──
+                    var temp=document.createElement('div');
+                    temp.innerHTML=msg.html;
+                    var fragment=document.createDocumentFragment();
+                    while(temp.firstChild)fragment.appendChild(temp.firstChild);
+                    var chatContainer=document.getElementById('chat-container');
+                    if(chatContainer){
+                        var taskPanel=chatContainer.querySelector('[id^=""agent-task-panel-""]');
+                        if(taskPanel)chatContainer.insertBefore(fragment,taskPanel);
+                        else chatContainer.appendChild(fragment);
+                        if(typeof window.__scrollToBottom==='function')window.__scrollToBottom('auto');
+                    }
                 }
             }catch(e) {
                 console.error('[DeepSeek] Message handler error:', e);

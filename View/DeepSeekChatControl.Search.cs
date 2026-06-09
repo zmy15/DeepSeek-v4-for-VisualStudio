@@ -109,7 +109,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 };
 
                 Logger.Info($"开始 AI 搜索词优化 ({(isBaiduSearch ? "百度" : "DuckDuckGo")})，原始查询: \"{userQuery}\"");
-                var rawResponse = await _apiService.CompleteAsync(optimizationMessages, ct);
+                var rawResponse = await _apiService.CompleteAsync(optimizationMessages, ct,
+                    responseFormat: isBaiduSearch ? "json_object" : null);
                 Logger.Info($"AI 搜索词优化原始响应: {rawResponse}");
 
                 if (isBaiduSearch)

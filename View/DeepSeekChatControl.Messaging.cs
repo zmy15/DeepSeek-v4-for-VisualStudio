@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Services.Agents;
 using DeepSeek_v4_for_VisualStudio.Utils;
@@ -125,13 +125,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return;
             }
 
-            InitializeApiService();
+            // 仅在 ApiService 未初始化时创建，避免重置累计 Token 计数器
+            if (_apiService == null)
+            {
+                InitializeApiService();
+            }
             if (_apiService == null)
             {
                 lock (_lock) { _isGenerating = false; }
                 UpdateButtonsState();
                 return;
             }
+
+            // ── 单轮 Cache 统计快照：本次问答开始时的累计值 ──
+            _apiService?.TakeCacheSnapshot();
 
             InitializeContextServices();
 
@@ -195,15 +202,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string agentRoutedUserText = userText ?? string.Empty;
                 AgentRoutingResult? explicitRoute = null;
                 string? agentSkillInstructions = null;
-                if (_agentDispatcher != null && !string.IsNullOrEmpty(userText) && userText.StartsWith("@"))
+                if (!string.IsNullOrEmpty(userText) && userText.StartsWith("@"))
                 {
                     // 提取 @agent 后的内容：格式 @agent [/skill] [message]
                     var atParts = userText.Substring(1).Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
                     string agentName = atParts.Length > 0 ? atParts[0] : string.Empty;
                     agentRoutedUserText = atParts.Length > 1 ? atParts[1] : string.Empty;
 
-                    // 显式路由到指定 Agent
-                    explicitRoute = await _agentDispatcher.RouteAsync($"@{agentName}");
+                    // 显式路由到指定 Agent（UI 层简单解析）
+                    explicitRoute = ParseExplicitAgentRoute(agentName);
 
                     // ── @agent /skill 组合：先解析技能指令，注入到 Agent 工作流 ──
                     if (!string.IsNullOrWhiteSpace(agentRoutedUserText) && agentRoutedUserText.StartsWith("/"))
@@ -211,16 +218,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         string? skillResult = await ResolveSlashCommandAsync(agentRoutedUserText);
                         if (skillResult == null)
                         {
-                            // 内置命令已直接执行（help/create-skill/refresh-skills），无需继续
                             lock (_lock) { _isGenerating = false; }
                             UpdateButtonsState();
                             return;
                         }
                         if (!string.IsNullOrEmpty(skillResult))
                         {
-                            // 技能指令将在 Agent 工作流中作为 system 消息注入
                             agentSkillInstructions = skillResult;
-                            Logger.Info($"[AgentDispatcher] @agent /skill 组合: Agent={explicitRoute.TargetAgent}, Skill 指令已解析 ({skillResult.Length} 字符)");
+                            Logger.Info($"[Agent] @agent /skill 组合: Agent={explicitRoute.TargetAgent}, Skill 指令已解析 ({skillResult.Length} 字符)");
                         }
                     }
 
@@ -231,25 +236,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         UpdateButtonsState();
                         return;
                     }
-                    Logger.Info($"[AgentDispatcher] @agent 显式路由: → {explicitRoute.TargetAgent}, 消息: \"{agentRoutedUserText}\""
+                    Logger.Info($"[Agent] @agent 显式路由: → {explicitRoute.TargetAgent}, 消息: \"{agentRoutedUserText}\""
                         + (agentSkillInstructions != null ? " [含Skill指令]" : ""));
                 }
 
-                // 多 Agent 路由
-                if (_agentDispatcher != null && !string.IsNullOrEmpty(userText) && !userText.StartsWith("/"))
+                // 所有非斜杠命令消息统一走 Agent 工作流（从 AskAgent 起始）
+                if (_activeAgent != null && _agentFactory != null && !string.IsNullOrEmpty(userText) && !userText.StartsWith("/"))
                 {
-                    // ── 构建对话上下文摘要，帮助路由 AI 理解"进行修复"等短消息的指代 ──
-                    string? conversationContext = BuildRoutingContext(userText, fileContext, parseResults);
-                    var routing = explicitRoute ?? await _agentDispatcher.RouteAsync(userText, conversationContext);
+                    // ── 预分类任务规模，Large 任务提前路由到 Plan Agent ──
+                    var taskSize = Services.Agents.EditAgent.ClassifyTaskSize(userText);
+                    Logger.Info($"[TaskSize] \"{userText.Truncate(60)}\" → {taskSize}");
+
+                    var routing = explicitRoute ?? new AgentRoutingResult
+                    {
+                        TargetAgent = AgentType.Ask,
+                        Confidence = "high",
+                        Reason = "统一入口 AskAgent",
+                        NeedsPlanning = taskSize == TaskSize.Large,
+                        TaskSize = taskSize,
+                    };
 
                     // ── 上下文感知意图覆盖：当存在待处理计划时的特殊路由 ──
                     routing = OverrideRoutingForPlanContext(userText, routing);
 
-                    bool needsAgent = routing.TargetAgent != AgentType.Ask
-                        || routing.NeedsPlanning;
+                    // ── 统一走 Agent 工作流：所有非斜杠命令消息均由 AskAgent 入口处理 ──
 
-                    if (needsAgent)
-                    {
                         // ── 更新用户消息的 Agent 类型（用于编辑/重试时判断是否分支）──
                         lock (_lock)
                         {
@@ -260,7 +271,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             if (!string.IsNullOrEmpty(agentSkillInstructions))
                             {
                                 _contextManager.AddCustomMessage("system", agentSkillInstructions);
-                                Logger.Info($"[AgentDispatcher] Skill 指令已注入 Agent 上下文 (长度: {agentSkillInstructions.Length})");
+                                Logger.Info($"[AgentFlow] Skill 指令已注入 Agent 上下文 (长度: {agentSkillInstructions.Length})");
                             }
                         }
                         int capturedUserMsgIndex = _messages.Count - 1;
@@ -282,7 +293,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                             catch (Exception ex)
                             {
-                                Logger.Error($"[AgentDispatcher] 工作流异常: {ex.Message}", ex);
+                                Logger.Error($"[AgentFlow] 工作流异常: {ex.Message}", ex);
                             }
                             finally
                             {
@@ -293,1021 +304,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                         });
                         return;
-                    }
                 }
 
-                // ── @agent 清洁：只清除 API 内容中的 @agent 前缀，保留气泡显示 ──
-                if (explicitRoute != null && !string.IsNullOrEmpty(agentRoutedUserText))
-                {
-                    // fullUserContent 中替换 @agent 部分为干净文本（API 不感知 @agent）
-                    string cleanText = agentRoutedUserText;
-                    if (!string.IsNullOrEmpty(fullUserContent) && fullUserContent.StartsWith(userText ?? string.Empty))
-                    {
-                        fullUserContent = cleanText + fullUserContent.Substring((userText ?? string.Empty).Length);
-                    }
-                    // userDisplayContent 保留原始 @agent 前缀，使对话气泡正常显示 @
-                    Logger.Info($"[AgentDispatcher] @agent API 内容已清洁，气泡保留 @: \"{userDisplayContent}\"");
-                }
-
-                // ── 更新用户消息的 @agent 显式路由标记 ──
-                if (explicitRoute != null)
-                {
-                    lock (_lock)
-                    {
-                        if (_messages.Count > 0)
-                            _messages[_messages.Count - 1].AgentType = explicitRoute.TargetAgent;
-                    }
-                }
-
-                // 技能路由
-                // 优先使用 @agent /skill 组合中已解析的技能指令
-                bool isSlashCommand = !string.IsNullOrEmpty(userText) && userText.StartsWith("/");
-                bool isAutoMatched = false;
-                if (!string.IsNullOrEmpty(agentSkillInstructions))
-                {
-                    // @agent /skill 组合已在前面解析，直接使用
-                    skillInstructions = agentSkillInstructions;
-                    isSlashCommand = true;
-                    Logger.Info($"[Skill] @agent /skill 组合: 技能指令已就绪, 跳过 RouteSkillAsync");
-                }
-                else if (string.IsNullOrEmpty(skillInstructions) && !string.IsNullOrEmpty(fullUserContent))
-                {
-                    skillInstructions = await RouteSkillAsync(fullUserContent);
-                    isAutoMatched = skillInstructions != null;
-                }
-
-                // ── 注入技能指令到上下文 ──
-                if (!string.IsNullOrEmpty(skillInstructions))
-                {
-                    lock (_lock)
-                    {
-                        _contextManager.AddCustomMessage("system", skillInstructions);
-                    }
-
-                    if (isSlashCommand)
-                    {
-                        string slashText = !string.IsNullOrEmpty(agentSkillInstructions) && !string.IsNullOrEmpty(agentRoutedUserText)
-                            ? agentRoutedUserText
-                            : userText!;
-
-                        var calledSkillName = slashText.Substring(1).Split(' ')[0];
-                        var skillDef = SkillService.Instance.FindSkill(calledSkillName, _skillDiscoveryResult);
-                        string source = !string.IsNullOrEmpty(agentSkillInstructions)
-                            ? $"@agent /skill 组合 (Agent 上下文)"
-                            : $"斜杠命令 (来源: {skillDef?.Source.ToString() ?? "N/A"})";
-                        Logger.Info($"[Skill] 技能指令已注入: \"{calledSkillName}\" ({source}, 长度: {skillInstructions.Length})");
-                    }
-                    else if (isAutoMatched)
-                        Logger.Info($"[Skill] 技能指令已注入 (AI 自动匹配, 长度: {skillInstructions.Length})");
-                    else
-                        Logger.Info($"[Skill] 技能指令已注入 (长度: {skillInstructions.Length})");
-                }
-
-                int userMsgIndex = earlyUserMsgIndex;  // 使用早期 UI 更新中的索引
-
-                // 创建助手消息占位
-                var assistantMsg = new ChatMessage
-                {
-                    Role = "assistant",
-                    Content = string.Empty,
-                    ReasoningContent = string.Empty,
-                    Timestamp = DateTime.Now,
-                    IsStreaming = true,
-                    IsRendered = false,
-                };
-                int assistantMsgIndex;
-                lock (_lock)
-                {
-                    // ── 树状结构：通过 Tree 添加助手消息 ──
-                    if (_tree != null)
-                    {
-                        _tree.AddChildMessage(assistantMsg);
-                        SyncMessagesFromTree();
-                        assistantMsgIndex = _messages.Count - 1;
-                    }
-                    else
-                    {
-                        _messages.Add(assistantMsg);
-                        assistantMsgIndex = _messages.Count - 1;
-                    }
-                }
-                _currentStreamingMsgIndex = assistantMsgIndex;
-
-                // UI 已在早期更新中添加了用户气泡，此处只需添加助手占位
-                AddMessagesHtml("assistant", string.Empty);
-                UpdateBrowser();
-
-                _isGenerating = true;
-                UpdateButtonsState();
-
-                bool isWebSearchEnabled = _webSearchEngine != "Off";
-                StatusLabel.Text = isWebSearchEnabled ? LocalizationService.Instance["status.webSearching"] : LocalizationService.Instance["status.thinking"];
-
-                var streamingCts = CreateNewStreamingCts();
-
-                // 联网搜索
-                string searchContext = string.Empty;
-                List<WebSearchResult> capturedSearchResults = new();
-                string? engineSwitchNote = null;
-                if (isWebSearchEnabled && _webSearchService != null)
-                {
-                    ApplyWebSearchConfig();
-                    if (_webSearchEngine == "Baidu" && (_options == null || string.IsNullOrWhiteSpace(_options.BaiduApiKey)))
-                    {
-                        StatusLabel.Text = LocalizationService.Instance["status.baiduKeyMissing"];
-                        assistantMsg.Content = LocalizationService.Instance["websearch.notConfigured"];
-                        assistantMsg.IsStreaming = false;
-                        BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, string.Empty, isComplete: true);
-                        PostStreamEnd(assistantMsgIndex, assistantMsg.Content, string.Empty);
-                        _isGenerating = false;
-                        UpdateButtonsState();
-                        return;
-                    }
-
-                    string timeAwareQuery = ResolveTimeExpressions(userText!);
-                    string searchOptimizationInput = timeAwareQuery;
-
-                    if (!string.IsNullOrEmpty(fileContext) && _apiService != null)
-                    {
-                        try
-                        {
-                            StatusLabel.Text = LocalizationService.Instance["status.extractingInfo"];
-                            string? extractedKeyInfo = await ExtractKeyInfoForSearchAsync(fileContext, userText!, streamingCts.Token);
-                            if (!string.IsNullOrWhiteSpace(extractedKeyInfo))
-                            {
-                                searchOptimizationInput = extractedKeyInfo + "\n用户问题：" + timeAwareQuery;
-                                Logger.Info($"从附件提取关键信息成功 ({extractedKeyInfo.Length} 字符)");
-                            }
-                        }
-                        catch (Exception ex) { Logger.Info($"附件提取失败: {ex.Message}"); }
-                    }
-
-                    string optimizedQuery = timeAwareQuery;
-                    string? searchRecency = null;
-
-                    try
-                    {
-                        if (_apiService != null)
-                        {
-                            try
-                            {
-                                StatusLabel.Text = LocalizationService.Instance["status.optimizingSearch"];
-                                bool isBaidu = _webSearchEngine == "Baidu";
-                                var optimization = await OptimizeSearchQueryAsync(searchOptimizationInput, streamingCts.Token, isBaidu);
-                                if (optimization != null && !string.IsNullOrWhiteSpace(optimization.SearchQuery) && optimization.NeedSearch)
-                                {
-                                    optimizedQuery = optimization.SearchQuery;
-                                    searchRecency = optimization.SearchRecency;
-                                    Logger.Info($"AI 优化搜索词: \"{userText}\" → \"{optimizedQuery}\"");
-                                }
-                            }
-                            catch (Exception ex) { Logger.Info($"搜索词优化失败: {ex.Message}"); }
-                        }
-
-                        var searchResults = await _webSearchService.SearchAsync(optimizedQuery, streamingCts.Token, searchRecency);
-                        capturedSearchResults = searchResults;
-                        if (searchResults.Count > 0)
-                        {
-                            string providerLabel = _webSearchService.ActiveProvider == SearchProvider.Baidu
-                                ? LocalizationService.Instance["websearch.searchEngine.baidu"]
-                                : LocalizationService.Instance["websearch.searchEngine.duckduckgo"];
-                            StatusLabel.Text = string.Format(LocalizationService.Instance["status.searchResults"], searchResults.Count);
-                            assistantMsg.Content = string.Format(LocalizationService.Instance["websearch.searchResultsHtml"],
-                                searchResults.Count, providerLabel);
-                            PostStreamingUpdate(assistantMsgIndex, assistantMsg.Content, string.Empty, false);
-
-                            await EnrichSearchContextAsync(searchResults, streamingCts.Token);
-                            searchContext = WebSearchService.FormatSearchResultsForContext(searchResults);
-                            Logger.Info($"联网搜索完成: {searchResults.Count} 条结果");
-                        }
-                        else
-                        {
-                            if (_webSearchService.IsBaiduQuotaExhausted)
-                            {
-                                engineSwitchNote = LocalizationService.Instance["websearch.quotaExhausted"];
-                                assistantMsg.Content = LocalizationService.Instance["websearch.quotaExhaustedShort"];
-                                PostStreamingUpdate(assistantMsgIndex, assistantMsg.Content, string.Empty, false);
-                                searchResults = await _webSearchService.SearchAsync(optimizedQuery, streamingCts.Token);
-                                capturedSearchResults = searchResults;
-                                if (searchResults.Count > 0)
-                                {
-                                    await EnrichSearchContextAsync(searchResults, streamingCts.Token);
-                                    searchContext = WebSearchService.FormatSearchResultsForContext(searchResults);
-                                }
-                            }
-                            else
-                                StatusLabel.Text = LocalizationService.Instance["status.noSearchResults"];
-                        }
-                    }
-                    catch (ApiKeyInvalidException ex)
-                    {
-                        Logger.Error($"[Render] 百度 API Key 无效", ex);
-                        assistantMsg.Content = LocalizationService.Instance["websearch.invalidApiKey"];
-                        assistantMsg.IsStreaming = false;
-                        BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
-                        PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
-                        lock (_lock) { _messages.Remove(assistantMsg); }
-                        lock (_lock) { _isGenerating = false; }
-                        UpdateButtonsState();
-                        CancelStreaming();
-                        return;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error($"联网搜索异常: {ex.Message}", ex);
-                        StatusLabel.Text = LocalizationService.Instance["status.searchFailed"];
-                    }
-                }
-
-                if (string.IsNullOrEmpty(engineSwitchNote) && _webSearchEngine == "Baidu"
-                    && _webSearchService != null && _webSearchService.ActiveProvider == SearchProvider.DuckDuckGo)
-                {
-                    engineSwitchNote = LocalizationService.Instance["websearch.noResultsFallback"];
-                }
-                if (!string.IsNullOrEmpty(engineSwitchNote))
-                    _pendingWarnings.Add(engineSwitchNote!);
-
-                try
-                {
-                    // 带工具调用的对话循环 — 智能循环检测替代硬编码轮次限制
-                    var reasoningBuffer = new StringBuilder();
-                    var contentBuffer = new StringBuilder();
-                    var toolCallAccumulator = new Dictionary<int, Models.ToolCallAccumulator>();
-                    int streamRenderTick = 0;
-                    int lastReasoningLength = 0;
-
-                    // ── 循环检测状态 ──
-                    var callSignatureHistory = new Queue<string>();          // O(1) 入队/出队
-                    var callSignatureCount = new Dictionary<string, int>();  // O(1) 计数
-                    var lastResultBySignature = new Dictionary<string, string>(); // 跟踪每次调用结果
-                    var toolCallHistory = new List<(int Round, string Summary)>();
-                    int consecutiveErrorRounds = 0;                         // 连续错误轮次计数
-                    const int maxHistorySize = 30;
-                    const int maxRepeatedSameCall = 5;    // 同一调用最多重复 5 次
-                    const int maxConsecutiveErrors = 5;             // 连续错误上限
-                    const int safetyLimit = 200;                     // 绝对安全上限
-                    bool loopDetected = false;
-
-                    // ── 初始化流式渲染节流器 ──
-                    _streamRenderStopwatch = System.Diagnostics.Stopwatch.StartNew();
-                    _statusUpdateStopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-                    int round = 0;
-                    while (!loopDetected)
-                    {
-                        round++;
-                        if (round > safetyLimit)
-                        {
-                            Logger.Warn($"[MCP] 达到安全上限 {safetyLimit} 轮，强制结束");
-                            contentBuffer.Append("\n\n> ⚠️ 工具调用已达安全上限，分析可能不完整。");
-                            break;
-                        }
-
-                        toolCallAccumulator.Clear();
-                        reasoningBuffer.Clear();
-                        contentBuffer.Clear();
-                        streamRenderTick = 0;
-                        lastReasoningLength = 0;
-
-                        var requestMessages = await BuildRequestMessagesAsync(searchContext);
-
-                        List<ToolDefinition>? toolDefs = null;
-
-                        // ── 收集工具定义（内置工具 + MCP 外部工具）──
-                        var allDefs = new List<ToolDefinition>();
-
-                        // 内置工作区工具
-                        if (_builtInToolService != null)
-                        {
-                            var allowedTools = _agentDispatcher?.ActiveAgentAllowedTools;
-                            var builtInDefs = _builtInToolService.GetFilteredToolDefinitions(allowedTools);
-                            allDefs.AddRange(builtInDefs);
-                        }
-
-                        // MCP 外部工具
-                        if (_mcpManager != null && _mcpManager.AllTools.Count > 0)
-                        {
-                            var allowedTools = _agentDispatcher?.ActiveAgentAllowedTools;
-                            var mcpDefs = _mcpManager.GetFilteredToolDefinitions(allowedTools);
-                            allDefs.AddRange(mcpDefs);
-                        }
-
-                        if (allDefs.Count > 0)
-                        {
-                            toolDefs = allDefs;
-                            Logger.Info($"[MCP] 本轮携带 {toolDefs.Count} 个工具定义"
-                                + (_agentDispatcher?.ActiveAgentAllowedTools != null ? " (已按 Agent 白名单过滤)" : ""));
-                        }
-
-                        var apiService = _apiService!;
-
-                        // ── 流中断恢复：最多 3 次重试（指数退避 2s / 4s / 8s）──
-                        bool streamSuccess = false;
-                        int streamAttempt = 0;
-                        const int maxStreamAttempts = 4; // 1 initial + 3 retries
-                        string savedPartialContent = "";
-                        string savedPartialReasoning = "";
-
-                        while (!streamSuccess && streamAttempt < maxStreamAttempts)
-                        {
-                            try
-                            {
-                                // 如果是重试，将已接收的部分内容注入为对话上下文
-                                if (streamAttempt > 0)
-                                {
-                                    requestMessages = BuildResumeMessages(requestMessages, savedPartialContent, savedPartialReasoning);
-                                    // 将部分内容预置到缓冲区，新内容追加其后
-                                    contentBuffer.Append(savedPartialContent);
-                                    reasoningBuffer.Append(savedPartialReasoning);
-                                    Logger.Info($"[Stream] 断点续传：第 {streamAttempt + 1}/{maxStreamAttempts} 次尝试，已注入 {savedPartialContent.Length} 字符部分内容");
-                                }
-
-                                await foreach (var chunk in apiService.ChatStreamAsync(requestMessages, toolDefs, streamingCts.Token))
-                                {
-                            if (chunk.StartsWith("[THINKING]"))
-                            {
-                                var thinking = chunk.Substring(10);
-                                reasoningBuffer.Append(thinking);
-
-                                int curReasoningLen = reasoningBuffer.Length;
-                                // 增大节流阈值：从 80 → 200 字符，减少渲染频率
-                                if (curReasoningLen - lastReasoningLength >= 200)
-                                {
-                                    string reasoningText = reasoningBuffer.ToString();
-                                    assistantMsg.ReasoningContent = reasoningText;
-                                    lastReasoningLength = curReasoningLen;
-                                    // ── 使用批处理 + 非阻塞 PostWebMessageAsString ──
-                                    string status = _statusUpdateStopwatch != null
-                                        && _statusUpdateStopwatch.ElapsedMilliseconds >= StatusUpdateMinIntervalMs
-                                        ? LocalizationService.Instance["status.deepThinking"] : null;
-                                    BatchStreamingUpdate(assistantMsgIndex, contentBuffer.ToString(), reasoningText, status: status);
-                                    if (status != null) _statusUpdateStopwatch?.Restart();
-                                }
-                            }
-                            else if (chunk.StartsWith("[TOOL_CALL]"))
-                            {
-                                var tcJson = chunk.Substring(11);
-                                try
-                                {
-                                    var deltas = JsonSerializer.Deserialize<List<ToolCallDelta>>(tcJson);
-                                    if (deltas != null)
-                                    {
-                                        foreach (var delta in deltas)
-                                        {
-                                            if (!toolCallAccumulator.ContainsKey(delta.Index))
-                                                toolCallAccumulator[delta.Index] = new Models.ToolCallAccumulator();
-                                            var acc = toolCallAccumulator[delta.Index];
-                                            if (!string.IsNullOrEmpty(delta.Id)) acc.Id = delta.Id!;
-                                            if (!string.IsNullOrEmpty(delta.Type)) acc.Type = delta.Type;
-                                            if (delta.Function != null)
-                                            {
-                                                if (!string.IsNullOrEmpty(delta.Function.Name)) acc.FunctionName = delta.Function.Name;
-                                                if (!string.IsNullOrEmpty(delta.Function.Arguments)) acc.ArgumentsBuilder.Append(delta.Function.Arguments);
-                                            }
-                                        }
-                                    }
-                                }
-                                catch (JsonException) { }
-                                // 节流 + LINQ 优化：仅在前缀变化时更新
-                                UpdateStatusToolCall(string.Join(", ",
-                                    toolCallAccumulator.Values
-                                        .Where(a => !string.IsNullOrEmpty(a.FunctionName))
-                                        .Select(a => a.FunctionName)));
-                            }
-                            else if (chunk.StartsWith("[CACHE]"))
-                            {
-                                // ── Cache 统计信息（由 DeepSeekApiService 在流结束时注入）──
-                                // 格式: [CACHE]hitTokens|missTokens|promptTokens|completionTokens
-                                // 日志记录在流结束后统一处理，此处仅捕获
-                            }
-                            else
-                            {
-                                if (reasoningBuffer.Length > 0 && lastReasoningLength < reasoningBuffer.Length)
-                                {
-                                    assistantMsg.ReasoningContent = reasoningBuffer.ToString();
-                                    lastReasoningLength = reasoningBuffer.Length;
-                                }
-
-                                contentBuffer.Append(chunk);
-                                streamRenderTick += chunk.Length;
-
-                                // 双重节流：字符数足够 + 距上次渲染至少 120ms
-                                bool timeElapsed = _streamRenderStopwatch == null
-                                    || _streamRenderStopwatch.ElapsedMilliseconds >= StreamRenderMinIntervalMs;
-                                if (streamRenderTick >= StreamRenderInterval && timeElapsed)
-                                {
-                                    streamRenderTick = 0;
-                                    _streamRenderStopwatch?.Restart();
-                                    assistantMsg.Content = contentBuffer.ToString();
-                                    // ── 使用批处理 + 非阻塞 PostWebMessageAsString ──
-                                    string status = _statusUpdateStopwatch != null
-                                        && _statusUpdateStopwatch.ElapsedMilliseconds >= StatusUpdateMinIntervalMs
-                                        ? LocalizationService.Instance["status.replying"] : null;
-                                    BatchStreamingUpdate(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), status: status);
-                                    if (status != null) _statusUpdateStopwatch?.Restart();
-                                }
-                            }
-                                }
-
-                                streamSuccess = true;
-                                if (streamAttempt > 0)
-                                {
-                                    Logger.Info($"[Stream] 断点续传成功 (尝试 {streamAttempt + 1}/{maxStreamAttempts})");
-                                }
-                            }
-                            catch (HttpRequestException ex) when (IsTransientNetworkError(ex) && streamAttempt < maxStreamAttempts - 1)
-                            {
-                                streamAttempt++;
-                                savedPartialContent = contentBuffer.ToString();
-                                savedPartialReasoning = reasoningBuffer.ToString();
-                                double backoffSec = Math.Pow(2, streamAttempt);
-                                Logger.Warn($"[Stream] 流中断 (尝试 {streamAttempt}/{maxStreamAttempts})，已收到 {savedPartialContent.Length} 字符部分内容，{backoffSec}s 后恢复…");
-                                contentBuffer.Clear();
-                                reasoningBuffer.Clear();
-                                toolCallAccumulator.Clear();
-                                streamRenderTick = 0;
-                                lastReasoningLength = 0;
-                                await Task.Delay(TimeSpan.FromSeconds(backoffSec), streamingCts.Token);
-                            }
-                            catch (TaskCanceledException) when (!streamingCts.Token.IsCancellationRequested && streamAttempt < maxStreamAttempts - 1)
-                            {
-                                // 超时（非用户取消）
-                                streamAttempt++;
-                                savedPartialContent = contentBuffer.ToString();
-                                savedPartialReasoning = reasoningBuffer.ToString();
-                                double backoffSec = Math.Pow(2, streamAttempt);
-                                Logger.Warn($"[Stream] 流超时 (尝试 {streamAttempt}/{maxStreamAttempts})，{backoffSec}s 后恢复…");
-                                contentBuffer.Clear();
-                                reasoningBuffer.Clear();
-                                toolCallAccumulator.Clear();
-                                streamRenderTick = 0;
-                                lastReasoningLength = 0;
-                                await Task.Delay(TimeSpan.FromSeconds(backoffSec), streamingCts.Token);
-                            }
-                        }
-
-                        // ── 记录本轮 Cache 命中率 ──
-                        LogCacheHitRate(round);
-
-                        if (toolCallAccumulator.Count > 0)
-                        {
-                            Logger.Info($"[MCP] 检测到 {toolCallAccumulator.Count} 个工具调用");
-                            UpdateStatusText(LocalizationService.Instance["status.executingMcp"]);
-
-                            // ── 构建详细的工具调用显示（含参数信息）──
-                            var toolCallLines = new List<string>();
-                            foreach (var acc in toolCallAccumulator.Values)
-                            {
-                                if (string.IsNullOrEmpty(acc.FunctionName)) continue;
-                                string displayText = BuiltInToolService.GetToolCallDisplayText(
-                                    acc.FunctionName!, acc.ArgumentsBuilder.ToString());
-                                toolCallLines.Add($"- {displayText} ⏳");
-                            }
-
-                            // ── 收集本轮工具调用摘要到历史 ──
-                            foreach (var acc in toolCallAccumulator.Values)
-                            {
-                                if (string.IsNullOrEmpty(acc.FunctionName)) continue;
-                                string displayText = BuiltInToolService.GetToolCallDisplayText(
-                                    acc.FunctionName!, acc.ArgumentsBuilder.ToString());
-                                toolCallHistory.Add((round, displayText));
-                            }
-                            while (toolCallHistory.Count > 20)
-                                toolCallHistory.RemoveAt(0);
-
-                            string toolCallSummary = "🔧 **" + LocalizationService.Instance["status.callingToolsHtml"].Replace("🔧 ", "") + "**\n"
-                                + string.Join("\n", toolCallLines) + "\n";
-                            assistantMsg.Content = contentBuffer.Length > 0
-                                ? contentBuffer.ToString() + "\n\n" + toolCallSummary
-                                : toolCallSummary;
-                            BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString(), isComplete: false);
-
-                            var assistantToolCalls = toolCallAccumulator.Values
-                                .Where(a => !string.IsNullOrEmpty(a.FunctionName))
-                                .Select(a => new ToolCall
-                                {
-                                    Id = a.Id,
-                                    Type = a.Type ?? "function",
-                                    Function = new ToolCallFunction { Name = a.FunctionName!, Arguments = a.ArgumentsBuilder.ToString() }
-                                }).ToList();
-
-                            if (assistantToolCalls.Count > 0)
-                                _contextManager.AddAssistantMessage(contentBuffer.Length > 0 ? contentBuffer.ToString() : null,
-                                    reasoningBuffer.Length > 0 ? reasoningBuffer.ToString() : null, assistantToolCalls);
-
-                            // ── 执行工具并收集结果摘要 ──
-                            var toolResultSummaries = new List<string>();
-                            var recentToolFullResults = new List<(string Name, string Result)>();
-                            foreach (var acc in toolCallAccumulator.Values)
-                            {
-                                if (string.IsNullOrEmpty(acc.FunctionName)) continue;
-                                string toolResult;
-                                try
-                                {
-                                    // ── 终端命令需要用户审批 ──
-                                    if (acc.FunctionName == "run_in_terminal")
-                                    {
-                                        string cmd = string.Empty;
-                                        string exp = string.Empty;
-                                        string purpose = string.Empty;
-                                        try
-                                        {
-                                            using var doc = System.Text.Json.JsonDocument.Parse(acc.ArgumentsBuilder.ToString());
-                                            if (doc.RootElement.TryGetProperty("command", out var cmdProp))
-                                                cmd = cmdProp.GetString() ?? string.Empty;
-                                            if (doc.RootElement.TryGetProperty("explanation", out var expProp))
-                                                exp = expProp.GetString() ?? string.Empty;
-                                            if (doc.RootElement.TryGetProperty("purpose", out var purProp))
-                                                purpose = purProp.GetString() ?? string.Empty;
-                                            // goal 是 DeepSeek 模型原生使用的参数名，作为 purpose 的 fallback
-                                            if (string.IsNullOrWhiteSpace(purpose) && doc.RootElement.TryGetProperty("goal", out var goalProp))
-                                                purpose = goalProp.GetString() ?? string.Empty;
-                                        }
-                                        catch { }
-
-                                        if (!string.IsNullOrWhiteSpace(cmd))
-                                        {
-                                            var activeAgent = _agentDispatcher?.GetActiveAgent();
-                                            if (activeAgent != null)
-                                            {
-                                                bool approved = await activeAgent.RequestTerminalApprovalAsync(cmd, exp, purpose);
-                                                if (!approved)
-                                                {
-                                                    toolResult = $"⏭️ 用户跳过了终端命令: {cmd}";
-                                                    toolResultSummaries.Add($"⏭️ 用户跳过了终端命令");
-                                                    _contextManager.AddToolResult(acc.Id, acc.FunctionName!, toolResult);
-                                                    Logger.Info($"[MCP] 工具 {acc.FunctionName} 被用户跳过");
-                                                    continue;
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // ── 优先 MCP 工具，其次内置工具（同名时 MCP 覆盖）──
-                                    bool isMcpTool = _mcpManager?.AllTools.Any(
-                                        t => string.Equals(t.Name, acc.FunctionName, StringComparison.OrdinalIgnoreCase)) == true;
-                                    if (isMcpTool && _mcpManager != null)
-                                    {
-                                        string sanitizedArgs = SanitizeOcrToolArguments(acc.FunctionName!, acc.ArgumentsBuilder.ToString());
-                                        toolResult = await _mcpManager.CallToolAsync(acc.FunctionName!, sanitizedArgs, streamingCts.Token);
-                                    }
-                                    else if (_builtInToolService != null
-                                        && BuiltInToolService.IsBuiltInTool(acc.FunctionName!))
-                                    {
-                                        // ── 注入 ExploreHandler / HandoffHandler（主流程桥接 AgentDispatcher）──
-                                        InjectToolHandlers();
-
-                                        // ── 诊断日志：记录工具调用时传入的 _solutionPath ──
-                                        Logger.Info($"[ToolCall] 执行 {acc.FunctionName}，_solutionPath=[{_solutionPath ?? "(null)"}]");
-
-                                        // ── runSubagent 实时进度：订阅 ExploreAgent 日志，逐步展示探索过程 ──
-                                        Action<AgentLogEntry>? exploreProgressHandler = null;
-                                        var exploreProgressLines = new List<string>();
-                                        if (acc.FunctionName == "runSubagent")
-                                        {
-                                            var exploreAgent = _agentDispatcher?.ExploreAgent;
-                                            if (exploreAgent != null)
-                                            {
-                                                exploreProgressHandler = (entry) =>
-                                                {
-                                                    if (entry.Level == "INFO" && !string.IsNullOrEmpty(entry.Message))
-                                                    {
-                                                        string msg = entry.Message;
-                                                        // 过滤只显示工具调用相关消息（包含常见工具 emoji）
-                                                        bool isToolCall = msg.Contains("📂") || msg.Contains("🔍") || msg.Contains("📄")
-                                                            || msg.Contains("📖") || msg.Contains("🌐") || msg.Contains("📋")
-                                                            || msg.Contains("🔎") || msg.Contains("🔨") || msg.Contains("💻");
-                                                        if (isToolCall)
-                                                        {
-                                                            exploreProgressLines.Add($"> - {msg.Truncate(150)}");
-                                                            // 只保留最近 20 行，防止内容过长
-                                                            while (exploreProgressLines.Count > 20)
-                                                                exploreProgressLines.RemoveAt(0);
-                                                            string progressBlock = "\n🔧 **正在探索...**\n" + string.Join("\n", exploreProgressLines) + "\n";
-                                                            assistantMsg.Content = (contentBuffer.Length > 0
-                                                                ? contentBuffer.ToString() + "\n\n"
-                                                                : "") + progressBlock;
-                                                            BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString());
-                                                        }
-                                                    }
-                                                };
-                                                exploreAgent.LogEntryAdded += exploreProgressHandler;
-                                            }
-                                        }
-
-                                        toolResult = await _builtInToolService.ExecuteBuiltInToolAsync(
-                                            acc.FunctionName!, acc.ArgumentsBuilder.ToString(), _solutionPath)
-                                            ?? "❌ 内置工具未返回结果";
-
-                                        // ── 清理 runSubagent 进度订阅 ──
-                                        if (exploreProgressHandler != null && _agentDispatcher?.ExploreAgent != null)
-                                        {
-                                            _agentDispatcher.ExploreAgent.LogEntryAdded -= exploreProgressHandler;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        toolResult = $"❌ 未知工具: {acc.FunctionName} (无可用工具服务)";
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    toolResult = $"❌ 工具执行异常: {ex.Message}";
-                                    Logger.Error($"[MCP] 工具 {acc.FunctionName} 执行异常: {ex.Message}", ex);
-                                }
-                                _contextManager.AddToolResult(acc.Id, acc.FunctionName!, toolResult);
-                                Logger.Info($"[MCP] 工具 {acc.FunctionName} 返回: {(toolResult.Length > 200 ? toolResult.Substring(0, 200) + "..." : toolResult)}");
-
-                                // ── 收集结果摘要 ──
-                                string resultSummary = BuiltInToolService.GetToolResultSummary(acc.FunctionName!, toolResult);
-                                toolResultSummaries.Add(resultSummary);
-                                recentToolFullResults.Add((acc.FunctionName!, toolResult));
-                            }
-
-                            // ── 构建完成后的工具调用结果展示 ──
-                            var completedLines = new List<string>();
-                            var accValues = toolCallAccumulator.Values
-                                .Where(a => !string.IsNullOrEmpty(a.FunctionName))
-                                .ToList();
-                            for (int i = 0; i < accValues.Count; i++)
-                            {
-                                var acc = accValues[i];
-                                string displayText = BuiltInToolService.GetToolCallDisplayText(
-                                    acc.FunctionName!, acc.ArgumentsBuilder.ToString());
-                                string summary = i < toolResultSummaries.Count ? toolResultSummaries[i] : "完成";
-                                completedLines.Add($"- {displayText} → {summary}");
-                            }
-
-                            string completedSummary = "🔧 **" + LocalizationService.Instance["status.toolCallCompleted"].Replace("🔧 ", "") + "**\n"
-                                + string.Join("\n", completedLines) + "\n\n";
-
-                            // ── runSubagent 探索追踪注入：从工具结果中提取 [explore-trace] 标记的追踪内容 ──
-                            string exploreTraceBlock = "";
-                            foreach (var (name, result) in recentToolFullResults)
-                            {
-                                if (name == "runSubagent")
-                                {
-                                    int traceStart = result.IndexOf("[explore-trace]");
-                                    int traceEnd = result.IndexOf("[/explore-trace]");
-                                    if (traceStart >= 0 && traceEnd > traceStart)
-                                    {
-                                        string traceContent = result.Substring(
-                                            traceStart + "[explore-trace]".Length,
-                                            traceEnd - traceStart - "[explore-trace]".Length).Trim();
-                                        if (!string.IsNullOrWhiteSpace(traceContent))
-                                            exploreTraceBlock = "\n" + traceContent + "\n";
-                                    }
-                                    break;
-                                }
-                            }
-
-                            assistantMsg.Content = contentBuffer.Length > 0
-                                ? contentBuffer.ToString() + "\n\n" + completedSummary + exploreTraceBlock + "\n_" + LocalizationService.Instance["status.toolCallAnalyzing"] + "_\n"
-                                : completedSummary + exploreTraceBlock + "\n_" + LocalizationService.Instance["status.toolCallAnalyzing"] + "_\n";
-                            BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString());
-
-                            // ── 移交检测：request_handoff 被调用后立即终止循环 ──
-                            if (_pendingHandoff != null)
-                            {
-                                Logger.Info("[MainFlow] 🔄 检测到移交请求，终止工具循环");
-                                // 在最后一条 assistant 消息中注入移交提示
-                                assistantMsg.Content = (contentBuffer.Length > 0
-                                    ? contentBuffer.ToString() + "\n\n"
-                                    : "") + $"🔄 任务已移交给 {_pendingHandoff.TargetAgent} Agent...";
-                                BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, reasoningBuffer.ToString());
-                                loopDetected = true;
-                                continue;
-                            }
-
-                            // ── 循环检测 ──
-                            // 收集本轮所有工具调用的签名和结果用于检测
-                            // 注：此处仅建签名，结果稍后在工具执行完成后回填
-                            var roundResults = new List<(string Signature, string Result)>();
-                            foreach (var acc in toolCallAccumulator.Values)
-                            {
-                                if (string.IsNullOrEmpty(acc.FunctionName)) continue;
-                                string sig = acc.FunctionName! + "|" +
-                                    (acc.ArgumentsBuilder.Length > 200
-                                        ? acc.ArgumentsBuilder.ToString().Substring(0, 200)
-                                        : acc.ArgumentsBuilder.ToString());
-
-                                callSignatureHistory.Enqueue(sig);
-
-                                // 更新计数
-                                callSignatureCount.TryGetValue(sig, out int prevCount);
-                                callSignatureCount[sig] = prevCount + 1;
-
-                                // 维护固定大小窗口
-                                while (callSignatureHistory.Count > maxHistorySize)
-                                {
-                                    string removed = callSignatureHistory.Dequeue();
-                                    if (callSignatureCount.TryGetValue(removed, out int cnt))
-                                    {
-                                        if (cnt <= 1)
-                                            callSignatureCount.Remove(removed);
-                                        else
-                                            callSignatureCount[removed] = cnt - 1;
-                                    }
-                                }
-
-                                roundResults.Add((sig, string.Empty)); // result 稍后回填
-                            }
-
-                            // 检测同一调用重复（带同结果判断：只有每次返回相同结果才终止）
-                            // 先回填结果：按索引对应 recentToolFullResults
-                            for (int i = 0; i < roundResults.Count && i < recentToolFullResults.Count; i++)
-                            {
-                                roundResults[i] = (roundResults[i].Signature, recentToolFullResults[i].Result);
-                            }
-
-                            foreach (var (sig, currentResult) in roundResults)
-                            {
-                                if (callSignatureCount.TryGetValue(sig, out int repeatCount)
-                                    && repeatCount >= maxRepeatedSameCall)
-                                {
-                                    string toolName = sig.Split('|')[0];
-
-                                    // ── 同结果检测：比较本次与上次结果 ──
-                                    bool sameResult = !string.IsNullOrWhiteSpace(currentResult)
-                                        && lastResultBySignature.TryGetValue(sig, out string? prevResult)
-                                        && AreToolResultsSame(prevResult, currentResult);
-
-                                    if (sameResult)
-                                    {
-                                        // 结果相同 → 真正的死循环，终止
-                                        loopDetected = true;
-                                        Logger.Warn($"[MCP] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次且每次返回相同结果");
-
-                                        var terminatedBuilder = new System.Text.StringBuilder();
-                                        terminatedBuilder.Append(contentBuffer);
-
-                                        if (toolCallHistory.Count > 0)
-                                        {
-                                            terminatedBuilder.Append("\n\n---\n### 🔙 此前 AI 执行的操作\n");
-                                            int startRound = toolCallHistory[0].Round;
-                                            foreach (var (r, summary) in toolCallHistory)
-                                            {
-                                                string prefix = r == round ? "🔄" : $"第{r - startRound + 1}轮";
-                                                terminatedBuilder.AppendLine($"- {prefix} {summary}");
-                                            }
-                                        }
-
-                                        foreach (var (name, result) in recentToolFullResults)
-                                        {
-                                            if (!string.IsNullOrWhiteSpace(result))
-                                                terminatedBuilder.Append($"\n\n### 📋 最后一次 `{name}` 结果\n\n{result.Truncate(3000)}");
-                                        }
-
-                                        terminatedBuilder.Append($"\n\n> ⚠️ 检测到 `{toolName}` 重复调用 {repeatCount} 次且每次返回相同结果，已自动终止循环。请根据以上工具结果修复问题后重新请求。");
-                                        contentBuffer.Clear();
-                                        contentBuffer.Append(terminatedBuilder.ToString());
-                                        break;
-                                    }
-                                    else
-                                    {
-                                        // 结果不同 → 用户正在修复问题，重置该签名的计数
-                                        if (!string.IsNullOrWhiteSpace(currentResult))
-                                            lastResultBySignature[sig] = currentResult;
-                                        callSignatureCount[sig] = 0; // 重置计数
-                                        Logger.Info($"[MCP] 🔄 {toolName} 重复 {repeatCount} 次但结果不同，可能是用户在修复问题，继续执行");
-                                    }
-                                }
-                                else
-                                {
-                                    // 正常记录结果（用于后续比较）
-                                    if (!string.IsNullOrWhiteSpace(currentResult))
-                                        lastResultBySignature[sig] = currentResult;
-                                }
-                            }
-
-                            // 保留最近 30 条签名防止内存增长
-                            while (callSignatureHistory.Count > maxHistorySize)
-                                callSignatureHistory.Dequeue();
-
-                            // 检测连续错误：检查本轮工具结果是否全部以 ❌ 开头
-                            if (!loopDetected)
-                            {
-                                // 从 context 中取最近添加的 tool 消息来判断
-                                var allToolMsgs = _contextManager.GetConversationHistory()
-                                    .Where(e => e.Role == "tool")
-                                    .ToList();
-                                int takeCount = toolCallAccumulator.Count;
-                                var recentToolMsgs = allToolMsgs
-                                    .Skip(System.Math.Max(0, allToolMsgs.Count - takeCount))
-                                    .ToList();
-                                bool allErrors = recentToolMsgs.Count > 0 &&
-                                    recentToolMsgs.All(m => (m.Content ?? "").StartsWith("❌"));
-
-                                if (allErrors)
-                                    consecutiveErrorRounds++;
-                                else
-                                    consecutiveErrorRounds = 0;
-
-                                if (consecutiveErrorRounds >= maxConsecutiveErrors)
-                                {
-                                    loopDetected = true;
-                                    Logger.Warn($"[MCP] 🔄 连续 {consecutiveErrorRounds} 轮工具调用全部返回错误，强制结束");
-
-                                    // ── 附加上次 AI 的上下文总结和最后一次工具调用结果摘要 ──
-                                    var terminatedBuilder = new System.Text.StringBuilder();
-
-                                    // 1. AI 本轮文字回复
-                                    terminatedBuilder.Append(contentBuffer);
-
-                                    // 2. 历史工具调用总结
-                                    if (toolCallHistory.Count > 0)
-                                    {
-                                        terminatedBuilder.Append("\n\n---\n### 🔙 此前 AI 执行的操作\n");
-                                        int startRound = toolCallHistory[0].Round;
-                                        foreach (var (r, summary) in toolCallHistory)
-                                        {
-                                            string prefix = r == round ? "🔄" : $"第{r - startRound + 1}轮";
-                                            terminatedBuilder.AppendLine($"- {prefix} {summary}");
-                                        }
-                                    }
-
-                                    // 3. 最后一次工具调用结果
-                                    foreach (var (name, result) in recentToolFullResults)
-                                    {
-                                        if (!string.IsNullOrWhiteSpace(result))
-                                        {
-                                            terminatedBuilder.Append($"\n\n### 📋 最后一次 `{name}` 结果\n\n{result.Truncate(3000)}");
-                                        }
-                                    }
-
-                                    terminatedBuilder.Append($"\n\n> ⚠️ 连续 {consecutiveErrorRounds} 轮工具调用均失败，已自动终止。请检查工作区路径是否正确。");
-                                    contentBuffer.Clear();
-                                    contentBuffer.Append(terminatedBuilder.ToString());
-                                }
-                            }
-
-                            continue;
-                        }
-
-                        break;
-                    }
-
-                    // ── 汇总本轮 Cache 统计（跨所有轮次，从 _apiService 读取累计值）──
-                    long totalCacheHitTokens = _apiService?.TotalCacheHitTokens ?? 0;
-                    long totalCacheMissTokens = _apiService?.TotalCacheMissTokens ?? 0;
-                    long totalPromptTokens = _apiService?.TotalPromptTokens ?? 0;
-                    long totalCompletionTokens = _apiService?.TotalCompletionTokens ?? 0;
-                    LogTotalCacheHitRate(round, totalCacheHitTokens, totalCacheMissTokens, totalPromptTokens, totalCompletionTokens);
-
-                    // 流式完成
-                    assistantMsg.ReasoningContent = reasoningBuffer.ToString();
-                    assistantMsg.Content = contentBuffer.ToString();
-                    assistantMsg.IsStreaming = false;
-
-                    Logger.Info($"[Render] 流式结束: 内容={contentBuffer.Length}, 思考={reasoningBuffer.Length}");
-
-                    // ── 构建 Cache 命中率统计卡片 HTML ──
-                    string cacheFooterHtml = ChatHtmlService.BuildCacheHitFooterHtml(
-                        totalCacheHitTokens, totalCacheMissTokens,
-                        totalPromptTokens, totalCompletionTokens, round);
-
-                    // ── 同步最终内容并强制刷新，确保增量内容已推送 ──
-                    BatchStreamingUpdate(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), isComplete: true);
-
-                    // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染（含 Markdown HTML）──
-                    PostStreamEnd(assistantMsgIndex, contentBuffer.ToString(), reasoningBuffer.ToString(), cacheFooterHtml);
-
-                    if (capturedSearchResults.Count > 0)
-                    {
-                        string providerLabel = _webSearchService?.ActiveProvider == SearchProvider.Baidu
-                            ? LocalizationService.Instance["websearch.searchEngine.baidu"]
-                            : LocalizationService.Instance["websearch.searchEngine.duckduckgo"];
-                        string searchCardJs = ChatHtmlService.BuildSearchResultsInjectionJs(assistantMsgIndex, capturedSearchResults, providerLabel);
-                        await ChatWebView.CoreWebView2.ExecuteScriptAsync(searchCardJs);
-                    }
-
-                    _contextManager.AddAssistantMessage(contentBuffer.ToString(), reasoningBuffer.Length > 0 ? reasoningBuffer.ToString() : null);
-
-                    // ── 主流程移交处理：request_handoff 触发的 _pendingHandoff 在此执行 ──
-                    if (_pendingHandoff != null && _agentDispatcher != null)
-                    {
-                        Logger.Info($"[MainFlow] 执行移交 → {_pendingHandoff.TargetAgent} ({_pendingHandoff.Label})");
-                        var handoff = _pendingHandoff;
-                        _pendingHandoff = null; // 防止重复执行
-
-                        // 构建上下文并执行移交
-                        var handoffContext = new AgentContext
-                        {
-                            SolutionPath = _solutionPath,
-                            ConversationHistory = _contextManager.GetConversationHistory(),
-                            ContextManager = _contextManager,
-                            CancellationToken = CancellationToken.None,
-                        };
-
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                var handoffResult = await _agentDispatcher.ExecuteHandoffAsync(handoff, handoffContext);
-                                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                                // 移交结果由 Agent 流程的 RunAgentWorkflowAsync 后续处理
-                                Logger.Info($"[MainFlow] 移交执行完成: → {handoff.TargetAgent}");
-                            }
-                            catch (Exception ex)
-                            {
-                                Logger.Error($"[MainFlow] 移交执行失败: {ex.Message}", ex);
-                            }
-                            finally
-                            {
-                                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                                lock (_lock) { _isGenerating = false; }
-                                UpdateButtonsState();
-                                StatusLabel.Text = LocalizationService.Instance["status.ready"];
-                            }
-                        });
-                        return; // 移交在后台执行，当前消息流结束
-                    }
-
-                    // ── AI 自动生成会话标题（首轮对话完成后触发） ──
-                    if (_pendingAiTitle && !string.IsNullOrWhiteSpace(_firstUserMessageForTitle))
-                    {
-                        var capturedFirstUserMsg = _firstUserMessageForTitle;
-                        var capturedFirstAssistantReply = contentBuffer.ToString();
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                await GenerateAiTitleAsync(capturedFirstUserMsg, capturedFirstAssistantReply);
-                            }
-                            catch (Exception ex)
-                            {
-                                Logger.Warn($"[AI标题] 异步生成异常: {ex.Message}");
-                            }
-                        });
-                    }
-
-                    var capturedMsg = assistantMsg;
-                    _ = Task.Run(() =>
-                    {
-                        capturedMsg.HtmlContent = "rendered";
-                        capturedMsg.IsRendered = true;
-                        SaveCurrentSession();
-                    });
-                }
-                catch (ApiKeyInvalidException ex)
-                {
-                    Logger.Error($"[Render] API Key 无效", ex);
-                    assistantMsg.Content = $"⚠️ {ex.Message}";
-                    assistantMsg.IsStreaming = false;
-                    BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
-                    PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
-                    lock (_lock) { _messages.Remove(assistantMsg); }
-                }
-                catch (OperationCanceledException)
-                {
-                    Logger.Info("[Render] 用户停止生成");
-                    assistantMsg.Content += "\n\n*[已停止]*";
-                    assistantMsg.IsStreaming = false;
-                    BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
-                    PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
-                }
-                catch (ObjectDisposedException) when (_currentStreamingCts?.IsCancellationRequested == true)
-                {
-                    // 取消令牌触发时释放 SslStream 可能导致 ReadLineAsync 抛出
-                    // ObjectDisposedException 而非 OperationCanceledException，兜底处理为停止。
-                    Logger.Info("[Render] 用户停止生成 (ObjectDisposed)");
-                    assistantMsg.Content += "\n\n*[已停止]*";
-                    assistantMsg.IsStreaming = false;
-                    BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
-                    PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
-                }
-                catch (HttpRequestException ex) when (ex.Message.Contains("401") || ex.Message.Contains("403"))
-                {
-                    Logger.Error($"[Render] API 认证失败", ex);
-                    assistantMsg.Content = "⚠️ DeepSeek API Key 无效或已过期，请重新配置。";
-                    assistantMsg.IsStreaming = false;
-                    BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
-                    PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
-                    lock (_lock) { _messages.Remove(assistantMsg); }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error($"[Render] API 出错", ex);
-                    assistantMsg.Content = string.Format(LocalizationService.Instance["status.apiError"], ex.Message);
-                    assistantMsg.IsStreaming = false;
-                    BatchStreamingUpdate(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent, isComplete: true);
-                    PostStreamEnd(assistantMsgIndex, assistantMsg.Content, assistantMsg.ReasoningContent);
-                }
-                finally
-                {
-                    assistantMsg.IsStreaming = false;
-                    lock (_lock) { _isGenerating = false; }
-                    StatusLabel.Text = string.Empty;
-                    DisposeStreamingCts();
-                    UpdateButtonsState();
-                }
         }
 #pragma warning restore VSTHRD100
-
-        /// <summary>
-        /// 构建路由上下文摘要，帮助 AI 理解短消息（如"进行修复"）的指代。
-        /// 包含：最近几轮对话摘要 + 用户附加的文件内容摘要。
-        /// </summary>
         private string? BuildRoutingContext(string userText, string? fileContext, List<FileParseResult>? parseResults)
         {
             // 如果用户消息已经很长（≥50字），不需要附加上下文
@@ -1386,9 +386,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             string systemPrompt = _options?.GetEffectiveSystemPrompt() ?? string.Empty;
 
-            if (_agentDispatcher != null)
+            if (_agentFactory != null)
             {
-                string askAgentPrompt = _agentDispatcher.AskAgent.Definition.SystemPrompt;
+                string askAgentPrompt = _agentFactory.AskAgent?.Definition?.SystemPrompt ?? string.Empty;
                 if (!string.IsNullOrWhiteSpace(askAgentPrompt))
                     systemPrompt = string.IsNullOrWhiteSpace(systemPrompt) ? askAgentPrompt : systemPrompt + "\n\n" + askAgentPrompt;
                 systemPrompt += "\n\n" + AiPrompts.MultiAgentSystemPromptFragment;
@@ -1695,7 +695,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (_builtInToolService == null) return;
 
-            var exploreAgent = _agentDispatcher?.ExploreAgent;
+            var exploreAgent = _agentFactory?.ExploreAgent;
             if (exploreAgent != null)
             {
                 // 同步工具服务
@@ -1708,6 +708,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         SolutionPath = ctx.WorkspaceRoot ?? _solutionPath,
                         CancellationToken = CancellationToken.None,
+                        ContextManager = _contextManager,  // 注入对话历史，保持前缀缓存稳定
                     };
 
                     // ── 转发 ExploreAgent 日志到主流程，让用户看到探索进度 ──
@@ -1734,17 +735,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 Logger.Info($"[MainFlow] 🔄 移交请求: {request.SourceAgent} → {request.TargetAgent} (原因: {request.Reason})");
                 // ── 防御：记录当前活跃 Agent 类型，确保移交链路可追溯 ──
-                var activeType = _agentDispatcher?.ActiveAgentType;
+                var activeType = _activeAgent?.Definition.Type;
                 Logger.Info($"[MainFlow] 当前活跃 Agent: {activeType}, Handoff 来源: {request.SourceAgent} → 目标: {request.TargetAgent}");
+
+                // ── 显式路由拦截：@agent 时 AI 不应自主移交（Plan→Edit 除外）──
+                bool isExplicitRoute = _activeAgent?.Context?.IsExplicitRoute == true;
+                if (isExplicitRoute
+                    && !(activeType == AgentType.Plan && request.TargetAgent == AgentType.Edit))
+                {
+                    request.Rejected = true;
+                    request.RejectReason = $"用户通过 @{activeType?.ToString().ToLowerInvariant()} 显式指定了当前 Agent，请直接处理任务，不要移交控制权。";
+                    Logger.Info($"[MainFlow] 🚫 显式路由拦截移交 → {request.TargetAgent}");
+                    await Task.CompletedTask;
+                    return;
+                }
+
                 // 构建 AgentHandoff 并设置 _pendingHandoff，主流程将在本轮工具调用后执行移交
+                var L = LocalizationService.Instance;
                 string label = request.TargetAgent switch
                 {
-                    AgentType.Edit => "执行修改",
-                    AgentType.Ask => "生成总结",
-                    AgentType.Plan => "制定计划",
-                    AgentType.Build => "诊断修复",
-                    AgentType.Explore => "探索代码库",
-                    _ => "移交任务"
+                    AgentType.Edit => L["agent.ask.handoffEditLabel"],
+                    AgentType.Ask => L["agent.edit.handoffAskLabel"],
+                    AgentType.Plan => L["agent.ask.handoffPlanLabel"],
+                    AgentType.Build => L["agent.ask.handoffBuildLabel"],
+                    AgentType.Explore => L["agent.ask.handoffExploreLabel"],
+                    _ => L["agent.handoff.defaultLabel"]
                 };
                 _pendingHandoff = new AgentHandoff
                 {
@@ -2009,7 +1024,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Info($"[Cache]   累计未命中: {totalMiss:N0} tokens");
                 Logger.Info($"[Cache]   累计 Prompt: {totalPrompt:N0} tokens");
                 Logger.Info($"[Cache]   累计 Completion: {totalCompletion:N0} tokens");
-                Logger.Info($"[Cache]   节省比例: {aggregateRate * 100:F1}% (DeepSeek Cache 对命中 token 仅按 $0.014/M 计费)");
                 Logger.Info($"[Cache] ═══════════════════════════════════════");
             }
             catch (Exception ex)
@@ -2019,5 +1033,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         #endregion
+
+        /// <summary>
+        /// 解析用户显式指定的 Agent（如 "@edit" → AgentType.Edit）。
+        /// 从 AgentDispatcher.ParseExplicitAgentRoute 搬过来，保留在 UI 层。
+        /// </summary>
+        private static AgentRoutingResult ParseExplicitAgentRoute(string agentName)
+        {
+            AgentType target = agentName.ToLowerInvariant() switch
+            {
+                "ask" or "问答" => AgentType.Ask,
+                "plan" or "规划" => AgentType.Plan,
+                "edit" or "修改" => AgentType.Edit,
+                "explore" or "探索" => AgentType.Explore,
+                "build" or "构建" or "编译" => AgentType.Build,
+                _ => AgentType.Ask,
+            };
+
+            return new AgentRoutingResult
+            {
+                TargetAgent = target,
+                Confidence = "high",
+                Reason = $"用户显式指定 @{agentName}",
+                NeedsPlanning = target == AgentType.Plan,
+                IsExplicit = true,
+            };
+        }
     }
 }

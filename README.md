@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 > ⚠️ **测试阶段** — 使用前请备份项目（Git 提交或手动备份）。
 
@@ -21,7 +21,7 @@
 
 ## 简介
 
-**DeepSeek v4 for Visual Studio** 将 DeepSeek V4 模型嵌入 Visual Studio 2022，提供聊天、代码编辑、代码补全等 AI 辅助编程能力。
+**DeepSeek v4 for Visual Studio** 将 DeepSeek V4 模型嵌入 Visual Studio 2022-2026，提供聊天、代码编辑、代码补全等 AI 辅助编程能力。
 
 ---
 

@@ -97,16 +97,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 持久化服务（适配器包装静态类） ──
             services.AddSingleton<IChatPersistenceService, ChatPersistenceServiceAdapter>();
 
-            // ── Agent 调度器 ──
-            services.AddSingleton<IAgentDispatcher>(sp =>
+            // ── Toast 通知服务 ──
+            services.AddSingleton<ToastNotificationService>();
+
+            // ── Agent 工厂 ──
+            services.AddSingleton<AgentFactory>(sp =>
             {
                 var apiService = sp.GetRequiredService<IDeepSeekApiService>() as DeepSeekApiService;
                 var builtInTools = sp.GetService<IBuiltInToolService>() as BuiltInToolService;
                 var mcpManager = sp.GetService<IMcpManagerService>() as McpManagerService;
 
-                var dispatcher = new AgentDispatcher(apiService!, builtInTools);
-                dispatcher.UpdateMcpManager(mcpManager);
-                return dispatcher;
+                var factory = new AgentFactory(apiService!, builtInTools, mcpManager);
+                return factory;
             });
 
             return services;

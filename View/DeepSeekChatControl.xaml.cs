@@ -28,8 +28,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
     /// DeepSeek Chat 主控件，对标共享项目 ucChat。
     /// 宿主 WebView2（Chromium），采用增量渲染模式：
     /// - 首次加载使用 NavigateToString 构建完整页面
-    /// - 后续消息通过 ExecuteScriptAsync 调用 JS 增量追加
-    /// - 流式输出时通过 BuildStreamingUpdateJs 实时更新 DOM，消除全页刷新闪烁
+    /// - 后续消息通过 PostWebMessageAsString 非阻塞推送增量更新
+    /// - 流式输出时通过 BuildStreamUpdateJson 实时更新 DOM，消除全页刷新闪烁
     /// </summary>
     public partial class DeepSeekChatControl : System.Windows.Controls.UserControl, IDisposable
     {
@@ -63,7 +63,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private BuiltInToolService? _builtInToolService;
         private SkillService? _skillService;
         private SkillDiscoveryResult? _skillDiscoveryResult;
-        private AgentDispatcher? _agentDispatcher;
+        private AgentFactory? _agentFactory;
+        private BaseAgent? _activeAgent;
+        private AgentTaskPlan? _activePlan;
         private CancellationTokenSource? _currentStreamingCts;
 
         /// <summary>
@@ -257,8 +259,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
         // ── Agent 实时思考气泡 ──
         private int _agentStreamingMsgIndex = -1;
         private readonly StringBuilder _agentThinkingContent = new();
+        private readonly StringBuilder _streamingReasoning = new();
         private int _lastReportedStepIndex;
         private string _lastReportedStepStatus = string.Empty;
+
+        // ── 主题服务 ──
+        private ThemeService _themeService = ThemeService.Instance;
+        private bool _isApplyingTheme; // 防止递归
 
         #endregion
 
@@ -291,6 +298,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             ModelComboBox.SelectedIndex = 0;
 
             EffortComboBox.ItemsSource = new[] { "high", "max" };
+            // 推理强度初始值稍后在 StartControl 中从设置恢复（此时 _options 尚未赋值）
             EffortComboBox.SelectedIndex = 0;
 
             // 初始化审批模式下拉框
@@ -311,6 +319,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── 状态信息直接显示在输入区顶部状态行 ──
             StatusLabel.Text = "正在初始化…";
+
+            // ── 订阅主题变更事件 ──
+            _themeService.ThemeChanged += OnThemeChanged;
 
             // ── 程序化创建 WebView2 控件 ──
             // 不在 XAML 中声明 wv2:WebView2，以避免 ReSharper 等第三方扩展
@@ -408,6 +419,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── 从设置恢复审批模式 ──
             RefreshApprovalModeFromSettings();
 
+            // ── 从设置恢复推理强度 ──
+            RefreshReasoningEffortFromSettings();
+
             InitializeWebSearchService();
             InitializeApiService();
             InitializeOcrService();
@@ -435,6 +449,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── 订阅解决方案事件，切换解决方案时自动重载对话 ──
             _ = WireSolutionEventsAsync();
+
+            // ── 初始应用当前主题（浅色/深色）──
+            // 必须在 UI 线程上执行，且 WebView2 就绪后再应用
+            _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            {
+                await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                // 等待 WebView2 初始化完成后再应用主题
+                await Task.Delay(500); // 给 WebView2 初始化留出时间
+                ApplyInitialTheme();
+            });
         }
 
         #endregion
@@ -566,7 +590,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 格式化当前会话的 token 消耗信息。
-        /// 包含：API 实际 Token 消耗 + 上下文窗口利用率。
+        /// 包含：API 实际 Token 消耗 + 费用估算 + 上下文窗口利用率。
+        /// 费用基于 DeepSeek V4 官方定价（¥/百万 tokens）：
+        ///   Flash: 输入 ¥1/M（缓存未命中）/ ¥0.02/M（缓存命中），输出 ¥2/M
+        ///   Pro:   输入 ¥3/M（缓存未命中）/ ¥0.025/M（缓存命中），输出 ¥6/M
         /// </summary>
         private string FormatSessionConsumption()
         {
@@ -574,13 +601,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             long promptTokens = _apiService.TotalPromptTokens;
             long completionTokens = _apiService.TotalCompletionTokens;
+            long cacheHitTokens = _apiService.TotalCacheHitTokens;
+            long cacheMissTokens = _apiService.TotalCacheMissTokens;
             long totalTokens = promptTokens + completionTokens;
 
             bool isChinese = LocalizationService.Instance.CurrentLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
 
             string FormatTokens(long n) => n >= 1000 ? $"{n / 1000.0:F1}K" : n.ToString();
 
-            // ── API 消耗部分 ──
+            // ── API 消耗 + 费用部分 ──
             string apiPart;
             if (totalTokens == 0)
             {
@@ -588,9 +617,29 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             else
             {
+                // 计算费用
+                string modelName = _options?.SelectedModel ?? "deepseek-v4-pro";
+                bool isFlash = modelName.Contains("flash", StringComparison.OrdinalIgnoreCase);
+                double inputCacheMissPrice = isFlash ? 1.0 : 3.0;
+                double inputCacheHitPrice = isFlash ? 0.02 : 0.025;
+                double outputPrice = isFlash ? 2.0 : 6.0;
+
+                double inputCacheMissCost = (cacheMissTokens / 1_000_000.0) * inputCacheMissPrice;
+                double inputCacheHitCost = (cacheHitTokens / 1_000_000.0) * inputCacheHitPrice;
+                double outputCost = (completionTokens / 1_000_000.0) * outputPrice;
+                double totalCost = inputCacheMissCost + inputCacheHitCost + outputCost;
+
+                string costStr = totalCost >= 0.01
+                    ? $"¥{totalCost:F2}"
+                    : totalCost > 0
+                        ? $"¥{totalCost:F4}"
+                        : "¥0";
+
+                string modelLabel = isFlash ? "Flash" : "Pro";
+
                 apiPart = isChinese
-                    ? $"📊 本会话: 输入 {FormatTokens(promptTokens)} tokens, 输出 {FormatTokens(completionTokens)} tokens"
-                    : $"📊 Session: {FormatTokens(promptTokens)} in, {FormatTokens(completionTokens)} out";
+                    ? $"📊 本会话: 入 {FormatTokens(promptTokens)} 出 {FormatTokens(completionTokens)} · {modelLabel} {costStr}"
+                    : $"📊 Session: {FormatTokens(promptTokens)} in, {FormatTokens(completionTokens)} out · {modelLabel} {costStr}";
             }
 
             // ── 上下文窗口利用率（仅在有对话内容时显示）──
@@ -702,6 +751,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             DeepSeekOptionsPage.SettingsChanged -= OnOcrSettingsChanged;
 
+            // ── 取消主题事件订阅 ──
+            _themeService.ThemeChanged -= OnThemeChanged;
+
             // ── 取消 SolutionEvents 订阅 ──
             try
             {
@@ -723,12 +775,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _webSearchService?.Dispose();
             _mcpManager?.Dispose();
 
-            if (_agentDispatcher != null)
+            if (_agentFactory != null)
             {
-                _agentDispatcher.PermissionRequested -= OnAgentPermissionRequested;
-                _agentDispatcher.QuestionsRequested -= OnAgentQuestionsRequested;
-                _agentDispatcher.Dispose();
-                _agentDispatcher = null;
+                if (_activeAgent != null)
+                {
+                    UnbindAgentEvents(_activeAgent);
+                }
+                _agentFactory.Dispose();
+                _agentFactory = null;
+                _activeAgent = null;
             }
 
             SaveCurrentSession();
@@ -919,6 +974,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 从设置恢复推理强度下拉框选中值。
+        /// </summary>
+        private void RefreshReasoningEffortFromSettings()
+        {
+            if (EffortComboBox == null || _options == null) return;
+            string savedEffort = _options.ReasoningEffort ?? "high";
+            EffortComboBox.SelectedItem = savedEffort == "max" ? "max" : "high";
+
+            // 同步更新 API 服务的推理强度
+            if (_apiService != null)
+            {
+                bool enabled = ThinkingCheckBox.IsChecked == true;
+                _apiService.ConfigureThinking(enabled, savedEffort);
+            }
+        }
+
+        /// <summary>
         /// 刷新审批模式下拉框的显示文本（语言切换时调用）。
         /// </summary>
         private void RefreshApprovalModeComboBox()
@@ -1050,7 +1122,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 if (AgentModeBadge == null || AgentModeText == null) return;
 
-                var agentType = _agentDispatcher?.ActiveAgentType ?? Models.AgentType.Ask;
+                var agentType = _activeAgent?.Definition.Type ?? Models.AgentType.Ask;
 
                 // Ask 模式为默认，隐藏徽章
                 if (agentType == Models.AgentType.Ask)

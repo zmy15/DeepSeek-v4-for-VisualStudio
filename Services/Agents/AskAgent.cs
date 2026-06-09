@@ -25,10 +25,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     {
         public AskAgent(DeepSeekApiService apiService) : base(apiService, AgentType.Ask) { }
 
-        /// <summary>
-        /// ExploreAgent 引用，由 AgentDispatcher 注入。
-        /// </summary>
-        public new ExploreAgent? ExploreAgent { get; set; }
+        // ExploreAgent 引用由基类 BaseAgent.ExploreAgent 提供，
+        // 由 AgentFactory 统一注入。不再使用 new 隐藏基类属性，
+        // 避免 BaseAgent.ExecuteToolAsync 中 ExploreHandler 注入失败。
 
         #region Agent Definition
 
@@ -38,8 +37,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public static readonly string[] AskTools = new[]
         {
-            "runSubagent",       // 委派探索任务给 ExploreAgent
+            "runSubagent",        // 委派探索任务给 ExploreAgent
             "fetch_webpage",      // 联网搜索（无需代码库访问）
+            "request_handoff",    // 移交任务给其他 Agent（Edit/Plan/Explore/Build）
             "memory",             // 记忆管理
         };
 
@@ -59,19 +59,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     new AgentHandoff
                     {
-                        Label = LocalizationService.Instance["agent.ask.handoffExploreLabel"],
-                        TargetAgent = AgentType.Explore,
-                        Prompt = LocalizationService.Instance["agent.ask.handoffExplorePrompt"],
-                        AutoSend = false,
-                        ShowContinueOn = true,
-                    },
-                    new AgentHandoff
-                    {
                         Label = LocalizationService.Instance["agent.ask.handoffEditLabel"],
                         TargetAgent = AgentType.Edit,
                         Prompt = LocalizationService.Instance["agent.ask.handoffEditPrompt"],
-                        AutoSend = false,
-                        ShowContinueOn = true,
+                        AutoSend = true,
+                        ShowContinueOn = false,
                     },
                     new AgentHandoff
                     {
@@ -96,7 +88,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private static string BuildSystemPrompt()
         {
-            return CommonSystemPromptPrefix + LocalizationService.Instance["agent.ask.systemPromptFragment"]
+            return LocalizationService.Instance["agent.ask.systemPromptFragment"]
                 + "\n\n## 代码库探索（runSubagent 工具）\n"
                 + "你 **没有** 直接读取或搜索代码库文件的工具。当需要了解项目代码时，必须使用 `runSubagent` 工具委派给 Explore 子代理：\n"
                 + "```json\n"
@@ -105,7 +97,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 + "- Explore 子代理会返回基于实际文件内容的分析结果\n"
                 + "- 你基于 Explore 的返回结果回答问题，附上引用来源\n"
                 + "- 需要探索代码库时**必须**先调用 runSubagent，不要凭训练数据猜测\n"
-                + "- **Git 查询**（查看状态、日志、差异等）也通过 Explore 子代理进行，Explore 具有 git 只读工具\n\n"
+                + "- **Git 查询**（查看状态、日志、差异等）也通过 Explore 子代理进行，Explore 具有 git 只读工具\n"
+                + "- **MCP 外部工具**（如数据库查询、API 检索等）同样通过 Explore 子代理访问——你无法直接调用 MCP 只读工具，使用 runSubagent 委派即可\n\n"
                 + "## 记忆系统 (memory 工具)\n"
                 + "你拥有一个持久化记忆系统，通过 `memory` 工具管理三层记忆：\n"
                 + "- **用户记忆** (`/memories/`): 跨所有工作区持久化，用于存储用户偏好、编码习惯、常用命令等\n"
@@ -115,7 +108,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 + "- 用户说出明确的偏好或习惯时 → 主动记录到用户记忆\n"
                 + "- 发现重要的项目特定信息时 → 记录到仓库记忆\n"
                 + "- 长时间任务中积累的中间上下文 → 记录到会话记忆\n"
-                + "- 开始新对话时前先 `memory view` 查看用户记忆和仓库记忆，了解已有知识";
+                + "- 开始新对话时前先 `memory view` 查看用户记忆和仓库记忆，了解已有知识\n\n"
+                + "## 任务移交（request_handoff 工具）\n"
+                + "当用户的请求超出你的职责范围（纯问答）时，按以下优先级使用 `request_handoff` 工具移交：\n\n"
+                + "### 优先级 1（最高）：复杂问题 → Plan Agent\n"
+                + "- **需要设计架构/规划方案/分析技术选型/多步骤复杂任务** → 移交给 `Plan` Agent\n"
+                + "- **涉及多个文件/模块的改动、需要先研究再决定的开放性任务** → 移交给 `Plan` Agent\n"
+                + "- **用户明确要求'制定计划'/'规划方案'/'设计架构'** → 移交给 `Plan` Agent\n\n"
+                + "### 优先级 2：简单修改 → Edit Agent\n"
+                + "- **简单直接的代码修改/修复小 bug/添加小功能/单文件重构** → 移交给 `Edit` Agent\n"
+                + "- **Git 写操作（commit/push/分支切换/stash 等）** → 移交给 `Edit` Agent\n"
+                + "- **执行终端命令（dotnet build/npm install 等）** → 移交给 `Edit` Agent\n"
+                + "- **需要 MCP 写工具（如部署、数据库写入等）** → 移交给 `Edit` 或 `Build` Agent\n\n"
+                + "### 优先级 3：报错修复 → Build Agent\n"
+                + "- **遇到编译错误/构建失败/链接报错需要修复（含代码修改）** → 移交给 `Build` Agent（Build 可以修改代码来修复编译问题）\n"
+                + "- **用户明确要求'修复报错'/'fix errors'/'解决编译问题'** → 直接移交给 `Build` Agent，不要用 Explore 探索\n\n"
+                + "### 底线：探索 → Explore 子代理（不要移交！）\n"
+                + "- **探索代码库 / Git 只读查询（status/diff/log）/ MCP 只读工具** → 不要移交！使用 `runSubagent` 委派给 Explore 子代理即可\n"
+                + "- Explore 子代理**仅服务于你的问答操作**——它是你的眼睛和耳朵，不是独立的执行者\n"
+                + "- ⚠️ **关键规则**：如果任务本身是复杂/多步骤的（如\"实现X功能\"/\"完成Y模块\"/\"修复Z系统\"），"
+                + "**直接移交 Plan Agent**，不要自己先探索代码库。Plan Agent 有自己的 Explore 子代理，会自行研究。"
+                + "你探索完再移交是浪费时间和 token。\n\n"
+                + "### 其他规则\n"
+                + "- 收到复杂任务时**第一时间判断并移交**，不要先探索再判断\n"
+                + "- 简单问答/概念解释/技术讨论 → 你直接回答，不要移交";
         }
 
         #endregion
@@ -130,6 +146,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
+            // ── 清理上次执行的移交状态，防止跨调用污染 ──
+            PendingHandoffRequest = null;
+
             // ── 检测是否为 Edit Agent 的摘要 Handoff ──
             if (IsSummaryHandoff(context))
             {
@@ -157,15 +176,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 // ── 使用工具调用循环（支持 runSubagent 委派探索任务 + request_handoff 移交）──
                 string workspaceRoot = GetWorkspaceRoot(context);
+                var thinkingBuilder = new StringBuilder();
                 string aiResponse = await CallAiWithToolLoopAsync(
                     messages,
                     workspaceRoot,
                     ct,
                     maxTokens: 4096,
+                    onThinking: (thinking) =>
+                    {
+                        thinkingBuilder.Append(thinking);
+                        context.OnThinkingChunk?.Invoke(thinking);
+                    },
                     onToolCall: (toolSummary) =>
                     {
                         AddLog("INFO", toolSummary);
                     });
+
+                // ── 保存推理内容，供 UI 渲染思考面板 ──
+                if (thinkingBuilder.Length > 0)
+                    result.ReasoningContent = thinkingBuilder.ToString();
 
                 // ── 检查 AI 是否通过 request_handoff 请求了移交 ──
                 if (PendingHandoffRequest != null)
@@ -212,7 +241,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 执行代码变更摘要生成（接收 Edit Agent 的 Handoff）。
-        /// 生成 AI 文字总结 + 文件变更统计表格 + 缓存命中率。
+        /// 
+        /// 优先级：
+        /// 1. 从会话记忆中读取 EditAgent 写入的步骤摘要文件（step-NN-summary.md、plan-final-summary.md）
+        /// 2. 回退到 plan.ChangedFiles 和 step.ResultSummary 直接构建摘要
+        /// 3. 最后可选：用一次无工具 AI 调用对聚合结果进行自然语言润色
+        /// 
+        /// 不再调用工具（read_file 等），直接基于已有数据合成摘要。
         /// </summary>
         private async Task<AgentResult> ExecuteSummaryAsync(string userMessage, AgentContext context)
         {
@@ -231,11 +266,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 result.Plan = plan;
                 result.FileChanges = plan.ChangedFiles;
 
-                // ── 生成 AI 文字总结（允许读取文件以提供更准确的摘要）──
-                string aiSummary = await GenerateChangeSummaryAsync(plan, context);
+                // ── 第1层：尝试从会话记忆读取步骤摘要 ──
+                string memorySummary = await ReadStepSummariesFromMemoryAsync(context);
+
+                // ── 第2层：直接从 plan 数据构建结构化摘要（无需工具调用）──
+                string directSummary = BuildDirectSummaryMarkdown(plan, memorySummary);
+
+                // ── 第3层（可选）：用一次无工具 AI 调用润色自然语言部分 ──
+                string aiSummary = string.Empty;
+                if (!string.IsNullOrWhiteSpace(memorySummary) && plan.ChangedFiles.Count > 0)
+                {
+                    aiSummary = await PolishSummaryWithAiAsync(directSummary, context);
+                }
 
                 // ── 构建最终 Markdown 总结 ──
-                result.Content = BuildSummaryMarkdown(plan, aiSummary);
+                result.Content = string.IsNullOrWhiteSpace(aiSummary)
+                    ? directSummary
+                    : BuildSummaryMarkdown(plan, aiSummary);
 
                 AddLog("INFO", string.Format(L["agent.log.askSummaryDone"], result.Content.Length));
                 result.Logs.AddRange(_logs);
@@ -254,6 +301,202 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// 从会话记忆中读取 EditAgent 写入的步骤摘要文件。
+        /// 返回聚合后的 Markdown 文本，如果无记忆则返回空字符串。
+        /// </summary>
+        private async Task<string> ReadStepSummariesFromMemoryAsync(AgentContext context)
+        {
+            if (MemoryService == null) return string.Empty;
+
+            try
+            {
+                string sessionId = BuiltInTools?.CurrentSessionId;
+                var sb = new StringBuilder();
+
+                // 先尝试读取最终摘要
+                try
+                {
+                    var finalResult = await MemoryService.ViewAsync(
+                        MemoryScope.Session, "plan-final-summary.md",
+                        sessionId, context.SolutionPath);
+                    if (!string.IsNullOrWhiteSpace(finalResult.Content))
+                    {
+                        sb.AppendLine(finalResult.Content);
+                        return sb.ToString().TrimEnd();
+                    }
+                }
+                catch { /* 文件不存在，继续读取分步摘要 */ }
+
+                // 逐个读取步骤摘要
+                for (int i = 1; i <= 50; i++) // 安全上限 50 步
+                {
+                    string fileName = $"step-{i:D2}-summary.md";
+                    try
+                    {
+                        var stepResult = await MemoryService.ViewAsync(
+                            MemoryScope.Session, fileName,
+                            sessionId, context.SolutionPath);
+                        if (!string.IsNullOrWhiteSpace(stepResult.Content))
+                        {
+                            sb.AppendLine(stepResult.Content);
+                            sb.AppendLine();
+                        }
+                    }
+                    catch (FileNotFoundException)
+                    {
+                        break; // 没有更多步骤文件
+                    }
+                }
+
+                return sb.ToString().TrimEnd();
+            }
+            catch (Exception ex)
+            {
+                AddLog("WARN", $"[Memory] 读取步骤摘要失败: {ex.Message}");
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// 直接从 plan 数据和记忆摘要构建结构化 Markdown 总结（无需 AI 工具调用）。
+        /// </summary>
+        private static string BuildDirectSummaryMarkdown(AgentTaskPlan plan, string memorySummary)
+        {
+            var L = LocalizationService.Instance;
+
+            if (plan.IsCancelled)
+                return L["edit.summary.cancelled"];
+
+            var sb = new StringBuilder();
+            sb.AppendLine(L["edit.summary.complete"]);
+            sb.AppendLine();
+            sb.AppendLine($"**{L["edit.summary.taskLabel"]}**: {plan.Title}");
+            sb.AppendLine($"**{L["edit.summary.fileCount"]}**: {plan.ChangedFiles.Count}");
+
+            // ── 步骤执行情况 ──
+            int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+            int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
+            int skipped = plan.Steps.Count(s => s.Status == AgentStepStatus.Skipped);
+            sb.AppendLine($"**步骤**: {completed}/{plan.Steps.Count} 完成"
+                + (failed > 0 ? $"，{failed} 失败" : "")
+                + (skipped > 0 ? $"，{skipped} 跳过" : ""));
+            sb.AppendLine();
+
+            // ── 如果有记忆中的步骤摘要，优先展示 ──
+            if (!string.IsNullOrWhiteSpace(memorySummary))
+            {
+                sb.AppendLine($"### {L["edit.summary.changeSummary"]}");
+                sb.AppendLine();
+                sb.AppendLine(memorySummary);
+                sb.AppendLine();
+            }
+            else
+            {
+                // ── 回退：从 plan 数据直接生成步骤摘要 ──
+                sb.AppendLine($"### {L["edit.summary.changeSummary"]}");
+                sb.AppendLine();
+                foreach (var step in plan.Steps)
+                {
+                    string icon = step.Status switch
+                    {
+                        AgentStepStatus.Completed => "✅",
+                        AgentStepStatus.Failed => "❌",
+                        AgentStepStatus.Skipped => "⏭",
+                        _ => "⬜",
+                    };
+                    string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
+                        ? step.ResultSummary
+                        : "(无)";
+                    sb.AppendLine($"- {icon} **{step.Title}**: {summary}");
+                }
+                sb.AppendLine();
+            }
+
+            // ── 文件变更统计 ──
+            if (plan.ChangedFiles.Count > 0)
+            {
+                var mergedFiles = plan.ChangedFiles
+                    .GroupBy(c => NormalizePath(c.FilePath), StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new
+                    {
+                        DisplayPath = g.First().FilePath,
+                        FileName = Path.GetFileName(g.First().FilePath),
+                        LinesAdded = g.Sum(c => c.LinesAdded),
+                        LinesRemoved = g.Sum(c => c.LinesRemoved),
+                        Description = g.Select(c => c.BriefDescription)
+                            .FirstOrDefault(d => !string.IsNullOrEmpty(d)
+                                && !d!.Contains("(Patch)")
+                                && !d!.Contains("(InsertEdit)")
+                                && !d!.Contains("(CreateFile)")),
+                    })
+                    .ToList();
+
+                sb.AppendLine(LocalizationService.Instance["agent.panel.fileChangeStats"]);
+                sb.AppendLine();
+                sb.AppendLine(L["agent.panel.fileChangeTableHeader"]);
+                sb.AppendLine("|------|------|------|");
+                foreach (var change in mergedFiles)
+                {
+                    string delta = $"{(change.LinesAdded > 0 ? $"+{change.LinesAdded}" : "")}"
+                        + $"{(change.LinesRemoved > 0 ? $" -{change.LinesRemoved}" : "")}";
+                    string desc = change.Description ?? (change.LinesAdded > 0 && change.LinesRemoved == 0 ? L["agent.panel.fileChangeAdded"]
+                        : change.LinesRemoved > 0 && change.LinesAdded == 0 ? L["agent.panel.fileChangeDeleted"] : L["agent.panel.fileChangeModified"]);
+                    if (desc.Length > 40) desc = desc.Substring(0, 37) + "...";
+                    sb.AppendLine($"| `{change.FileName}` | {delta} | {desc} |");
+                }
+                sb.AppendLine();
+                sb.AppendLine(LocalizationService.Instance.Format("edit.summary.totalChanges",
+                    mergedFiles.Sum(c => c.LinesAdded),
+                    mergedFiles.Sum(c => c.LinesRemoved)));
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 用一次无工具 AI 调用对直接摘要进行自然语言润色。
+        /// 仅在记忆摘要非空且存在文件变更时调用。
+        /// </summary>
+        private async Task<string> PolishSummaryWithAiAsync(string directSummary, AgentContext context)
+        {
+            try
+            {
+                var ct = context.CancellationToken;
+                var L = LocalizationService.Instance;
+
+                var messages = new List<ChatApiMessage>
+                {
+                    new ChatApiMessage
+                    {
+                        Role = "system",
+                        Content = "你是一个代码变更总结助手。请将下方结构化摘要润色为流畅的自然语言段落（3-5句话），保持客观描述，不评价代码质量。只输出润色后的文本，不添加任何额外说明。"
+                    },
+                    new ChatApiMessage
+                    {
+                        Role = "user",
+                        Content = $"请润色以下代码变更摘要为自然语言：\n\n{directSummary}"
+                    }
+                };
+
+                // 使用无工具调用的简单 API 调用
+                string result = await CallAiWithToolLoopAsync(
+                    messages,
+                    GetWorkspaceRoot(context),
+                    ct,
+                    maxTokens: 1024,
+                    toolWhitelist: new List<string>()); // 空白名单 = 不允许任何工具
+
+                result = StripToolCallMarkers(result);
+                return result?.Trim() ?? string.Empty;
+            }
+            catch (Exception ex)
+            {
+                AddLog("WARN", $"[AskAgent] AI 润色失败，使用直接摘要: {ex.Message}");
+                return string.Empty;
+            }
         }
 
         /// <summary>
@@ -329,13 +572,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 sb.AppendLine(LocalizationService.Instance["agent.panel.fileChangeStats"]);
                 sb.AppendLine();
-                sb.AppendLine("| 文件 | 变更 | 说明 |");
+                sb.AppendLine(L["agent.panel.fileChangeTableHeader"]);
                 sb.AppendLine("|------|------|------|");
                 foreach (var change in mergedFiles)
                 {
                     string delta = $"{(change.LinesAdded > 0 ? $"+{change.LinesAdded}" : "")}"
                         + $"{(change.LinesRemoved > 0 ? $" -{change.LinesRemoved}" : "")}";
-                    string desc = change.Description ?? (change.LinesAdded > 0 && change.LinesRemoved == 0 ? "新增" : change.LinesRemoved > 0 && change.LinesAdded == 0 ? "删除" : "修改");
+                    string desc = change.Description ?? (change.LinesAdded > 0 && change.LinesRemoved == 0 ? L["agent.panel.fileChangeAdded"] : change.LinesRemoved > 0 && change.LinesAdded == 0 ? L["agent.panel.fileChangeDeleted"] : L["agent.panel.fileChangeModified"]);
                     // 截断过长的描述
                     if (desc.Length > 40) desc = desc.Substring(0, 37) + "...";
                     sb.AppendLine($"| `{change.FileName}` | {delta} | {desc} |");
@@ -422,7 +665,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     workspaceRoot,
                     ct,
                     maxTokens: 4096,
-                    maxToolRounds: 3,
                     toolWhitelist: new List<string>(AskTools));
 
                 // ── 安全剥离：防止 AI 意外输出工具调用标记或思考过程 ──

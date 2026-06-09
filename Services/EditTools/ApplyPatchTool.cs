@@ -292,6 +292,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 return result;
             }
 
+            // ── 磁盘内容一致性校验：检测文件是否在 AI 读取后被修改 ──
+            var currentDiskContent = File.ReadAllText(filePath);
+            if (!string.Equals(currentDiskContent, fileContent, StringComparison.Ordinal))
+            {
+                // 文件在 patch 准备期间被外部修改 → 提取上下文行做快速验证
+                var allContextLines = patch.Hunks
+                    .SelectMany(h => h.Lines.Where(l => l.Type == ' ').Select(l => l.Text))
+                    .ToArray();
+                if (!EditStringMatcher.VerifyContentFreshness(currentDiskContent, allContextLines))
+                {
+                    result.Success = false;
+                    result.ErrorMessage = string.Format(
+                        "File '{0}' has been modified since you last read it. Please re-read the file with read_file and try your edit again.",
+                        Path.GetFileName(filePath));
+                    return result;
+                }
+                // 内容过时但上下文仍在 → 使用最新磁盘内容继续
+                fileContent = currentDiskContent;
+            }
+
             var fileLines = fileContent.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             var chunks = new List<(FileChunk chunk, string[] contextLines)>();
             var failedHunks = new List<PatchHunk>();
@@ -618,31 +638,82 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         /// 文件重建：遍历原始行，按 Chunk 列表删除旧行、插入新行。
         /// 保留原始文件的尾部空行数。
         /// 参考: parser.ts _get_updated_file + applyPatchTool.tsx trailing empty line preservation
+        /// 
+        /// 重叠处理：当多个 Chunk 的 [OrigIndex, OrigIndex+DelLines) 区间重叠时，
+        /// 合并为一组处理 — 取最大删除行数、拼接所有插入行。这解决了 AI 生成多个
+        /// Hunk 时因共享上下文行导致的坐标重叠问题。
         /// </summary>
         private static string ReconstructFile(string[] originalLines, List<FileChunk> chunks)
         {
-            var sorted = chunks.OrderBy(c => c.OrigIndex).ToList();
-            var destLines = new List<string>();
-            int origIdx = 0;
+            if (chunks.Count == 0)
+                return string.Join("\n", originalLines);
 
+            var sorted = chunks.OrderBy(c => c.OrigIndex).ToList();
+
+            // ── 验证 Chunk 范围 ──
             foreach (var chunk in sorted)
             {
                 if (chunk.OrigIndex > originalLines.Length)
                     throw new InvalidOperationException(
                         LocalizationService.Instance.Format("tool.edit.applyPatch.chunkOutOfRange", chunk.OrigIndex, originalLines.Length));
-
-                if (origIdx > chunk.OrigIndex)
-                    throw new InvalidOperationException(
-                        LocalizationService.Instance.Format("tool.edit.applyPatch.chunkOverlap", origIdx, chunk.OrigIndex));
-
-                destLines.AddRange(originalLines.Skip(origIdx).Take(chunk.OrigIndex - origIdx));
-                origIdx = chunk.OrigIndex;
-
-                destLines.AddRange(chunk.InsLines);
-                origIdx += chunk.DelLines.Count;
             }
 
-            destLines.AddRange(originalLines.Skip(origIdx));
+            // ── 将重叠 Chunk 分组 ──
+            var groups = new List<List<FileChunk>>();
+            foreach (var chunk in sorted)
+            {
+                if (groups.Count == 0)
+                {
+                    groups.Add(new List<FileChunk> { chunk });
+                }
+                else
+                {
+                    var lastGroup = groups[groups.Count - 1];
+                    var lastChunk = lastGroup[lastGroup.Count - 1];
+                    int lastChunkEnd = lastChunk.OrigIndex + lastChunk.DelLines.Count;
+
+                    if (chunk.OrigIndex < lastChunkEnd)
+                    {
+                        // 重叠：加入当前组
+                        lastGroup.Add(chunk);
+                    }
+                    else
+                    {
+                        // 不重叠：新建组
+                        groups.Add(new List<FileChunk> { chunk });
+                    }
+                }
+            }
+
+            // ── 按组重建文件 ──
+            var destLines = new List<string>();
+            int origIdx = 0;
+
+            foreach (var group in groups)
+            {
+                var firstChunk = group[0];
+
+                // 复制组前的原始行
+                if (firstChunk.OrigIndex > origIdx)
+                {
+                    destLines.AddRange(originalLines.Skip(origIdx).Take(firstChunk.OrigIndex - origIdx));
+                }
+                origIdx = firstChunk.OrigIndex;
+
+                // 计算组合效果：取最大删除行数，拼接所有插入行
+                int maxDel = 0;
+                foreach (var c in group)
+                    maxDel = Math.Max(maxDel, c.DelLines.Count);
+
+                foreach (var c in group)
+                    destLines.AddRange(c.InsLines);
+
+                origIdx += maxDel;
+            }
+
+            // 复制尾部剩余行
+            if (origIdx < originalLines.Length)
+                destLines.AddRange(originalLines.Skip(origIdx));
 
             // ── 保留原始文件尾部空行数 ──
             // 参考: applyPatchTool.tsx generateUpdateTextDocumentEdit 的 trailing empty line 逻辑

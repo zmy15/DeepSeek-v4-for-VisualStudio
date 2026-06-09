@@ -120,6 +120,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             await _handoffHandler(request);
 
+            // ── 如果 HandoffHandler 拒绝了移交（如显式路由模式），返回拒绝原因给 AI ──
+            if (request.Rejected)
+            {
+                return $"🚫 移交被拒绝: {request.RejectReason}";
+            }
+
             return LocalizationService.Instance.Format("tool.requestHandoff.handoffRequested", targetAgentStr, reason);
         }
 

@@ -30,20 +30,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private ExploreAgent? _exploreAgent;
 
         /// <summary>
-        /// ExploreAgent 引用，由 AgentDispatcher 注入。
+        /// ExploreAgent 引用，由 AgentFactory 注入。
         /// 用于在发现阶段并行探索代码库。
         /// 设置时自动转发 ExploreAgent 的日志和文件变更事件。
         /// </summary>
         public new ExploreAgent? ExploreAgent
         {
             get => _exploreAgent;
-            set => RegisterExploreAgent(value, ref _exploreAgent);
+            set
+            {
+                RegisterExploreAgent(value, ref _exploreAgent);
+                base.ExploreAgent = value; // 🔑 同步到基类属性，确保 ExecuteToolAsync 可见
+            }
         }
 
         public PlanAgent(DeepSeekApiService apiService) : base(apiService, AgentType.Plan)
         {
             var explore = new ExploreAgent(apiService);
             RegisterExploreAgent(explore, ref _exploreAgent);
+            base.ExploreAgent = _exploreAgent; // 🔑 同步到基类，确保 ExecuteToolAsync 可见
         }
 
         #region Agent Definition
@@ -58,12 +63,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 ArgumentHint = LocalizationService.Instance["agent.plan.argumentHint"],
                 UserInvocable = true,
                 DisableModelInvocation = false,
-                // Plan Agent 不再持有直接读取工具，所有探索通过 runSubagent 委派给 ExploreAgent
+                // 🔑 Prefix Cache 优化：全会话统一工具集。所有阶段使用相同工具白名单。
+                // 深度探索通过 runSubagent 委派给 ExploreAgent；快速查阅允许直接使用只读工具。
                 AllowedTools = new List<string>
                 {
                     "runSubagent",               // 调用 Explore 子代理进行代码库探索
                     "VisualStudio_askQuestions",  // 向用户提问澄清
                     "memory",                     // 记忆管理
+                    "list_dir",                   // 列出目录（对齐阶段快速查阅）
+                    "read_file",                  // 读取文件（对齐阶段快速查阅）
+                    "grep_search",                // 文本搜索（对齐阶段快速查阅）
+                    "file_search",                // 文件搜索（对齐阶段快速查阅）
                 },
                 SubAgents = new List<AgentType> { AgentType.Explore },
                 Handoffs = new List<AgentHandoff>
@@ -83,7 +93,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private static string BuildSystemPrompt()
         {
-            return CommonSystemPromptPrefix + LocalizationService.Instance["agent.plan.systemPromptFragment"];
+            return LocalizationService.Instance["agent.plan.systemPromptFragment"]
+                + "\n\n## 🔌 MCP 外部工具\n"
+                + "你可能需要访问 MCP 外部工具（如数据库查询、API 文档检索等）。\n"
+                + "Plan Agent 不直接持有这些工具——请通过 `runSubagent` 委派 Explore 子代理来访问 MCP 只读工具。";
         }
 
         #endregion
@@ -96,6 +109,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
+            // ── 清理上次执行的移交状态，防止跨调用污染 ──
+            PendingHandoffRequest = null;
+
             var L = LocalizationService.Instance;
             AddLog("INFO", string.Format(L["agent.log.planStarted"], userMessage.Truncate(100)));
 
@@ -109,17 +125,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 var ct = context.CancellationToken;
 
-                // ── 阶段 1: 发现 — 通过 Explore 子代理了解代码库 ──
+                // ── 阶段 1: 发现 — 通过 runSubagent 工具在 PlanAgent 对话内探索代码库 ──
                 AddLog("INFO", L["agent.log.planPhaseDiscover"]);
-                string discoveryContext = await RunDiscoveryAsync(userMessage, context);
+                var (discoveryContext, messages) = await RunDiscoveryAsync(userMessage, context);
 
-                // ── 阶段 2: 对齐 — 与用户澄清需求（始终执行，确保用户参与）──
+                // ── 阶段 2: 对齐 — 延续阶段 1 的对话，与用户澄清需求
+                //     DeepSeek Prefix Cache 可命中整个阶段 1 的对话前缀（~80-90% 命中率）──
                 AddLog("INFO", L["agent.log.planPhaseAlign"]);
-                var (alignmentSummary, alignmentMessages) = await RunAlignmentAsync(userMessage, discoveryContext, context);
+                var (alignmentSummary, alignmentMessages) = await RunAlignmentAsync(userMessage, messages, context);
 
-                // ── 阶段 3: 设计 — 产出实现计划（复用对齐阶段的对话上下文，延续 DeepSeek Prefix Cache）──
+                // ── 阶段 3: 设计 — 延续阶段 1+2 的对话，产出实现计划
+                //     DeepSeek Prefix Cache 可命中阶段 1+2 的全部历史（~90-95% 命中率）──
                 AddLog("INFO", L["agent.log.planPhaseDesign"]);
-                var plan = await CreatePlanAsync(userMessage, discoveryContext, alignmentMessages, context);
+                var (plan, designMessages) = await CreatePlanAsync(userMessage, discoveryContext, alignmentMessages, context);
                 result.Plan = plan;
 
                 // ═══════════════════════════════════════════════════════════
@@ -128,7 +146,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // ═══════════════════════════════════════════════════════════
                 if (plan != null && ExploreAgent != null && !string.IsNullOrEmpty(context.SolutionPath))
                 {
-                    var cachedFiles = ExploreAgent.GetCachedDiscoveredFiles(context.SolutionPath);
+                    var cachedFiles = ExploreAgent.GetCachedDiscoveredFiles(context.SolutionPath!);
                     if (cachedFiles != null && cachedFiles.Count > 0)
                     {
                         plan.DiscoveredFiles = cachedFiles;
@@ -138,6 +156,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 if (plan != null && plan.Steps.Count > 0)
                 {
+                    plan.Source = PlanSource.PlanAgent;  // 标记为由 PlanAgent 产出，UI 层据此创建任务面板
                     AddLog("INFO", string.Format(L["agent.log.planDone"], plan.Steps.Count, plan.Title));
                     result.Content = FormatPlanAsMarkdown(plan);
 
@@ -151,7 +170,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     try
                     {
                         string planMarkdown = await GenerateDetailedPlanMarkdownAsync(
-                            userMessage, discoveryContext, plan, context);
+                            userMessage, discoveryContext, plan, context, designMessages);
                         string planFilePath = await SavePlanMarkdownAsync(planMarkdown, context);
                         plan.PlanFilePath = planFilePath;
                         context.PlanFilePath = planFilePath;
@@ -164,7 +183,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             if (extractedSteps.Count > 1)
                             {
                                 plan.Steps = extractedSteps;
-                                plan.Title = plan.Title ?? extractedSteps.FirstOrDefault()?.Title ?? plan.Title;
+                                plan.Title = plan.Title ?? extractedSteps.FirstOrDefault()?.Title ?? plan.Title ?? "";
                                 AddLog("INFO", string.Format(L["agent.log.planStepsExtractedFromMd"],
                                     extractedSteps.Count, planFilePath));
                                 // 更新 Handoff prompt 中的步骤数
@@ -219,160 +238,105 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         #region Discovery Phase
 
         /// <summary>
-        /// <summary>
-        /// 运行发现阶段：两阶段探索。
-        /// 阶段 1（串行）：快速扫描项目顶层结构（目录树 + 配置文件），结果共享给后续子代理。
-        /// 阶段 2（串行）：基于阶段 1 的结构信息，深入探索各 AI 识别的代码区域。
-        /// 
-        /// 🔑 缓存关键：阶段 2 从并行改为串行后，第 2、3 个 Explore 子代理可复用
-        /// 第 1 个的 DeepSeek Prefix Cache（相同 system prompt），命中率从 ~11% 提升至 ~50%+。
-        /// 
-        /// 设计原因：多个 Explore 子代理并行时，各自的 System Prompt 都强制从根目录
-        /// list_dir 开始，导致 3x 重复扫描。两阶段设计将公共基础扫描提取为串行阶段 1，
-        /// 阶段 2 注入结构上下文后跳过重复扫描。串行化进一步让后续子代理共享缓存。
+        /// 运行发现阶段：通过 runSubagent 工具在 PlanAgent 对话内探索代码库。
+        ///
+        /// 🔑 缓存关键：所有探索结果作为 tool 消息保留在 PlanAgent 的对话历史中，
+        /// 使后续对齐和设计阶段可复用整个发现对话前缀，DeepSeek Prefix Cache 持续命中。
+        /// AI 自主决定调用几次 runSubagent —— 先扫结构，再深入探索关键区域。
         /// </summary>
-        private async Task<string> RunDiscoveryAsync(string userMessage, AgentContext context)
+        /// <returns>(发现上下文文本, 含发现历史的完整消息列表)</returns>
+        private async Task<(string DiscoveryContext, List<ChatApiMessage> Messages)> RunDiscoveryAsync(
+            string userMessage, AgentContext context)
         {
-            var sb = new StringBuilder();
+            var L = LocalizationService.Instance;
+
+            // ── 缓存检查：如 ExploreAgent 已有结构缓存，注入摘要跳过重复扫描 ──
+            var extraSystemMessages = new List<ChatApiMessage>();
+            string? structureCache = null;
+            if (!string.IsNullOrEmpty(context.SolutionPath) && _exploreAgent != null)
+            {
+                var cachedFiles = _exploreAgent.GetCachedDiscoveredFiles(context.SolutionPath!);
+                if (cachedFiles != null && cachedFiles.Count > 0)
+                {
+                    structureCache = BuildStructureContextFromCache(cachedFiles);
+                    extraSystemMessages.Add(new ChatApiMessage { Role = "system", Content = structureCache });
+                    AddLog("INFO", string.Format(L["agent.log.explorePhase1Cached"], cachedFiles.Count));
+                }
+            }
+
+            // ── 构建消息列表（含对话历史，保持前缀缓存稳定）──
+            string discoveryPrompt = BuildUnifiedDiscoveryPrompt(userMessage, context, structureCache);
+            var messages = BuildContextAwareMessages(Definition.SystemPrompt, discoveryPrompt, extraSystemMessages);
+
+            AddLog("INFO", L["agent.log.explorePhase1"]);
 
             try
             {
-                var L = LocalizationService.Instance;
-
-                // ── 阶段 1（串行）：快速扫描项目顶层结构 ──
-                // 如果共享 ExploreAgent 已有此项目的文件列表缓存，直接复用，跳过重复扫描
-                AddLog("INFO", L["agent.log.explorePhase1"]);
-                string structureContext = "";
-                bool phase1Skipped = false;
-                try
-                {
-                    // ── 检查缓存：避免同一会话内 ask→plan 切换时重复扫描项目结构 ──
-                    if (!string.IsNullOrEmpty(context.SolutionPath)
-                        && _exploreAgent != null)
-                    {
-                        var cachedFiles = _exploreAgent.GetCachedDiscoveredFiles(context.SolutionPath);
-                        if (cachedFiles != null && cachedFiles.Count > 0)
-                        {
-                            // 从缓存文件列表构建结构上下文（目录树摘要），跳过 Phase 1 API 调用
-                            structureContext = BuildStructureContextFromCache(cachedFiles);
-                            sb.AppendLine(string.Format(L["plan.discovery.areaHeader"], L["agent.log.explorePhase1Label"]));
-                            sb.AppendLine(structureContext);
-                            sb.AppendLine();
-                            AddLog("INFO", string.Format(L["agent.log.explorePhase1Cached"], cachedFiles.Count));
-                            phase1Skipped = true;
-                        }
-                    }
-
-                    if (!phase1Skipped)
-                    {
-                        string phase1Prompt =
-                            $"{L["agent.plan.discoveryPhase1Prompt"]}\n\n" +
-                            (string.IsNullOrEmpty(context.SolutionPath) ? ""
-                                : $"Workspace root: {context.SolutionPath}\n\n") +
-                            $"{L["agent.plan.discoveryPhase1Tail"]}";
-
-                        var phase1Result = await RunSingleExploreAsync("structure", phase1Prompt, context);
-                        if (phase1Result.Success && !string.IsNullOrEmpty(phase1Result.Findings))
-                        {
-                            structureContext = phase1Result.Findings;
-                            sb.AppendLine(string.Format(L["plan.discovery.areaHeader"], L["agent.log.explorePhase1Label"]));
-                            sb.AppendLine(structureContext);
-                            sb.AppendLine();
-                            AddLog("INFO", string.Format(L["agent.log.explorePhase1Done"], structureContext.Length));
-                        }
-                        else
-                        {
-                            AddLog("WARN", L["agent.log.explorePhase1Failed"]);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    AddLog("WARN", string.Format(L["agent.log.explorePhase1Error"], ex.Message));
-                }
-
-                // ── AI 判断需要探索哪些代码区域 ──
-                string routingPrompt =
-                    $"{L["agent.plan.discoveryPrompt"]}\n\n" +
-                    $"{L["plan.userTask"]}: {userMessage}\n\n" +
-                    (string.IsNullOrEmpty(context.SolutionPath) ? ""
-                        : $"Solution path: {context.SolutionPath}\n\n") +
-                    (string.IsNullOrEmpty(structureContext) ? ""
-                        : $"{L["agent.plan.discoveryStructureHint"]}\n{structureContext}\n\n") +
-                    $"{L["agent.plan.discoveryPromptTail"]}";
-
-                string routingResponse = await CallAiShortAsync(
-                    Definition.SystemPrompt, routingPrompt, context.CancellationToken);
-
-                var areas = routingResponse
-                    .Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(a => a.Trim().TrimStart('-', ' ', '*', '1', '2', '3', '.', ':', '）', ')'))
-                    .Where(a => a.Length > 3)
-                    .Take(3)
-                    .ToList();
-
-                if (areas.Count == 0)
-                {
-                    areas.Add(userMessage); // 回退：直接搜索用户消息
-                }
-
-                AddLog("INFO", string.Format(L["agent.log.exploreRouting"], areas.Count, string.Join(", ", areas)));
-
-                // ── 阶段 2（串行）：深入探索各区域，注入结构上下文避免重复扫描 ──
-                // 🔑 缓存关键：串行执行让后续 Explore 子代理复用前一个的 DeepSeek Prefix Cache，
-                // 避免并行冷启动时每个子代理都从 0% 命中率开始
-                AddLog("INFO", L["agent.log.explorePhase2"]);
-                var exploreResults = new List<SubagentResult>();
-                for (int i = 0; i < areas.Count; i++)
-                {
-                    string area = areas[i];
-                    // ── 注入阶段 1 的结构上下文，明确告知跳过根目录重复扫描 ──
-                    string contextualPrompt = BuildPhase2Prompt(area, structureContext, context);
-                    var result = await RunSingleExploreAsync(i.ToString(), contextualPrompt, context);
-                    exploreResults.Add(result);
-                }
-
-                // ── 汇总探索结果 ──
-                foreach (var exploreResult in exploreResults)
-                {
-                    if (exploreResult.Success && !string.IsNullOrEmpty(exploreResult.Findings))
-                    {
-                        sb.AppendLine(string.Format(L["plan.discovery.areaHeader"], exploreResult.TaskId));
-                        sb.AppendLine(exploreResult.Findings);
-                        sb.AppendLine();
-                    }
-                }
-
-                var L2 = LocalizationService.Instance;
-                AddLog("INFO", string.Format(L2["agent.log.planExploreDone"], exploreResults.Count, exploreResults.Count(r => r.Success)));
+                // 🔑 使用统一工具白名单（不再按阶段过滤 tools JSON，由客户端拦截保证安全）
+                await CallAiWithToolLoopAsync(
+                    messages,
+                    workspaceRoot: context.SolutionPath,
+                    ct: context.CancellationToken,
+                    maxTokens: 8192);
             }
             catch (Exception ex)
             {
-                AddLog("WARN", string.Format(LocalizationService.Instance["agent.plan.discoverError"], ex.Message));
+                AddLog("WARN", string.Format(L["agent.plan.discoverError"], ex.Message));
             }
 
-            return sb.ToString();
+            string discoveryContext = ExtractDiscoveryContextFromMessages(messages);
+            int toolResultCount = messages.Count(m => m.Role == "tool" && m.Name == "runSubagent");
+            AddLog("INFO", string.Format(L["agent.log.planExploreDone"], toolResultCount, toolResultCount));
+
+            return (discoveryContext, messages);
         }
 
         /// <summary>
-        /// 构建阶段 2 深入探索 prompt。
-        /// 注入阶段 1 的结构上下文，明确指示跳过根目录重复扫描，
-        /// 直接聚焦目标区域进行深入探索。
+        /// 构建统一探索 prompt：AI 自主判断是否需要探索代码库。
+        /// 
+        /// 如果用户消息、文件上下文、对话历史中已包含足够信息，AI 应直接回复 DONE 跳过探索。
+        /// 如需探索，通过 runSubagent 工具委托 ExploreAgent，所有探索结果作为 tool 消息保留在对话历史中。
         /// </summary>
-        private static string BuildPhase2Prompt(string area, string structureContext, AgentContext context)
+        private static string BuildUnifiedDiscoveryPrompt(
+            string userMessage, AgentContext context, string? structureCache)
         {
             var L = LocalizationService.Instance;
             var sb = new StringBuilder();
 
-            sb.AppendLine(area);
+            sb.AppendLine(L["agent.plan.unifiedDiscoveryHeader"]);
+            sb.AppendLine();
+            sb.AppendLine($"## {L["plan.userTask"]}");
+            sb.AppendLine(userMessage);
+            sb.AppendLine();
 
-            if (!string.IsNullOrEmpty(structureContext))
+            // ── 用户提供的文件上下文（如果存在，AI 可能无需探索）──
+            if (!string.IsNullOrEmpty(context.FileContext))
+            {
+                sb.AppendLine(L["agent.plan.fileContextHeader"]);
+                sb.AppendLine(context.FileContext);
+                sb.AppendLine();
+            }
+
+            // ── 项目结构缓存或探索指引 ──
+            if (!string.IsNullOrEmpty(structureCache))
+            {
+                sb.AppendLine(L["agent.plan.discoveryStructureCached"]);
+                sb.AppendLine(structureCache);
+                sb.AppendLine();
+                sb.AppendLine(L["agent.plan.discoverySkipRootScan"]);
+            }
+            else
+            {
+                sb.AppendLine(L["agent.plan.discoveryFirstExplore"]);
+            }
+
+            // ── 上下文充足判定 ──
+            bool hasSufficientContext = !string.IsNullOrEmpty(context.FileContext)
+                || !string.IsNullOrEmpty(structureCache);
+            if (hasSufficientContext)
             {
                 sb.AppendLine();
-                sb.AppendLine(L["agent.plan.discoveryPhase2InjectedHeader"]);
-                sb.AppendLine(structureContext);
-                sb.AppendLine();
-                sb.AppendLine(L["agent.plan.discoveryPhase2SkipHint"]);
+                sb.AppendLine(L["agent.plan.discoveryNoExploreNeeded"]);
             }
 
             if (!string.IsNullOrEmpty(context.SolutionPath))
@@ -382,9 +346,42 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
 
             sb.AppendLine();
-            sb.AppendLine(L["agent.plan.discoveryPhase2Tail"]);
+            sb.AppendLine(L["agent.plan.discoveryUnifiedTail"]);
+
+            // ── 并行子代理策略（仅探索时相关）──
+            sb.AppendLine();
+            sb.AppendLine("## 探索策略（仅在需要探索时参考）");
+            sb.AppendLine("- 需要探索多个独立区域时，在一次回复中同时调用多个 runSubagent（最多 3 个并行）");
+            sb.AppendLine("- **为每个子代理分配不同的探索区域**，避免重复探索相同的文件或目录");
+            sb.AppendLine("- 例如：子代理 1 探索存储层，子代理 2 探索执行引擎，子代理 3 探索索引结构");
+            sb.AppendLine("- 如果文件已被之前子代理读取（cached=\"true\"），直接使用缓存内容，无需重复读取");
+            sb.AppendLine("- 探索完成后汇总所有子代理的发现，形成完整的分析报告");
+            sb.AppendLine();
+            sb.AppendLine("## ⚠️ 关键规则");
+            sb.AppendLine("- 如果用户消息 + 已有上下文已足够制定实现计划 → **直接回复 DONE，不调用任何工具**");
+            sb.AppendLine("- 如果缺少关键信息（项目结构、相关代码等）→ 使用 runSubagent 探索后再回复 DONE");
+            sb.AppendLine("- DONE 必须是纯文本，不要包裹在 markdown、代码块或 JSON 中");
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 从对话消息列表中的 tool 消息提取发现上下文文本。
+        /// 遍历所有 role=tool 的消息，提取子代理返回的探索结果。
+        /// </summary>
+        private static string ExtractDiscoveryContextFromMessages(List<ChatApiMessage> messages)
+        {
+            var sb = new StringBuilder();
+            foreach (var msg in messages)
+            {
+                if (msg.Role == "tool" && msg.Name == "runSubagent" && !string.IsNullOrWhiteSpace(msg.Content))
+                {
+                    if (sb.Length > 0)
+                        sb.AppendLine("\n---\n");
+                    sb.AppendLine(msg.Content);
+                }
+            }
+            return sb.ToString().Trim();
         }
 
         /// <summary>
@@ -437,7 +434,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 string relative = dir;
                 if (!string.IsNullOrEmpty(commonRoot) && dir.StartsWith(commonRoot, StringComparison.OrdinalIgnoreCase))
                 {
-                    relative = dir.Substring(commonRoot.Length).TrimStart(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+                    relative = dir.Substring(commonRoot!.Length).TrimStart(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
                 }
                 if (string.IsNullOrEmpty(relative)) continue;
 
@@ -466,122 +463,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             return sb.ToString();
         }
 
-        /// <summary>
-        /// 运行单个 Explore 子代理。
-        /// </summary>
-        private async Task<SubagentResult> RunSingleExploreAsync(string taskId, string prompt, AgentContext context)
-        {
-            var result = new SubagentResult { TaskId = taskId };
-            try
-            {
-                // ── 确保内部 ExploreAgent 拥有工具服务（兜底）──
-                // AgentDispatcher 通过 ExploreAgent 属性注入后，此检查为幂等空操作。
-                // 但如果因任何原因属性未被注入（如测试环境），此处从 PlanAgent 自身传播。
-                if (_exploreAgent != null)
-                {
-                    if (_exploreAgent.BuiltInTools == null && this.BuiltInTools != null)
-                        _exploreAgent.BuiltInTools = this.BuiltInTools;
-                    if (_exploreAgent.McpManager == null && this.McpManager != null)
-                        _exploreAgent.McpManager = this.McpManager;
-                }
-
-                var exploreResult = await _exploreAgent!.ExecuteAsync(prompt, context);
-                result.Success = exploreResult.Success;
-                result.Findings = exploreResult.Content;
-            }
-            catch (Exception ex)
-            {
-                result.Success = false;
-                result.ErrorMessage = ex.Message;
-            }
-            return result;
-        }
-
         #endregion
 
         #region Alignment Phase
 
         /// <summary>
-        /// 使用 AI 快速判断是否需要与用户对齐需求。
-        /// 返回 true 表示 AI 有需要澄清的问题。
-        /// </summary>
-        private async Task<bool> CheckAlignmentNeededAsync(
-            string userMessage, string discoveryContext, AgentContext context)
-        {
-            var L = LocalizationService.Instance;
-            AddLog("INFO", L["agent.log.planAlignCheck"]);
-
-            try
-            {
-                string checkPrompt = string.Format(AiPrompts.PlanAlignmentCheckPrompt, userMessage, discoveryContext);
-
-                string response = await CallAiShortAsync(
-                    Definition.SystemPrompt, checkPrompt, context.CancellationToken, maxTokens: 16);
-
-                bool needed = response.Trim().StartsWith("YES", StringComparison.OrdinalIgnoreCase);
-                AddLog("INFO", string.Format(L["agent.log.planAlignCheckResult"], needed ? "需要对齐" : "无需对齐"));
-                return needed;
-            }
-            catch (Exception ex)
-            {
-                AddLog("WARN", LocalizationService.Instance.Format("agent.log.planAlignmentCheckFailed", ex.Message));
-                return false;
-            }
-        }
-
-        /// <summary>
         /// 运行对齐阶段：使用工具调用循环让 AI 通过 VisualStudio_askQuestions 向用户提问。
-        /// 🔑 缓存关键：返回对齐阶段的完整消息列表（含 tool call 历史），
-        /// 供设计阶段（CreatePlanAsync）复用，实现跨阶段 DeepSeek Prefix Cache 延续。
+        /// 🔑 缓存关键：在阶段 1 的对话历史上追加对齐指令，
+        /// DeepSeek Prefix Cache 可命中整个阶段 1 的对话前缀（~80-90% 命中率）。
+        /// 返回对齐阶段的完整消息列表（含 tool call 历史），供设计阶段复用。
         /// </summary>
         /// <returns>(规划概要, 对齐对话消息列表)</returns>
         private async Task<(string Summary, List<ChatApiMessage> Messages)> RunAlignmentAsync(
-            string userMessage, string discoveryContext, AgentContext context)
+            string userMessage, List<ChatApiMessage> existingMessages, AgentContext context)
         {
             var L = LocalizationService.Instance;
             var ct = context.CancellationToken;
 
             try
             {
-                // ── 构建对齐对话的消息列表 ──
-                var messages = new List<ChatApiMessage>
-                {
-                    new ChatApiMessage { Role = "system", Content = Definition.SystemPrompt },
-                };
-
-                // ── Token 优化：对齐阶段只需了解项目结构和关键文件，无需完整发现上下文 ──
-                // 完整发现上下文保留给 Design 阶段使用（CreatePlanAsync / GenerateDetailedPlanMarkdownAsync）
-                if (!string.IsNullOrEmpty(discoveryContext))
-                {
-                    string compressedDiscovery = CompressDiscoveryForAlignment(discoveryContext);
-                    // 提取关键文件路径列表作为对齐阶段的快速参考
-                    var keyFiles = ExtractFilePathsFromDiscovery(discoveryContext);
-                    var sbDiscovery = new StringBuilder();
-                    sbDiscovery.AppendLine(L["agent.plan.discoveryFallback"]);
-                    sbDiscovery.AppendLine();
-                    sbDiscovery.AppendLine(compressedDiscovery);
-                    if (keyFiles.Count > 0)
-                    {
-                        sbDiscovery.AppendLine();
-                        sbDiscovery.AppendLine($"### 关键文件路径 ({keyFiles.Count} 个)");
-                        foreach (var f in keyFiles.Take(30))
-                            sbDiscovery.AppendLine($"- `{f}`");
-                        if (keyFiles.Count > 30)
-                            sbDiscovery.AppendLine($"> ... 还有 {keyFiles.Count - 30} 个文件");
-                    }
-
-                    string alignmentDiscovery = sbDiscovery.ToString();
-                    AddLog("INFO", string.Format(L["agent.log.planDiscoveryCompressed"],
-                        discoveryContext.Length, alignmentDiscovery.Length));
-                    messages.Add(new ChatApiMessage
-                    {
-                        Role = "system",
-                        Content = alignmentDiscovery
-                    });
-                }
-
-                // 对齐指令：展示规划思路，邀请用户反馈
-                messages.Add(new ChatApiMessage
+                // 🔑 直接在阶段 1 的对话历史上追加对齐指令
+                existingMessages.Add(new ChatApiMessage
                 {
                     Role = "user",
                     Content = string.Format(AiPrompts.PlanAlignmentUserPrompt, userMessage)
@@ -589,12 +491,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 // ── 使用 onContent 回调实时捕获 AI 生成的规划概要 ──
                 var alignmentContent = new StringBuilder();
+                // 🔑 使用统一工具白名单（不再按阶段过滤 tools JSON，由客户端拦截保证安全）
                 string alignmentResult = await CallAiWithToolLoopAsync(
-                    messages,
+                    existingMessages,
                     context.SolutionPath,
                     ct,
                     maxTokens: 4096,
-                    toolWhitelist: new List<string> { "VisualStudio_askQuestions", "list_dir", "read_file", "grep_search", "file_search" },
                     onContent: (chunk) =>
                     {
                         alignmentContent.Append(chunk);
@@ -604,7 +506,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 string planSummary = alignmentContent.ToString().Trim();
 
                 AddLog("INFO", LocalizationService.Instance.Format("agent.log.planAlignmentDone", alignmentResult.Truncate(200)));
-                return (planSummary, messages);
+                return (planSummary, existingMessages);
             }
             catch (OperationCanceledException)
             {
@@ -638,7 +540,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// DeepSeek Prefix Cache 可匹配整个对齐对话前缀，避免设计阶段冷启动（从 ~5% → ~60%+ 命中率）。
         /// 如果 alignmentMessages 为 null，则独立创建新对话（兼容旧调用路径）。
         /// </summary>
-        private async Task<AgentTaskPlan?> CreatePlanAsync(
+        /// <returns>(计划, 含 AI JSON 回复的完整消息列表供 Phase 3.5 复用)</returns>
+        private async Task<(AgentTaskPlan? Plan, List<ChatApiMessage> Messages)> CreatePlanAsync(
             string userMessage, string discoveryContext,
             List<ChatApiMessage>? alignmentMessages, AgentContext context)
         {
@@ -683,7 +586,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 messages = new List<ChatApiMessage>(alignmentMessages);
                 messages.AddRange(extraSystemMessages);
                 messages.Add(new ChatApiMessage { Role = "user", Content = planPrompt });
-                AddLog("INFO", "[Plan] 复用对齐阶段对话上下文，延续 DeepSeek Prefix Cache");
+                AddLog("INFO", LocalizationService.Instance["agent.log.planReuseAlignment"]);
             }
             else
             {
@@ -694,7 +597,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             AddLog("INFO", L["agent.log.planGeneratingJson"]);
             string json = await CallAiWithMessagesAsync(
                 messages, ct,
-                maxTokens: 8192, toolChoice: "none", temperature: 0.0);
+                maxTokens: 16384, toolChoice: "none", temperature: 0.0, responseFormat: "json_object");
             AddLog("INFO", L["agent.log.planJsonReceived"]);
 
             // ── 诊断：记录原始响应用于调试 JSON 解析失败 ──
@@ -742,7 +645,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     string retryResponse = await CallAiWithMessagesAsync(
                         retryMessages, ct,
-                        maxTokens: 4096, toolChoice: "none", temperature: 0.0);
+                        maxTokens: 8192, toolChoice: "none", temperature: 0.0, responseFormat: "json_object");
 
                     retryResponse = StripDsmlContent(retryResponse);
                     retryResponse = ExtractJsonFromMarkdown(retryResponse);
@@ -750,6 +653,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (retryResponse.TrimStart().StartsWith("{"))
                     {
                         json = retryResponse;
+                        messages = retryMessages;
                         AddLog("INFO", L["agent.plan.jsonRetrySucceeded"]);
                     }
                     else
@@ -758,7 +662,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             ? retryResponse.Substring(0, 300) + "..."
                             : retryResponse;
                         AddLog("WARN", string.Format(L["agent.plan.jsonRetryFailed"], retryTruncated));
-                        return BuildFallbackPlan(userMessage);
+                        return (BuildFallbackPlan(userMessage), messages);
                     }
                 }
                 catch (OperationCanceledException)
@@ -768,9 +672,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 catch (Exception retryEx)
                 {
                     AddLog("WARN", string.Format(L["agent.plan.jsonRetryFailed"], retryEx.Message));
-                    return BuildFallbackPlan(userMessage);
+                    return (BuildFallbackPlan(userMessage), messages);
                 }
             }
+
+            // ── 尝试修复截断的 JSON（max_tokens 不足时常见）──
+            string repairedJson = TryRepairTruncatedJson(json);
+            if (repairedJson != json)
+            {
+                AddLog("INFO", $"[Plan] JSON 截断修复已应用 (原={json.Length} chars, 修复后={repairedJson.Length} chars)");
+                json = repairedJson;
+            }
+
+            // ── 将 AI 的 JSON 响应追加到对话历史，供 Phase 3.5 plan.md 生成复用 ──
+            messages.Add(new ChatApiMessage { Role = "assistant", Content = json });
 
             try
             {
@@ -782,7 +697,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (plan != null && plan.Steps.Count > 0)
                 {
                     plan.Intent = AgentIntent.CodeChange;
-                    return plan;
+                    return (plan, messages);
                 }
 
                 // JSON 解析成功但 steps 为空 → 尝试从原始文本中提取步骤
@@ -796,7 +711,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         plan.Title = plan.Title ?? extractedSteps[0].Title;
                         plan.Intent = AgentIntent.CodeChange;
                         AddLog("INFO", $"[Plan] Extracted {extractedSteps.Count} steps from raw AI text (JSON steps were empty).");
-                        return plan;
+                        return (plan, messages);
                     }
                 }
             }
@@ -816,17 +731,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (fallbackSteps.Count > 0)
                 {
                     AddLog("INFO", $"[Plan] Extracted {fallbackSteps.Count} steps from raw AI text after JSON parse failure.");
-                    return new AgentTaskPlan
+                    return (new AgentTaskPlan
                     {
                         Intent = AgentIntent.CodeChange,
                         Title = fallbackSteps[0].Title,
                         Steps = fallbackSteps,
-                    };
+                    }, messages);
                 }
             }
 
             // 回退：单步计划
-            return BuildFallbackPlan(userMessage);
+            return (BuildFallbackPlan(userMessage), messages);
         }
 
         /// <summary>
@@ -1128,8 +1043,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 使用 AI 将 JSON 计划展开为详细的 Markdown 计划文档（plan.md）。
         /// 包含：要实现的功能、实现方案、详细步骤、涉及文件、类/接口/方法设计、依赖关系、验证步骤。
         /// </summary>
+        /// <param name="designMessages">Phase 3 的完整对话历史（含 AI JSON 回复），
+        /// Phase 3.5 在此基础之上追加 plan.md 指令，最大化 DeepSeek Prefix Cache 命中率。</param>
         private async Task<string> GenerateDetailedPlanMarkdownAsync(
-            string userMessage, string discoveryContext, AgentTaskPlan plan, AgentContext context)
+            string userMessage, string discoveryContext, AgentTaskPlan plan,
+            AgentContext context, List<ChatApiMessage> designMessages)
         {
             var ct = context.CancellationToken;
             var L = LocalizationService.Instance;
@@ -1141,19 +1059,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 WriteIndented = true,
             });
 
-            // ── 发现上下文作为额外 system 消息注入（保持 messages[0] 稳定）──
-            var extraSystemMessages = new List<ChatApiMessage>();
-            if (!string.IsNullOrEmpty(discoveryContext))
-            {
-                // RAG-MARK: no-truncate — 不再截断代码库发现上下文
-                // RAG-SOURCE: codebase-discovery 代码库探索发现结果（PlanAgent 计划生成）
-                extraSystemMessages.Add(new ChatApiMessage
-                {
-                    Role = "system",
-                    Content = L["plan.md.codebaseFindings"] + "\n\n" + discoveryContext
-                });
-            }
-            extraSystemMessages.Add(new ChatApiMessage
+            // ── 🔑 在 Phase 3 对话历史上追加 plan.md 指令，最大化 Prefix Cache 命中 ──
+            // discoveryContext 已在 designMessages 的历史中，无需重复注入
+            var mdMessages = new List<ChatApiMessage>(designMessages);
+            mdMessages.Add(new ChatApiMessage
             {
                 Role = "system",
                 Content = L["plan.md.jsonPlan"] + "\n```json\n" + planJson + "\n```"
@@ -1198,9 +1107,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             prompt.AppendLine(L["plan.md.note3"]);
             prompt.AppendLine(L["plan.md.note4"]);
 
+            // ── 将 plan.md 用户指令追加到对话历史末尾 ──
+            mdMessages.Add(new ChatApiMessage { Role = "user", Content = prompt.ToString() });
+
             AddLog("INFO", L["agent.log.planGeneratingMd"]);
-            string markdown = await CallAiLongAsync(
-                Definition.SystemPrompt, prompt.ToString(), extraSystemMessages, ct,
+            string markdown = await CallAiWithMessagesAsync(
+                mdMessages, ct,
                 maxTokens: 16384, toolChoice: "none");
             AddLog("INFO", L["agent.log.planMdGenerated"]);
 
@@ -1223,31 +1135,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 ct.ThrowIfCancellationRequested();
                 try
                 {
-                    // 重试：不传发现上下文（已在首次调用的 system messages 中），
-                    // 使用更严格的反工具调用 system 消息覆盖
-                    var retryExtraMessages = new List<ChatApiMessage>
+                    // ── 重试：在 Phase 3 对话历史基础上追加反工具调用指令 ──
+                    var retryMdMessages = new List<ChatApiMessage>(mdMessages);
+                    retryMdMessages.Add(new ChatApiMessage
                     {
-                        new ChatApiMessage
-                        {
-                            Role = "system",
-                            Content = L["plan.md.jsonPlan"] + "\n```json\n" + planJson + "\n```"
-                        },
-                        new ChatApiMessage
-                        {
-                            Role = "system",
-                            Content = "⚠️ CRITICAL: You are in tool_choice=none mode. You have NO tools available. " +
-                                      "Do NOT output any function calls, DSML tags, XML tags, tool invocations, " +
-                                      "or code blocks that look like tool usage. Output ONLY the implementation plan " +
-                                      "in clean Markdown format as instructed below."
-                        }
-                    };
+                        Role = "system",
+                        Content = "⚠️ CRITICAL: You are in tool_choice=none mode. You have NO tools available. " +
+                                  "Do NOT output any function calls, DSML tags, XML tags, tool invocations, " +
+                                  "or code blocks that look like tool usage. Output ONLY the implementation plan " +
+                                  "in clean Markdown format as instructed below."
+                    });
+                    retryMdMessages.Add(new ChatApiMessage
+                    {
+                        Role = "user",
+                        Content = "⚠️ RETRY: Your previous response contained tool call syntax instead of a plan document. " +
+                                  "Re-read the instructions and output ONLY a clean Markdown implementation plan. " +
+                                  "No DSML, no XML, no tool calls, no function invocations — just the plan document."
+                    });
 
-                    string retryMd = await CallAiLongAsync(
-                        Definition.SystemPrompt,
-                        "⚠️ RETRY: Your previous response contained tool call syntax instead of a plan document. " +
-                        "Re-read the instructions and output ONLY a clean Markdown implementation plan. " +
-                        "No DSML, no XML, no tool calls, no function invocations — just the plan document.",
-                        retryExtraMessages, ct,
+                    string retryMd = await CallAiWithMessagesAsync(
+                        retryMdMessages, ct,
                         maxTokens: 16384, toolChoice: "none");
 
                     retryMd = StripDsmlContent(retryMd);
@@ -1340,164 +1247,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             await Task.Run(() => File.WriteAllText(filePath, fullContent, Encoding.UTF8));
 
             return filePath;
-        }
-
-        #endregion
-
-        #region Discovery Compression for Alignment
-
-        /// <summary>
-        /// 将对齐阶段用的发现上下文压缩为轻量摘要。
-        /// 对齐阶段 AI 只需要理解项目结构和关键文件，不需要完整文件内容。
-        /// 压缩策略：保留目录树、文件路径列表、段落首行，丢弃详细代码块内容。
-        /// 压缩率约 70-85%，将对齐阶段的 discoveryContext token 消耗降低至原来的 15-30%。
-        /// </summary>
-        private static string CompressDiscoveryForAlignment(string discoveryContext)
-        {
-            if (string.IsNullOrEmpty(discoveryContext) || discoveryContext.Length < 2000)
-                return discoveryContext; // 已经很短，无需压缩
-
-            var sb = new StringBuilder();
-            var lines = discoveryContext.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
-            bool inCodeBlock = false;
-            bool inDetailedContent = false;
-            int skippedLines = 0;
-
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string line = lines[i];
-                string trimmed = line.TrimStart();
-
-                // 追踪代码块状态
-                if (trimmed.StartsWith("```"))
-                {
-                    inCodeBlock = !inCodeBlock;
-                    if (!inCodeBlock)
-                    {
-                        // 代码块结束 — 如果跳过了内容，添加省略标记
-                        if (skippedLines > 5)
-                        {
-                            sb.AppendLine($"> ... (省略 {skippedLines} 行代码内容)");
-                        }
-                        skippedLines = 0;
-                    }
-                    sb.AppendLine(line);
-                    continue;
-                }
-
-                // 代码块内：丢弃内容，只统计跳过行数
-                if (inCodeBlock)
-                {
-                    skippedLines++;
-                    continue;
-                }
-
-                // 保留所有标题行（##, ###, ####）
-                if (trimmed.StartsWith("##") || trimmed.StartsWith("### ") || trimmed.StartsWith("#### "))
-                {
-                    inDetailedContent = false;
-                    skippedLines = 0;
-                    sb.AppendLine(line);
-                    continue;
-                }
-
-                // 保留目录树标记行（📁, 📄, 目录, 文件）
-                if (trimmed.StartsWith("- 📁") || trimmed.StartsWith("- 📄") ||
-                    trimmed.Contains("目录") || trimmed.Contains("文件"))
-                {
-                    sb.AppendLine(line);
-                    continue;
-                }
-
-                // 保留文件路径引用行（包含 ` 的文件路径）
-                if (trimmed.Contains("`") && (trimmed.Contains("/") || trimmed.Contains("\\")))
-                {
-                    sb.AppendLine(line);
-                    continue;
-                }
-
-                // 保留列表项的第一级（- 开头），丢弃子级详细描述
-                if (trimmed.StartsWith("- ") || trimmed.StartsWith("* "))
-                {
-                    if (trimmed.Length < 150)
-                    {
-                        sb.AppendLine(line);
-                        inDetailedContent = false;
-                    }
-                    else
-                    {
-                        // 长列表项截断到150字符
-                        sb.AppendLine(trimmed.Substring(0, Math.Min(150, trimmed.Length)) + "...");
-                        inDetailedContent = true;
-                    }
-                    continue;
-                }
-
-                // 保留空行作为分隔
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    sb.AppendLine();
-                    continue;
-                }
-
-                // 其他内容：保留首句，丢弃续行
-                if (!inDetailedContent)
-                {
-                    if (trimmed.Length > 200)
-                    {
-                        sb.AppendLine(trimmed.Substring(0, 200) + "...");
-                        inDetailedContent = true;
-                    }
-                    else
-                    {
-                        sb.AppendLine(line);
-                    }
-                }
-                else
-                {
-                    // 续行：如果行短且看起来像新段落开头，恢复输出
-                    if (trimmed.EndsWith(":") || trimmed.EndsWith("：") ||
-                        (trimmed.StartsWith("**") && trimmed.EndsWith("**")))
-                    {
-                        sb.AppendLine(line);
-                        inDetailedContent = false;
-                    }
-                }
-            }
-
-            string result = sb.ToString().TrimEnd();
-            return result.Length > 0 ? result : discoveryContext;
-        }
-
-        /// <summary>
-        /// 从发现上下文中提取文件路径列表（用于对齐阶段的精简参考）。
-        /// </summary>
-        private static List<string> ExtractFilePathsFromDiscovery(string discoveryContext)
-        {
-            var paths = new List<string>();
-            if (string.IsNullOrEmpty(discoveryContext)) return paths;
-
-            // 匹配反引号包裹的路径
-            var backtickMatches = System.Text.RegularExpressions.Regex.Matches(
-                discoveryContext, @"`([^`]+(?:\\|\/)[^`]+)`");
-            foreach (System.Text.RegularExpressions.Match m in backtickMatches)
-            {
-                string path = m.Groups[1].Value.Trim();
-                if (!string.IsNullOrEmpty(path) && !paths.Contains(path))
-                    paths.Add(path);
-            }
-
-            // 匹配裸路径（以盘符或 / 开头、以文件扩展名结尾）
-            var barePathMatches = System.Text.RegularExpressions.Regex.Matches(
-                discoveryContext, @"\b([A-Za-z]:[\\/][^\s]+\.[a-zA-Z]{1,6})\b");
-            foreach (System.Text.RegularExpressions.Match m in barePathMatches)
-            {
-                string path = m.Groups[1].Value.Trim();
-                if (!string.IsNullOrEmpty(path) && !paths.Contains(path))
-                    paths.Add(path);
-            }
-
-            return paths;
         }
 
         #endregion

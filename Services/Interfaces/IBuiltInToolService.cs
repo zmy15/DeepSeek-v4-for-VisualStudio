@@ -1,5 +1,6 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
@@ -13,6 +14,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         List<ToolDefinition> GetFilteredToolDefinitions(List<string>? allowedTools);
 
         /// <summary>执行指定的内置工具，返回执行结果；若不是内置工具则返回 null</summary>
-        Task<string?> ExecuteBuiltInToolAsync(string toolName, string argumentsJson, string? workspaceRoot = null);
+        /// <param name="cancellationToken">可选取消令牌，传递给工具以支持停止按钮中断</param>
+        Task<string?> ExecuteBuiltInToolAsync(string toolName, string argumentsJson, string? workspaceRoot = null, CancellationToken cancellationToken = default);
     }
 }

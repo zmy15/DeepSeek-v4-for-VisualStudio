@@ -24,6 +24,49 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         #region 单文本匹配（4 级降级）
 
         /// <summary>
+        /// 快速验证 AI 提供的上下文是否仍在当前文件内容中。
+        /// 用于检测文件是否在 AI 读取后被外部修改（如前面的编辑步骤），
+        /// 避免基于过时内容应用编辑导致插入到错误位置。
+        /// </summary>
+        /// <param name="fileContent">文件当前完整内容</param>
+        /// <param name="contextLines">AI 提供的上下文行（用于定位的代码行）</param>
+        /// <returns>true 表示至少部分上下文仍可找到，文件内容未过时；false 表示关键上下文全部丢失</returns>
+        public static bool VerifyContentFreshness(string fileContent, string[] contextLines)
+        {
+            if (contextLines == null || contextLines.Length == 0) return true; // 无上下文 → 通过（新文件等场景）
+            if (string.IsNullOrEmpty(fileContent)) return false;
+
+            // ── 取前几个非空上下文行作为采样 ──
+            var sampleLines = contextLines
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .Take(3)
+                .ToArray();
+
+            if (sampleLines.Length == 0) return true;
+
+            // ── 快速检查：每个采样行是否能在文件中找到（忽略首尾空白）──
+            int foundCount = 0;
+            foreach (var line in sampleLines)
+            {
+                string trimmed = line.Trim();
+                if (trimmed.Length < 5) continue; // 太短的行无意义，跳过
+
+                // 尝试在文件中找到（原始 + 去空白两种方式）
+                if (fileContent.Contains(trimmed, StringComparison.Ordinal)
+                    || fileContent.Contains(line, StringComparison.Ordinal))
+                {
+                    foundCount++;
+                }
+            }
+
+            // ── 至少一半的采样行能被找到 → 内容未过时 ──
+            int effectiveSampleSize = sampleLines.Count(l => l.Trim().Length >= 5);
+            if (effectiveSampleSize == 0) return true;
+
+            return foundCount >= Math.Max(1, effectiveSampleSize / 2);
+        }
+
+        /// <summary>
         /// 4 级字符串匹配：在文件内容中定位目标区域。
         /// </summary>
         /// <param name="fileContent">文件当前完整内容</param>

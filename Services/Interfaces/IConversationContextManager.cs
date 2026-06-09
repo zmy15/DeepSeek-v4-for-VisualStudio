@@ -21,6 +21,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         double UsagePercent { get; }
         string? RagContext { get; }
 
+        // ── 缓存友好窗口（v1.1.10）──
+        /// <summary>缓存窗口最大 token 数（0 = 禁用）</summary>
+        int CacheWindowMaxTokens { get; set; }
+        /// <summary>缓存窗口最大轮次数</summary>
+        int CacheWindowMaxTurns { get; set; }
+        /// <summary>缓存窗口最大条目数（兜底保护，0 = 不限）</summary>
+        int CacheWindowMaxEntries { get; set; }
+
         // ── 系统/上下文设置 ──
         void SetSystemPrompt(string? prompt);
         void SetSearchContext(string? searchContext);
@@ -35,6 +43,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 冻结系统提示词为不可变前缀。调用后 messages[0] 在整个会话期间保持不变。
         /// </summary>
         void FreezeSystemPrompt();
+
+        /// <summary>
+        /// 获取已冻结的系统提示词（null = 尚未冻结）。
+        /// </summary>
+        string? GetFixedSystemPrompt();
 
         // ── 消息管理 ──
         void AddUserMessage(string content);

@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
@@ -93,6 +94,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 由 ChatControl 在会话切换/创建时设置。
         /// </summary>
         public string? CurrentSessionId { get; set; }
+
+        /// <summary>
+        /// 活跃文件追踪器（可选注入）。
+        /// 设置时会自动同步到 ReadFileTool 实例。
+        /// </summary>
+        private IActiveFileTracker? _activeFileTracker;
+        public IActiveFileTracker? ActiveFileTracker
+        {
+            get => _activeFileTracker;
+            set
+            {
+                _activeFileTracker = value;
+                SyncActiveFileTrackerToTools();
+            }
+        }
+
+        /// <summary>
+        /// 将 ActiveFileTracker 同步到需要它的工具实例。
+        /// </summary>
+        private void SyncActiveFileTrackerToTools()
+        {
+            if (_tools.TryGetValue("read_file", out var tool) && tool is ReadFileTool rft)
+                rft.ActiveFileTracker = _activeFileTracker;
+        }
+
+        /// <summary>
+        /// 工具结果裁剪器（可选注入）。
+        /// Agent 工具循环和 ContextManager 共享同一实例。
+        /// </summary>
+        public IToolResultCompactor? ToolResultCompactor { get; set; }
 
         public BuiltInToolService(
             McpManagerService? mcpManager = null,
@@ -211,6 +242,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 清空所有文件读取缓存。
+        /// 在每次 runSubagent 调用前使用，确保不同 Explore 子代理之间文件读取缓存隔离，
+        /// 避免子代理 A 读取的文件被子代理 B 的缓存拦截。
+        /// </summary>
+        public void InvalidateFileReadCache()
+        {
+            _fileReadCache.Clear();
+        }
+
+        /// <summary>
         /// 批量使文件读取缓存失效。
         /// </summary>
         public void InvalidateFileReadCache(IEnumerable<string> filePaths)
@@ -302,6 +343,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             return definitions;
         }
 
+        /// <summary>
+        /// 获取完整工具定义列表（不过滤白名单），用于 DeepSeek Prefix Cache 稳定。
+        /// 合并内置工具和 MCP 外部工具。同名时 MCP 工具优先（覆盖内置）。
+        /// 按工具名称稳定排序，确保每次返回顺序一致。
+        /// </summary>
+        public List<ToolDefinition> GetFullToolDefinitions()
+        {
+            var definitions = new List<ToolDefinition>();
+
+            // ── 1. 先收集 MCP 外部工具（同名时优先 MCP）──
+            List<ToolDefinition> mcpDefs = new();
+            if (_mcpManager != null && _mcpManager.AllTools.Count > 0)
+            {
+                mcpDefs = _mcpManager.GetToolDefinitions(); // 不过滤，全部加入
+                definitions.AddRange(mcpDefs);
+            }
+
+            // ── 2. 添加所有内置工具（排除与 MCP 同名的）──
+            var mcpNames = new HashSet<string>(mcpDefs.Select(d => d.Function.Name), StringComparer.OrdinalIgnoreCase);
+            var builtInDefs = _tools.Values
+                .Select(t => t.GetDefinition())
+                .Where(d => !mcpNames.Contains(d.Function.Name))
+                .ToList();
+            definitions.AddRange(builtInDefs);
+
+            Logger.Info($"[BuiltInTool] Full tool definitions: {definitions.Count} (MCP: {mcpDefs.Count}, BuiltIn: {builtInDefs.Count})");
+
+            return definitions;
+        }
+
         #endregion
 
         #region Tool Execution
@@ -309,8 +380,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 执行内置工具调用。返回工具执行结果文本。如果工具不是内置的，返回 null。
         /// </summary>
+        /// <param name="cancellationToken">可选取消令牌，传递给工具以支持停止按钮中断</param>
         public async Task<string?> ExecuteBuiltInToolAsync(
-            string toolName, string argumentsJson, string? workspaceRoot = null)
+            string toolName, string argumentsJson, string? workspaceRoot = null,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -321,6 +394,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     .Deserialize<Dictionary<string, JsonElement>>(argumentsJson)
                     ?? new Dictionary<string, JsonElement>();
 
+                tool.CancellationToken = cancellationToken;
                 return await tool.ExecuteAsync(args, workspaceRoot);
             }
             catch (Exception ex)
@@ -340,7 +414,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     or "fetch_webpage" or "build_solution"
                     or "replace_string_in_file" or "multi_replace_string_in_file" or "create_file" or "delete_file"
                     or "apply_patch" or "create_directory"
-                    or "run_in_terminal" or "get_terminal_output" or "VisualStudio_askQuestions"
+                    or "run_in_terminal" or "get_terminal_output" or "VisualStudio_askQuestions" or "askQuestions"
                     or "runSubagent" or "request_handoff" or "memory" or "git" => true,
                 _ => false
             };
@@ -416,6 +490,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 为 MCP 外部工具生成显示文本。
+        /// 所有 MCP 工具统一加 🔌 MCP 前缀以区分内置工具。
         /// OCR 工具额外提示参数格式。
         /// </summary>
         private static string GetMcpToolCallDisplayText(string toolName, Dictionary<string, JsonElement> args)
@@ -437,19 +512,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 ocrHint = LocalizationService.Instance.Format("tool.service.ocrParam", paramSummary);
             }
 
+            string result;
             if (!string.IsNullOrEmpty(filePath))
             {
                 string fname = Path.GetFileName(filePath);
-                return LocalizationService.Instance.Format("tool.service.callingToolWithFile", toolName, fname, ocrHint);
+                result = LocalizationService.Instance.Format("tool.service.callingToolWithFile", toolName, fname, ocrHint);
             }
-            if (!string.IsNullOrEmpty(url))
-                return LocalizationService.Instance.Format("tool.service.callingToolWithUrl", toolName, TruncateText(url, 50), ocrHint);
-            if (!string.IsNullOrEmpty(query))
-                return LocalizationService.Instance.Format("tool.service.callingToolWithQuery", toolName, TruncateText(query, 50), ocrHint);
-            if (!string.IsNullOrEmpty(inputData))
-                return LocalizationService.Instance.Format("tool.service.callingToolWithInput", toolName, TruncateText(inputData, 50), ocrHint);
+            else if (!string.IsNullOrEmpty(url))
+                result = LocalizationService.Instance.Format("tool.service.callingToolWithUrl", toolName, TruncateText(url, 50), ocrHint);
+            else if (!string.IsNullOrEmpty(query))
+                result = LocalizationService.Instance.Format("tool.service.callingToolWithQuery", toolName, TruncateText(query, 50), ocrHint);
+            else if (!string.IsNullOrEmpty(inputData))
+                result = LocalizationService.Instance.Format("tool.service.callingToolWithInput", toolName, TruncateText(inputData, 50), ocrHint);
+            else
+                result = LocalizationService.Instance.Format("tool.service.callingToolGeneric", toolName, ocrHint);
 
-            return LocalizationService.Instance.Format("tool.service.callingToolGeneric", toolName, ocrHint);
+            // ── MCP 标注：将内置工具的 🔧 替换为 🔌 MCP ──
+            return result.Replace("🔧", "🔌 MCP");
         }
 
         #endregion

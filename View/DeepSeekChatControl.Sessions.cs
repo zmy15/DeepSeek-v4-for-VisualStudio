@@ -239,6 +239,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _lastRenderedMessagesLength = 0;
                 }
 
+                // ── 切换会话时重置并恢复累计 Token/费用统计 ──
+                _apiService?.ResetAccumulatedStats();
+                RestoreCacheStatsFromSession();
+
                 // ── 从 TreeData 恢复树状结构（UI 展示用）──
                 if (!string.IsNullOrWhiteSpace(_activeSession.TreeDataJson))
                 {
@@ -314,6 +318,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _browserInitialized = false;
                 _pageReady = false;  // 重置页面就绪标志，等待新页面加载完成
                 UpdateBrowser();
+
+                // ── 刷新余额/消耗显示，确保 Token 计数反映当前会话 ──
+                RefreshConsumptionDisplay();
 
                 // 页面刷新后重建持久化任务面板
                 _ = RebuildPanelsWhenPageReadyAsync();
@@ -409,6 +416,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // 欢迎消息不加入树结构（仅 UI 展示）
                 }
 
+                // ── 重置累计 Token/费用统计（新会话从零开始）──
+                _apiService?.ResetAccumulatedStats();
+
             // 更新下拉框
             PopulateSessionComboBox();
 
@@ -425,6 +435,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             RebuildMessagesHtml();
             _browserInitialized = false;
             UpdateBrowser();
+
+            // ── 刷新余额/消耗显示，确保新会话 token 计数归零 ──
+            RefreshConsumptionDisplay();
 
             InputTextBox.Focus();
             Logger.Info(LocalizationService.Instance["session.createNew"]);
@@ -559,6 +572,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             try
             {
+                // ── 重置累计 Token / 费用计数器 ──
+                _apiService?.ResetAccumulatedStats();
+
                 // ── 重置树 ──
                 _tree = new ConversationTree();
                 Logger.Info("[Tree] 清空会话 → ConversationTree 已重置");

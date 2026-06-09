@@ -158,7 +158,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private static string BuildSystemPrompt()
         {
-            return CommonSystemPromptPrefix + "\n" +
+            return
                 "你当前处于 **Explore 模式**——专精于任务聚焦的代码库分析，仅探索与用户任务直接相关的文件。\n\n" +
                 "## ⚠️ 核心规则（违反将导致错误结果）\n" +
                 "- **强制工具使用**：你必须使用工具（list_dir / file_search / grep_search / read_file）来探索代码库。\n" +
@@ -170,6 +170,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "- 🚫 **严禁重复读取文件**：如果 read_file 返回「已缓存，请勿重复读取」，说明该文件的**该行范围**已被完整读取，" +
                 "你已拥有其全部内容。**不得再次用相同行范围调用 read_file 读取同一文件**，直接使用已有内容即可。\n" +
                 "  重复读取同一文件是严重的 token 浪费，会降低效率并导致你的输出被截断。\n\n" +
+                "## 🔌 MCP 外部工具\n" +
+                "你可能拥有从 MCP 服务器导入的外部只读工具（如数据库查询、API 文档检索等）。\n" +
+                "这些工具以 `mcp__` 前缀或服务特有命名出现。你可以在探索过程中使用它们获取更丰富的外部数据。\n\n" +
                 "## 聚焦探索流程\n" +
                 "每轮执行以下步骤，只探索与任务直接相关的文件：\n" +
                 "1. **file_search** / **grep_search** — 直接搜索与任务相关的关键词定位文件\n" +
@@ -207,6 +210,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
+            // ── 清理上次执行的移交状态 ──
+            PendingHandoffRequest = null;
+
             // 日志只显示用户消息的第一行（实际任务描述），
             // 后续行是 PlanAgent 注入的结构上下文等元数据，无需在日志中展示
             string logMessage = userMessage;
@@ -225,12 +231,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 var ct = context.CancellationToken;
 
-                // ── 构建消息列表 ──
-                var messages = new List<ChatApiMessage>
-                {
-                    new ChatApiMessage { Role = "system", Content = Definition.SystemPrompt },
-                    new ChatApiMessage { Role = "user", Content = BuildExplorePrompt(userMessage, context) }
-                };
+                // ── 构建消息列表（含对话历史，保持前缀缓存稳定）──
+                var messages = BuildContextAwareMessages(
+                    Definition.SystemPrompt,
+                    BuildExplorePrompt(userMessage, context));
 
                 // ── 解析工作区根目录 ──
                 // 对 .sln 文件取目录；对文件夹项目保持目录原样。
@@ -263,6 +267,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     onThinking: (thinking) =>
                     {
                         thinkingContent += thinking;
+                        context.OnThinkingChunk?.Invoke(thinking);
                     },
                     onContent: (content) =>
                     {
@@ -290,17 +295,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     explorationTraceMd = traceBuilder.ToString();
                 }
 
-                // ── 如果工具调用后有思考内容，附加到结果中 ──
+                // ── 如果工具调用后有思考内容，通过 ReasoningContent 传递，让 UI 渲染原生思考面板 ──
                 if (!string.IsNullOrEmpty(thinkingContent))
                 {
-                    result.Content = $"<details><summary>{LocalizationService.Instance["chat.html.thinkingTitle"]}</summary>\n\n{thinkingContent}\n\n</details>\n\n{explorationTraceMd}\n\n{aiResponse}";
+                    result.ReasoningContent = thinkingContent;
                 }
-                else
-                {
-                    result.Content = string.IsNullOrEmpty(explorationTraceMd)
-                        ? aiResponse
-                        : $"{explorationTraceMd}\n\n{aiResponse}";
-                }
+
+                // ── 最终内容 = 探索追踪 + AI 回答
+                result.Content = string.IsNullOrEmpty(explorationTraceMd)
+                    ? aiResponse
+                    : $"{explorationTraceMd}\n\n{aiResponse}";
 
                 result.Logs.AddRange(_logs);
 

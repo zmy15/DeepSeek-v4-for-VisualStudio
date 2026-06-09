@@ -56,6 +56,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>记忆上下文（独立存储，注入为 system 消息）</summary>
         private string? _memoryContext;
 
+        /// <summary>当前工作区根目录（用于 Working Set 摘要相对路径生成）</summary>
+        private string? _workspaceRoot;
+
         /// <summary>当前 Token 估算计数器（字符级原始估算，未校准）</summary>
         private int _estimatedTokens;
 
@@ -78,11 +81,92 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         private PrefixCacheManager? _prefixCacheManager;
 
+        /// <summary>活跃文件追踪器（可选注入，用于 Working Set 摘要）</summary>
+        private IActiveFileTracker? _activeFileTracker;
+
+        /// <summary>工具结果裁剪器（可选注入）</summary>
+        private IToolResultCompactor? _toolResultCompactor;
+
+        /// <summary>当前使用的模型标识（用于裁剪器的大上下文模型检测）</summary>
+        public string CurrentModel { get; set; } = "deepseek-v4";
+
+        /// <summary>完整工具结果存储（按 tool_call_id 索引，保留原始结果备查）</summary>
+        private readonly Dictionary<string, string> _fullToolResultStore = new();
+
         /// <summary>Token 预算上限（默认 900K，DeepSeek V4 上下文窗口为 1M，留 100K 给输出）</summary>
         public int TokenBudget { get; set; } = 900_000;
 
         /// <summary>当超过 Token 预算时自动压缩的最旧轮次数（此值在压缩模式下仅作用为最小保留轮次）</summary>
         public int AutoTrimTurns { get; set; } = 3;
+
+        // ── 缓存友好窗口（v1.1.10 稳定前缀窗口优化）──
+        //     将 messages 数组分为「固定前缀区」和「缓存窗口区」，
+        //     超出窗口的旧轮次自动压缩为摘要，确保 messages 数组大小稳定，
+        //     使 DeepSeek 服务端能快速检测公共前缀并落盘缓存。
+        //     参考：DeepSeek API 文档 — 公共前缀检测需要 2-3 次请求才能触发落盘
+
+        /// <summary>
+        /// 缓存友好窗口：消息列表超过此估算 token 数时自动裁剪旧轮次并压缩为摘要。
+        /// 默认 150K tokens（约 50KB JSON），确保 DeepSeek 前缀缓存可高效检测公共前缀。
+        /// 设为 0 禁用缓存窗口裁剪。
+        /// </summary>
+        public int CacheWindowMaxTokens { get; set; } = 150_000;
+
+        /// <summary>
+        /// 缓存友好窗口：最多保留的最近轮次数。
+        /// 默认 5 轮，配合 CacheWindowMaxTokens 使用（两者中限制更严格者生效）。
+        /// </summary>
+        public int CacheWindowMaxTurns { get; set; } = 5;
+
+        /// <summary>
+        /// 缓存友好窗口：最多保留的消息条目数（兜底保护）。
+        /// 默认 80 条，防止单轮大量工具调用导致窗口失控。
+        /// 设为 0 不限条目数。
+        /// </summary>
+        public int CacheWindowMaxEntries { get; set; } = 80;
+
+        // ── 🔑 缓存边界快照（v1.1.10）──
+        //     Agent Handoff 时，在注入过渡消息前保存 _entries 的快照索引，
+        //     目标 Agent 可调用 BuildApiMessagesUpToSnapshot() 仅包含边界前的历史，
+        //     使前缀缓存跨 Agent 切换时仍能命中。
+        //     null = 未设置快照（正常会话模式）。
+
+        /// <summary>缓存边界快照：应在 Handoff 前由源 Agent 设置</summary>
+        private int? _cacheSnapshotEntryIndex;
+
+        /// <summary>
+        /// 🔑 缓存边界快照时的 dynamicBlock 冻结副本（v1.1.10）。
+        /// 快照活跃时，BuildApiMessages 使用此冻结版本替代实时 BuildDynamicContextBlock()，
+        /// 防止压缩摘要/搜索/RAG/记忆等动态内容变化导致前缀缓存断裂。
+        /// null = 无快照或快照时 dynamicBlock 为空。
+        /// </summary>
+        private string? _cachedDynamicBlock;
+
+        /// <summary>
+        /// 保存缓存边界快照：记录当前 _entries 的数量作为缓存前缀边界，
+        /// 同时冻结当前的 dynamicBlock 文本，防止动态上下文变化破坏前缀缓存。
+        /// Agent Handoff 前调用，确保目标 Agent 可排除过渡消息、复用缓存前缀。
+        /// </summary>
+        public void SnapshotForCache()
+        {
+            _cacheSnapshotEntryIndex = _entries.Count;
+            _cachedDynamicBlock = BuildDynamicContextBlock();
+            Logger.Info($"[ContextManager] 🔑 缓存边界快照已保存: entryIndex={_cacheSnapshotEntryIndex}, dynamicBlock={(_cachedDynamicBlock?.Length ?? 0)}chars");
+        }
+
+        /// <summary>
+        /// 清除缓存边界快照，恢复完整历史模式。
+        /// </summary>
+        public void ClearCacheSnapshot()
+        {
+            _cacheSnapshotEntryIndex = null;
+            _cachedDynamicBlock = null;
+        }
+
+        /// <summary>
+        /// 是否有活跃的缓存边界快照。
+        /// </summary>
+        public bool HasCacheSnapshot => _cacheSnapshotEntryIndex.HasValue;
 
         /// <summary>获取当前对话轮次数（一个 user 消息 = 一轮）</summary>
         public int TurnCount => _entries.Count(e => e.Role == "user");
@@ -160,6 +244,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 设置当前工作区根目录（用于 Working Set 摘要的相对路径生成）。
+        /// </summary>
+        public void SetWorkspaceRoot(string? workspaceRoot)
+        {
+            _workspaceRoot = workspaceRoot;
+        }
+
+        /// <summary>
         /// 设置 RAG 检索上下文（注入为 system 消息）。
         /// 由 RagService 在每次用户消息前调用。
         /// </summary>
@@ -195,6 +287,33 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 注入活跃文件追踪器。
+        /// 设置后，BuildDynamicContextBlock 将注入 Working Set 摘要。
+        /// </summary>
+        public void SetActiveFileTracker(IActiveFileTracker? tracker)
+        {
+            _activeFileTracker = tracker;
+        }
+
+        /// <summary>
+        /// 注入工具结果裁剪器。
+        /// 设置后，AddToolResult 将自动裁剪过长结果。
+        /// </summary>
+        public void SetToolResultCompactor(IToolResultCompactor? compactor)
+        {
+            _toolResultCompactor = compactor;
+        }
+
+        /// <summary>
+        /// 获取完整未裁剪的工具结果（按 tool_call_id）。
+        /// </summary>
+        public string? GetFullToolResult(string toolCallId)
+        {
+            _fullToolResultStore.TryGetValue(toolCallId, out string? result);
+            return result;
+        }
+
+        /// <summary>
         /// 冻结系统提示词为不可变前缀。
         /// 应在会话初始化时调用一次。冻结后整个会话期间不应再调用 SetSystemPrompt()。
         /// 
@@ -225,6 +344,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 安全净化：防止工具注入标记进入上下文 ──
             content = StringExtensions.SanitizeUserInput(content);
 
+            // ── 🔑 缓存边界快照：新用户消息意味着新对话轮次，清除旧快照 ──
+            if (_cacheSnapshotEntryIndex.HasValue)
+            {
+                Logger.Info($"[ContextManager] 🔑 新用户消息，清除缓存边界快照 (was at entry {_cacheSnapshotEntryIndex})");
+                _cacheSnapshotEntryIndex = null;
+            }
+
             _entries.Add(new ContextEntry
             {
                 Role = "user",
@@ -238,6 +364,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 AutoCompressIfNeeded();
             else
                 AutoTrimIfNeeded();
+
+            // ── 🔑 v1.1.11：冻结动态上下文块，确保同轮次内后续API调用
+            //     messages[2] 内容不变 → DeepSeek前缀缓存可持续命中。──
+            _cachedDynamicBlock = BuildDynamicContextBlock();
         }
 
         /// <summary>
@@ -262,6 +392,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 await AutoCompressIfNeededAsync(cancellationToken);
             else
                 AutoTrimIfNeeded();
+
+            // ── 🔑 v1.1.11：冻结动态上下文块（同AddUserMessage）。──
+            _cachedDynamicBlock = BuildDynamicContextBlock();
         }
 
         /// <summary>
@@ -272,6 +405,54 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <param name="toolCalls">工具调用列表（可为 null）</param>
         public void AddAssistantMessage(string? content, string? reasoningContent = null, List<ToolCall>? toolCalls = null)
         {
+            // ── 🔑 前缀缓存优化：写时合并连续 assistant 消息 ──
+            //     如果上一条也是 assistant，合并内容而非新增条目，
+            //     避免 BuildApiMessages 产生连续 assistant 消息，进而触发 ChatStreamAsync
+            //     的合并逻辑修改消息内容 → 破坏 DeepSeek Prefix Cache 前缀。
+            //
+            //     覆盖两种场景：
+            //     A. 两条纯文本 assistant（均无 tool_calls）→ 合并文本
+            //     B. 前条有 tool_calls + 本条纯文本 → 合并文本到前条（保留 tool_calls）
+            //        这是 Agent 工具调用循环中的常见模式：AI 先发起工具调用，再输出文本响应
+            if (_entries.Count > 0)
+            {
+                var last = _entries[_entries.Count - 1];
+                if (last.Role == "assistant")
+                {
+                    bool lastHasTc = last.ToolCalls != null && last.ToolCalls.Count > 0;
+                    bool currHasTc = toolCalls != null && toolCalls.Count > 0;
+
+                    // 场景 A：两条都是纯文本 assistant → 合并
+                    // 场景 B：前条有 tool_calls，本条是纯文本 → 合并文本到前条（保留 tool_calls 结构）
+                    if (!currHasTc)
+                    {
+                        // 合并文本内容到前条 assistant
+                        if (!string.IsNullOrWhiteSpace(content))
+                        {
+                            last.Content = string.IsNullOrWhiteSpace(last.Content)
+                                ? content
+                                : last.Content + "\n\n---\n\n" + content;
+                        }
+                        // 如果后者有 reasoning_content，保留后者
+                        if (!string.IsNullOrWhiteSpace(reasoningContent))
+                            last.ReasoningContent = reasoningContent;
+                        _estimatedTokens += EstimateTokens(content);
+                        if (!string.IsNullOrEmpty(reasoningContent))
+                            _estimatedTokens += EstimateTokens(reasoningContent);
+
+                        // ── 诊断：记录非标准合并场景 ──
+                        if (lastHasTc)
+                        {
+                            Logger.Info($"[ContextManager] 写时合并 assistant: 前条有 tool_calls({last.ToolCalls!.Count}个), " +
+                                $"本条纯文本({content?.Length ?? 0}chars) → 合并到前条");
+                        }
+                        return;
+                    }
+                    // 场景 C：前条纯文本 + 本条有 tool_calls → 不应合并（语义上 tool_calls 不应在文本之后）
+                    // 保持独立条目，由 BuildApiMessages 自然处理
+                }
+            }
+
             _entries.Add(new ContextEntry
             {
                 Role = "assistant",
@@ -288,13 +469,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 添加工具调用结果（tool 角色消息）。
+        /// 自动裁剪过长结果以保护上下文窗口。
+        /// 完整结果保留在独立存储中备查。
         /// </summary>
         public void AddToolResult(string toolCallId, string toolName, string result)
         {
+            // 保存原始完整结果
+            if (!string.IsNullOrEmpty(toolCallId) && !string.IsNullOrEmpty(result))
+                _fullToolResultStore[toolCallId] = result;
+
+            // 裁剪结果（若裁剪器已注入）
+            string contextResult = result;
+            if (_toolResultCompactor != null && !string.IsNullOrEmpty(result))
+            {
+                contextResult = _toolResultCompactor.CompactToolResultForContext(
+                    toolName, result, CurrentModel);
+            }
+
             _entries.Add(new ContextEntry
             {
                 Role = "tool",
-                Content = result,
+                Content = contextResult,
                 ToolCallId = toolCallId,
                 Name = toolName,
                 TurnIndex = TurnCount, // 工具调用属于当前轮次
@@ -327,16 +522,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 构建发送给 DeepSeek API 的完整消息列表。
         /// 正确处理 reasoning_content 回传规则。
         /// 
-        /// ── 前缀缓存优化（v1.1.9）──
-        /// 消息结构遵循"固定前缀 + 对话历史 + 动态块"三层模型：
-        ///   messages[0] = 冻结的不可变系统提示词（整个会话固定不变）
+        /// ── 前缀缓存优化（v1.1.10）──
+        /// 消息结构遵循"共享不可变前缀 + 对话历史 + Agent 专属块 + 动态块"四层模型：
+        ///   messages[0] = AiPrompts.SharedImmutablePrefix（跨 Agent 完全一致）
         ///   messages[1..N-1] = 对话历史（仅追加，不修改）→ 前缀缓存可覆盖到此
-        ///   messages[N] = 动态上下文块（压缩摘要 + 搜索 + RAG + 记忆）
-        ///   messages[N+1] = 用户消息（调用方追加）
+        ///   messages[N] = Agent 专属系统提示词（_fixedSystemPrompt，放在历史之后）
+        ///   messages[N+1] = 动态上下文块（压缩摘要 + 搜索 + RAG + 记忆）
+        ///   messages[N+2] = 用户消息（调用方追加）
         /// 
-        /// 将动态块放在对话历史之后、用户消息之前，使前缀缓存可以从 messages[0]
-        /// 一直延伸到对话历史的末尾。动态块的变化只影响它自身及之后的消息，
-        /// 对话历史的前缀在每次请求间保持稳定。
+        /// 关键改动（v1.1.10）：messages[0] 使用 AiPrompts.SharedImmutablePrefix 而非
+        /// _fixedSystemPrompt。前者跨所有 Agent 完全一致，后者包含 Agent 专属指令。
+        /// 将 Agent 专属指令从 messages[0] 移到对话历史之后，消除跨 Agent 切换时的
+        /// 前缀漂移（Prefix Drift），使 DeepSeek V4 自动前缀缓存在 Agent 切换后
+        /// 仍能命中 messages[0] 到对话历史末尾的整个前缀。
+        /// 
+        /// 此结构与 BaseAgent.BuildContextAwareMessages() 的 messages[0] 保持一致，
+        /// 两者都使用 AiPrompts.SharedImmutablePrefix。
         /// 
         /// DeepSeek V4 规则：
         /// - 如果 assistant 消息没有 tool_calls：reasoning_content 不应回传（会被 API 忽略）
@@ -347,26 +548,59 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             var messages = new List<ChatApiMessage>();
 
-            // ── 1. 不可变前缀：冻结的系统提示词（messages[0]，整个会话不改变）──
-            string? fixedPrompt = _fixedSystemPrompt;
-            if (!string.IsNullOrWhiteSpace(fixedPrompt))
+            // ── 1. 共享不可变前缀（messages[0]，跨 Agent 永远不变）──
+            //     使用 AiPrompts.SharedImmutablePrefix 而非 _fixedSystemPrompt，
+            //     确保与 BaseAgent.BuildContextAwareMessages() 的 messages[0] 完全一致。
+            string sharedPrefix = AiPrompts.SharedImmutablePrefix;
+            if (!string.IsNullOrWhiteSpace(sharedPrefix))
             {
-                messages.Add(new ChatApiMessage { Role = "system", Content = fixedPrompt });
+                messages.Add(new ChatApiMessage { Role = "system", Content = sharedPrefix });
             }
-            else
+
+            // ── 2. Agent 专属系统提示词：紧接在共享前缀之后，放在固定位置 ──
+            //     原来放在对话历史末尾，导致历史增长时位置不断后移，cache key 漂移。
+            //     现在固定在 messages[1]，确保主流程与 Agent 子调用的前缀结构一致，
+            //     DeepSeek 前缀缓存在跨路径切换时仍能命中。
+            //     内容 = 用户自定义 prompt + AskAgent prompt + MultiAgent + Memory + Workspace + Skill 上下文。
+            //
+            //     🔑 v1.1.11：始终占据 messages[1] 位置（即使为空），避免 null/非null
+            //         交替导致后续消息位移，破坏前缀缓存。
+            string? fixedPrompt = _fixedSystemPrompt
+                ?? (string.IsNullOrWhiteSpace(_systemPrompt) && string.IsNullOrWhiteSpace(_skillContext) ? null : BuildFinalSystemPrompt());
+            messages.Add(new ChatApiMessage { Role = "system", Content = fixedPrompt ?? string.Empty });
+
+            // ── 3. 缓存窗口裁剪 + 动态上下文块 ──
+            //     先确定缓存窗口边界，将窗口外的旧轮次压缩为摘要（异步），
+            //     再构建动态块（包含压缩摘要、搜索、RAG、记忆）。
+            //     这样 messages[0..2] 结构保持稳定，只有窗口内的对话历史会变化。
+            //
+            //     🔑 快照冻结（v1.1.10）：若快照活跃，跳过 CompressEntriesBeforeWindow，
+            //        因为压缩会原地替换旧条目（MUTATE entries），破坏快照试图保护的
+            //        前缀稳定性。快照活跃时 entries + dynamicBlock 均已冻结，无需压缩。
+            if (!_cacheSnapshotEntryIndex.HasValue)
             {
-                // 回退：尚未冻结时使用动态拼接（兼容旧调用路径）
-                string? fallbackPrompt = BuildFinalSystemPrompt();
-                if (!string.IsNullOrWhiteSpace(fallbackPrompt))
+                int cacheWindowStart = FindCacheWindowStart();
+                if (cacheWindowStart > 0)
                 {
-                    messages.Add(new ChatApiMessage { Role = "system", Content = fallbackPrompt });
+                    CompressEntriesBeforeWindow(cacheWindowStart);
                 }
             }
 
-            // ── 2. 遍历对话历史，正确构建消息 ──
-            //     历史位于系统提示词之后，使前缀缓存可连续命中所有不变的对话消息
-            foreach (var entry in _entries)
+            string? dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
+            // ── 🔑 v1.1.11：始终占据 messages[2] 位置（即使为空），
+            //     避免压缩触发前 null/触发后非null 的交替导致后续消息位移。──
+            messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock ?? string.Empty });
+
+            // ── 4. 遍历缓存窗口内的对话历史，正确构建消息 ──
+            //     仅包含窗口内的条目（旧条目已在步骤 3 被压缩或丢弃），
+            //     确保 messages 数组大小稳定，使 DeepSeek 能检测公共前缀。
+            //
+            //     🔑 缓存边界快照（v1.1.10）：若有活跃快照，仅包含边界前的条目，
+            //        边界后的条目（Handoff 过渡消息）被排除以保护前缀缓存。
+            int entryLimit = _cacheSnapshotEntryIndex ?? _entries.Count;
+            for (int i = 0; i < _entries.Count && i < entryLimit; i++)
             {
+                var entry = _entries[i];
                 // 跳过没有内容的条目（除非有 tool_calls）
                 if (string.IsNullOrEmpty(entry.Content) && (entry.ToolCalls == null || entry.ToolCalls.Count == 0))
                     continue;
@@ -405,28 +639,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 messages.Add(apiMsg);
             }
 
-            // ── 3. 动态上下文块：放在对话历史之后、用户消息之前 ──
-            //     将压缩摘要、搜索、RAG、记忆合并为一条 system 消息，放在历史末尾。
-            //     这样对话历史的前缀完全稳定，动态变化只影响这一条及其后的用户消息。
-            string? dynamicBlock = BuildDynamicContextBlock();
-            if (!string.IsNullOrWhiteSpace(dynamicBlock))
-            {
-                messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock });
-            }
-
-            // ── 4. 前缀缓存漂移检测（若有 PrefixCacheManager 注入）──
+            // ── 5. 前缀缓存漂移检测（若有 PrefixCacheManager 注入）──
             //     注意：此处仅记录日志，不阻止请求。实际指纹对比需要 tool 列表，
             //     由调用方（DeepSeekApiService）在发送前完成。
+            //     由于 messages[0] 现在是 SharedImmutablePrefix（跨 Agent 不变），
+            //     且 PrefixCacheManager 已将 tool 集变化降级为 Info（非漂移），
+            //     只有 system prompt 真正变化时才会产生 Warning。tool 集变化是
+            //     多 Agent 架构中的正常行为，不再触发漂移告警。
             if (_prefixCacheManager != null && _prefixCacheManager.IsPinned)
             {
-                string? currentFixedPrompt = _fixedSystemPrompt ?? BuildFinalSystemPrompt();
-                if (!string.IsNullOrWhiteSpace(currentFixedPrompt))
+                string spFp = PrefixCacheManager.ComputeSystemPromptFingerprint(sharedPrefix);
+                if (spFp != _prefixCacheManager.PinnedCombinedFingerprint?.Split('|').FirstOrDefault())
                 {
-                    string spFp = PrefixCacheManager.ComputeSystemPromptFingerprint(currentFixedPrompt);
-                    if (spFp != _prefixCacheManager.PinnedCombinedFingerprint?.Split('|').FirstOrDefault())
-                    {
-                        Logger.Warn($"[PrefixCache] System prompt 指纹与 pinned 基准不匹配，缓存可能失效");
-                    }
+                    Logger.Warn($"[PrefixCache] System prompt 指纹与 pinned 基准不匹配，缓存可能失效");
                 }
             }
 
@@ -450,17 +675,28 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     parts.Add(compressedText);
             }
 
+            // ── 活跃文件 Working Set（新增，放在压缩摘要之后）──
+            if (_activeFileTracker != null)
+            {
+                string wsRoot = !string.IsNullOrWhiteSpace(_workspaceRoot)
+                    ? _workspaceRoot!
+                    : Environment.CurrentDirectory;
+                string activeFileSummary = _activeFileTracker.GetActiveFileSummary(wsRoot);
+                if (!string.IsNullOrWhiteSpace(activeFileSummary))
+                    parts.Add(activeFileSummary);
+            }
+
             // 搜索上下文
             if (!string.IsNullOrWhiteSpace(_searchContext))
-                parts.Add(_searchContext);
+                parts.Add(_searchContext!);
 
             // RAG 检索上下文
             if (!string.IsNullOrWhiteSpace(_ragContext))
-                parts.Add(_ragContext);
+                parts.Add(_ragContext!);
 
             // 记忆上下文
             if (!string.IsNullOrWhiteSpace(_memoryContext))
-                parts.Add(_memoryContext);
+                parts.Add(_memoryContext!);
 
             if (parts.Count == 0)
                 return null;
@@ -469,9 +705,127 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 查找缓存窗口的起始条目索引。
+        /// 从 _entries 末尾向前遍历，累计轮次、token 数（UTF-8 字节估算）、条目数，
+        /// 直到达到任一限制。返回窗口内第一个条目的索引（包含），0 表示全部保留。
+        /// </summary>
+        private int FindCacheWindowStart()
+        {
+            int maxTurns = CacheWindowMaxTurns;
+            int maxTokens = CacheWindowMaxTokens;
+            int maxEntries = CacheWindowMaxEntries;
+
+            // 全部禁用 → 返回 0
+            if (maxTurns <= 0 && maxTokens <= 0 && maxEntries <= 0)
+                return 0;
+
+            int turnCount = 0;
+            int tokenSum = 0;
+            int entryCount = 0;
+            int lastUserTurn = -1;
+
+            // 从后往前扫描
+            for (int i = _entries.Count - 1; i >= 0; i--)
+            {
+                var entry = _entries[i];
+
+                // ── Token 估算：UTF-8 字节数 / 2（比 chars/4 更接近 API 实际值）──
+                int contentBytes = 0;
+                if (!string.IsNullOrEmpty(entry.Content))
+                    contentBytes = System.Text.Encoding.UTF8.GetByteCount(entry.Content);
+                if (!string.IsNullOrEmpty(entry.ReasoningContent))
+                    contentBytes += System.Text.Encoding.UTF8.GetByteCount(entry.ReasoningContent);
+                int entryTokens = Math.Max(1, contentBytes / 2);
+
+                // 检测到新的 user 消息 → 轮次+1
+                if (entry.Role == "user" && entry.TurnIndex > 0)
+                {
+                    if (lastUserTurn != entry.TurnIndex)
+                    {
+                        turnCount++;
+                        lastUserTurn = entry.TurnIndex;
+                    }
+                }
+
+                tokenSum += entryTokens;
+                entryCount++;
+
+                // 检查是否超出窗口限制
+                bool turnLimitExceeded = maxTurns > 0 && turnCount >= maxTurns;
+                bool tokenLimitExceeded = maxTokens > 0 && tokenSum >= maxTokens;
+                bool entryLimitExceeded = maxEntries > 0 && entryCount >= maxEntries;
+
+                if (turnLimitExceeded || tokenLimitExceeded || entryLimitExceeded)
+                {
+                    return i;
+                }
+            }
+
+            // 所有条目都在窗口内
+            return 0;
+        }
+
+        /// <summary>
+        /// 将指定索引之前的条目移出 _entries，可选压缩为摘要。
+        /// 即使没有压缩服务，也会移除旧条目以控制上下文大小。
+        /// </summary>
+        private void CompressEntriesBeforeWindow(int windowStartIdx)
+        {
+            if (windowStartIdx <= 0)
+                return;
+
+            var entriesToCompress = new List<ContextEntry>();
+            int removedTokens = 0;
+
+            for (int i = 0; i < windowStartIdx; i++)
+            {
+                var entry = _entries[i];
+                entriesToCompress.Add(entry);
+                removedTokens += EstimateTokens(entry.Content);
+                if (!string.IsNullOrEmpty(entry.ReasoningContent))
+                    removedTokens += EstimateTokens(entry.ReasoningContent);
+            }
+
+            if (entriesToCompress.Count == 0) return;
+
+            // 确定压缩的轮次范围
+            int fromTurn = entriesToCompress.Where(e => e.TurnIndex > 0).Select(e => e.TurnIndex).DefaultIfEmpty(1).First();
+            int toTurn = entriesToCompress.Where(e => e.TurnIndex > 0).Select(e => e.TurnIndex).DefaultIfEmpty(fromTurn).Last();
+
+            // ── 始终从 _entries 中移除（无论有无 compressor）──
+            _entries.RemoveRange(0, windowStartIdx);
+            _estimatedTokens -= removedTokens;
+
+            // ── 异步压缩（仅在有 compressor 时）──
+            if (_compressor != null)
+            {
+                var capturedEntries = entriesToCompress;
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _compressor.CompressTurnsAsync(capturedEntries, fromTurn, toTurn);
+                        Logger.Info($"[CacheWindow] 压缩第 {fromTurn}-{toTurn} 轮: " +
+                            $"{removedTokens} → {_compressor.TotalCompressedTokens} tokens (摘要)");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn($"[CacheWindow] 压缩失败: {ex.Message}");
+                    }
+                });
+            }
+
+            Logger.Info($"[CacheWindow] 裁剪 {entriesToCompress.Count} 条旧消息 " +
+                $"(第 {fromTurn}-{toTurn} 轮, {removedTokens} tokens)，" +
+                $"保留最近 {TurnCount} 轮在窗口内" +
+                (_compressor == null ? " (无压缩器，直接丢弃)" : ""));
+        }
+
+        /// <summary>
         /// 构建仅包含最近 N 轮的 API 消息列表（用于 Agent 子调用）。
         /// 以 user 消息为轮次边界，保留完整的 tool 调用链。
-        /// 前缀结构同 BuildApiMessages()：messages[0] = 冻结 prompt，历史在中间，动态块在末尾。
+        /// 前缀结构同 BuildApiMessages()：messages[0] = SharedImmutablePrefix，
+        /// Agent 专属提示词和动态块放在对话历史之后。
         /// </summary>
         /// <param name="maxTurns">保留的最大轮次数</param>
         public List<ChatApiMessage> BuildApiMessagesRecentTurns(int maxTurns)
@@ -496,22 +850,45 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             }
 
+            // ── 缓存窗口：进一步限制 token 数，并压缩旧条目 ──
+            //     🔑 快照冻结（v1.1.10）：若快照活跃，跳过压缩。
+            //        原因同 BuildApiMessages()：压缩会 MUTATE entries，
+            //        破坏快照保护的缓存前缀。
+            if (!_cacheSnapshotEntryIndex.HasValue)
+            {
+                int tokenWindowStart = FindCacheWindowStart();
+                if (tokenWindowStart > startEntryIdx)
+                    startEntryIdx = tokenWindowStart;
+                if (startEntryIdx > 0)
+                    CompressEntriesBeforeWindow(startEntryIdx);
+            }
+
             // 构建截断后的消息列表（前缀结构与 BuildApiMessages 一致）
             var messages = new List<ChatApiMessage>();
 
-            // ── 1. 不可变前缀 ──
-            string? fixedPrompt = _fixedSystemPrompt;
-            if (!string.IsNullOrWhiteSpace(fixedPrompt))
-                messages.Add(new ChatApiMessage { Role = "system", Content = fixedPrompt });
-            else
+            // ── 1. 共享不可变前缀 ──
+            string sharedPrefix = AiPrompts.SharedImmutablePrefix;
+            if (!string.IsNullOrWhiteSpace(sharedPrefix))
             {
-                string? fallbackPrompt = BuildFinalSystemPrompt();
-                if (!string.IsNullOrWhiteSpace(fallbackPrompt))
-                    messages.Add(new ChatApiMessage { Role = "system", Content = fallbackPrompt });
+                messages.Add(new ChatApiMessage { Role = "system", Content = sharedPrefix });
             }
 
-            // ── 2. 从 startEntryIdx 开始构建对话历史 ──
-            for (int i = startEntryIdx; i < _entries.Count; i++)
+            // ── 2. Agent 专属系统提示词（固定位置，在历史之前）──
+            //     🔑 v1.1.11：始终占据固定位置（即使为空），与 BuildApiMessages 对齐。
+            string? fixedPrompt = _fixedSystemPrompt
+                ?? (string.IsNullOrWhiteSpace(_systemPrompt) && string.IsNullOrWhiteSpace(_skillContext) ? null : BuildFinalSystemPrompt());
+            messages.Add(new ChatApiMessage { Role = "system", Content = fixedPrompt ?? string.Empty });
+
+            // ── 3. 动态上下文块（固定位置，在历史之前）──
+            //     🔑 v1.1.11：始终占据固定位置（即使为空），避免压缩触发前后的位置位移。
+            //     使用缓存版本（AddUserMessage时冻结），确保同轮次内内容不变。
+            string? dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
+            messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock ?? string.Empty });
+
+            // ── 4. 从 startEntryIdx 开始构建对话历史 ──
+            //     🔑 缓存边界快照（v1.1.10）：若有活跃快照，上限为边界索引
+            int entryEnd = _cacheSnapshotEntryIndex ?? _entries.Count;
+            for (int i = startEntryIdx; i < _entries.Count && i < entryEnd; i++)
             {
                 var entry = _entries[i];
                 if (string.IsNullOrEmpty(entry.Content) && (entry.ToolCalls == null || entry.ToolCalls.Count == 0))
@@ -539,11 +916,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 messages.Add(apiMsg);
             }
-
-            // ── 3. 动态上下文块（放在历史之后）──
-            string? dynamicBlock = BuildDynamicContextBlock();
-            if (!string.IsNullOrWhiteSpace(dynamicBlock))
-                messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock });
 
             return messages;
         }
@@ -669,7 +1041,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             int chineseChars = 0;
             int otherChars = 0;
-            foreach (char c in text)
+            foreach (char c in text!)
             {
                 // CJK 统一表意文字 + CJK 扩展
                 if ((c >= 0x4E00 && c <= 0x9FFF) ||
@@ -999,7 +1371,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         break;
                     case "tool":
                         if (!string.IsNullOrEmpty(msg.ToolCallId))
-                            AddToolResult(msg.ToolCallId, msg.Name ?? "unknown", msg.Content ?? string.Empty);
+                            AddToolResult(msg.ToolCallId!, msg.Name ?? "unknown", msg.Content ?? string.Empty);
                         break;
                     case "system":
                         AddCustomMessage("system", msg.Content ?? string.Empty);
@@ -1045,6 +1417,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             _memoryContext = null;
             _compressor?.Clear();
             _prefixCacheManager?.Reset();
+            _cacheSnapshotEntryIndex = null;
+            _cachedDynamicBlock = null;
         }
 
         /// <summary>

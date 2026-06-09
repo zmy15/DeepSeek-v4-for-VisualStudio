@@ -22,11 +22,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     /// - 支持构建/运行验证步骤
     /// - 请求用户权限确认
     /// - 追踪文件变更
+    /// 
+    /// 限制策略（v1.1.10）：
+    /// - 每次编辑 ≤ 3 个文件
+    /// - 每次编辑 ≤ 500 行代码变更
+    /// - 文件修改后再次编辑前强制重新读取
     /// </summary>
-    public class EditAgent : BaseAgent
+    public partial class EditAgent : BaseAgent
     {
+        // ── 编辑限制常量 ──
+        internal const int MaxFilesPerEdit = 3;
+        internal const int MaxLinesPerEdit = 500;
+
         private CancellationTokenSource? _agentCts;
         private ExploreAgent? _exploreAgent;
+
+        // ── 累积累推理/思考内容（跨步骤收集，供 UI 渲染思考面板）──
+        private string? _accumulatedReasoning;
+
+        // ── 本轮已修改文件追踪（用于步骤间重读提示）──
+        private readonly HashSet<string> _lastModifiedFiles = new(StringComparer.OrdinalIgnoreCase);
 
         // ── 编辑工具（懒加载，由 EnsureEditTools 初始化）──
         private ApplyPatchTool? _applyPatchTool;
@@ -35,14 +50,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private MultiReplaceStringTool? _multiReplaceStringTool;
 
         /// <summary>
-        /// ExploreAgent 引用，由 AgentDispatcher 注入。
+        /// ExploreAgent 引用，由 AgentFactory 注入。
         /// 用于在执行代码修改前智能发现相关文件。
         /// 设置时自动转发 ExploreAgent 的日志和文件变更事件。
         /// </summary>
         public new ExploreAgent? ExploreAgent
         {
             get => _exploreAgent;
-            set => RegisterExploreAgent(value, ref _exploreAgent);
+            set
+            {
+                RegisterExploreAgent(value, ref _exploreAgent);
+                base.ExploreAgent = value; // 🔑 同步到基类属性，确保 ExecuteToolAsync 可见
+            }
         }
 
         /// <summary>当前正在执行的任务计划</summary>
@@ -101,6 +120,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "git",                 // 允许探索阶段使用 git 查看状态/历史
         };
 
+        /// <summary>
+        /// Edit Agent 代码步骤完整工具集（v1.1.10）。
+        /// 包含探索工具 + 编辑工具，允许 AI 在步骤内执行增量编辑：
+        /// 探索 → 编辑 → 读取结果 → 继续编辑 → ...，而非强制一次性输出所有变更。
+        /// 循环检测机制（BaseAgent.CallAiWithToolLoopAsync）防止死循环。
+        /// </summary>
+        private static readonly string[] CodeStepTools = new[]
+        {
+            // 探索工具
+            "read_file",
+            "get_errors",
+            "runSubagent",
+            "build_solution",
+            "git",
+            // 编辑工具 — 允许步骤内增量编辑
+            "replace_string_in_file",
+            "multi_replace_string_in_file",
+            "create_file",
+            "delete_file",
+            "apply_patch",
+            "create_directory",
+            "edit_notebook_file",
+        };
+
         protected override AgentDefinition CreateDefinition(AgentType agentType)
         {
             return new AgentDefinition
@@ -128,7 +171,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         TargetAgent = AgentType.Build,
                         Prompt = LocalizationService.Instance["agent.edit.handoffBuildPrompt"],
                         AutoSend = true,
-                        ShowContinueOn = true,
+                        ShowContinueOn = false,
+                    },
+                    new AgentHandoff
+                    {
+                        Label = LocalizationService.Instance["agent.edit.handoffPlanLabel"],
+                        TargetAgent = AgentType.Plan,
+                        Prompt = LocalizationService.Instance["agent.edit.handoffPlanPrompt"],
+                        AutoSend = true,
+                        ShowContinueOn = false,
                     },
                 },
                 SystemPrompt = BuildSystemPrompt(),
@@ -137,7 +188,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private static string BuildSystemPrompt()
         {
-            return GetCommonSystemPromptPrefix() + LocalizationService.Instance["system.agent.editPromptFragment"];
+            return LocalizationService.Instance["system.agent.editPromptFragment"]
+                + LocalizationService.Instance["agent.edit.mcpSystemPrompt"];
         }
 
         #endregion
@@ -150,8 +202,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public override async Task<AgentResult> ExecuteAsync(string userMessage, AgentContext context)
         {
-            // ── 清空上次执行的日志，防止 HasBuildWarningsInLogs() 被旧日志误导 ──
+            // ── 清空上次执行的日志、推理内容和移交状态 ──
             _logs.Clear();
+            _accumulatedReasoning = null;
+            PendingHandoffRequest = null;
 
             var result = new AgentResult
             {
@@ -159,55 +213,63 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 Success = true,
             };
 
-            // ── 如果有 ActivePlan，执行计划 ──
-            if (context.ActivePlan != null && context.ActivePlan.Steps.Count > 0)
+            // ── 如果有 ActivePlan 且未完成，执行计划 ──
+            // 如果计划已完成（如上一轮 plan→edit 已执行完毕），则视为新任务重新路由
+            AgentTaskPlan plan;
+            if (context.ActivePlan != null && context.ActivePlan.Steps.Count > 0
+                && !context.ActivePlan.IsCompleted)
             {
-                await ExecutePlanAsync(context.ActivePlan, context);
-                result.Plan = context.ActivePlan;
-                result.FileChanges = context.ActivePlan.ChangedFiles;
-
-                // ── AI 通过 request_handoff 工具主动请求移交（优先于程序化移交）──
-                if (PendingHandoffRequest != null)
-                {
-                    result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
-                }
-                else
-                {
-                    // ── 移交 Ask Agent 生成最终总结 ──
-                    result.Handoff = BuildSummaryHandoff(context.ActivePlan);
-
-                    if (HasBuildWarningsInLogs())
-                    {
-                        result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
-                    }
-                }
+                plan = context.ActivePlan;
+                await ExecutePlanAsync(plan, context);
             }
             else
             {
-                // ── 没有计划，作为单步代码修改执行 ──
-                AddLog("INFO", LocalizationService.Instance["agent.log.editNoPlan"]);
-                var plan = CreateSingleStepPlan(userMessage);
-                context.ActivePlan = plan; // 确保 Handoff 时 AskAgent 可检测到已完成计划
-                await ExecutePlanAsync(plan, context);
-                result.Plan = plan;
-                result.FileChanges = plan.ChangedFiles;
+                // ── 使用首次路由时预分类的 TaskSize，避免对 handoff 长消息重复分类 ──
+                var taskSize = context.PreClassifiedTaskSize;
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editTaskSize"], taskSize));
 
-                // ── AI 通过 request_handoff 工具主动请求移交（优先于程序化移交）──
-                if (PendingHandoffRequest != null)
+                // ── 用户 @edit 显式指定时尊重用户意图，跳过自动移交 ──
+                if (taskSize == TaskSize.Large && context.IsExplicitRoute)
                 {
-                    result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
+                    AddLog("INFO", LocalizationService.Instance["agent.log.editExplicitRouteSkipHandoff"]);
+                    taskSize = TaskSize.Medium;
+                }
+
+                if (taskSize == TaskSize.Large)
+                {
+                    // ── Large 任务：移交 Plan Agent 进行深入规划 ──
+                    AddLog("INFO", LocalizationService.Instance["agent.log.editLargeTaskHandoff"]);
+                    return BuildLargeTaskHandoffResult(userMessage);
+                }
+                else if (taskSize == TaskSize.Medium)
+                {
+                    // ── Medium 任务：AI 自主拆分步骤 ──
+                    AddLog("INFO", LocalizationService.Instance["agent.log.editAutoSplit"]);
+                    plan = await CreateAutoSplitPlanAsync(userMessage, context);
                 }
                 else
                 {
-                    // ── 移交 Ask Agent 生成最终总结 ──
-                    result.Handoff = BuildSummaryHandoff(plan);
-
-                    if (HasBuildWarningsInLogs())
-                    {
-                        result.Handoff = Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build);
-                    }
+                    // ── Small 任务：单步执行 ──
+                    AddLog("INFO", LocalizationService.Instance["agent.log.editNoPlan"]);
+                    plan = CreateSingleStepPlan(userMessage);
                 }
+                plan.Source = PlanSource.EditAgent;
+                context.ActivePlan = plan;
+                await ExecutePlanAsync(plan, context);
             }
+
+            result.Plan = plan;
+            result.FileChanges = plan.ChangedFiles;
+
+            // ── 确定 Handoff 目标（AI 动态移交优先于程序化移交）──
+            result.Handoff = ResolveHandoff(plan);
+
+            // ── 传递累积累的推理内容供 UI 渲染思考面板 ──
+            if (!string.IsNullOrEmpty(_accumulatedReasoning))
+                result.ReasoningContent = _accumulatedReasoning;
+
+            // ── 构建执行结果摘要（Content），使 Handoff 合并时 UI 可见执行结果 ──
+            result.Content = BuildExecutionSummary(result.Plan);
 
             result.Logs.AddRange(_logs);
             return result;
@@ -227,6 +289,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             CurrentPlan = plan;
             _agentCts = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
 
+            // ── P0-6: 新计划开始，重置跨计划状态（防止前一个计划的 CodeMemory/AccumulatedContext 泄漏）──
+            context.CodeMemory = null;
+            context.AccumulatedContext = null;
+
             // ═══════════════════════════════════════════════════════════════
             // 缓存策略：将 BuiltInToolService 已读取的文件同步到 AgentContext
             // 全局缓存，避免后续步骤重复 read_file（以后会被 RAG 替代）
@@ -240,6 +306,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         context.FileReadCache[kvp.Key] = kvp.Value;
                     AddLog("INFO", LocalizationService.Instance.Format("agent.log.editCachedFiles", builtInCache.Count));
                 }
+            }
+
+            // ── P0-1: 预填充 CodeMemory，让步骤1也能受益于探索阶段已读取的文件 ──
+            if (string.IsNullOrEmpty(context.CodeMemory) && BuiltInTools != null)
+            {
+                var initialModifiedPaths = new HashSet<string>(
+                    plan.ChangedFiles.Select(c => NormalizePath(c.FilePath)),
+                    StringComparer.OrdinalIgnoreCase);
+                RefreshCodeMemory(context, initialModifiedPaths);
             }
 
             // ── 防重守卫：如果计划已完成，跳过重复执行 ──
@@ -319,11 +394,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                         // ── 更新代码记忆：从文件读取缓存中提取关键文件内容 ──
                         UpdateCodeMemory(context, plan);
+
+                        // ── 将步骤摘要写入会话记忆（供 Ask Agent 最终汇总使用）──
+                        await SaveStepSummaryToMemoryAsync(step, plan, context);
+
+                        // ── v1.1.10: 检测 AI 输出中声明的后续步骤完成情况 ──
+                        DetectAndAutoCompleteLaterSteps(step, plan);
                     }
                 }
 
                 plan.IsCompleted = plan.Steps.All(s =>
                     s.Status is AgentStepStatus.Completed or AgentStepStatus.Skipped);
+
+                // ── 计划完成后，将聚合摘要写入会话记忆 ──
+                if (plan.IsCompleted && !plan.IsCancelled)
+                {
+                    await SaveFinalPlanSummaryToMemoryAsync(plan, context);
+                }
 
                 // ── 诊断日志：记录步骤完成情况 ──
                 int completedCount = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
@@ -332,6 +419,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 int pendingCount = plan.Steps.Count(s => s.Status == AgentStepStatus.Pending);
                 AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editPlanProgress"],
                     plan.Steps.Count, completedCount, skippedCount, failedCount, pendingCount));
+
+                // ── v1.1.10: Plan 级别变更追踪 — 对比计划预期与实际修改 ──
+                PerformPlanChangeTracking(plan, context);
 
                 // ── Planning 模式：所有步骤完成后统一编译验证一次 ──
                 // 必须 plan.IsCompleted 才触发最终构建（防止 JSON 回退单步计划误触发）
@@ -347,7 +437,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         if (BuiltInTools != null)
                         {
                             finalBuildResult = await BuiltInTools.ExecuteBuiltInToolAsync(
-                                "build_solution", "{}", context.SolutionPath)
+                                "build_solution", "{}", context.SolutionPath,
+                                _agentCts?.Token ?? context.CancellationToken)
                                 ?? LocalizationService.Instance["agent.log.editBuildToolNoResult"];
                         }
                         else
@@ -372,6 +463,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             finally
             {
                 NotifyPlanUpdated();
+
+                // ── Toast 通知：任务完成或中断 ──
+                NotifyPlanCompletionViaToast(plan);
 
                 // ── 清理 Plan Agent 生成的 plan.md ──
                 await CleanupPlanMarkdownAsync(plan, context);
@@ -444,7 +538,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (BuiltInTools != null)
                 {
                     buildResult = await BuiltInTools.ExecuteBuiltInToolAsync(
-                        "build_solution", "{}", context.SolutionPath)
+                        "build_solution", "{}", context.SolutionPath, ct)
                         ?? LocalizationService.Instance["agent.log.editBuildToolNoResult"];
                 }
                 else
@@ -543,26 +637,55 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     });
                 }
 
-                // ── 使用工具调用循环：AI 可以先探索再修改 ──
+                // ── 使用工具调用循环：AI 可以先探索再修改（v1.1.10：支持步骤内增量编辑）──
                 AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.callingAiToolLoop"], retry));
+                var thinkingBuilder = new StringBuilder();
                 result = await CallAiWithToolLoopAsync(
                     messages,
                     workspaceRoot,
                     ct,
                     maxTokens: 8192,
-                    toolWhitelist: new List<string>(ExplorationTools),
+                    toolWhitelist: new List<string>(CodeStepTools),
+                    onThinking: (thinking) =>
+                    {
+                        thinkingBuilder.Append(thinking);
+                        context.OnThinkingChunk?.Invoke(thinking);
+                    },
                     onToolCall: (toolSummary) =>
                     {
                         AddLog("INFO", toolSummary);
                     });
+
+                // ── 累积推理内容（累加所有步骤和重试轮次的思考过程）──
+                if (thinkingBuilder.Length > 0)
+                {
+                    if (!string.IsNullOrEmpty(_accumulatedReasoning))
+                        _accumulatedReasoning += "\n\n";
+                    _accumulatedReasoning += thinkingBuilder.ToString();
+                }
 
                 retryOutputs.Add(result);
 
                 // ── 检测 AI 是否明确表示没有要更改的内容 ──
                 if (IsNoChangesResponse(result))
                 {
-                    AddLog("INFO", LocalizationService.Instance["agent.log.editEmptyResponse"]);
-                    result = string.Empty; // 统一置空，后续流程据此跳过编辑
+                    // ── 但如果本轮有工具调用完成了编辑，则不视为空响应 ──
+                    if (!HasToolMadeEdits(messages!))
+                    {
+                        AddLog("INFO", LocalizationService.Instance["agent.log.editEmptyResponse"]);
+                        result = string.Empty; // 统一置空，后续流程据此跳过编辑
+                        break;
+                    }
+                    AddLog("INFO", "[EditAgent] 文本回复为空但检测到工具编辑，继续处理");
+                }
+
+                // ── v1.1.10: 检测本轮是否通过工具完成了文件编辑 ──
+                // 如果 AI 已在工具循环中直接修改了文件，则无需格式重试，
+                // 文本回复视为操作总结而非编辑格式输出。
+                bool hasToolEditsThisRound = HasToolMadeEdits(messages!);
+                if (hasToolEditsThisRound)
+                {
+                    AddLog("INFO", "[EditAgent] 检测到步骤内工具编辑，跳过编辑格式校验");
                     break;
                 }
 
@@ -575,7 +698,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     break;
                 }
 
-                // ── 检测编辑格式并解析 ──
+                // ── 检测编辑格式并解析（仅当 AI 未通过工具编辑时走此路径）──
                 bool hasValidEdit = HasAnyValidEditFormat(result);
                 if (hasValidEdit) break;
 
@@ -607,19 +730,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 step.AiResponse = retryOutputs.FirstOrDefault() ?? "";
             }
 
-            // ── AI 明确表示没有要更改的内容 → 跳过编辑执行 ──
-            if (string.IsNullOrWhiteSpace(result))
+            // ── v1.1.10: 提取工具循环中通过工具完成的文件编辑 ──
+            // AI 可以在步骤内使用 replace_string_in_file / create_file 等工具增量编辑，
+            // 而非强制一次性输出所有变更。此处从消息历史中提取编辑记录。
+            var toolMadeEdits = ExtractToolMadeEdits(messages!);
+            bool hasToolEdits = toolMadeEdits.Count > 0;
+            if (hasToolEdits)
+            {
+                AddLog("INFO", $"[EditAgent] 检测到步骤内 {toolMadeEdits.Count} 个工具编辑: {string.Join(", ", toolMadeEdits.Select(e => Path.GetFileName(e.FilePath)).Distinct())}");
+            }
+
+            // ── AI 明确表示没有要更改的内容 且 工具也未编辑文件 → 跳过编辑执行 ──
+            if (string.IsNullOrWhiteSpace(result) && !hasToolEdits)
             {
                 step.ResultSummary = LocalizationService.Instance["agent.log.editNoChangesConfirmed"];
                 TerminalWindowHelper.SuppressDiffPreview = false;
                 AddLog("INFO", LocalizationService.Instance["agent.log.editNoChange"]);
                 return;
             }
-
-            // ── 检测编辑操作类型 ──
-            var operationType = DetectOperationType(result);
-
-            AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editTypeDetected"], operationType));
 
             // ── 初始化编辑工具（懒加载，使用当前 workspaceRoot）──
             EnsureEditTools(workspaceRoot);
@@ -631,30 +759,72 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 全局抑制 diff 预览，流程结束时统一显示一次 ──
             TerminalWindowHelper.SuppressDiffPreview = true;
 
-            switch (operationType)
+            // ── operationType 提前声明（goto 路径需要可见）──
+            var operationType = EditOperationType.ApplyPatch;
+
+            // ── v1.1.10: 路径A — 工具编辑（AI 在工具循环中直接修改了文件）──
+            // 工具编辑后需在 originalContents 中记录"原始"状态，防止文本路径重复处理时 diff 归零。
+            var toolHandledFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (hasToolEdits)
             {
-                case EditOperationType.ApplyPatch:
-                    // ── 方法1：apply_patch ──
-                    await ExecutePatchEditsAsync(result, plan, context, workspaceRoot,
-                        originalContents, appliedResults, ct);
-                    break;
+                await CollectToolMadeEditsAsync(toolMadeEdits, plan, context, workspaceRoot,
+                    originalContents, appliedResults, ct, toolHandledFiles);
 
-                case EditOperationType.InsertEditIntoFile:
-                    // ── 方法2：insert_edit_into_file ──
-                    await ExecuteInsertEditsAsync(result, plan, context, workspaceRoot,
-                        originalContents, appliedResults, ct);
-                    break;
-
-                case EditOperationType.CreateFile:
-                default:
-                    // ── 方法3：create_file（原有逻辑）──
-                    await ExecuteCreateFileEditsAsync(result, plan, context, workspaceRoot,
-                        originalContents, appliedResults, ct);
-                    break;
+                // ── 如果文本回复中也有编辑格式，作为补充处理（但排除已通过工具编辑的文件）──
+                if (!string.IsNullOrWhiteSpace(result) && HasAnyValidEditFormat(result))
+                {
+                    AddLog("INFO", "[EditAgent] 工具编辑之外还检测到文本编辑格式，作为补充处理");
+                    // 继续走下面的文本格式解析（合并模式），但跳过 toolHandledFiles 中的文件
+                }
+                else
+                {
+                    // 纯工具编辑：文本回复作为摘要，直接跳到变更收集阶段
+                    result = string.Empty; // 清空，避免重复解析
+                    goto SkipTextFormatParsing;
+                }
             }
 
-            // ── 处理文件删除（delete: 格式，原有逻辑）──
-            await ProcessFileDeletionsAsync(result, plan, context, ct);
+            // ── 路径B — 文本格式编辑（AI 通过文本输出编辑块）──
+            if (!string.IsNullOrWhiteSpace(result))
+            {
+                // ── 如果工具路径已处理过某些文件，跳过文本路径的重复处理 ──
+                if (toolHandledFiles.Count > 0)
+                {
+                    AddLog("INFO", $"[EditAgent] 跳过 {toolHandledFiles.Count} 个已由工具编辑的文件: {string.Join(", ", toolHandledFiles.Select(Path.GetFileName))}");
+                }
+
+                // ── 检测编辑操作类型 ──
+                operationType = DetectOperationType(result);
+
+                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editTypeDetected"], operationType));
+
+                switch (operationType)
+                {
+                    case EditOperationType.ApplyPatch:
+                        // ── 方法1：apply_patch ──
+                        await ExecutePatchEditsAsync(result, plan, context, workspaceRoot,
+                            originalContents, appliedResults, ct);
+                        break;
+
+                    case EditOperationType.InsertEditIntoFile:
+                        // ── 方法2：insert_edit_into_file ──
+                        await ExecuteInsertEditsAsync(result, plan, context, workspaceRoot,
+                            originalContents, appliedResults, ct);
+                        break;
+
+                    case EditOperationType.CreateFile:
+                    default:
+                        // ── 方法3：create_file（原有逻辑）──
+                        await ExecuteCreateFileEditsAsync(result, plan, context, workspaceRoot,
+                            originalContents, appliedResults, ct);
+                        break;
+                }
+
+                // ── 处理文件删除（delete: 格式，原有逻辑）──
+                await ProcessFileDeletionsAsync(result, plan, context, ct);
+            }
+
+        SkipTextFormatParsing:
 
             // ── 收集所有变更到 changes 列表（使用真实行数差异而非编辑块数量）──
             changes = appliedResults
@@ -682,7 +852,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         }
                         else if (!string.IsNullOrEmpty(r.FinalContent))
                         {
-                            realAdded = CountLines(r.FinalContent);
+                            realAdded = CountLines(r.FinalContent!);
                         }
                         else
                         {
@@ -704,9 +874,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 .ToList();
 
             var L = LocalizationService.Instance;
+
+            // ── 汇总操作类型描述（兼容工具编辑路径和文本格式路径）──
+            string operationTypeLabel = hasToolEdits && string.IsNullOrWhiteSpace(result)
+                ? "tool_edit"
+                : operationType.ToString();
+
             step.ResultSummary = changes.Count > 0
-                ? string.Format(L["agent.log.editFilesModified"], changes.Count, operationType)
-                : string.Format(L["agent.log.editNoFilesChanged"], operationType);
+                ? string.Format(L["agent.log.editFilesModified"], changes.Count, operationTypeLabel)
+                : string.Format(L["agent.log.editNoFilesChanged"], operationTypeLabel);
 
             // ── 编辑后健全性检查：检测括号不匹配等常见问题 ──
             string? sanityWarnings = null;
@@ -894,6 +1070,214 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     await TerminalWindowHelper.ShowFinalDiffAsync(kvp.Value, finalContent, kvp.Key);
                 }
             }
+
+            // ── v1.1.10: 步骤完成自检 — 对比步骤描述中的文件名与实际修改 ──
+            // 如果步骤描述明确提到了某文件但未在本次编辑中修改，记录提示。
+            PerformStepCompletenessCheck(step, appliedResults, workspaceRoot);
+        }
+
+        /// <summary>
+        /// 步骤完整性自检（v1.1.10）。
+        /// 对比步骤描述中引用的文件与实际修改的文件，发现遗漏时记录警告。
+        /// 不阻断执行，仅作为日志提示供用户参考。
+        /// </summary>
+        private void PerformStepCompletenessCheck(
+            AgentStep step, List<EditApplyResult> appliedResults, string workspaceRoot)
+        {
+            if (string.IsNullOrWhiteSpace(step.Description) || appliedResults.Count == 0)
+                return;
+
+            // 从步骤描述中提取文件引用（匹配常见代码文件扩展名）
+            var filePattern = @"\b(\w+\.(?:cs|ts|js|py|java|cpp|h|hpp|xml|json|yaml|yml|md|csproj|sln|vb|fs|cshtml|razor|css|scss|html|xaml|config|props|targets))\b";
+            var matches = System.Text.RegularExpressions.Regex.Matches(step.Description, filePattern,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (matches.Count == 0) return;
+
+            var mentionedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (System.Text.RegularExpressions.Match m in matches)
+            {
+                mentionedFiles.Add(m.Groups[1].Value);
+            }
+
+            // 收集实际修改的文件名
+            var actuallyModified = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in appliedResults.Where(r => r.Success))
+            {
+                actuallyModified.Add(Path.GetFileName(r.FilePath));
+            }
+
+            // 找出步骤描述中提到但未修改的文件
+            var untouched = mentionedFiles
+                .Where(f => !actuallyModified.Contains(f))
+                .ToList();
+
+            if (untouched.Count > 0)
+            {
+                AddLog("WARN", string.Format(
+                    "[EditAgent] ⚠️ 步骤自检：步骤描述中提到了 {0} 个文件，但以下文件未被本次编辑修改: {1}。" +
+                    "如果这些修改在后续步骤中完成则可忽略，否则可能是遗漏。",
+                    mentionedFiles.Count,
+                    string.Join(", ", untouched)));
+            }
+        }
+
+        /// <summary>
+        /// 从 AI 响应中检测是否声明了后续步骤也已完成（v1.1.10）。
+        /// 解析 AI 输出中的步骤完成声明（如"步骤2和3也完成了"/"also completed step 2"），
+        /// 自动将对应步骤标记为 Completed。比文件级启发式更可靠，尤其适用于同文件多步骤场景。
+        /// </summary>
+        private void DetectAndAutoCompleteLaterSteps(AgentStep completedStep, AgentTaskPlan plan)
+        {
+            if (string.IsNullOrWhiteSpace(completedStep.AiResponse)) return;
+
+            string response = completedStep.AiResponse!;
+            var autoCompletedIndices = new HashSet<int>();
+
+            // 模式1: 中文 "步骤2、3也完成了" / "步骤2和3已完成" / "也完成了步骤2,3"
+            var cnPatterns = new[]
+            {
+                @"步骤\s*(\d+(?:[、,，\s]+(?:和|及|与)?\s*\d+)*)\s*(?:也|已|同样|一并|同时)?\s*(?:完成|做完|搞定)",
+                @"(?:也|已|同样|一并|同时)\s*(?:完成|做完|搞定)了?\s*步骤\s*(\d+(?:[、,，\s]+(?:和|及|与)?\s*\d+)*)",
+            };
+            foreach (var pattern in cnPatterns)
+            {
+                foreach (System.Text.RegularExpressions.Match m in
+                    System.Text.RegularExpressions.Regex.Matches(response, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    ParseStepNumbers(m.Groups[1].Value, autoCompletedIndices);
+                }
+            }
+
+            // 模式2: 英文 "also completed step 2,3" / "steps 2 and 3 are done"
+            var enPatterns = new[]
+            {
+                @"(?:also\s+)?(?:completed?|finished?|done)\s+steps?\s*(\d+(?:[,\s]+(?:and\s+)?\d+)*)",
+                @"steps?\s*(\d+(?:[,\s]+(?:and\s+)?\d+)*)\s*(?:are\s+)?(?:also\s+)?(?:done|completed?|finished?)",
+            };
+            foreach (var pattern in enPatterns)
+            {
+                foreach (System.Text.RegularExpressions.Match m in
+                    System.Text.RegularExpressions.Regex.Matches(response, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    ParseStepNumbers(m.Groups[1].Value, autoCompletedIndices);
+                }
+            }
+
+            // 模式3: 勾号+步骤 "✅ 步骤2、3" / "✔ 步骤2 完成" / "✓ step 2 done"
+            var checkPatterns = new[]
+            {
+                @"[✅✔☑✓]\s*步骤\s*(\d+(?:[、,，\s]+(?:和|及|与)?\s*\d+)*)",
+                @"[✅✔☑✓]\s*step\s*(\d+(?:[,\s]+(?:and\s+)?\d+)*)",
+                @"步骤\s*(\d+(?:[、,，\s]+(?:和|及|与)?\s*\d+)*)\s*[✅✔☑✓]",
+                @"step\s*(\d+(?:[,\s]+(?:and\s+)?\d+)*)\s*[✅✔☑✓]",
+            };
+            foreach (var pattern in checkPatterns)
+            {
+                foreach (System.Text.RegularExpressions.Match m in
+                    System.Text.RegularExpressions.Regex.Matches(response, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    ParseStepNumbers(m.Groups[1].Value, autoCompletedIndices);
+                }
+            }
+
+            // 过滤：仅处理当前步骤之后的 Pending 步骤
+            var toAutoComplete = autoCompletedIndices
+                .Where(idx => idx > completedStep.Index && idx <= plan.Steps.Count)
+                .Select(idx => plan.Steps[idx - 1])
+                .Where(s => s.Status == AgentStepStatus.Pending)
+                .ToList();
+
+            foreach (var s in toAutoComplete)
+            {
+                s.Status = AgentStepStatus.Completed;
+                s.ResultSummary = $"(由步骤{completedStep.Index}的 AI 输出自动标记完成)";
+                AddLog("INFO", $"[EditAgent] 📋 步骤{s.Index}「{s.Title}」由 AI 声明完成，自动标记");
+            }
+
+            if (toAutoComplete.Count > 0)
+                NotifyPlanUpdated();
+        }
+
+        /// <summary>
+        /// 解析步骤编号字符串（如 "2、3、5" 或 "2,3,5" 或 "2 and 3"）并加入集合。
+        /// </summary>
+        private static void ParseStepNumbers(string text, HashSet<int> result)
+        {
+            foreach (System.Text.RegularExpressions.Match m in
+                System.Text.RegularExpressions.Regex.Matches(text, @"\d+"))
+            {
+                if (int.TryParse(m.Value, out int num) && num > 0)
+                    result.Add(num);
+            }
+        }
+
+        /// <summary>
+        /// Plan 级别变更追踪（v1.1.10）。
+        /// 对比所有步骤描述中引用的文件与实际修改的文件，
+        /// 发现遗漏时在日志中提示，帮助用户判断计划是否执行完整。
+        /// </summary>
+        private void PerformPlanChangeTracking(AgentTaskPlan plan, AgentContext context)
+        {
+            if (plan.Steps.Count == 0 || plan.ChangedFiles.Count == 0)
+                return;
+
+            // 从所有步骤描述中提取文件引用
+            var filePattern = @"\b(\w+\.(?:cs|ts|js|py|java|cpp|h|hpp|xml|json|yaml|yml|md|csproj|sln|vb|fs|cshtml|razor|css|scss|html|xaml|config|props|targets))\b";
+            var allMentioned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var step in plan.Steps)
+            {
+                if (string.IsNullOrWhiteSpace(step.Description)) continue;
+                var matches = System.Text.RegularExpressions.Regex.Matches(step.Description, filePattern,
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                foreach (System.Text.RegularExpressions.Match m in matches)
+                {
+                    allMentioned.Add(m.Groups[1].Value);
+                }
+            }
+
+            if (allMentioned.Count == 0) return;
+
+            // 收集所有实际修改的文件名
+            var allModified = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var ch in plan.ChangedFiles)
+            {
+                allModified.Add(Path.GetFileName(ch.FilePath));
+            }
+
+            // 计划中提到但完全没被修改的文件
+            var neverTouched = allMentioned
+                .Where(f => !allModified.Contains(f))
+                .ToList();
+
+            // 实际修改但计划中未提到的文件（额外修改，可能是好事也可能是跑偏）
+            var extraModified = allModified
+                .Where(f => !allMentioned.Contains(f))
+                .ToList();
+
+            if (neverTouched.Count > 0)
+            {
+                AddLog("WARN", string.Format(
+                    "[EditAgent] 📋 Plan 追踪：计划步骤中引用了 {0} 个文件，其中 {1} 个文件在所有步骤中均未被修改: {2}。" +
+                    "请确认这些文件是否确实无需修改，或是否存在遗漏。",
+                    allMentioned.Count, neverTouched.Count,
+                    string.Join(", ", neverTouched.Take(10))));
+            }
+
+            if (extraModified.Count > 0)
+            {
+                AddLog("INFO", string.Format(
+                    "[EditAgent] 📋 Plan 追踪：实际修改了 {0} 个计划中未明确列出的文件: {1}。" +
+                    "这可能是合理的关联修改，也可能是范围蔓延。",
+                    extraModified.Count,
+                    string.Join(", ", extraModified.Take(10))));
+            }
+
+            if (neverTouched.Count == 0 && extraModified.Count == 0)
+            {
+                AddLog("INFO", $"[EditAgent] 📋 Plan 追踪：计划中引用的 {allMentioned.Count} 个文件与实际修改一致 ✅");
+            }
         }
 
         #region Sub-methods for each edit format
@@ -1057,9 +1441,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     bool confirmed = await EnsureProjectFileWriteConfirmedAsync(
                         resolvedPath,
-                        $"InsertEdit 修改项目文件: {Path.GetFileName(resolvedPath)}",
+                        string.Format(LocalizationService.Instance["agent.edit.insertEditModifyProject"], Path.GetFileName(resolvedPath)),
                         "",
-                        $"对 `{Path.GetFileName(resolvedPath)}` 进行必要的配置变更");
+                        string.Format(LocalizationService.Instance["agent.edit.projectConfigChange"], Path.GetFileName(resolvedPath)));
                     if (!confirmed)
                     {
                         AddLog("WARN", LocalizationService.Instance.Format("agent.log.editInsertEditSkipped", Path.GetFileName(resolvedPath)));
@@ -1104,7 +1488,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (!string.IsNullOrEmpty(applyResult.FinalContent))
                     {
                         bool writeAllowed = await EnsureProjectFileWriteConfirmedAsync(
-                            resolvedPath, $"{applyResult.AppliedEdits.Count} 个编辑点", applyResult.FinalContent!);
+                            resolvedPath, string.Format(LocalizationService.Instance["agent.edit.editPoints"], applyResult.AppliedEdits.Count), applyResult.FinalContent!);
                         if (!writeAllowed)
                         {
                             AddLog("WARN", LocalizationService.Instance.Format("agent.log.editWriteSkipped", Path.GetFileName(resolvedPath)));
@@ -1201,8 +1585,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     // ── 项目文件拦截：新建/修改 .vcxproj/.sln 等前请求用户确认 ──
                     string createOpDesc = isNewFile
-                        ? $"新建项目文件: {Path.GetFileName(resolvedPath)}"
-                        : $"修改文件: {Path.GetFileName(resolvedPath)} (+{change.LinesAdded} -{change.LinesRemoved})";
+                        ? string.Format(LocalizationService.Instance["agent.edit.newProjectFile"], Path.GetFileName(resolvedPath))
+                        : string.Format(LocalizationService.Instance["agent.edit.modifyFile"], Path.GetFileName(resolvedPath), change.LinesAdded, change.LinesRemoved);
                     bool createWriteAllowed = await EnsureProjectFileWriteConfirmedAsync(resolvedPath, createOpDesc, change.NewContent ?? string.Empty);
                     if (!createWriteAllowed)
                     {
@@ -1299,7 +1683,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             if (confirmed)
             {
-                await AgentDispatcher.DeleteFilesViaEnvDTEAsync(resolvedDeletions);
+                await AgentFactory.DeleteFilesViaEnvDTEAsync(resolvedDeletions);
                 AddLog("INFO", LocalizationService.Instance.Format("agent.log.editDeletionsDone", resolvedDeletions.Count));
 
                 foreach (string deletedPath in resolvedDeletions)
@@ -1453,6 +1837,227 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         #endregion
 
+        #region Tool-Made Edit Detection (v1.1.10)
+
+        /// <summary>
+        /// 检测本轮消息中是否包含编辑类工具调用（replace_string_in_file / create_file 等）。
+        /// 如果 AI 已在工具循环中直接修改了文件，则无需再通过文本格式输出编辑块。
+        /// </summary>
+        private static bool HasToolMadeEdits(List<ChatApiMessage> messages)
+        {
+            foreach (var msg in messages)
+            {
+                if (msg.ToolCalls == null || msg.ToolCalls.Count == 0) continue;
+
+                foreach (var tc in msg.ToolCalls)
+                {
+                    string name = tc.Function?.Name ?? "";
+                    if (name == "replace_string_in_file" ||
+                        name == "multi_replace_string_in_file" ||
+                        name == "create_file" ||
+                        name == "delete_file" ||
+                        name == "apply_patch" ||
+                        name == "create_directory" ||
+                        name == "edit_notebook_file")
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 从消息列表中提取通过工具调用完成的文件编辑记录。
+        /// 解析 tool_calls 中的 JSON 参数，提取目标文件路径。
+        /// </summary>
+        /// <returns>列表元素: (解析后的绝对路径, 工具名)</returns>
+        private static List<(string FilePath, string ToolName)> ExtractToolMadeEdits(
+            List<ChatApiMessage> messages)
+        {
+            var edits = new List<(string FilePath, string ToolName)>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var msg in messages)
+            {
+                if (msg.ToolCalls == null || msg.ToolCalls.Count == 0) continue;
+
+                foreach (var tc in msg.ToolCalls)
+                {
+                    string name = tc.Function?.Name ?? "";
+                    string args = tc.Function?.Arguments ?? "{}";
+
+                    // 仅处理编辑类工具
+                    if (name != "replace_string_in_file" &&
+                        name != "multi_replace_string_in_file" &&
+                        name != "create_file" &&
+                        name != "delete_file" &&
+                        name != "apply_patch")
+                        continue;
+
+                    string? filePath = null;
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(args);
+                        var root = doc.RootElement;
+
+                        if (root.TryGetProperty("filePath", out var fp))
+                            filePath = fp.GetString();
+                        else if (root.TryGetProperty("path", out var p))
+                            filePath = p.GetString();
+                    }
+                    catch
+                    {
+                        // JSON 解析失败，尝试正则提取 filePath
+                        var match = System.Text.RegularExpressions.Regex.Match(args,
+                            @"""filePath""\s*:\s*""([^""]+)""");
+                        if (match.Success)
+                            filePath = match.Groups[1].Value;
+                    }
+
+                    if (!string.IsNullOrEmpty(filePath) && seen.Add(filePath!))
+                    {
+                        edits.Add((filePath!, name));
+                    }
+                }
+            }
+            return edits;
+        }
+
+        /// <summary>
+        /// 收集工具循环中完成的文件编辑，将其转换为 EditApplyResult 并加入 appliedResults。
+        /// 同时追踪变更到 plan.ChangedFiles。
+        /// </summary>
+        private async Task CollectToolMadeEditsAsync(
+            List<(string FilePath, string ToolName)> toolEdits,
+            AgentTaskPlan plan,
+            AgentContext context,
+            string workspaceRoot,
+            Dictionary<string, string> originalContents,
+            List<EditApplyResult> appliedResults,
+            CancellationToken ct,
+            HashSet<string>? toolHandledFiles = null)
+        {
+            foreach (var (filePath, toolName) in toolEdits)
+            {
+                string resolvedPath = EditPatchService.ResolvePath(filePath, workspaceRoot);
+
+                // ── 确定操作类型 ──
+                var opType = toolName switch
+                {
+                    "create_file" => EditOperationType.CreateFile,
+                    "delete_file" => EditOperationType.DeleteFile,
+                    "apply_patch" => EditOperationType.ApplyPatch,
+                    _ => EditOperationType.ApplyPatch, // replace_string_in_file 等归为 Patch 类
+                };
+
+                bool isNewFile = toolName == "create_file" && !File.Exists(resolvedPath);
+                bool fileExists = File.Exists(resolvedPath);
+
+                // ── 记录已处理的文件（供文本路径去重）──
+                toolHandledFiles?.Add(resolvedPath);
+
+                // ── 为新文件设置空原始内容（防止文本路径的 diff 归零）──
+                if (isNewFile)
+                {
+                    originalContents[resolvedPath] = string.Empty;
+                }
+
+                if (toolName == "delete_file")
+                {
+                    // 删除操作不在此处处理（由 ProcessFileDeletionsAsync 统一处理）
+                    continue;
+                }
+
+                if (!fileExists && !isNewFile)
+                {
+                    AddLog("WARN", $"[EditAgent] 工具编辑目标文件不存在: {Path.GetFileName(resolvedPath)} (工具: {toolName})");
+                    appliedResults.Add(new EditApplyResult
+                    {
+                        FilePath = resolvedPath,
+                        Success = false,
+                        OperationType = opType,
+                        ErrorMessage = "文件不存在",
+                    });
+                    continue;
+                }
+
+                // ── 保存原始内容（如果文件存在且尚未保存）──
+                if (fileExists && !originalContents.ContainsKey(resolvedPath))
+                {
+                    try
+                    {
+                        string original = await Task.Run(() => File.ReadAllText(resolvedPath), ct);
+                        originalContents[resolvedPath] = original;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn($"[EditAgent] 无法读取原始内容用于 diff: {resolvedPath} - {ex.Message}");
+                    }
+                }
+
+                // ── 新文件处理：添加到项目 ──
+                if (isNewFile && fileExists)
+                {
+                    await AddFileToProjectAsync(resolvedPath, ct);
+                }
+
+                // ── 记录编辑结果 ──
+                AddLog("INFO", $"[EditAgent] 工具编辑已应用: {Path.GetFileName(resolvedPath)} (工具: {toolName})");
+
+                appliedResults.Add(new EditApplyResult
+                {
+                    FilePath = resolvedPath,
+                    Success = true,
+                    OperationType = opType,
+                });
+
+                // ── 变更通知 ──
+                string changeType = isNewFile ? "create" : "modify";
+                NotifyFileChange(plan.PlanId, changeType, resolvedPath,
+                    $"工具编辑 ({toolName})");
+
+                // ── 更新 plan.ChangedFiles ──
+                if (!plan.ChangedFiles.Any(c => string.Equals(c.FilePath, resolvedPath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    int added = 0, removed = 0;
+                    if (originalContents.TryGetValue(resolvedPath, out string? orig) && fileExists)
+                    {
+                        try
+                        {
+                            string final = await Task.Run(() => File.ReadAllText(resolvedPath), ct);
+                            CountDiffLines(orig, final, out added, out removed);
+                        }
+                        catch { added = 1; }
+                    }
+                    else if (fileExists)
+                    {
+                        // 工具修改了已存在的文件但没有原始内容（原始未保存），读取最终内容统计行数
+                        try
+                        {
+                            string content = await Task.Run(() => File.ReadAllText(resolvedPath), ct);
+                            added = CountLines(content);
+                        }
+                        catch { added = 1; }
+                    }
+                    else
+                    {
+                        added = 1; // 文件被删除或其他异常情况
+                    }
+
+                    plan.ChangedFiles.Add(new FileChangeSummary
+                    {
+                        FilePath = resolvedPath,
+                        LinesAdded = added,
+                        LinesRemoved = removed,
+                        BriefDescription = $"{Path.GetFileName(resolvedPath)} ({toolName})",
+                    });
+                }
+            }
+        }
+
+        #endregion
+
         #endregion
 
         #region Build Step
@@ -1552,9 +2157,43 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
 
             // 第4层：当前步骤信息（每步不同，变化最大）
-            sb.AppendLine($"当前步骤 ({step.Index}/{plan.Steps.Count}): {step.Title}");
+            sb.AppendLine(string.Format(LocalizationService.Instance["agent.step.currentStepPrompt"], step.Index, plan.Steps.Count, step.Title));
             sb.AppendLine($"步骤详情: {step.Description}");
             sb.AppendLine();
+
+            // ── 注入 plan.md 概述 + 当前步骤对应章节 ──
+            string? planFilePath = context.PlanFilePath ?? plan.PlanFilePath;
+            if (!string.IsNullOrEmpty(planFilePath) && File.Exists(planFilePath))
+            {
+                try
+                {
+                    string planMd = File.ReadAllText(planFilePath);
+                    if (planMd.Length > 0)
+                    {
+                        // 提取概述（详细步骤章节之前的内容，截断至 ~2000 字符）
+                        string overview = ExtractPlanMdOverview(planMd);
+                        if (!string.IsNullOrEmpty(overview))
+                        {
+                            sb.AppendLine("## 📄 计划概述");
+                            sb.AppendLine(overview);
+                            sb.AppendLine();
+                        }
+
+                        // 提取当前步骤对应的章节
+                        string stepSection = ExtractPlanMdStepSection(planMd, step);
+                        if (!string.IsNullOrEmpty(stepSection))
+                        {
+                            sb.AppendLine(string.Format(LocalizationService.Instance["agent.step.planMdDetail"], step.Index));
+                            sb.AppendLine(stepSection);
+                            sb.AppendLine();
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[EditAgent] 读取 plan.md 章节失败: {ex.Message}");
+                }
+            }
 
             // ── 注入前面步骤已读取的文件内容缓存（所有模式通用），避免重复 read_file 调用 ──
             if (BuiltInTools != null)
@@ -1569,10 +2208,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                     // 过滤出与当前步骤可能相关的文件（基于步骤标题/描述中的文件名关键词）
                     var relevantFiles = FilterRelevantCachedFiles(fileCache, step);
+
+                    // ── P1-2: 收集 CodeMemory 中已包含的文件名，避免双重注入 ──
+                    var codeMemoryFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    if (!string.IsNullOrEmpty(context.CodeMemory))
+                    {
+                        var cmMatches = System.Text.RegularExpressions.Regex.Matches(
+                            context.CodeMemory, @"### 📄 `([^`]+)`");
+                        foreach (System.Text.RegularExpressions.Match m in cmMatches)
+                            codeMemoryFileNames.Add(m.Groups[1].Value);
+                    }
+
                     var safeFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var kvp in relevantFiles)
                     {
-                        if (!modifiedPaths.Contains(NormalizePath(kvp.Key)))
+                        if (!modifiedPaths.Contains(NormalizePath(kvp.Key))
+                            && !codeMemoryFileNames.Contains(System.IO.Path.GetFileName(kvp.Key)))
                             safeFiles[kvp.Key] = kvp.Value;
                     }
 
@@ -1623,8 +2274,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // ── 提示 AI 利用已有计划上下文，避免不必要的全项目搜索 ──
             sb.AppendLine("## 重要提示");
-            sb.AppendLine("- 用户消息中已包含完整的 plan.md 计划文档，其中记录了项目结构、相关文件路径和修改方案");
-            sb.AppendLine("- 请优先使用 plan.md 中已列出的文件路径，直接用 read_file 读取目标文件内容");
+            sb.AppendLine("- 用户消息中已包含计划概述和各步骤详情，请根据当前步骤标题和描述执行任务");
+            sb.AppendLine("- 请优先使用计划中已列出的文件路径，直接用 read_file 读取目标文件内容");
             sb.AppendLine("- 仅在需要确认额外依赖关系时才使用 file_search/grep_search 搜索");
             sb.AppendLine("- 避免全项目搜索已明确指定的文件");
             sb.AppendLine();
@@ -1701,7 +2352,126 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine("请直接输出你的分析结论、发现或建议。");
             }
 
+            // ── v1.1.10: 步骤完成声明指令 ──
+            // 如果本步骤的操作也顺带完成了后续步骤中描述的任务，请在响应末尾明确声明：
+            // "也完成了步骤X、Y" 或 "also completed step X, Y"
+            sb.AppendLine();
+            sb.AppendLine("## 📋 步骤完成声明");
+            sb.AppendLine("如果当前步骤的代码修改顺带完成了后续某个步骤的任务（如修改同一文件的不同部分），");
+            sb.AppendLine("请在响应末尾声明，格式如：\"也完成了步骤3、5\" 或 \"also completed step 3, 5\"。");
+            sb.AppendLine("系统将自动标记这些步骤为已完成，避免重复执行。");
+
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 从 plan.md 中提取概述部分（详细步骤章节之前的内容），按章节边界截断。
+        /// 在"详细步骤"/"Detailed Steps"章节标题前切断，保留项目目标、结构分析等概述信息。
+        /// </summary>
+        private static string ExtractPlanMdOverview(string planMd)
+        {
+            // 找到"详细步骤"章节的起始位置（中英文两种模式）
+            var stepSectionPatterns = new[]
+            {
+                "### 3.", "### 2.", "### 3 ", "### 2 ",
+                "## 详细步骤", "## Detailed Steps",
+                "## 📝", "## 实现步骤", "## Implementation",
+                "## 步骤", "## Steps"
+            };
+
+            int cutPos = planMd.Length;
+            foreach (var pattern in stepSectionPatterns)
+            {
+                int idx = planMd.IndexOf(pattern, StringComparison.OrdinalIgnoreCase);
+                if (idx > 0 && idx < cutPos)
+                    cutPos = idx;
+            }
+
+            string overview = planMd.Substring(0, cutPos).TrimEnd();
+            const int maxOverviewChars = 2000;
+            if (overview.Length > maxOverviewChars)
+            {
+                // 在 maxOverviewChars 附近找最近的 \n\n 段落边界切断
+                int boundary = overview.LastIndexOf("\n\n", maxOverviewChars, StringComparison.Ordinal);
+                if (boundary > maxOverviewChars / 2)
+                    overview = overview.Substring(0, boundary).TrimEnd() + "\n\n... (概述已截断)";
+                else
+                    overview = overview.Substring(0, maxOverviewChars) + "\n... (概述已截断)";
+            }
+
+            return overview;
+        }
+
+        /// <summary>
+        /// 从 plan.md 中提取当前步骤对应的章节内容。
+        /// 匹配策略：按步骤索引号（如 "步骤 1"、"Step 1"、"1."）定位到下一个同级/上级标题。
+        /// </summary>
+        private static string ExtractPlanMdStepSection(string planMd, AgentStep step)
+        {
+            // 构建匹配模式：支持 "步骤 N"、"Step N"、"#### N."、"#### Step N" 等多种格式
+            var patterns = new[]
+            {
+                $"#### 步骤 {step.Index}:", $"#### 步骤 {step.Index}：",
+                $"#### Step {step.Index}:", $"#### Step {step.Index}.",
+                $"#### {step.Index}.", $"#### {step.Index} ",
+                $"### 步骤 {step.Index}:", $"### 步骤 {step.Index}：",
+                $"### Step {step.Index}:", $"### Step {step.Index}.",
+                $"### {step.Index}.", $"### {step.Index} ",
+            };
+
+            int startIdx = -1;
+            foreach (var pattern in patterns)
+            {
+                int idx = planMd.IndexOf(pattern, StringComparison.OrdinalIgnoreCase);
+                if (idx >= 0)
+                {
+                    startIdx = idx;
+                    break;
+                }
+            }
+
+            if (startIdx < 0)
+                return string.Empty;
+
+            // 从该步骤标题的下一行开始提取
+            int contentStart = planMd.IndexOf('\n', startIdx);
+            if (contentStart < 0) return string.Empty;
+            contentStart++; // 跳过换行符
+
+            // 找到下一个 ## 或 ### 或 #### 标题作为结束边界
+            int endIdx = planMd.Length;
+            var headerPattern = System.Text.RegularExpressions.Regex.Match(
+                planMd, @"^#{2,4}\s", System.Text.RegularExpressions.RegexOptions.Multiline);
+            
+            // 使用逐行扫描找下一个标题
+            int searchStart = contentStart;
+            int nextHeader = planMd.IndexOf("\n##", searchStart, StringComparison.Ordinal);
+            if (nextHeader < 0) nextHeader = planMd.IndexOf("\r\n##", searchStart, StringComparison.Ordinal);
+            if (nextHeader >= 0) endIdx = nextHeader;
+            
+            // 也检查 ### 和 ####
+            int nextH3 = planMd.IndexOf("\n###", searchStart, StringComparison.Ordinal);
+            if (nextH3 < 0) nextH3 = planMd.IndexOf("\r\n###", searchStart, StringComparison.Ordinal);
+            if (nextH3 >= 0 && nextH3 < endIdx) endIdx = nextH3;
+            
+            int nextH4 = planMd.IndexOf("\n####", searchStart, StringComparison.Ordinal);
+            if (nextH4 < 0) nextH4 = planMd.IndexOf("\r\n####", searchStart, StringComparison.Ordinal);
+            if (nextH4 >= 0 && nextH4 < endIdx) endIdx = nextH4;
+
+            string section = planMd.Substring(contentStart, endIdx - contentStart).Trim();
+            
+            // 截断过长内容
+            const int maxSectionChars = 3000;
+            if (section.Length > maxSectionChars)
+            {
+                int boundary = section.LastIndexOf("\n\n", maxSectionChars, StringComparison.Ordinal);
+                if (boundary > maxSectionChars / 2)
+                    section = section.Substring(0, boundary).TrimEnd() + "\n\n... (章节内容已截断)";
+                else
+                    section = section.Substring(0, maxSectionChars) + "\n... (章节内容已截断)";
+            }
+
+            return section;
         }
 
         /// <summary>
@@ -1762,93 +2532,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 更新代码记忆 — 使用 LRU + 头文件加权淘汰算法。
-        /// 
-        /// 评分公式: score = (currentRound - lastReadRound) / typeWeight
-        ///   - 分数越低（越近读取）优先级越高
-        ///   - typeWeight: .h/.hpp = 2.0, 其他 = 1.0
-        ///   - 已被修改的文件直接淘汰（内容过时）
-        /// 
-        /// 效果：
-        /// - 最近读取的文件优先保留
-        /// - 头文件更难被淘汰（2倍权重）
-        /// - 旧头文件不再需要的自然淘汰
-        /// - 近期频繁访问的 cpp 也能进入记忆
+        /// <summary>
+        /// 更新代码记忆 — 委托给 BaseAgent.RefreshCodeMemory。
+        /// 从文件读取缓存中提取未被修改的关键文件内容，供后续步骤直接使用。
         /// </summary>
         private void UpdateCodeMemory(AgentContext context, AgentTaskPlan plan)
         {
             if (BuiltInTools == null) return;
 
-            var fileCache = BuiltInTools.GetFileReadCacheSnapshot();
-            var roundCache = BuiltInTools.GetFileReadCacheRoundSnapshot();
-            if (fileCache.Count == 0) return;
-
-            int currentRound = BuiltInTools.CurrentRound;
-            if (currentRound <= 0) currentRound = int.MaxValue; // 无轮次信息时平等对待
-
             var modifiedPaths = new HashSet<string>(
                 plan.ChangedFiles.Select(c => NormalizePath(c.FilePath)),
                 StringComparer.OrdinalIgnoreCase);
 
-            // ── 构建候选列表：排除已修改文件，计算 LRU 分数 ──
-            var candidates = new List<(string Path, string Content, double Score)>();
-            foreach (var kvp in fileCache)
+            // 提取计划步骤关键词用于语义加分
+            var stepKeywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var step in plan.Steps)
             {
-                if (modifiedPaths.Contains(NormalizePath(kvp.Key))) continue;
-
-                string ext = System.IO.Path.GetExtension(kvp.Key).ToLowerInvariant();
-                double typeWeight = (ext == ".h" || ext == ".hpp") ? 2.0 : 1.0;
-
-                int lastRound = roundCache.TryGetValue(kvp.Key, out int lr) ? lr : 0;
-                int roundsAgo = lastRound > 0 && currentRound > lastRound
-                    ? currentRound - lastRound
-                    : 0;
-
-                // 分数 = 距今轮数 / 类型权重（越小越优先）
-                double score = roundsAgo / typeWeight;
-                candidates.Add((kvp.Key, kvp.Value, score));
+                string text = $"{step.Title} {step.Description}".ToLowerInvariant();
+                foreach (var word in text.Split(new[] { ' ', '(', ')', '（', '）', '、', '，', '/', '\\', '_', '-', '.' },
+                    StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (word.Length > 2)
+                        stepKeywords.Add(word);
+                }
             }
 
-            // ── 按分数升序排列（最近读取的头文件排最前）──
-            candidates.Sort((a, b) => a.Score.CompareTo(b.Score));
-
-            // ── 按优先级填充 CodeMemory，12KB 封顶 ──
-            var sb = new System.Text.StringBuilder();
-            const int maxTotalChars = 12000;
-            const int maxHeaderChars = 3000;
-            const int maxImplChars = 1500;
-            int totalChars = 0;
-
-            foreach (var (path, content, score) in candidates)
-            {
-                if (totalChars >= maxTotalChars) break;
-
-                string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
-                int maxChars = (ext == ".h" || ext == ".hpp") ? maxHeaderChars : maxImplChars;
-
-                string snippet = content;
-                if (snippet.Length > maxChars)
-                    snippet = snippet.Substring(0, maxChars) + "\n// ... (截断)";
-
-                int estimatedChars = snippet.Length + System.IO.Path.GetFileName(path).Length + 60;
-                if (totalChars + estimatedChars > maxTotalChars && totalChars > 0)
-                    break; // 放不下这个文件，跳过（不截得更短）
-
-                sb.AppendLine($"### 📄 `{System.IO.Path.GetFileName(path)}`");
-                sb.AppendLine("```cpp");
-                sb.AppendLine(snippet.TrimEnd());
-                sb.AppendLine("```");
-                sb.AppendLine();
-                totalChars += estimatedChars;
-            }
-
-            context.CodeMemory = sb.Length > 0 ? sb.ToString().TrimEnd() : null;
-
-            if (!string.IsNullOrEmpty(context.CodeMemory))
-            {
-                AddLog("INFO", string.Format(
-                    LocalizationService.Instance["agent.log.codeMemoryUpdated"] ?? "代码记忆已更新 ({0} 字符, {1} 个文件)",
-                    context.CodeMemory.Length, candidates.Count(c => context.CodeMemory!.Contains(System.IO.Path.GetFileName(c.Path)))));
-            }
+            RefreshCodeMemory(context, modifiedPaths, stepKeywords);
         }
 
         #endregion
@@ -2013,6 +2722,65 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
+        /// 通过 Toast 通知用户计划执行结果。
+        /// </summary>
+        private void NotifyPlanCompletionViaToast(AgentTaskPlan plan)
+        {
+            try
+            {
+                var toastService = CompositionRoot.GetServiceOrDefault<ToastNotificationService>();
+                if (toastService == null)
+                    return;
+
+                int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+                int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
+                int total = plan.Steps.Count;
+
+                if (plan.IsCancelled)
+                {
+                    toastService.Show(
+                        "DeepSeek V4",
+                        string.Format(LocalizationService.Instance["toast.taskCancelled"], completed, total));
+                }
+                else if (plan.IsCompleted && failed == 0)
+                {
+                    toastService.Show(
+                        "DeepSeek V4",
+                        string.Format(LocalizationService.Instance["toast.taskComplete"], completed, total));
+                }
+                else if (plan.IsCompleted && failed > 0)
+                {
+                    toastService.Show(
+                        "DeepSeek V4",
+                        string.Format(LocalizationService.Instance["toast.taskPartialComplete"], completed, total, failed));
+                }
+            }
+            catch
+            {
+                // Toast 通知失败不应影响主流程
+            }
+        }
+
+        /// <summary>
+        /// 确定 Handoff 目标：AI 通过 request_handoff 动态移交优先，
+        /// 否则默认移交 Ask Agent 生成总结，若有编译警告则移交 Build Agent。
+        /// </summary>
+        private AgentHandoff ResolveHandoff(AgentTaskPlan plan)
+        {
+            // ── AI 动态移交优先 ──
+            if (PendingHandoffRequest != null)
+                return ConvertHandoffRequestToHandoff(PendingHandoffRequest);
+
+            // ── 有编译警告 → Build Agent ──
+            if (HasBuildWarningsInLogs())
+                return Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build)
+                    ?? BuildSummaryHandoff(plan);
+
+            // ── 默认 → Ask Agent 生成总结 ──
+            return BuildSummaryHandoff(plan);
+        }
+
+        /// <summary>
         /// 构建移交 Ask Agent 生成总结的 Handoff。
         /// 将文件变更统计、步骤执行情况、缓存命中率等上下文打包传递给 Ask Agent。
         /// </summary>
@@ -2078,7 +2846,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         : "🔄";
                     string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
                         ? step.ResultSummary!
-                        : "(无)";
+                        : LocalizationService.Instance["agent.step.noDetail"];
                     sb.AppendLine($"- {statusIcon} **步骤 {step.Index}**: {step.Title} — {summary}");
                 }
                 sb.AppendLine();
@@ -2098,6 +2866,66 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 AutoSend = true,
                 ShowContinueOn = false,
             };
+        }
+
+        /// <summary>
+        /// 构建执行结果摘要（用于 AgentResult.Content，使 Handoff 合并时 UI 可见执行结果）。
+        /// 与 BuildSummaryHandoff 不同，此摘要面向用户展示（而非作为 Agent prompt）。
+        /// </summary>
+        private string BuildExecutionSummary(AgentTaskPlan? plan)
+        {
+            if (plan == null) return string.Empty;
+
+            var L = LocalizationService.Instance;
+            var sb = new StringBuilder();
+
+            // 步骤完成情况
+            if (plan.Steps.Count > 0)
+            {
+                int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+                int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
+                int skipped = plan.Steps.Count(s => s.Status == AgentStepStatus.Skipped);
+
+                sb.Append($"📊 **{plan.Title}**: ");
+                sb.Append($"✅ {completed} / ❌ {failed} / ⏭️ {skipped}");
+                sb.AppendLine();
+            }
+
+            // 文件变更
+            if (plan.ChangedFiles.Count > 0)
+            {
+                var mergedFiles = plan.ChangedFiles
+                    .GroupBy(c => NormalizePath(c.FilePath), StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new
+                    {
+                        FileName = Path.GetFileName(g.First().FilePath),
+                        LinesAdded = g.Sum(c => c.LinesAdded),
+                        LinesRemoved = g.Sum(c => c.LinesRemoved),
+                    })
+                    .ToList();
+
+                sb.AppendLine($"📝 **{L["edit.summary.fileCount"]}**: {mergedFiles.Count} 个");
+                foreach (var file in mergedFiles)
+                {
+                    sb.AppendLine($"  - `{file.FileName}` (+{file.LinesAdded} -{file.LinesRemoved})");
+                }
+            }
+            else
+            {
+                sb.AppendLine($"📝 **{L["edit.summary.fileCount"]}**: 0");
+            }
+
+            // 构建结果
+            if (HasBuildWarningsInLogs())
+            {
+                sb.AppendLine(LocalizationService.Instance["agent.log.buildWarningInSummary"]);
+            }
+            else
+            {
+                sb.AppendLine(LocalizationService.Instance["agent.log.buildPassInSummary"]);
+            }
+
+            return sb.ToString().TrimEnd();
         }
 
         #endregion
@@ -2140,7 +2968,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // ── 第2层：ExploreAgent 文件列表缓存 ──
                 else if (ExploreAgent != null)
                 {
-                    var cached = ExploreAgent.GetCachedDiscoveredFiles(solutionPath);
+                    var cached = ExploreAgent.GetCachedDiscoveredFiles(solutionPath!);
                     if (cached != null && cached.Count > 0)
                     {
                         relevantFiles = cached;
@@ -2158,7 +2986,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                 .ToList();
                             if (completedSteps.Count > 0)
                             {
-                                additionalCtx += "\n已完成步骤: " + string.Join("; ",
+                                additionalCtx += "\n" + LocalizationService.Instance["agent.log.completedStepsPrefix"] + string.Join("; ",
                                     completedSteps.Select(s => s.Title));
                             }
                         }
@@ -2556,10 +3384,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         string fileName = System.IO.Path.GetFileName(filePath);
                         string description = toolName switch
                         {
-                            "replace_string_in_file" => $"修改 {fileName}",
-                            "multi_replace_string_in_file" => $"批量修改 {fileName}",
-                            "create_file" => $"新建 {fileName}",
-                            _ => $"操作 {fileName}",
+                            "replace_string_in_file" => string.Format(LocalizationService.Instance["agent.log.toolModifyFile"], fileName),
+                            "multi_replace_string_in_file" => string.Format(LocalizationService.Instance["agent.log.toolBatchModifyFile"], fileName),
+                            "create_file" => string.Format(LocalizationService.Instance["agent.log.toolCreateFile"], fileName),
+                            _ => string.Format(LocalizationService.Instance["agent.log.toolOperateFile"], fileName),
                         };
 
                         // 合并同一文件的多次变更
@@ -2731,6 +3559,183 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 return EditOperationType.CreateFile;
 
             return EditOperationType.CreateFile; // 默认
+        }
+
+        #endregion
+
+        #region Memory — 步骤摘要写入会话记忆
+
+        /// <summary>
+        /// 将单个步骤的完成摘要写入会话记忆，供 Ask Agent 最终汇总使用。
+        /// </summary>
+        private async Task SaveStepSummaryToMemoryAsync(AgentStep step, AgentTaskPlan plan, AgentContext context)
+        {
+            if (MemoryService == null) return;
+
+            try
+            {
+                string? sessionId = BuiltInTools?.CurrentSessionId;
+                string stepSummary = BuildStepSummaryMarkdown(step, plan);
+                string fileName = $"step-{step.Index:D2}-summary.md";
+
+                // 先检查文件是否已存在（防止重复写入）
+                try
+                {
+                    await MemoryService.ViewAsync(MemoryScope.Session, fileName, sessionId, context.SolutionPath);
+                    // 文件已存在，先删除再重新创建（内容可能已更新）
+                    await MemoryService.DeleteAsync(MemoryScope.Session, fileName, sessionId, context.SolutionPath);
+                    await MemoryService.CreateAsync(MemoryScope.Session, fileName,
+                        stepSummary, sessionId, context.SolutionPath);
+                }
+                catch (FileNotFoundException)
+                {
+                    // 文件不存在，创建新文件
+                    await MemoryService.CreateAsync(MemoryScope.Session, fileName,
+                        stepSummary, sessionId, context.SolutionPath);
+                }
+
+                AddLog("INFO", $"[Memory] 步骤 {step.Index} 摘要已写入会话记忆: {fileName}");
+            }
+            catch (Exception ex)
+            {
+                AddLog("WARN", $"[Memory] 步骤摘要写入失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 计划全部完成后，将聚合摘要写入会话记忆。
+        /// </summary>
+        private async Task SaveFinalPlanSummaryToMemoryAsync(AgentTaskPlan plan, AgentContext context)
+        {
+            if (MemoryService == null) return;
+
+            try
+            {
+                string? sessionId = BuiltInTools?.CurrentSessionId;
+                string finalSummary = BuildFinalPlanSummaryMarkdown(plan);
+                string fileName = "plan-final-summary.md";
+
+                await MemoryService.CreateAsync(MemoryScope.Session, fileName,
+                    finalSummary, sessionId, context.SolutionPath);
+
+                AddLog("INFO", $"[Memory] 最终计划摘要已写入会话记忆: {fileName}");
+            }
+            catch (Exception ex)
+            {
+                // 文件可能已存在，删除旧文件后重新创建
+                try
+                {
+                    string? sessionId = BuiltInTools?.CurrentSessionId;
+                    await MemoryService.DeleteAsync(MemoryScope.Session, "plan-final-summary.md",
+                        sessionId, context.SolutionPath);
+                    await MemoryService.CreateAsync(MemoryScope.Session, "plan-final-summary.md",
+                        BuildFinalPlanSummaryMarkdown(plan),
+                        sessionId, context.SolutionPath);
+                }
+                catch
+                {
+                    AddLog("WARN", $"[Memory] 最终计划摘要写入失败: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 构建单个步骤的 Markdown 摘要。
+        /// </summary>
+        private static string BuildStepSummaryMarkdown(AgentStep step, AgentTaskPlan plan)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"# 步骤 {step.Index}/{plan.Steps.Count}: {step.Title}");
+            sb.AppendLine();
+            sb.AppendLine($"- **状态**: {(step.Status == AgentStepStatus.Completed ? LocalizationService.Instance["agent.step.completed"] : LocalizationService.Instance["agent.step.failed"])}");
+            sb.AppendLine($"- **任务**: {plan.Title}");
+            if (!string.IsNullOrWhiteSpace(step.ResultSummary))
+            {
+                sb.AppendLine($"- **结果**: {step.ResultSummary}");
+            }
+            if (!string.IsNullOrWhiteSpace(step.Description))
+            {
+                sb.AppendLine($"- **描述**: {step.Description}");
+            }
+            // 展示当前所有已变更文件
+            var allFiles = plan.ChangedFiles
+                .GroupBy(c => c.FilePath, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new { Name = System.IO.Path.GetFileName(g.Key), Added = g.Sum(c => c.LinesAdded), Removed = g.Sum(c => c.LinesRemoved) })
+                .ToList();
+            if (allFiles.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("## 已修改的文件");
+                foreach (var file in allFiles)
+                {
+                    string delta = $"{(file.Added > 0 ? $"+{file.Added}" : "")}"
+                        + $"{(file.Removed > 0 ? $" -{file.Removed}" : "")}";
+                    sb.AppendLine($"- `{file.Name}` {delta}");
+                }
+            }
+            return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// 构建最终计划聚合摘要。
+        /// </summary>
+        private static string BuildFinalPlanSummaryMarkdown(AgentTaskPlan plan)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"# 计划完成: {plan.Title}");
+            sb.AppendLine();
+            int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
+            int failed = plan.Steps.Count(s => s.Status == AgentStepStatus.Failed);
+            int skipped = plan.Steps.Count(s => s.Status == AgentStepStatus.Skipped);
+            sb.AppendLine($"- **总步骤**: {plan.Steps.Count}");
+            sb.AppendLine($"- **完成**: {completed} | **失败**: {failed} | **跳过**: {skipped}");
+            sb.AppendLine();
+
+            // 汇总所有步骤
+            sb.AppendLine("## 步骤摘要");
+            sb.AppendLine();
+            foreach (var step in plan.Steps)
+            {
+                string icon = step.Status switch
+                {
+                    AgentStepStatus.Completed => "✅",
+                    AgentStepStatus.Failed => "❌",
+                    AgentStepStatus.Skipped => "⏭",
+                    _ => "⬜",
+                };
+                string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
+                    ? step.ResultSummary!
+                    : "(无详细结果)";
+                sb.AppendLine($"- {icon} **{step.Title}**: {summary}");
+            }
+
+            // 汇总所有文件变更
+            var mergedFiles = plan.ChangedFiles
+                .GroupBy(c => c.FilePath, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new
+                {
+                    Path = System.IO.Path.GetFileName(g.Key),
+                    Added = g.Sum(c => c.LinesAdded),
+                    Removed = g.Sum(c => c.LinesRemoved),
+                })
+                .ToList();
+
+            if (mergedFiles.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("## 文件变更汇总");
+                sb.AppendLine();
+                sb.AppendLine("| 文件 | 变更 |");
+                sb.AppendLine("|------|------|");
+                foreach (var f in mergedFiles)
+                {
+                    string delta = $"{(f.Added > 0 ? $"+{f.Added}" : "")}"
+                        + $"{(f.Removed > 0 ? $" -{f.Removed}" : "")}";
+                    sb.AppendLine($"| `{f.Path}` | {delta} |");
+                }
+            }
+
+            return sb.ToString().TrimEnd();
         }
 
         #endregion

@@ -64,24 +64,24 @@ public class AskAgentTests
     }
 
     [Fact]
-    public void Definition_HasHandoffs_ToExploreEditPlanAndBuild()
+    public void Definition_HasHandoffs_ToEditPlanAndBuild()
     {
         var agent = new AskAgent(_apiService);
 
-        // AskAgent 现在有 4 个 Handoff 目标（含新增的 Explore）
-        agent.Definition.Handoffs.Should().HaveCount(4);
-        agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Explore);
+        // AskAgent 有 3 个 Handoff 目标
+        agent.Definition.Handoffs.Should().HaveCount(3);
         agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Edit);
         agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Plan);
         agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Build);
     }
 
     [Fact]
-    public void Definition_SystemPrompt_ContainsDeepSeekV4()
+    public void Definition_SystemPrompt_IsNotEmpty()
     {
         var agent = new AskAgent(_apiService);
 
-        agent.Definition.SystemPrompt.Should().Contain("DeepSeek v4");
+        agent.Definition.SystemPrompt.Should().NotBeNullOrEmpty();
+        agent.Definition.SystemPrompt.Should().Contain("Ask");
     }
 
     [Fact]
@@ -89,9 +89,9 @@ public class AskAgentTests
     {
         var agent = new AskAgent(_apiService);
 
-        // Ask agent delegates exploration to ExploreAgent via runSubagent
+        // Ask agent can delegate via runSubagent and handoff to other agents
         agent.Definition.AllowedTools.Should().Contain("runSubagent");
-        agent.Definition.AllowedTools.Should().NotContain("request_handoff");
+        agent.Definition.AllowedTools.Should().Contain("request_handoff");
         agent.Definition.AllowedTools.Should().Contain("fetch_webpage");
         agent.Definition.AllowedTools.Should().Contain("memory");
     }
@@ -115,7 +115,7 @@ public class AskAgentTests
     public void AskTools_ContainsDelegationAndUtilityTools()
     {
         AskAgent.AskTools.Should().Contain("runSubagent");
-        AskAgent.AskTools.Should().NotContain("request_handoff");
+        AskAgent.AskTools.Should().Contain("request_handoff");
         AskAgent.AskTools.Should().Contain("fetch_webpage");
         AskAgent.AskTools.Should().Contain("memory");
     }

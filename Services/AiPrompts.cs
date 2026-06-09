@@ -239,10 +239,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         #region Common System Prompt Prefix
 
         /// <summary>
-        /// 所有 Agent 共享的 System Prompt 前缀核心（不含语言指令）。
+        /// 所有 Agent 共享的 System Prompt 前缀核心（不含语言指令和工具说明）。
         /// 放在 messages[0]，确保跨 Agent 切换时 DeepSeek Prefix Cache 仍能命中。
         /// </summary>
         public static string CommonSystemPromptPrefixCore => L["system.agent.commonSystemPromptPrefixCore"];
+
+        /// <summary>
+        /// 所有 Agent 共享的不可变前缀（含语言指令）。
+        /// 始终放在 messages[0]，确保跨 Agent 切换时 DeepSeek Prefix Cache 永远命中。
+        /// Agent 专属行为指令不在此前缀中，而是作为最后一条 system 消息注入。
+        /// 
+        /// 内容 = CommonSystemPromptPrefixCore（角色定义 + 工具说明 + 文件规则 + 终端规则 +
+        /// Handoff 规则）+ 语言指令。
+        /// 
+        /// 此属性同时被 BaseAgent.BuildContextAwareMessages（Agent 内部调用）和
+        /// ConversationContextManager.BuildApiMessages（主流程 API 调用）使用，
+        /// 确保两个路径的 messages[0] 完全一致，消除前缀漂移。
+        /// </summary>
+        public static string SharedImmutablePrefix => CommonSystemPromptPrefixCore + L["system.agent.languageInstruction"] + "\n";
 
         #endregion
         #region Helper Methods

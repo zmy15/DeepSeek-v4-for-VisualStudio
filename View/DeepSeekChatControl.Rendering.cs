@@ -46,11 +46,22 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     catch
                     {
-                        // 增量更新失败时回退到全量刷新
+                        // ExecuteScriptAsync 失败时改用 PostWebMessageAsString 追加（避免 NavigateToString 全量刷新导致页面闪烁/滚动）
+                        try
+                        {
+                            string appendJson = $"{{\"type\":\"appendHtml\",\"html\":{jsFragment}}}";
+                            ChatWebView.CoreWebView2.PostWebMessageAsString(appendJson);
+                            _lastRenderedMessagesLength = allMessages.Length;
+                            return;
+                        }
+                        catch
+                        {
+                            // PostWebMessageAsString 也失败时才回退到全量刷新（极少情况）
+                        }
                     }
                 }
 
-                // ── 全量刷新路径 ──
+                // ── 全量刷新路径（仅首次初始化或 PostWebMessageAsString 也失败时）──
                 string html = ChatHtmlService.BuildInitialPage(_messages);
                 ChatWebView.CoreWebView2.NavigateToString(html);
                 _browserInitialized = true;
@@ -186,27 +197,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
             }
             _lastRenderedMessagesLength = 0;
-        }
-
-        /// <summary>
-        /// [已废弃] 通过 JS 增量更新流式消息的 DOM 内容（旧版 ExecuteScriptAsync 路径）。
-        /// 当前所有流式更新已迁移至 PostWebMessageAsString 非阻塞通道，
-        /// 此方法保留仅用于回退调试，计划在下个版本移除。
-        /// </summary>
-        [Obsolete("已迁移至 PostStreamingUpdate (PostWebMessageAsString 非阻塞通道)")]
-        private async Task UpdateStreamingMessageAsync(int messageIndex, string content, string reasoningContent, bool isComplete)
-        {
-            if (ChatWebView.CoreWebView2 == null) return;
-
-            try
-            {
-                string js = ChatHtmlService.BuildStreamingUpdateJs(messageIndex, content, reasoningContent, isComplete);
-                await ChatWebView.CoreWebView2.ExecuteScriptAsync(js);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"[Render] UpdateStreamingMessage 异常: {ex.Message}", ex);
-            }
         }
 
         /// <summary>

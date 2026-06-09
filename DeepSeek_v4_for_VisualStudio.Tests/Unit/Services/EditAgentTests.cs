@@ -65,27 +65,34 @@ public class EditAgentTests
     }
 
     [Fact]
-    public void Definition_HasAskAndBuildHandoffs()
+    public void Definition_HasAskBuildAndPlanHandoffs()
     {
         var agent = new EditAgent(_apiService);
 
-        agent.Definition.Handoffs.Should().HaveCount(2);
+        agent.Definition.Handoffs.Should().HaveCount(3);
         agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Ask);
         agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Build);
+        agent.Definition.Handoffs.Should().Contain(h => h.TargetAgent == AgentType.Plan);
         // Ask handoff is auto-send (for summary generation)
         var askHandoff = agent.Definition.Handoffs.First(h => h.TargetAgent == AgentType.Ask);
         askHandoff.AutoSend.Should().BeTrue();
-        // Build handoff retains ShowContinueOn
+        // Build handoff: AutoSend chains Edit→Build without user button
         var buildHandoff = agent.Definition.Handoffs.First(h => h.TargetAgent == AgentType.Build);
-        buildHandoff.ShowContinueOn.Should().BeTrue();
+        buildHandoff.AutoSend.Should().BeTrue();
+        buildHandoff.ShowContinueOn.Should().BeFalse();
+        // Plan handoff: AutoSend for large tasks
+        var planHandoff = agent.Definition.Handoffs.First(h => h.TargetAgent == AgentType.Plan);
+        planHandoff.AutoSend.Should().BeTrue();
+        planHandoff.ShowContinueOn.Should().BeFalse();
     }
 
     [Fact]
-    public void Definition_SystemPrompt_ContainsDeepSeekV4()
+    public void Definition_SystemPrompt_IsNotEmpty()
     {
         var agent = new EditAgent(_apiService);
 
-        agent.Definition.SystemPrompt.Should().Contain("DeepSeek v4");
+        agent.Definition.SystemPrompt.Should().NotBeNullOrEmpty();
+        agent.Definition.SystemPrompt.Should().Contain("Edit");
     }
 
     #endregion
@@ -262,17 +269,18 @@ public class EditAgentTests
     {
         var agent = new EditAgent(_apiService);
         var exploreAgent = new ExploreAgent(_apiService);
-        AgentLogEntry? capturedLog = null;
-        agent.LogEntryAdded += (log) => capturedLog = log;
+
+        AgentLogEntry? forwardedEntry = null;
+        agent.LogEntryAdded += entry => forwardedEntry = entry;
 
         agent.ExploreAgent = exploreAgent;
 
-        // Simulate ExploreAgent adding a log
+        // Simulate ExploreAgent adding a log — EditAgent should forward via LogEntryAdded
         RaiseLogEntryAddedPublic(exploreAgent, new AgentLogEntry { Level = "INFO", Message = "探索中..." });
 
-        capturedLog.Should().NotBeNull();
-        capturedLog!.Message.Should().Contain("[Explore]");
-        capturedLog.Message.Should().Contain("探索中...");
+        forwardedEntry.Should().NotBeNull();
+        forwardedEntry!.Message.Should().Be("探索中...");
+        forwardedEntry!.Level.Should().Be("INFO");
     }
 
     #endregion

@@ -1,4 +1,5 @@
 ﻿using DeepSeek_v4_for_VisualStudio.Commands;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.Utils;
@@ -258,41 +259,56 @@ namespace DeepSeek_v4_for_VisualStudio
             try
             {
                 DeepSeekOptionsPage.SettingsChanged += OnSettingsChanged;
-                DiagnosticLog.Write("[DeepSeek Init] Step 5/7: SettingsChanged OK");
+                DiagnosticLog.Write("[DeepSeek Init] Step 5/8: SettingsChanged OK");
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 5/7 SettingsChanged: {ex.GetType().Name}: {ex.Message}");
+                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 5/8 SettingsChanged: {ex.GetType().Name}: {ex.Message}");
                 throw;
             }
 
-            // ═══ 步骤 6/7：DI 容器 ═══
+            // ═══ 步骤 6/8：主题服务（UI 线程）═══
+            try
+            {
+                await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+                ThemeService.Initialize();
+                // 从设置恢复用户主题偏好
+                var savedTheme = Options?.ThemeMode ?? Models.ThemeMode.Auto;
+                ThemeService.Instance.UserThemeMode = savedTheme;
+                DiagnosticLog.Write("[DeepSeek Init] Step 6/8: ThemeService OK");
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Write($"[DeepSeek Init] Step 6/8 ThemeService (non-fatal): {ex.GetType().Name}: {ex.Message}");
+            }
+
+            // ═══ 步骤 7/8：DI 容器 ═══
             try
             {
                 CompositionRoot.Build();
-                DiagnosticLog.Write("[DeepSeek Init] Step 6/7: DI container OK");
+                DiagnosticLog.Write("[DeepSeek Init] Step 7/8: DI container OK");
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 6/7 CompositionRoot.Build: {ex.GetType().Name}: {ex.Message}");
+                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 7/8 CompositionRoot.Build: {ex.GetType().Name}: {ex.Message}");
                 DiagnosticLog.Write($"[DeepSeek Init] Stack: {ex.StackTrace}");
                 throw;
             }
 
-            // ═══ 步骤 7/7：注册菜单命令 ═══
+            // ═══ 步骤 8/8：注册菜单命令 ═══
             try
             {
                 await ShowChatWindowCommand.InitializeAsync(this);
-                DiagnosticLog.Write("[DeepSeek Init] Step 7/7: Commands registered OK");
+                DiagnosticLog.Write("[DeepSeek Init] Step 8/8: Commands registered OK");
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 7/7 ShowChatWindowCommand.InitializeAsync: {ex.GetType().Name}: {ex.Message}");
+                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 8/8 ShowChatWindowCommand.InitializeAsync: {ex.GetType().Name}: {ex.Message}");
                 DiagnosticLog.Write($"[DeepSeek Init] Stack: {ex.StackTrace}");
                 throw;
             }
 
-            DiagnosticLog.Write("[DeepSeek Init] All 7 steps completed successfully");
+            DiagnosticLog.Write("[DeepSeek Init] All 8 steps completed successfully");
 
             // 延迟显示工具窗口，避免在包初始化期间调用 ShowToolWindowAsync
             // 导致 COMException (0x80049283): LoadPackageWithContext 冲突

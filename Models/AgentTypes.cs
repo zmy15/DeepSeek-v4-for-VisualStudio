@@ -114,6 +114,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>是否需要先经过 Plan Agent 规划</summary>
         public bool NeedsPlanning { get; set; }
 
+        /// <summary>任务规模分类（Small / Medium / Large），用于决定路由策略</summary>
+        public TaskSize TaskSize { get; set; } = TaskSize.Small;
+
         /// <summary>路由是否是用户显式指定的</summary>
         public bool IsExplicit { get; set; }
     }
@@ -149,6 +152,13 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>是否处于 Planning 模式（多步骤计划执行中）。为 true 时跳过每步编译，最后统一构建。</summary>
         public bool IsPlanningMode { get; set; }
+
+        /// <summary>首次路由时预分类的任务规模。EditAgent 应使用此值而非对 handoff 消息重复分类。</summary>
+        [JsonIgnore]
+        public TaskSize PreClassifiedTaskSize { get; set; } = TaskSize.Small;
+
+        /// <summary>是否由用户 @agent 显式路由。为 true 时 Agent 不应主动移交控制权（除非必要的链式移交如 Plan→Edit）。</summary>
+        public bool IsExplicitRoute { get; set; }
 
         /// <summary>Planning 模式下累积的上下文（前面步骤的结果和文件变更信息，供后续步骤继承）。</summary>
         public string? AccumulatedContext { get; set; }
@@ -186,6 +196,23 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// </summary>
         [JsonIgnore]
         public string? CodeMemory { get; set; }
+
+        /// <summary>
+        /// 🔑 Handoff 时源 Agent 的最终工具循环消息列表（v1.1.10 缓存优化）。
+        /// 设置后，目标 Agent 的 BuildContextAwareMessages 将复用此列表作为前缀，
+        /// 而非从 ContextManager 重建，确保 Handoff 前后消息结构一致，
+        /// DeepSeek Prefix Cache 可直接命中。
+        /// Handoff 完成后由目标 Agent 首次 BuildContextAwareMessages 消费并清空。
+        /// </summary>
+        [JsonIgnore]
+        public List<ChatApiMessage>? ForwardedMessages { get; set; }
+
+        /// <summary>
+        /// 实时推理流回调。Agent 内部每收到一个 thinking chunk 时调用，
+        /// 供 UI 层实时流式更新思考面板。
+        /// </summary>
+        [JsonIgnore]
+        public Action<string>? OnThinkingChunk { get; set; }
     }
 
     /// <summary>
@@ -204,6 +231,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>生成的消息内容（Markdown 格式）</summary>
         public string? Content { get; set; }
+
+        /// <summary>推理/思考内容（DeepSeek V4 reasoning_content），用于渲染思考面板</summary>
+        public string? ReasoningContent { get; set; }
 
         /// <summary>文件变更列表（Edit Agent 产出）</summary>
         public List<FileChangeSummary> FileChanges { get; set; } = new();
@@ -304,6 +334,14 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>传递给目标 Agent 的附加上下文（如已探索的文件列表）</summary>
         public string? AdditionalContext { get; set; }
+
+        /// <summary>是否被拦截（显式路由时拒绝非必要移交）</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool Rejected { get; set; }
+
+        /// <summary>拦截原因（作为 tool 结果返回给 AI）</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? RejectReason { get; set; }
     }
 
     /// <summary>

@@ -1,4 +1,6 @@
-﻿using DeepSeek_v4_for_VisualStudio.Services;
+﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Services;
+using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Shell;
 using System;
 using System.ComponentModel;
@@ -33,6 +35,22 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             if (e.ApplyBehavior == ApplyKind.Apply)
             {
                 SettingsChanged?.Invoke();
+            }
+        }
+
+        /// <summary>
+        /// 安全加载设置存储。捕获因 VS 版本兼容性（如 IVsProfileLazyImportControl
+        /// 在部分 VS 版本不可用）导致的 InvalidCastException，回退到默认值。
+        /// </summary>
+        public override void LoadSettingsFromStorage()
+        {
+            try
+            {
+                base.LoadSettingsFromStorage();
+            }
+            catch (InvalidCastException ex)
+            {
+                Logger.Warn($"[Settings] LoadSettingsFromStorage 失败（VS 版本兼容性）: {ex.Message}");
             }
         }
         [LocalizedCategory("settings.category.api")]
@@ -218,6 +236,46 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [LocalizedDescription("settings.approvalMode.description")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public string ApprovalMode { get; set; } = "SmartBlock";
+
+        // ═══════════════════════════════════════════════
+        //  界面主题设置
+        // ═══════════════════════════════════════════════
+
+        [LocalizedCategory("settings.category.appearance")]
+        [LocalizedDisplayName("settings.themeMode.displayName")]
+        [LocalizedDescription("settings.themeMode.description")]
+        [TypeConverter(typeof(ThemeModeConverter))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public string ThemeModeString
+        {
+            get => _themeMode == ThemeMode.Auto ? "Auto" : _themeMode == ThemeMode.Dark ? "Dark" : "Light";
+            set
+            {
+                _themeMode = value switch
+                {
+                    "Dark" => ThemeMode.Dark,
+                    "Light" => ThemeMode.Light,
+                    _ => ThemeMode.Auto
+                };
+            }
+        }
+
+        private ThemeMode _themeMode = ThemeMode.Auto;
+
+        /// <summary>
+        /// 获取/设置主题模式（强类型版本，供代码使用）。
+        /// </summary>
+        [System.ComponentModel.Browsable(false)]
+        public ThemeMode ThemeMode
+        {
+            get => _themeMode;
+            set
+            {
+                _themeMode = value;
+                // 同步通知 ThemeService（可能尚未初始化，安全忽略）
+                try { ThemeService.Instance.UserThemeMode = value; } catch { }
+            }
+        }
     }
 
     /// <summary>
@@ -268,5 +326,15 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
             => new(new[] { "auto", "zh-CN", "en" });
+    }
+
+    /// <summary>
+    /// 主题模式下拉选项。
+    /// </summary>
+    internal class ThemeModeConverter : StringConverter
+    {
+        public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
+        public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
+            => new(new[] { "Auto", "Dark", "Light" });
     }
 }

@@ -50,6 +50,8 @@ public class AgentModelsTests
         step.RequiresApproval.Should().BeFalse();
         step.PendingCommand.Should().BeNull();
         step.AiResponse.Should().BeNull();
+        step.FilesModified.Should().Be(0);
+        step.LinesChanged.Should().Be(0);
     }
 
     [Fact]
@@ -112,6 +114,7 @@ public class AgentModelsTests
         plan.IsCompleted.Should().BeFalse();
         plan.IsCancelled.Should().BeFalse();
         plan.PlanFilePath.Should().BeNull();
+        plan.Source.Should().Be(PlanSource.None);
         plan.IsFromPlanAgent.Should().BeFalse();
     }
 

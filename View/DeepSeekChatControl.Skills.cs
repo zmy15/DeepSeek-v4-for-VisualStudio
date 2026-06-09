@@ -504,7 +504,7 @@ user-invocable: true
                 try
                 {
                     var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-                    routingResponse = await _apiService.CompleteAsync(routingMessages, cts.Token);
+                    routingResponse = await _apiService.CompleteAsync(routingMessages, cts.Token, responseFormat: "json_object");
                     routingResponse = routingResponse?.Trim();
                 }
                 catch (OperationCanceledException)

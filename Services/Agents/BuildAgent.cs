@@ -94,7 +94,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private static string BuildSystemPrompt()
         {
-            return GetCommonSystemPromptPrefix() + LocalizationService.Instance["system.agent.buildPromptFragment"];
+            return LocalizationService.Instance["system.agent.buildPromptFragment"]
+                + "\n\n## 🔌 MCP 外部工具\n"
+                + "你可能拥有从 MCP 服务器导入的外部工具（如部署、CI/CD 触发、依赖管理等）。\n"
+                + "这些写类工具可在构建-修复循环中使用，帮助你完成更完整的验证和部署流程。";
         }
 
         #endregion
@@ -109,6 +112,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             // ── 清空上次执行的日志，防止旧日志干扰判断 ──
             _logs.Clear();
+
+            // ── 清理上次执行的移交状态，防止跨调用污染 ──
+            PendingHandoffRequest = null;
 
             var L = LocalizationService.Instance;
             AddLog("INFO", string.Format(L["agent.log.buildStarted"], userMessage.Truncate(100)));
@@ -127,24 +133,33 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // ── 构建上下文增强消息 ──
                 string enhancedMessage = BuildEnhancedUserMessage(userMessage, context);
 
-                // ── 构建消息列表 ──
-                var messages = new List<ChatApiMessage>
-                {
-                    new ChatApiMessage { Role = "system", Content = Definition.SystemPrompt },
-                    new ChatApiMessage { Role = "user", Content = enhancedMessage }
-                };
+                // ── 构建消息列表（含对话历史 + Agent 专属 prompt）──
+                var messages = BuildContextAwareMessages(
+                    Definition.SystemPrompt,
+                    enhancedMessage,
+                    maxRecentTurns: int.MaxValue);
 
                 // ── 使用工具调用循环 ──
+                var thinkingBuilder = new StringBuilder();
                 string aiResponse = await CallAiWithToolLoopAsync(
                     messages,
                     workspaceRoot,
                     ct,
                     maxTokens: 8192,
                     toolWhitelist: new List<string>(BuildTools),
+                    onThinking: (thinking) =>
+                    {
+                        thinkingBuilder.Append(thinking);
+                        context.OnThinkingChunk?.Invoke(thinking);
+                    },
                     onToolCall: (toolSummary) =>
                     {
                         AddLog("INFO", toolSummary);
                     });
+
+                // ── 保存推理内容，供 UI 渲染思考面板 ──
+                if (thinkingBuilder.Length > 0)
+                    result.ReasoningContent = thinkingBuilder.ToString();
 
                 result.Content = aiResponse;
 
@@ -165,8 +180,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
                 }
                 // ── 携带计划上下文，链回 Ask Agent 生成最终变更总结 ──
-                else if (context.ActivePlan != null && context.ActivePlan.IsCompleted
-                    && context.ActivePlan.ChangedFiles.Count > 0)
+                else if (context.ActivePlan != null && context.ActivePlan.IsCompleted)
                 {
                     result.Plan = context.ActivePlan;
                     result.FileChanges = context.ActivePlan.ChangedFiles;
@@ -178,6 +192,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         Label = L["agent.edit.handoffAskLabel"],
                         TargetAgent = AgentType.Ask,
                         Prompt = summaryPrompt,
+                        AutoSend = true,
+                        ShowContinueOn = false,
+                    };
+                }
+                else
+                {
+                    // ── 无计划上下文时也移交 Ask 生成总结 ──
+                    result.Handoff = new AgentHandoff
+                    {
+                        Label = L["agent.edit.handoffAskLabel"],
+                        TargetAgent = AgentType.Ask,
+                        Prompt = L["agent.build.handoffAskPrompt"] ?? "请总结以上构建结果。",
                         AutoSend = true,
                         ShowContinueOn = false,
                     };

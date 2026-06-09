@@ -150,5 +150,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         /// <summary>工作区根目录</summary>
         public string? WorkspaceRoot { get; set; }
+
+        /// <summary>
+        /// 🔑 v1.1.11：父Agent的当前消息列表，供子Agent复用缓存前缀。
+        /// 设置后，ExploreAgent的BuildContextAwareMessages将直接使用此列表作为前缀，
+        /// 而非从ContextManager重建，使首轮API调用可命中父Agent的缓存。
+        /// </summary>
+        public List<ChatApiMessage>? ForwardedMessages { get; set; }
     }
 }

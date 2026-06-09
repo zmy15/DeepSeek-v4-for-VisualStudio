@@ -62,11 +62,14 @@ public class ConversationContextManagerTests
 
         var messages = _manager.BuildApiMessages();
 
-        messages.Should().HaveCount(2);
+        // messages[0] = SharedImmutablePrefix (含 tools description, 43ceb84 合并回退), messages[1] = user, messages[2] = custom system prompt
+        messages.Should().HaveCount(3);
         messages[0].Role.Should().Be("system");
-        messages[0].Content.Should().Be("You are helpful.");
+        messages[0].Content.Should().Contain("你是 DeepSeek v4 for Visual Studio");
         messages[1].Role.Should().Be("user");
         messages[1].Content.Should().Be("Hi");
+        messages[2].Role.Should().Be("system");
+        messages[2].Content.Should().Be("You are helpful.");
     }
 
     [Fact]

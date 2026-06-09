@@ -40,12 +40,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _apiService = new DeepSeekApiService(_options.ApiKey, _options.SelectedModel);
             _apiService.ConfigureThinking(_options.IsThinkingEnabled, _options.ReasoningEffort);
 
-            // ── 初始化/重建 Agent 调度器（ApiService 重建时必须同步重建）──
-            if (_agentDispatcher != null)
+            // ── 注入前缀缓存管理器（修复：直接 new 的 ApiService 缺少 DI 注入的 PrefixCache）──
+            _apiService.PrefixCache = new PrefixCacheManager();
+
+            // ── 初始化/重建 Agent 工厂（ApiService 重建时必须同步重建）──
+            if (_agentFactory != null)
             {
-                _agentDispatcher.PermissionRequested -= OnAgentPermissionRequested;
-                _agentDispatcher.QuestionsRequested -= OnAgentQuestionsRequested;
-                _agentDispatcher.Dispose();
+                _agentFactory.Dispose();
             }
 
             // ── 创建内置工具服务 ──
@@ -53,11 +54,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _memoryService = new MemoryService();
             _builtInToolService = new BuiltInToolService(_mcpManager, _webSearchService, buildService, _memoryService);
 
-            _agentDispatcher = new AgentDispatcher(_apiService, _builtInToolService, _mcpManager);
-            _agentDispatcher.ContextManager = _contextManager;
-            _agentDispatcher.PermissionRequested += OnAgentPermissionRequested;
-            _agentDispatcher.QuestionsRequested += OnAgentQuestionsRequested;
-            Logger.Info("Agent 调度器初始化成功（多 Agent 模式：Ask / Plan / Explore / Edit / Build）");
+            _agentFactory = new AgentFactory(_apiService, _builtInToolService, _mcpManager, _memoryService);
+            // 默认活跃 Agent 为 AskAgent
+            _activeAgent = _agentFactory.AskAgent;
+            _activeAgent.PermissionRequested += OnAgentPermissionRequested;
+            _activeAgent.QuestionsRequested += OnAgentQuestionsRequested;
+            Logger.Info("Agent 工厂初始化成功（多 Agent 模式：Ask / Plan / Explore / Edit / Build）");
 
             // 初始化 Agent 模式徽章（默认隐藏 Ask 模式）
             UpdateAgentModeBadge();
@@ -261,12 +263,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     else
                     {
-                        StatusLabel.Text = $"设置已更新 (搜索引擎: {_webSearchEngine})";
+                        StatusLabel.Text = string.Format(LocalizationService.Instance["status.settings.updated"], _webSearchEngine);
                     }
                 }
                 else
                 {
-                    StatusLabel.Text = $"设置已更新 (默认引擎: {resolvedEngine})";
+                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.settings.updated.default"], resolvedEngine);
                 }
             }
             catch (Exception ex)
@@ -302,8 +304,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 await _mcpManager.InitializeAsync(enabledConfigs, cts.Token);
 
-                // ── 将 MCP 管理器注入到 Agent 调度器 ──
-                _agentDispatcher?.UpdateMcpManager(_mcpManager);
+                // ── 将 MCP 管理器注入到 Agent 工厂 ──
+                _agentFactory?.UpdateMcpManager(_mcpManager);
 
                 var toolCount = _mcpManager.AllTools.Count;
                 if (toolCount > 0)
@@ -827,6 +829,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 Logger.Info("[Render] WebView2 已初始化，直接刷新页面内容");
                 RebuildMessagesHtml();
+                // ── 重置页面就绪标志，防止 RebuildPanelsWhenPageReadyAsync 使用旧页面状态 ──
+                // 若 _browserInitialized 为 false（如 OnSolutionClosed 后），UpdateBrowser 会做全量刷新
+                // 此时必须重置 _pageReady 并清空 _createdPlanIds，确保面板重建等待新页面加载完成
+                if (!_browserInitialized)
+                {
+                    _pageReady = false;
+                    lock (_lock) { _createdPlanIds.Clear(); }
+                }
                 UpdateBrowser();
                 // ── 重建持久化的任务面板 ──
                 _ = RebuildPanelsWhenPageReadyAsync();
@@ -847,6 +857,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // 全量替换路径（而非增量追加），避免与事件处理器中的空白页面重复。
                     RebuildMessagesHtml();
                     _browserInitialized = false;
+                    _pageReady = false;  // 重置页面就绪标志，等待新页面加载完成
                     UpdateBrowser();
                     // ── 重建持久化的任务面板 ──
                     _ = RebuildPanelsWhenPageReadyAsync();

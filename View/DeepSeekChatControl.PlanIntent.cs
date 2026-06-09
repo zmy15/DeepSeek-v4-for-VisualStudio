@@ -304,10 +304,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private void RestoreActivePlanIfNeeded(AgentContext context)
         {
-            if (_agentDispatcher == null) return;
+            if (_agentFactory == null) return;
 
             // 已有 ActivePlan，无需恢复
-            if (_agentDispatcher.ActivePlan != null && _agentDispatcher.ActivePlan.Steps.Count > 0)
+            if (_activePlan != null && _activePlan.Steps.Count > 0)
                 return;
 
             lock (_lock)
@@ -324,7 +324,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
                             if (plan != null && plan.Steps.Count > 0 && !plan.IsCompleted && !plan.IsCancelled)
                             {
-                                _agentDispatcher.ActivePlan = plan;
+                                _activePlan = plan;
                                 context.ActivePlan = plan;
                                 context.IsPlanningMode = true;
 

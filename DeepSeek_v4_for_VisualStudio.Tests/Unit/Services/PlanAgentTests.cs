@@ -5,7 +5,7 @@ namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Services;
 
 /// <summary>
 /// PlanAgent 单元测试 — 测试 Agent 定义、工具集、ExploreAgent 注入、
-/// BuildPhase2Prompt、ExtractStepsFromPlanMarkdown、FormatPlanAsMarkdown。
+/// BuildUnifiedDiscoveryPrompt、ExtractDiscoveryContextFromMessages、ExtractStepsFromPlanMarkdown、FormatPlanAsMarkdown。
 /// </summary>
 public class PlanAgentTests
 {
@@ -109,11 +109,12 @@ public class PlanAgentTests
     }
 
     [Fact]
-    public void Definition_SystemPrompt_ContainsDeepSeekV4()
+    public void Definition_SystemPrompt_IsNotEmpty()
     {
         var agent = new PlanAgent(_apiService);
 
-        agent.Definition.SystemPrompt.Should().Contain("DeepSeek v4");
+        agent.Definition.SystemPrompt.Should().NotBeNullOrEmpty();
+        agent.Definition.SystemPrompt.Should().Contain("Plan");
     }
 
     #endregion
@@ -145,58 +146,129 @@ public class PlanAgentTests
 
     #endregion
 
-    #region BuildPhase2Prompt
+    #region BuildUnifiedDiscoveryPrompt
 
     [Fact]
-    public void BuildPhase2Prompt_IncludesAreaDescription()
+    public void BuildUnifiedDiscoveryPrompt_IncludesUserMessage()
     {
         var context = new AgentContext();
-        var area = "认证模块 (Authentication)";
+        var userMessage = "实现用户认证模块";
 
-        var result = BuildPhase2PromptPublic(area, "", context);
+        var result = BuildUnifiedDiscoveryPromptPublic(userMessage, context, null);
 
-        result.Should().Contain("认证模块");
+        result.Should().Contain("实现用户认证模块");
     }
 
     [Fact]
-    public void BuildPhase2Prompt_WithStructureContext_PreservesFullContext()
+    public void BuildUnifiedDiscoveryPrompt_WithStructureCache_IncludesCacheContent()
     {
         var context = new AgentContext();
-        var structureContext = new string('x', 4000);
-        var area = "用户管理";
+        var structureCache = "## 项目结构 (来自缓存)\n\n- 📁 src/ (15 个文件)";
+        var userMessage = "添加日志功能";
 
-        var result = BuildPhase2PromptPublic(area, structureContext, context);
+        var result = BuildUnifiedDiscoveryPromptPublic(userMessage, context, structureCache);
 
-        // 不再截断：完整上下文应被保留
-        result.Should().Contain(structureContext);
-        result.Length.Should().BeGreaterThan(4000);
+        result.Should().Contain("项目结构");
+        result.Should().Contain("src/");
+    }
+
+    [Fact]
+    public void BuildUnifiedDiscoveryPrompt_WithStructureCache_IncludesSkipHint()
+    {
+        var context = new AgentContext();
+        var structureCache = "cached structure";
+        var userMessage = "重构数据层";
+
+        var result = BuildUnifiedDiscoveryPromptPublic(userMessage, context, structureCache);
+
         result.Should().Contain("跳过");
-        result.Should().NotContain("truncated");
     }
 
     [Fact]
-    public void BuildPhase2Prompt_IncludesWorkspaceRoot()
+    public void BuildUnifiedDiscoveryPrompt_WithoutCache_IncludesFirstExploreHint()
+    {
+        var context = new AgentContext();
+        var userMessage = "改进性能";
+
+        var result = BuildUnifiedDiscoveryPromptPublic(userMessage, context, null);
+
+        result.Should().NotBeEmpty();
+        result.Should().Contain("runSubagent");
+    }
+
+    [Fact]
+    public void BuildUnifiedDiscoveryPrompt_IncludesWorkspaceRoot()
     {
         var context = new AgentContext
         {
             SolutionPath = @"D:\Code\MyProject",
         };
-        var area = "数据访问层";
+        var userMessage = "修复内存泄漏";
 
-        var result = BuildPhase2PromptPublic(area, "", context);
+        var result = BuildUnifiedDiscoveryPromptPublic(userMessage, context, null);
 
         result.Should().Contain("D:\\Code\\MyProject");
     }
 
+    #endregion
+
+    #region ExtractDiscoveryContextFromMessages
+
     [Fact]
-    public void BuildPhase2Prompt_EndsWithTailInstruction()
+    public void ExtractDiscoveryContext_WithToolMessages_ExtractsContent()
     {
-        var context = new AgentContext();
-        var area = "测试区域";
+        var messages = new List<ChatApiMessage>
+        {
+            new() { Role = "system", Content = "System prompt" },
+            new() { Role = "user", Content = "Explore the codebase" },
+            new() { Role = "tool", Name = "runSubagent", Content = "Found: AuthService.cs handles login" },
+            new() { Role = "tool", Name = "runSubagent", Content = "Found: UserRepository.cs" },
+        };
 
-        var result = BuildPhase2PromptPublic(area, "", context);
+        var result = ExtractDiscoveryContextFromMessagesPublic(messages);
 
-        result.Should().NotBeEmpty();
+        result.Should().Contain("AuthService.cs");
+        result.Should().Contain("UserRepository.cs");
+    }
+
+    [Fact]
+    public void ExtractDiscoveryContext_NoRunSubagentMessages_ReturnsEmpty()
+    {
+        var messages = new List<ChatApiMessage>
+        {
+            new() { Role = "system", Content = "System" },
+            new() { Role = "tool", Name = "read_file", Content = "file content" },
+        };
+
+        var result = ExtractDiscoveryContextFromMessagesPublic(messages);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ExtractDiscoveryContext_EmptyMessages_ReturnsEmpty()
+    {
+        var messages = new List<ChatApiMessage>();
+
+        var result = ExtractDiscoveryContextFromMessagesPublic(messages);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ExtractDiscoveryContext_MultipleToolMessages_JoinsWithSeparator()
+    {
+        var messages = new List<ChatApiMessage>
+        {
+            new() { Role = "tool", Name = "runSubagent", Content = "Result A" },
+            new() { Role = "tool", Name = "runSubagent", Content = "Result B" },
+        };
+
+        var result = ExtractDiscoveryContextFromMessagesPublic(messages);
+
+        result.Should().Contain("Result A");
+        result.Should().Contain("Result B");
+        result.Should().Contain("---");
     }
 
     #endregion
@@ -326,25 +398,34 @@ public class PlanAgentTests
     public void LogEntryAdded_FiresWhenExploreAgentLogs()
     {
         var agent = new PlanAgent(_apiService);
-        AgentLogEntry? capturedLog = null;
-        agent.LogEntryAdded += (log) => capturedLog = log;
 
-        // Simulate ExploreAgent adding a log through the internal explore agent
+        AgentLogEntry? forwardedEntry = null;
+        agent.LogEntryAdded += entry => forwardedEntry = entry;
+
+        // Simulate ExploreAgent adding a log — PlanAgent should forward via LogEntryAdded
         RaiseLogEntryAddedPublic(agent.ExploreAgent!, new AgentLogEntry { Level = "INFO", Message = "探索完成" });
 
-        capturedLog.Should().NotBeNull();
-        capturedLog!.Message.Should().Contain("[Explore]");
+        forwardedEntry.Should().NotBeNull();
+        forwardedEntry!.Message.Should().Be("探索完成");
+        forwardedEntry!.Level.Should().Be("INFO");
     }
 
     #endregion
 
     // ──────────── Reflection helpers ────────────
 
-    private static string BuildPhase2PromptPublic(string area, string structureContext, AgentContext context)
+    private static string BuildUnifiedDiscoveryPromptPublic(string userMessage, AgentContext context, string? structureCache)
     {
-        var method = typeof(PlanAgent).GetMethod("BuildPhase2Prompt",
+        var method = typeof(PlanAgent).GetMethod("BuildUnifiedDiscoveryPrompt",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        return (string)method!.Invoke(null, new object[] { area, structureContext, context })!;
+        return (string)method!.Invoke(null, new object[] { userMessage, context, structureCache! })!;
+    }
+
+    private static string ExtractDiscoveryContextFromMessagesPublic(List<ChatApiMessage> messages)
+    {
+        var method = typeof(PlanAgent).GetMethod("ExtractDiscoveryContextFromMessages",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        return (string)method!.Invoke(null, new object[] { messages })!;
     }
 
     private static List<AgentStep> ExtractStepsFromPlanMarkdownPublic(string markdown)
