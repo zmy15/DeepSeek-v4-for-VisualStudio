@@ -555,12 +555,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             //     再构建动态块（包含压缩摘要、搜索、RAG、记忆）。
             //     这样 messages[0..2] 结构保持稳定，只有窗口内的对话历史会变化。
             //
-            //     🔑 快照冻结（v1.1.10）：若快照活跃，使用冻结的 dynamicBlock，
-            //        防止压缩摘要/搜索/RAG/记忆变化导致前缀缓存断裂。
-            int cacheWindowStart = FindCacheWindowStart();
-            if (cacheWindowStart > 0)
+            //     🔑 快照冻结（v1.1.10）：若快照活跃，跳过 CompressEntriesBeforeWindow，
+            //        因为压缩会原地替换旧条目（MUTATE entries），破坏快照试图保护的
+            //        前缀稳定性。快照活跃时 entries + dynamicBlock 均已冻结，无需压缩。
+            if (!_cacheSnapshotEntryIndex.HasValue)
             {
-                CompressEntriesBeforeWindow(cacheWindowStart);
+                int cacheWindowStart = FindCacheWindowStart();
+                if (cacheWindowStart > 0)
+                {
+                    CompressEntriesBeforeWindow(cacheWindowStart);
+                }
             }
 
             string? dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
@@ -829,11 +833,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             // ── 缓存窗口：进一步限制 token 数，并压缩旧条目 ──
-            int tokenWindowStart = FindCacheWindowStart();
-            if (tokenWindowStart > startEntryIdx)
-                startEntryIdx = tokenWindowStart; // 使用更严格的窗口边界
-            if (startEntryIdx > 0)
-                CompressEntriesBeforeWindow(startEntryIdx);
+            //     🔑 快照冻结（v1.1.10）：若快照活跃，跳过压缩。
+            //        原因同 BuildApiMessages()：压缩会 MUTATE entries，
+            //        破坏快照保护的缓存前缀。
+            if (!_cacheSnapshotEntryIndex.HasValue)
+            {
+                int tokenWindowStart = FindCacheWindowStart();
+                if (tokenWindowStart > startEntryIdx)
+                    startEntryIdx = tokenWindowStart;
+                if (startEntryIdx > 0)
+                    CompressEntriesBeforeWindow(startEntryIdx);
+            }
 
             // 构建截断后的消息列表（前缀结构与 BuildApiMessages 一致）
             var messages = new List<ChatApiMessage>();
