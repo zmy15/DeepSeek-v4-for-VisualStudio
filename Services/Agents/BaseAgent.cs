@@ -533,18 +533,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 var recentMessages = ctxManager.BuildApiMessagesRecentTurns(maxRecentTurns);
                 if (recentMessages.Count > 0)
                 {
-                    // 跳过第一条 system 消息（共享前缀已覆盖），
-                    // 但保留压缩摘要和搜索/RAG 上下文等 system 消息
-                    bool firstSystemSkipped = false;
+                    // ── 🔑 前缀缓存稳定（v1.1.10）：跳过 BuildApiMessagesRecentTurns 注入的
+                    //    所有前缀 system 消息（sharedPrefix + fixedPrompt + dynamicBlock），
+                    //    使 entries 直接从 messages[1] 开始。
+                    //    这确保重建后的消息结构与工具循环中累积的消息结构完全一致，
+                    //    避免 Agent Handoff 后因 fixedPrompt 冻结时机不同导致前缀错位。
+                    int prefixSystemsSkipped = 0;
+                    const int maxPrefixSystems = 3; // sharedPrefix + fixedPrompt + dynamicBlock
                     foreach (var msg in recentMessages)
                     {
-                        if (msg.Role == "system")
+                        if (msg.Role == "system" && prefixSystemsSkipped < maxPrefixSystems)
                         {
-                            if (!firstSystemSkipped)
-                            {
-                                firstSystemSkipped = true;
-                                continue; // 跳过对话管理器的 system prompt
-                            }
+                            prefixSystemsSkipped++;
+                            continue; // 跳过前缀 system 消息
                         }
                         messages.Add(msg);
                     }
