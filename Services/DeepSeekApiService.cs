@@ -540,10 +540,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Logger.Info($"[API] 消息结构(清洗后): system={diagSys}, user={diagUser}, assistant={diagAst}, tool={diagTool} (含工具调用={diagAstTc})");
 
             // ── 发送前 dump 请求体，确保 HTTP 400 等错误也能捕获 ──
-            DumpRequestToDisk(requestJson, requestBodyBytes.Length,
-                0, 0, 0, 0,
-                request.Messages.Count, tools?.Count ?? 0,
-                "(pre-send)");
+            // DumpRequestToDisk(requestJson, requestBodyBytes.Length,
+            //     0, 0, 0, 0,
+            //     request.Messages.Count, tools?.Count ?? 0,
+            //     "(pre-send)");
 
             // ── messages 前缀分段诊断（DeepSeek 缓存仅匹配 messages 字段）──
             int msg0Length = 0;
@@ -665,10 +665,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         catch { }
                         Logger.Error($"[API] HTTP {statusCode} 是客户端错误，放弃重试。响应: {respSnippet}");
                         // ── 即使 HTTP 400 也 dump 请求体，便于诊断请求结构问题 ──
-                        DumpRequestToDisk(requestJson, requestBodyBytes.Length,
-                            0, 0, 0, 0,
-                            request.Messages.Count, tools?.Count ?? 0,
-                            $"HTTP {statusCode}: {respSnippet}");
+                        // DumpRequestToDisk(requestJson, requestBodyBytes.Length,
+                        //     0, 0, 0, 0,
+                        //     request.Messages.Count, tools?.Count ?? 0,
+                        //     $"HTTP {statusCode}: {respSnippet}");
                         throw;
                     }
 
@@ -744,9 +744,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Logger.Info($"[Cache] {level} API调用完成: 命中率={rate * 100:F1}% (命中 {hit:N0} / 未命中 {miss:N0} / 可缓存 {cacheableTotal:N0} / prompt {LastUsage.PromptTokens:N0} tokens)\n" +
                         $"        ↳ 边界: {missBoundary}");
 
-                    DumpRequestToDisk(requestJson, requestBodyBytes.Length,
-                        hit, miss, cacheableTotal, rate,
-                        request.Messages.Count, tools?.Count ?? 0);
+                    // DumpRequestToDisk(requestJson, requestBodyBytes.Length,
+                    //     hit, miss, cacheableTotal, rate,
+                    //     request.Messages.Count, tools?.Count ?? 0);
                 }
                 catch (Exception ex)
                 {
