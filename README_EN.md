@@ -38,7 +38,7 @@
 | 📊 **Code Diff Preview** | Red/green diff markers in editor, per-hunk confirm or apply all |
 | 💡 **Ghost Text Completion** | Inline grey predictions, context-aware, Tab to accept |
 | 🌐 **Web Search** | Baidu Qianfan + DuckDuckGo dual engine, auto fallback on quota exhaustion |
-| 🖼️ **Image OCR** | PaddleOCR-Sharp local / Windows built-in / MCP remote — three engines |
+| 🖼️ **Image OCR** | Windows built-in / MCP remote — dual engines |
 | 📄 **File Parsing** | Drag & drop 50+ formats (code/docs/PDF/Office/images) |
 | 🛡️ **Terminal Approval** | Confirmation popup before command execution for security |
 | 🌐 **i18n** | Auto-switch between Chinese and English, custom translations supported |
@@ -77,7 +77,7 @@ git clone https://github.com/zmy15/DeepSeek-v4-for-VisualStudio.git
 | Model | `deepseek-v4-pro` |
 | Deep Thinking | On, Reasoning Effort = `high` |
 | Search | Baidu Qianfan (1500 free/month) |
-| OCR | PaddleOCR-Sharp |
+| OCR | Windows built-in / MCP remote |
 | Token Budget | 900000 |
 
 ---
@@ -154,4 +154,3 @@ Skill sources: **Project** (`.github/skills/`) → **User** (`~/.copilot/skills/
 ## License
 
 [MIT License](LICENSE)
-

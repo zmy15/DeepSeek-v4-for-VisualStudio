@@ -758,12 +758,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return ocrText;
                 }
 
-                // OCR 未成功，返回引擎相关的提示信息
-                string engineHint = OcrService.CurrentEngine switch
-                {
-                    OcrEngineType.PaddleOCR => "3. PaddleOCR 引擎初始化失败（工具 → 选项 → DeepSeek Chat → OCR Settings）",
-                    _ => "3. 系统未安装中文/英文 OCR 语言包（设置 → 语言 → 添加语言）",
-                };
+                // OCR 未成功，返回提示信息
+                string engineHint = "3. 系统未安装中文/英文 OCR 语言包（设置 → 语言 → 添加语言）";
 
                 return $"[图像文件: {Path.GetFileName(filePath)}]\n" +
                        $"[OCR 引擎: {OcrService.CurrentEngine}]\n" +

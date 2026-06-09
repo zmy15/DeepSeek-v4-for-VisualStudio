@@ -38,7 +38,7 @@
 | 📊 **代码差异预览** | 编辑器内红绿 Diff 标记，逐条确认或一键应用 |
 | 💡 **Ghost Text 补全** | 行内灰色预测，上下文感知，Tab 接受 |
 | 🌐 **联网搜索** | 百度千帆 + DuckDuckGo 双引擎，额度耗尽自动切换 |
-| 🖼️ **图像 OCR** | PaddleOCR-Sharp 本地 / Windows 内置 / MCP 远程三引擎 |
+| 🖼️ **图像 OCR** | Windows 内置 / MCP 远程双引擎 |
 | 📄 **文件解析** | 拖拽或粘贴 50+ 格式（代码/文档/PDF/Office/图片） |
 | 🛡️ **终端审批** | 命令执行前弹窗确认，保障安全 |
 | 🌐 **国际化** | 中英文自动切换，支持自定义翻译 |
@@ -78,7 +78,7 @@ git clone https://github.com/zmy15/DeepSeek-v4-for-VisualStudio.git
 | 模型 | `deepseek-v4-pro` |
 | 深度思考 | 开启，Reasoning Effort = `high` |
 | 搜索 | 百度千帆（月 1500 次免费） |
-| OCR | PaddleOCR-Sharp |
+| OCR | Windows 内置 / MCP 远程 |
 | Token Budget | 900000 |
 
 ---
