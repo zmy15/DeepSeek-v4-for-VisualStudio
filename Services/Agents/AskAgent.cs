@@ -32,14 +32,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         #region Agent Definition
 
         /// <summary>
-        /// Ask Agent 工具集 — 仅保留记忆和子代理委派能力。
-        /// 所有代码库读取/搜索操作必须通过 runSubagent 委派给 ExploreAgent。
+        /// Ask Agent 工具集 — 保留基础代码库读取能力和子代理委派能力。
+        /// 简单查找（类/方法/文件/内容）直接用内置工具；
+        /// 深度多步骤探索才委派给 ExploreAgent。
         /// </summary>
         public static readonly string[] AskTools = new[]
         {
-            "runSubagent",        // 委派探索任务给 ExploreAgent
+            // ── 简单搜索与读取（无需委派 Explore）──
+            "symbol_search",      // 符号搜索（类/方法/接口/属性定义）
+            "file_search",        // Glob 文件名搜索
+            "grep_search",        // 文本/正则内容搜索
+            "read_file",          // 读取文件
+            "list_dir",           // 浏览目录结构
+            "get_errors",         // 获取编译错误
+            // ── 委派与联网 ──
+            "runSubagent",        // 深度探索任务委派给 ExploreAgent
             "fetch_webpage",      // 联网搜索（无需代码库访问）
-            "request_handoff",    // 移交任务给其他 Agent（Edit/Plan/Explore/Build）
+            "request_handoff",    // 移交任务给其他 Agent
             "memory",             // 记忆管理
         };
 
@@ -89,16 +98,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static string BuildSystemPrompt()
         {
             return LocalizationService.Instance["agent.ask.systemPromptFragment"]
-                + "\n\n## 代码库探索（runSubagent 工具）\n"
-                + "你 **没有** 直接读取或搜索代码库文件的工具。当需要了解项目代码时，必须使用 `runSubagent` 工具委派给 Explore 子代理：\n"
+                + "\n\n## 代码库探索策略\n"
+                + "你拥有直接的代码库读取/搜索工具，可以高效地自行查找信息：\n\n"
+                + "### 🔍 简单查找 — 直接使用内置工具（无需委派 Explore）\n"
+                + "以下场景优先直接使用内置工具，更快更省 token：\n"
+                + "- **查找类/方法/接口/属性定义** → 使用 `symbol_search`（最快，基于 VS 符号索引）\n"
+                + "- **查找文件** → 使用 `file_search`（glob 模式）\n"
+                + "- **搜索代码内容/字符串/正则** → 使用 `grep_search`\n"
+                + "- **读取文件内容** → 使用 `read_file`\n"
+                + "- **浏览目录结构** → 使用 `list_dir`\n"
+                + "- **检查编译错误** → 使用 `get_errors`\n\n"
+                + "### 🚀 深度探索 — 使用 runSubagent 委派给 Explore 子代理\n"
+                + "以下场景需要委派给 Explore 子代理，它会进行多步骤系统化分析：\n"
+                + "- **跨多个文件/模块的架构分析**（如\"理解整个认证模块的调用链\"）\n"
+                + "- **需要综合多种信息源的任务**（如\"找到所有实现接口的类并比较差异\"）\n"
+                + "- **大规模代码库调研**（如\"项目中使用了哪些设计模式\"）\n"
+                + "- **不明确需要查找什么，需要先探索再定位的任务**\n"
+                + "- **Git 只读操作**（查看状态/日志/差异/提交历史）\n"
+                + "- **MCP 外部工具**（数据库查询、API 检索等）\n"
                 + "```json\n"
                 + "{ \"agentName\": \"Explore\", \"prompt\": \"描述要探索的内容和详细程度 (quick/medium/thorough)\", \"description\": \"3-5词简短摘要\" }\n"
-                + "```\n"
-                + "- Explore 子代理会返回基于实际文件内容的分析结果\n"
-                + "- 你基于 Explore 的返回结果回答问题，附上引用来源\n"
-                + "- 需要探索代码库时**必须**先调用 runSubagent，不要凭训练数据猜测\n"
-                + "- **Git 查询**（查看状态、日志、差异等）也通过 Explore 子代理进行，Explore 具有 git 只读工具\n"
-                + "- **MCP 外部工具**（如数据库查询、API 检索等）同样通过 Explore 子代理访问——你无法直接调用 MCP 只读工具，使用 runSubagent 委派即可\n\n"
+                + "```\n\n"
+                + "### ⚡ 判断原则\n"
+                + "- 能用 1-2 个工具调用完成的 → 直接使用内置工具\n"
+                + "- 需要 3+ 个工具调用或跨文件综合分析 → 委派给 Explore\n"
+                + "- 不确定时优先直接尝试，如果信息不足再委派 Explore\n"
+                + "- 探索结果会附上引用来源，基于实际文件内容回答\n\n"
                 + "## 记忆系统 (memory 工具)\n"
                 + "你拥有一个持久化记忆系统，通过 `memory` 工具管理三层记忆：\n"
                 + "- **用户记忆** (`/memories/`): 跨所有工作区持久化，用于存储用户偏好、编码习惯、常用命令等\n"
@@ -123,9 +148,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 + "### 优先级 3：报错修复 → Build Agent\n"
                 + "- **遇到编译错误/构建失败/链接报错需要修复（含代码修改）** → 移交给 `Build` Agent（Build 可以修改代码来修复编译问题）\n"
                 + "- **用户明确要求'修复报错'/'fix errors'/'解决编译问题'** → 直接移交给 `Build` Agent，不要用 Explore 探索\n\n"
-                + "### 底线：探索 → Explore 子代理（不要移交！）\n"
-                + "- **探索代码库 / Git 只读查询（status/diff/log）/ MCP 只读工具** → 不要移交！使用 `runSubagent` 委派给 Explore 子代理即可\n"
-                + "- Explore 子代理**仅服务于你的问答操作**——它是你的眼睛和耳朵，不是独立的执行者\n"
+                + "### 底线：深度探索 → 使用 runSubagent 委派 Explore（不要移交！）\n"
+                + "- **需要跨文件多步骤系统化探索 / Git 只读查询 / MCP 只读工具** → 不要移交！使用 `runSubagent` 委派给 Explore 子代理\n"
+                + "- Explore 子代理**仅服务于你的问答操作**——它是你的深度探索引擎，不是独立的执行者\n"
                 + "- ⚠️ **关键规则**：如果任务本身是复杂/多步骤的（如\"实现X功能\"/\"完成Y模块\"/\"修复Z系统\"），"
                 + "**直接移交 Plan Agent**，不要自己先探索代码库。Plan Agent 有自己的 Explore 子代理，会自行研究。"
                 + "你探索完再移交是浪费时间和 token。\n\n"

@@ -94,6 +94,13 @@ public class AskAgentTests
         agent.Definition.AllowedTools.Should().Contain("request_handoff");
         agent.Definition.AllowedTools.Should().Contain("fetch_webpage");
         agent.Definition.AllowedTools.Should().Contain("memory");
+        // Ask agent has built-in search/read tools for self-service code lookup
+        agent.Definition.AllowedTools.Should().Contain("symbol_search");
+        agent.Definition.AllowedTools.Should().Contain("file_search");
+        agent.Definition.AllowedTools.Should().Contain("grep_search");
+        agent.Definition.AllowedTools.Should().Contain("read_file");
+        agent.Definition.AllowedTools.Should().Contain("list_dir");
+        agent.Definition.AllowedTools.Should().Contain("get_errors");
     }
 
     [Fact]
@@ -118,6 +125,13 @@ public class AskAgentTests
         AskAgent.AskTools.Should().Contain("request_handoff");
         AskAgent.AskTools.Should().Contain("fetch_webpage");
         AskAgent.AskTools.Should().Contain("memory");
+        // Ask agent has built-in search/read tools
+        AskAgent.AskTools.Should().Contain("symbol_search");
+        AskAgent.AskTools.Should().Contain("file_search");
+        AskAgent.AskTools.Should().Contain("grep_search");
+        AskAgent.AskTools.Should().Contain("read_file");
+        AskAgent.AskTools.Should().Contain("list_dir");
+        AskAgent.AskTools.Should().Contain("get_errors");
     }
 
     [Fact]
