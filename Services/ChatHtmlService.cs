@@ -163,19 +163,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             return sb.ToString();
         }
 
-        private static readonly System.Text.Json.JsonSerializerOptions _statusJsonOptions = new()
-        {
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-
-        /// <summary>
-        /// 构建仅状态栏更新的 JSON 消息。
-        /// </summary>
-        public static string BuildStatusUpdateJson(string statusText)
-        {
-            return $"{{\"type\":\"streamStatus\",\"text\":{JsonSerializer.Serialize(statusText, _statusJsonOptions)}}}";
-        }
-
         /// <summary>
         /// 向 StringBuilder 追加 JSON 字符串值（手动转义，避免分配）。
         /// </summary>
@@ -205,87 +192,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         #endregion
-
-        /// <summary>
-        /// 构建流式完成后替换为完整 Markdown 渲染的 JS 脚本。
-        /// </summary>
-        public static string BuildFinalRenderJs(int messageIndex, string fullContent, string reasoningContent)
-        {
-            return BuildFinalRenderJs(messageIndex, fullContent, reasoningContent, null);
-        }
-
-        /// <summary>
-        /// 构建流式完成后替换为完整 Markdown 渲染的 JS 脚本（带额外尾部 HTML）。
-        /// extraFooterHtml 会以原始 HTML 形式注入到正文后面（不经过 Markdown 渲染），
-        /// 用于 &lt;details&gt; 折叠面板等需要原生 HTML 的元素。
-        /// </summary>
-        public static string BuildFinalRenderJs(int messageIndex, string fullContent, string reasoningContent, string? extraFooterHtml)
-        {
-            // 在 C# 侧完成 Markdown → HTML 渲染
-            string bodyHtml = RenderMarkdownToHtml(fullContent ?? string.Empty);
-            string escapedBody = EscapeJsString(bodyHtml);
-
-            string footerJs = string.IsNullOrWhiteSpace(extraFooterHtml)
-                ? "''"
-                : EscapeJsString(extraFooterHtml);
-
-            string reasoningHtml = string.IsNullOrWhiteSpace(reasoningContent)
-                ? string.Empty
-                : RenderReasoningContentHtml(reasoningContent);
-            string escapedReasoningHtml = EscapeJsString(reasoningHtml);
-
-            return $@"
-(function(){{
-    var container=document.getElementById('msg-body-{messageIndex}');
-    var reasoningPanel=document.getElementById('reasoning-{messageIndex}');
-    var reasoningBody=document.getElementById('reasoning-body-{messageIndex}');
-    var cursor=document.getElementById('cursor-{messageIndex}');
-    var msgDiv=document.getElementById('msg-{messageIndex}');
-
-    if(container){{
-        container.innerHTML={escapedBody};
-        // ── 注入额外尾部 HTML（如执行过程 &lt;details&gt; 面板）──
-        var footerHtml={footerJs};
-        if(footerHtml.length>0){{
-            var footerDiv=document.createElement('div');
-            footerDiv.innerHTML=footerHtml;
-            container.appendChild(footerDiv);
-        }}
-    }}
-
-    if(cursor) cursor.style.display='none';
-
-    if(reasoningPanel && reasoningBody){{
-        var rhtml={escapedReasoningHtml};
-        if(rhtml.length>0){{
-            reasoningPanel.style.display='block';
-            reasoningBody.innerHTML=rhtml;
-        }}else{{
-            reasoningPanel.style.display='none';
-        }}
-    }}
-
-    // ── 注入重试按钮（流式完成/停止后始终显示）──
-    if(msgDiv){{
-        var existingRetry=document.getElementById('retry-btn-{messageIndex}');
-        if(!existingRetry){{
-            var retryBtn=document.createElement('button');
-            retryBtn.id='retry-btn-{messageIndex}';
-            retryBtn.className='msg-action-btn retry-btn';
-            retryBtn.textContent='{EscapeJsString(L["chat.html.retryButton"])}';
-            retryBtn.title='{EscapeJsString(L["chat.html.retryButtonTitle"])}';
-            retryBtn.onclick=function(){{window.__retryMessage({messageIndex});}};
-            var msgBody=document.getElementById('msg-body-{messageIndex}');
-            if(msgBody) msgBody.parentNode.insertBefore(retryBtn,msgBody.nextSibling);
-        }}
-    }}
-
-    // 重新为代码块添加按钮和语言标签
-    if(msgDiv) decorateCodeBlocks(msgDiv);
-
-    window.__scrollToBottom('smooth');
-}})();";
-        }
 
         /// <summary>
         /// 构建 Handoff 按钮的 JavaScript 注入脚本。
@@ -318,35 +224,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
     var msgBody=document.getElementById('msg-body-{messageIndex}');
     if(msgBody) msgBody.parentNode.insertBefore(btn,msgBody.nextSibling);
-}})();";
-        }
-
-        /// <summary>
-        /// 构建内嵌状态栏更新 JS（替代 WPF TextBlock，消除布局卡顿）。
-        /// </summary>
-        /// <param name="statusText">状态文本，空字符串则清空</param>
-        /// <param name="agentBadgeText">Agent 模式徽章文本，空字符串则隐藏</param>
-        /// <param name="agentBadgeClass">Agent 模式 CSS 类名（plan/edit/explore）</param>
-        public static string BuildStatusUpdateJs(string statusText, string agentBadgeText = "", string agentBadgeClass = "")
-        {
-            string escapedStatus = EscapeJsString(statusText ?? "");
-            string escapedBadgeText = EscapeJsString(agentBadgeText ?? "");
-            string escapedBadgeClass = EscapeJsString(agentBadgeClass ?? "");
-
-            return $@"
-(function(){{
-    var s=document.getElementById('status-text');
-    if(s)s.textContent={escapedStatus};
-    var b=document.getElementById('agent-badge');
-    if(b){{
-        if({escapedBadgeText}.length>0){{
-            b.textContent={escapedBadgeText};
-            b.className='agent-badge {escapedBadgeClass}';
-            b.style.display='inline-block';
-        }}else{{
-            b.style.display='none';
-        }}
-    }}
 }})();";
         }
 

@@ -46,10 +46,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private const int StreamRenderInterval = 100;
         private const int StreamRenderMinIntervalMs = 80;
-        private const int StatusUpdateMinIntervalMs = 200; // 状态栏最小刷新间隔
-        private System.Diagnostics.Stopwatch? _streamRenderStopwatch;
-        private System.Diagnostics.Stopwatch? _statusUpdateStopwatch;
-        private string _lastToolCallNames = ""; // 工具调用名称缓存，避免重复更新
 
         #endregion
 
@@ -132,7 +128,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private MemoryService? _memoryService;
         private bool _isGenerating;
         private string _webSearchEngine = "Off"; // "Off" | "Baidu" | "DuckDuckGo"
-        private readonly List<string> _pendingWarnings = new(); // 待注入的警告消息
 
         // ── 文件上传 ──
         private readonly List<string> _attachedFilePaths = new(); // 已选文件路径列表
@@ -1167,54 +1162,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Warn($"[AgentMode] 更新徽章失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 带节流的状态栏更新。通过 ExecuteScriptAsync 直接更新 WebView2 内嵌 #status-bar，
-        /// 绕过 WPF TextBlock 的 Measure→Arrange→Render 管线。
-        /// </summary>
-        private void UpdateStatusText(string text)
-        {
-            if (_statusUpdateStopwatch != null
-                && _statusUpdateStopwatch.ElapsedMilliseconds < StatusUpdateMinIntervalMs)
-                return;
-
-            _statusUpdateStopwatch?.Restart();
-            _ = UpdateStatusViaJsAsync(text);
-        }
-
-        /// <summary>
-        /// 带缓存的工具调用状态更新。仅在工具名发生变化时更新。
-        /// </summary>
-        private void UpdateStatusToolCall(string toolNames)
-        {
-            if (toolNames == _lastToolCallNames) return;
-            _lastToolCallNames = toolNames;
-
-            if (_statusUpdateStopwatch != null
-                && _statusUpdateStopwatch.ElapsedMilliseconds < StatusUpdateMinIntervalMs)
-                return;
-
-            _statusUpdateStopwatch?.Restart();
-            _ = UpdateStatusViaJsAsync(
-                string.Format(LocalizationService.Instance["status.callingTool"], toolNames));
-        }
-
-        /// <summary>
-        /// 直接更新 WPF 状态行（StatusLabel），替代原先 WebView2 内嵌 #status-bar 的 JS 路径。
-        /// 通过 VS JoinableTaskFactory 切换到 UI 线程更新。
-        /// </summary>
-        private async Task UpdateStatusViaJsAsync(string statusText)
-        {
-            try
-            {
-                await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                StatusLabel.Text = statusText ?? "";
-            }
-            catch
-            {
-                // 调度失败时静默跳过
             }
         }
 

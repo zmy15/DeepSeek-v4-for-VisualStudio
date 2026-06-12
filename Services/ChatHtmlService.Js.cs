@@ -60,11 +60,6 @@ window.decorateCodeBlocks=function(container){
 };";
         }
 
-        private static string BuildDecorateAllCodeBlocksInvocation()
-        {
-            return "window.decorateCodeBlocks(document.getElementById('chat-container'));";
-        }
-
         private static string BuildShiftScrollJs()
         {
             return @"

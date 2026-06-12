@@ -241,24 +241,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
         }
 
-        /// <summary>
-        /// 通过 PostWebMessageAsString 非阻塞更新状态栏文本。
-        /// </summary>
-        private void PostStatusUpdate(string statusText)
-        {
-            if (ChatWebView.CoreWebView2 == null || !_pageReady) return;
-
-            try
-            {
-                string json = ChatHtmlService.BuildStatusUpdateJson(statusText);
-                ChatWebView.CoreWebView2.PostWebMessageAsString(json);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"[Render] PostStatusUpdate 异常: {ex.Message}", ex);
-            }
-        }
-
         // ── 批处理流式更新已在 DeepSeekChatControl.xaml.cs 中实现（BatchStreamingUpdate 方法）──
 
         #endregion

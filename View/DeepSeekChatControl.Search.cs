@@ -1,6 +1,7 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
+using Microsoft.VisualStudio.Shell;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -245,6 +246,60 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"网页内容增强失败: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// 将搜索结果列表构建为 AI 上下文文本。
+        /// </summary>
+        private static string BuildSearchContextFromResults(List<WebSearchResult> results)
+        {
+            if (results == null || results.Count == 0) return string.Empty;
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("## 联网搜索结果");
+            sb.AppendLine($"以下是通过联网搜索获取的最新信息（共 {results.Count} 条）：");
+            sb.AppendLine();
+
+            for (int i = 0; i < results.Count; i++)
+            {
+                var r = results[i];
+                sb.AppendLine($"### 结果 {i + 1}: {r.Title}");
+                if (!string.IsNullOrWhiteSpace(r.Url))
+                    sb.AppendLine($"来源: {r.Url}");
+                if (!string.IsNullOrWhiteSpace(r.Snippet))
+                {
+                    // 截断过长摘要以保护上下文
+                    string snippet = r.Snippet.Length > 2000
+                        ? r.Snippet.Substring(0, 2000) + "..."
+                        : r.Snippet;
+                    sb.AppendLine(snippet);
+                }
+                if (!string.IsNullOrWhiteSpace(r.Date))
+                    sb.AppendLine($"日期: {r.Date}");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("请基于以上搜索结果回答用户问题，并在回答中引用相关来源。");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 通过 WebView2 安全地推送搜索卡片 JS 到页面。
+        /// </summary>
+        private async Task PostSearchResultsJsAsync(string js)
+        {
+            try
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                if (ChatWebView?.CoreWebView2 != null && _pageReady && !string.IsNullOrWhiteSpace(js))
+                {
+                    ChatWebView.CoreWebView2.PostWebMessageAsString(js);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Search] 搜索结果卡片注入失败: {ex.Message}");
             }
         }
 

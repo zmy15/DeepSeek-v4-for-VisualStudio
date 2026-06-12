@@ -60,6 +60,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             var userText = InputTextBox.Text?.Trim();
             // ── 安全净化：防止用户通过 <|tool_calls|> 等标记注入工具调用 ──
             userText = StringExtensions.SanitizeUserInput(userText ?? string.Empty);
+            // ── 时间词语解析：将"今天""本周"等替换为具体日期 ──
+            userText = ResolveTimeExpressions(userText ?? string.Empty);
             if (string.IsNullOrWhiteSpace(userText)) userText = string.Empty;
             bool hasAttachments = _attachedFilePaths.Count > 0;
 
@@ -572,57 +574,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         #region Utility Helpers
 
-        // ── 断点续传辅助方法 ──
-
-        /// <summary>
-        /// 判断是否为暂态网络错误（可重试），排除客户端错误。
-        /// HTTP 4xx（除 429 限流外）是请求本身的问题，重试不会改变结果。
-        /// </summary>
-        private static bool IsTransientNetworkError(HttpRequestException ex)
-        {
-            string msg = ex.Message;
-            // 所有 4xx 客户端错误不应重试（400 Bad Request, 401 Unauthorized, 402 Payment Required,
-            // 403 Forbidden, 404 Not Found, 405 Method Not Allowed, 409 Conflict, 422 Unprocessable Entity）
-            if (msg.Contains("400") || msg.Contains("401") || msg.Contains("402") ||
-                msg.Contains("403") || msg.Contains("404") || msg.Contains("405") ||
-                msg.Contains("409") || msg.Contains("422"))
-                return false;
-            // HTTP 5xx、连接重置、DNS 解析失败、超时等可重试
-            return true;
-        }
-
-        /// <summary>
-        /// 构建断点续传的消息列表：在原消息基础上追加部分 AI 回复 + 继续指令。
-        /// 不对 _contextManager 产生副作用——仅在重试时使用临时副本。
-        /// </summary>
-        private static List<ChatApiMessage> BuildResumeMessages(
-            List<ChatApiMessage> originalMessages,
-            string partialContent,
-            string partialReasoning)
-        {
-            var resumed = new List<ChatApiMessage>(originalMessages);
-
-            // 追加已接收的部分 AI 回复
-            resumed.Add(new ChatApiMessage
-            {
-                Role = "assistant",
-                Content = string.IsNullOrEmpty(partialContent) ? null : partialContent,
-                ReasoningContent = string.IsNullOrEmpty(partialReasoning) ? null : partialReasoning
-            });
-
-            // 追加系统级继续指令（以 user 角色注入，确保 AI 遵循）
-            string tailContent = partialContent.Length > 300
-                ? "…(截断)…" + partialContent.Substring(partialContent.Length - 300)
-                : partialContent;
-            resumed.Add(new ChatApiMessage
-            {
-                Role = "user",
-                Content = $"[系统指令] 你之前的回复因网络中断被截断。以下是已发送的末尾内容：\n```\n{tailContent}\n```\n请从截断处**精确**继续，不要重复任何已发送的内容，不要道歉或解释中断。直接继续未完成的句子或代码块。"
-            });
-
-            return resumed;
-        }
-
         /// <summary>
         /// 将用户输入中的时间词语替换为具体日期。
         /// </summary>
@@ -686,98 +637,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             return text.Substring(0, maxLength) + "...";
         }
 
-        
-        /// <summary>
-        /// 注入 ExploreHandler / HandoffHandler 到 BuiltInToolService。
-        /// 确保主聊天流程的工具执行（非 Agent 上下文）也能使用 runSubagent / request_handoff。
-        /// </summary>
-        private void InjectToolHandlers()
-        {
-            if (_builtInToolService == null) return;
-
-            var exploreAgent = _agentFactory?.ExploreAgent;
-            if (exploreAgent != null)
-            {
-                // 同步工具服务
-                if (exploreAgent.BuiltInTools == null)
-                    exploreAgent.BuiltInTools = _builtInToolService;
-
-                _builtInToolService.ExploreHandler = async (ctx) =>
-                {
-                    exploreAgent.Context = new AgentContext
-                    {
-                        SolutionPath = ctx.WorkspaceRoot ?? _solutionPath,
-                        CancellationToken = CancellationToken.None,
-                        ContextManager = _contextManager,  // 注入对话历史，保持前缀缓存稳定
-                    };
-
-                    // ── 转发 ExploreAgent 日志到主流程，让用户看到探索进度 ──
-                    Action<AgentLogEntry> forwardLog = (entry) =>
-                    {
-                        Logger.Info($"[ExploreAgent] {entry.Level} {entry.Message.Truncate(200)}");
-                    };
-                    exploreAgent.LogEntryAdded += forwardLog;
-                    try
-                    {
-                        var exploreResult = await exploreAgent.ExecuteAsync(ctx.Prompt, exploreAgent.Context);
-                        return exploreResult.Success && !string.IsNullOrEmpty(exploreResult.Content)
-                            ? exploreResult.Content
-                            : $"❌ ExploreAgent 失败: {exploreResult.ErrorMessage ?? "未知错误"}";
-                    }
-                    finally
-                    {
-                        exploreAgent.LogEntryAdded -= forwardLog;
-                    }
-                };
-            }
-
-            _builtInToolService.HandoffHandler = async (request) =>
-            {
-                Logger.Info($"[MainFlow] 🔄 移交请求: {request.SourceAgent} → {request.TargetAgent} (原因: {request.Reason})");
-                // ── 防御：记录当前活跃 Agent 类型，确保移交链路可追溯 ──
-                var activeType = _activeAgent?.Definition.Type;
-                Logger.Info($"[MainFlow] 当前活跃 Agent: {activeType}, Handoff 来源: {request.SourceAgent} → 目标: {request.TargetAgent}");
-
-                // ── 显式路由拦截：@agent 时 AI 不应自主移交（Plan→Edit 除外）──
-                bool isExplicitRoute = _activeAgent?.Context?.IsExplicitRoute == true;
-                if (isExplicitRoute
-                    && !(activeType == AgentType.Plan && request.TargetAgent == AgentType.Edit))
-                {
-                    request.Rejected = true;
-                    request.RejectReason = $"用户通过 @{activeType?.ToString().ToLowerInvariant()} 显式指定了当前 Agent，请直接处理任务，不要移交控制权。";
-                    Logger.Info($"[MainFlow] 🚫 显式路由拦截移交 → {request.TargetAgent}");
-                    await Task.CompletedTask;
-                    return;
-                }
-
-                // 构建 AgentHandoff 并设置 _pendingHandoff，主流程将在本轮工具调用后执行移交
-                var L = LocalizationService.Instance;
-                string label = request.TargetAgent switch
-                {
-                    AgentType.Edit => L["agent.ask.handoffEditLabel"],
-                    AgentType.Ask => L["agent.edit.handoffAskLabel"],
-                    AgentType.Plan => L["agent.ask.handoffPlanLabel"],
-                    AgentType.Build => L["agent.ask.handoffBuildLabel"],
-                    AgentType.Explore => L["agent.ask.handoffExploreLabel"],
-                    _ => L["agent.handoff.defaultLabel"]
-                };
-                _pendingHandoff = new AgentHandoff
-                {
-                    Label = label,
-                    TargetAgent = request.TargetAgent,
-                    Prompt = $"[移交自 {request.SourceAgent}] {request.Reason}\n\n{request.TaskDescription}",
-                    AutoSend = request.AutoSend,
-                    ShowContinueOn = !request.AutoSend,
-                };
-                await Task.CompletedTask;
-            };
-        }
-
         /// <summary>
         /// 预处理 OCR 工具参数：AI 可能传文件名而非 base64，自动转换。
         /// 同时记录 OCR 调用参数格式提醒（input_data 必需，output_mode/file_type 可选）。
+        /// 静态方法，可由 BaseAgent 在执行工具前调用。
         /// </summary>
-        private string SanitizeOcrToolArguments(string toolName, string argumentsJson)
+        internal static string SanitizeOcrToolArguments(string toolName, string argumentsJson)
         {
             var ocrKeywords = new[] { "ocr", "recognize_text", "paddle_ocr", "ocr_image", "image_to_text", "read_text" };
             bool isOcrTool = ocrKeywords.Any(k => toolName.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
@@ -864,21 +729,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string contextDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeepSeekVS", "temp", "context");
                 if (Directory.Exists(contextDir)) searchDirs.Add(contextDir);
 
-                lock (_lock)
-                {
-                    if (_attachedFilePaths.Count > 0)
-                    {
-                        foreach (var attachedPath in _attachedFilePaths)
-                        {
-                            if (Path.GetFileName(attachedPath).Equals(fileName, StringComparison.OrdinalIgnoreCase))
-                            {
-                                searchDirs.Insert(0, Path.GetDirectoryName(attachedPath)!);
-                                break;
-                            }
-                        }
-                    }
-                }
-
                 string? resolvedPath = null;
                 foreach (var dir in searchDirs.Distinct())
                 {
@@ -909,68 +759,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Warn($"[OCR-Sanitize] 参数预处理异常: {ex.Message}");
                 return argumentsJson;
             }
-        }
-
-        /// <summary>
-        /// 判断两次工具调用结果是否实质相同（用于循环检测）。
-        /// 对错误类工具（get_errors、build_solution）提取核心错误行比较，
-        /// 避免因时间戳等噪声导致误判。
-        /// </summary>
-        private static bool AreToolResultsSame(string prevResult, string currentResult)
-        {
-            if (string.IsNullOrEmpty(prevResult) && string.IsNullOrEmpty(currentResult))
-                return true;
-            if (string.IsNullOrEmpty(prevResult) || string.IsNullOrEmpty(currentResult))
-                return false;
-
-            // ── 快速路径：完全一致 ──
-            string a = prevResult.Trim();
-            string b = currentResult.Trim();
-            if (a == b) return true;
-
-            // ── 提取错误行进行比较 ──
-            var prevErrors = ExtractToolErrorLines(a);
-            var currErrors = ExtractToolErrorLines(b);
-
-            if (prevErrors.Count == 0 && currErrors.Count == 0)
-            {
-                // 无错误行时，比较长度相似度（容忍 10% 差异）
-                int lenDiff = Math.Abs(a.Length - b.Length);
-                int maxLen = Math.Max(a.Length, b.Length);
-                return maxLen > 0 && (double)lenDiff / maxLen < 0.1;
-            }
-
-            if (prevErrors.Count != currErrors.Count)
-                return false;
-
-            for (int i = 0; i < prevErrors.Count; i++)
-            {
-                if (!string.Equals(prevErrors[i], currErrors[i], StringComparison.Ordinal))
-                    return false;
-            }
-
-            return true;
-        }
-
-        /// <summary>
-        /// 从工具结果中提取核心错误行（忽略时间戳、构建配置等可变前缀）。
-        /// </summary>
-        private static List<string> ExtractToolErrorLines(string result)
-        {
-            var errors = new List<string>();
-            foreach (var line in result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                string trimmed = line.Trim();
-                if (trimmed.Contains("error", StringComparison.OrdinalIgnoreCase)
-                    && !trimmed.StartsWith("0 Error", StringComparison.OrdinalIgnoreCase)
-                    && !trimmed.StartsWith("0 错误", StringComparison.OrdinalIgnoreCase)
-                    && !trimmed.Contains("0 Error", StringComparison.OrdinalIgnoreCase)
-                    && !trimmed.Contains("0 错误", StringComparison.OrdinalIgnoreCase))
-                {
-                    errors.Add(trimmed);
-                }
-            }
-            return errors;
         }
 
         /// <summary>
