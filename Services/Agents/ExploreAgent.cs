@@ -882,14 +882,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 // 只读取文本文件进行内容搜索
                 string ext = Path.GetExtension(filePath).ToLowerInvariant();
-                bool isTextFile = ext is ".cs" or ".vb" or ".cpp" or ".c" or ".h" or ".hpp"
-                    or ".fs" or ".fsx" or ".py" or ".js" or ".ts" or ".jsx" or ".tsx"
-                    or ".java" or ".go" or ".rs" or ".swift" or ".kt" or ".php"
-                    or ".xml" or ".json" or ".yaml" or ".yml" or ".md" or ".txt"
-                    or ".xaml" or ".csproj" or ".vbproj" or ".config" or ".sql"
-                    or ".css" or ".html" or ".htm" or ".razor" or ".cshtml";
-
-                if (!isTextFile) return score;
+                if (!SourceFileExtensions.Contains(ext)) return score;
 
                 // 读取文件内容并在行级别搜索
                 var lines = File.ReadAllLines(filePath);
