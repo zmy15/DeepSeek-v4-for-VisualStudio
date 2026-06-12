@@ -262,6 +262,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         public static string CompressionPromptTemplate => L["system.compressionPromptTemplate"];
 
+        /// <summary>
+        /// 可导航引用格式化规则 — 追加到 SharedImmutablePrefix 末尾。
+        /// </summary>
+        public static string NavigableReferenceRule => L["system.navigableReferenceRule"];
+
         #endregion
 
         #region Common System Prompt Prefix
@@ -284,7 +289,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// ConversationContextManager.BuildApiMessages（主流程 API 调用）使用，
         /// 确保两个路径的 messages[0] 完全一致，消除前缀漂移。
         /// </summary>
-        public static string SharedImmutablePrefix => CommonSystemPromptPrefixCore + L["system.agent.languageInstruction"] + "\n";
+        public static string SharedImmutablePrefix => CommonSystemPromptPrefixCore + L["system.agent.languageInstruction"] + "\n"
+            + L["system.navigableReferenceRule"] + "\n";
 
         #endregion
         #region Helper Methods
