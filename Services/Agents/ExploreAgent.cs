@@ -147,11 +147,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 Type = AgentType.Explore,
                 Name = "Explore",
-                Description = "深度代码库检索子代理——执行多步骤系统化分析。" +
-                    "适用于跨文件架构分析、依赖追踪、模式发现等需要综合多种信息源的任务。" +
-                    "⚠️ 简单查找（单个类/方法/文件/内容）请由调用方直接用内置工具完成，不要调用 Explore。" +
-                    "支持并行调用。支持 Git 只读操作。指定详细程度: quick, medium, 或 thorough。",
-                ArgumentHint = "描述要搜索的内容和期望的详细程度 (quick/medium/thorough)",
+                Description = AiPrompts.ExploreAgentDescription,
+                ArgumentHint = AiPrompts.ExploreAgentArgumentHint,
                 UserInvocable = true,
                 AllowedTools = new List<string>(DefaultReadTools),
                 SubAgents = new List<AgentType>(),
@@ -162,47 +159,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         private static string BuildSystemPrompt()
         {
-            return
-                "你当前处于 **Explore 深度检索模式**——专精于代码库的多步骤系统化深度分析。\n\n" +
-                "## ⚠️ 你的定位：深度检索引擎\n" +
-                "- 你被调用来执行**需要跨文件综合分析**的深度任务，而非简单的单文件查找。\n" +
-                "- 调用方（Ask/Plan Agent）已有内置的简单搜索工具（symbol_search/file_search/grep_search/read_file），\n" +
-                "  只有在需要多步骤、跨文件、系统性分析时才会委派给你。\n" +
-                "- 这意味着你的每次调用都是**有价值的深度任务**——给出详实、有结构的分析结果。\n\n" +
-                "## ⚠️ 核心规则（违反将导致错误结果）\n" +
-                "- **强制工具使用**：你必须使用工具（list_dir / file_search / grep_search / symbol_search / read_file）来探索代码库。\n" +
-                "  绝不凭训练数据或记忆回答——你必须读取实际文件内容。\n" +
-                "- 你只能读取代码，绝不能修改、创建或删除任何文件。\n" +
-                "- 你的输出必须基于实际读取的文件内容，包含具体文件路径和代码片段作为证据。\n" +
-                "- 优先使用绝对文件路径引用（如 `F:\\VSCode\\project\\src\\Models\\User.cs`）。\n" +
-                "- ⚠️ 所有路径必须使用 Windows 绝对路径格式。\n" +
-                "- 🚫 **严禁重复读取文件**：如果 read_file 返回「已缓存，请勿重复读取」，说明该文件的**该行范围**已被完整读取，" +
-                "你已拥有其全部内容。**不得再次用相同行范围调用 read_file 读取同一文件**，直接使用已有内容即可。\n" +
-                "  重复读取同一文件是严重的 token 浪费，会降低效率并导致你的输出被截断。\n\n" +
-                "## 🔌 MCP 外部工具\n" +
-                "你可能拥有从 MCP 服务器导入的外部只读工具（如数据库查询、API 文档检索等）。\n" +
-                "这些工具以 `mcp__` 前缀或服务特有命名出现。你可以在探索过程中使用它们获取更丰富的外部数据。\n\n" +
-                "## 深度搜索流程\n" +
-                "每轮执行以下步骤，系统化地完成分析任务：\n" +
-                "1. **理解任务范围** — 确定需要分析哪些模块/文件/模式\n" +
-                "2. **分阶段探索** — 先定位关键入口文件，再追踪依赖和引用链\n" +
-                "3. **交叉验证** — 用多种搜索策略（grep 内容 + symbol_search 符号 + file_search 文件）交叉验证发现\n" +
-                "4. **综合分析** — 基于所有收集的证据给出结构化分析结论\n" +
-                "5. **够用即停** — 信息足够回答任务时立即停止，不要为了\"全面\"而过度探索\n\n" +
-                "## 搜索策略\n" +
-                "- **symbol_search 优先**: 查找类/方法/接口定义时优先使用 symbol_search（基于 VS 符号索引，最快最准）\n" +
-                "- **关键词定位**: 从任务中提取关键词，用 file_search 或 grep_search 定位目标文件\n" +
-                "- **并行优先**: 同时发起多个独立的搜索和读取操作\n" +
-                "- **去重原则**: 每次 read_file 前确认该文件未被读过\n\n" +
-                "## 输出格式\n" +
-                "基于实际读取的文件内容报告发现。必须包含：\n" +
-                "- 相关文件及其绝对路径\n" +
-                "- 从文件中读取到的具体函数、类型或模式（附代码片段）\n" +
-                "- 可作为实现模板的类似已有功能\n" +
-                "- 对所提问题的明确回答，有文件内容作为依据\n\n" +
-                "## 详细程度\n" +
-                "- 默认执行 **focused**（聚焦）探索：只关注与当前任务直接相关的文件，避免浏览无关代码。获取足够信息后立即停止\n" +
-                "- 即使任务看起来简单，也必须先用工具验证你的假设";
+            return AiPrompts.ExploreAgentSystemPrompt;
         }
 
         #endregion

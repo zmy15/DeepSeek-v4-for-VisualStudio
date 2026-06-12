@@ -293,6 +293,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             + L["system.navigableReferenceRule"] + "\n";
 
         #endregion
+
+        #region Agent-Specific System Prompt Fragments
+
+        /// <summary>Ask Agent — 代码库探索策略 + 记忆系统 + 移交规则</summary>
+        public static string AskAgentPromptFragment => L["system.agent.askPromptFragment"];
+
+        /// <summary>Explore Agent — 深度检索模式完整系统提示</summary>
+        public static string ExploreAgentSystemPrompt => L["system.agent.explorePrompt"];
+
+        /// <summary>Explore Agent — 定义描述</summary>
+        public static string ExploreAgentDescription => L["system.agent.exploreDescription"];
+
+        /// <summary>Explore Agent — 参数提示</summary>
+        public static string ExploreAgentArgumentHint => L["system.agent.exploreArgumentHint"];
+
+        /// <summary>Plan Agent — MCP 外部工具片段</summary>
+        public static string PlanAgentMcpFragment => L["system.agent.planMcpFragment"];
+
+        /// <summary>Build Agent — MCP 外部工具片段</summary>
+        public static string BuildAgentMcpFragment => L["system.agent.buildMcpFragment"];
+
+        /// <summary>Edit Agent — 验证阶段用户消息模板。{0}=changes summary, {1}=explore context, {2}=sanity warnings</summary>
+        public static string EditVerifyUserMessage => L["system.agent.editVerifyUserMessage"];
+
+        #endregion
+
         #region Helper Methods
 
         /// <summary>

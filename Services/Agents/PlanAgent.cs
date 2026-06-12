@@ -94,9 +94,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static string BuildSystemPrompt()
         {
             return LocalizationService.Instance["agent.plan.systemPromptFragment"]
-                + "\n\n## 🔌 MCP 外部工具\n"
-                + "你可能需要访问 MCP 外部工具（如数据库查询、API 文档检索等）。\n"
-                + "Plan Agent 不直接持有这些工具——请通过 `runSubagent` 委派 Explore 子代理来访问 MCP 只读工具。";
+                + AiPrompts.PlanAgentMcpFragment;
         }
 
         #endregion
