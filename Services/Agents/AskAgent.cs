@@ -306,10 +306,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     aiSummary = await PolishSummaryWithAiAsync(directSummary, context);
                 }
 
-                // ── 构建最终 Markdown 总结 ──
-                result.Content = string.IsNullOrWhiteSpace(aiSummary)
-                    ? directSummary
-                    : BuildSummaryMarkdown(plan, aiSummary);
+                // ── 构建最终 Markdown 总结（总是使用 BuildSummaryMarkdown，它有内置回退）──
+                result.Content = BuildSummaryMarkdown(plan, aiSummary);
 
                 AddLog("INFO", string.Format(L["agent.log.askSummaryDone"], result.Content.Length));
                 result.Logs.AddRange(_logs);
@@ -580,6 +578,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine();
                 sb.AppendLine(aiSummary);
                 sb.AppendLine();
+            }
+            else if (plan.Steps.Count > 0)
+            {
+                // ── AI 润色未产出时，从步骤数据构建基础摘要 ──
+                var completedSteps = plan.Steps
+                    .Where(s => s.Status == AgentStepStatus.Completed && !string.IsNullOrWhiteSpace(s.ResultSummary))
+                    .ToList();
+                if (completedSteps.Count > 0)
+                {
+                    sb.AppendLine($"### {L["edit.summary.changeSummary"]}");
+                    sb.AppendLine();
+                    foreach (var step in completedSteps)
+                        sb.AppendLine($"- ✅ **{step.Title}**: {step.ResultSummary}");
+                    sb.AppendLine();
+                }
             }
 
             // ── 步骤执行情况 ──
