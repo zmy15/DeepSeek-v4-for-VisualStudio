@@ -525,10 +525,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 Context!.ForwardedMessages = null; // 消费后清空，防止下次误用
                 var result = new List<ChatApiMessage>(forwarded);
-                // ── 追加目标 Agent 专属指令和用户消息 ──
-                if (!string.IsNullOrWhiteSpace(systemPrompt))
-                    result.Add(new ChatApiMessage { Role = "system", Content = systemPrompt });
-                result.Add(new ChatApiMessage { Role = "user", Content = userPrompt });
+
+                // ── 🔑 v1.1.11：替换末尾旧 Agent 提示词 + 用户消息，而非追加 ──
+                // 工具循环 Insert 模式保证 forwarded 末尾始终是 [agent] + [user]，
+                // 新 Agent 直接替换这两个位置，避免出现两条提示词。
+                int count = result.Count;
+                if (count >= 2)
+                {
+                    result[count - 2] = new ChatApiMessage { Role = "system", Content = systemPrompt ?? string.Empty };
+                    result[count - 1] = new ChatApiMessage { Role = "user", Content = userPrompt };
+                }
+                else
+                {
+                    // 异常短列表，回退到追加模式
+                    if (!string.IsNullOrWhiteSpace(systemPrompt))
+                        result.Add(new ChatApiMessage { Role = "system", Content = systemPrompt });
+                    result.Add(new ChatApiMessage { Role = "user", Content = userPrompt });
+                }
                 return result;
             }
 
@@ -631,6 +644,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             bool loopDetected = false;
 
             int round = BuiltInTools?.CurrentRound ?? 0;
+
+            // ── 🔑 v1.1.11：固定后缀插入点 ──
+            // 消息结构：[0..3]prefix + [4..]历史 + [tool_calls...] + [agent] + [user]
+            // 工具循环中新增消息插入到 [agent] 之前，保持 [agent]+[user] 始终在末尾。
+            // ForwardedMessages 捕获此结构后，新 Agent 可直接替换末尾 [agent]+[user]。
+            int toolInsertPos = Math.Max(0, messages.Count - 2);
             while (!loopDetected)
             {
                 round++;
@@ -984,13 +1003,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         toolCallHistory.RemoveAt(0);
 
                     // ── 添加 assistant 消息（含工具调用）──
-                    messages.Add(new ChatApiMessage
+                    // 🔑 v1.1.11：插入到 [agent] 之前，保持末尾固定
+                    messages.Insert(toolInsertPos, new ChatApiMessage
                     {
                         Role = "assistant",
                         Content = contentBuilder.Length > 0 ? contentBuilder.ToString() : null,
                         ReasoningContent = reasoningBuilder.Length > 0 ? reasoningBuilder.ToString() : null,
                         ToolCalls = toolCalls
                     });
+                    toolInsertPos++;
 
                     // ── 同步 assistant 消息（含 tool_calls）到全局 ContextManager，确保重启后可恢复完整对话 ──
                     if (Context?.ContextManager != null)
@@ -1058,13 +1079,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         // ── 裁剪工具结果以保护上下文（与 ContextManager.AddToolResult 保持一致）──
                         string contextResult = CompactToolResultForAgent(tc.Function.Name, toolResult);
 
-                        messages.Add(new ChatApiMessage
+                        // ── 🔑 v1.1.11：插入到 [agent] 之前，保持末尾固定 ──
+                        messages.Insert(toolInsertPos, new ChatApiMessage
                         {
                             Role = "tool",
                             Content = contextResult,
                             ToolCallId = tc.Id,
                             Name = tc.Function.Name
                         });
+                        toolInsertPos++;
 
                         // ── 同步 tool 结果到全局 ContextManager，确保重启后可恢复完整对话 ──
                         if (Context?.ContextManager != null)
