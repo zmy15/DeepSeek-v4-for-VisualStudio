@@ -1586,14 +1586,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
             try
             {
                 Uri uri = new Uri(e.Uri);
-                string? name = System.Net.WebUtility.UrlDecode(
-                    System.Web.HttpUtility.ParseQueryString(uri.Query)["name"]);
+                var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                string? name = System.Net.WebUtility.UrlDecode(queryParams["name"]);
+                string? line = System.Net.WebUtility.UrlDecode(queryParams["line"]);
 
                 if (string.IsNullOrEmpty(name)) return;
 
                 if (uri.Host == "file")
                 {
-                    _ = NavigateToFileAsync(name);
+                    _ = NavigateToFileAsync(name, line);
                 }
                 else if (uri.Host == "symbol")
                 {
@@ -1607,14 +1608,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 导航到工作区中的指定文件（通过文件名搜索并打开）。
+        /// 导航到工作区中的指定文件（通过文件名搜索并打开），支持行号和路径前缀。
         /// </summary>
-        private async Task NavigateToFileAsync(string fileName)
+        private async Task NavigateToFileAsync(string fileName, string? lineInfo = null)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
             try
             {
+                // ── 解析行号信息 ──
+                int targetLine = 0;
+                int targetEndLine = 0;
+                if (!string.IsNullOrEmpty(lineInfo))
+                {
+                    var dashIdx = lineInfo.IndexOf('-');
+                    if (dashIdx > 0)
+                    {
+                        int.TryParse(lineInfo.Substring(0, dashIdx), out targetLine);
+                        int.TryParse(lineInfo.Substring(dashIdx + 1), out targetEndLine);
+                    }
+                    else
+                    {
+                        int.TryParse(lineInfo, out targetLine);
+                    }
+                }
+
                 // ── 获取工作区根目录 ──
                 string? slnPath = _solutionPath;
                 if (string.IsNullOrEmpty(slnPath) || (!File.Exists(slnPath) && !Directory.Exists(slnPath)))
@@ -1627,21 +1645,42 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     ? Path.GetDirectoryName(slnPath) ?? slnPath
                     : slnPath;
 
-                // 递归搜索匹配的文件
-                var matches = await Task.Run(() =>
-                    Directory.GetFiles(workspaceRoot, fileName, SearchOption.AllDirectories)
-                        .Where(f => !f.Contains("\\bin\\") && !f.Contains("\\obj\\")
-                            && !f.Contains("\\.git\\") && !f.Contains("\\node_modules\\"))
-                        .ToList());
+                // ── 文件搜索策略：逐级路径后缀匹配，优先精确路径 ──
+                string? filePath = null;
 
-                if (matches.Count == 0)
+                // 策略1：直接拼接工作区根目录（处理如 src/db_engine.cpp 的路径）
+                string directPath = Path.Combine(workspaceRoot, fileName.Replace('/', '\\'));
+                if (File.Exists(directPath))
+                {
+                    filePath = directPath;
+                }
+
+                // 策略2：递归搜索文件名（忽略路径前缀）
+                if (filePath == null)
+                {
+                    string searchPattern = Path.GetFileName(fileName);
+                    var matches = await Task.Run(() =>
+                        Directory.GetFiles(workspaceRoot, searchPattern, SearchOption.AllDirectories)
+                            .Where(f => !f.Contains("\\bin\\") && !f.Contains("\\obj\\")
+                                && !f.Contains("\\.git\\") && !f.Contains("\\node_modules\\"))
+                            .ToList());
+
+                    if (matches.Count > 0)
+                    {
+                        // 优先选择路径后缀最匹配的文件
+                        string normalizedName = fileName.Replace('/', '\\');
+                        filePath = matches
+                            .OrderBy(f => GetPathSuffixMatchLength(f, normalizedName))
+                            .ThenBy(f => f.Length) // 短路径优先
+                            .Last(); // 最长后缀匹配优先
+                    }
+                }
+
+                if (filePath == null)
                 {
                     Logger.Warn($"[Nav] 未找到文件: {fileName} in {workspaceRoot}");
                     return;
                 }
-
-                // 优先选择非 bin/obj 的匹配
-                string filePath = matches.First();
 
                 // 通过 VS SDK 打开文件
                 var openDoc = await ServiceProvider.GetGlobalServiceAsync(
@@ -1656,13 +1695,69 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         out _, out _, out _,
                         out Microsoft.VisualStudio.Shell.Interop.IVsWindowFrame frame);
                     frame?.Show();
-                    Logger.Info($"[Nav] 打开文件: {filePath}");
+                    Logger.Info($"[Nav] 打开文件: {filePath}" +
+                        (targetLine > 0 ? $" (行 {targetLine}{(targetEndLine > 0 ? $"-{targetEndLine}" : "")})" : ""));
+                }
+
+                // ── 跳转到指定行 ──
+                if (targetLine > 0)
+                {
+                    // 短暂延迟等待文档加载
+                    await Task.Delay(200);
+
+                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    try
+                    {
+                        var textManager = Package.GetGlobalService(
+                            typeof(Microsoft.VisualStudio.TextManager.Interop.SVsTextManager))
+                            as Microsoft.VisualStudio.TextManager.Interop.IVsTextManager;
+
+                        if (textManager != null)
+                        {
+                            Microsoft.VisualStudio.TextManager.Interop.IVsTextView? textView;
+                            textManager.GetActiveView(1, null, out textView);
+                            if (textView != null)
+                            {
+                                int line = Math.Max(0, targetLine - 1);
+                                int col = 0;
+                                textView.SetCaretPos(line, col);
+                                textView.CenterLines(line, Math.Max(1, (targetEndLine > 0 ? targetEndLine - targetLine + 1 : 5)));
+                                textView.SendExplicitFocus();
+                                Logger.Info($"[Nav] 跳转到行 {targetLine}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn($"[Nav] 行跳转失败: {ex.Message}");
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Logger.Error($"[Nav] 导航到文件失败 ({fileName}): {ex.Message}", ex);
             }
+        }
+
+        /// <summary>
+        /// 计算文件路径与目标路径后缀的匹配长度（越长表示路径越精确匹配）。
+        /// </summary>
+        private static int GetPathSuffixMatchLength(string filePath, string targetPath)
+        {
+            string fp = filePath.Replace('/', '\\');
+            string tp = targetPath.Replace('/', '\\');
+            int matchLen = 0;
+            int fi = fp.Length - 1;
+            int ti = tp.Length - 1;
+            while (fi >= 0 && ti >= 0 && char.ToLowerInvariant(fp[fi]) == char.ToLowerInvariant(tp[ti]))
+            {
+                matchLen++;
+                fi--;
+                ti--;
+            }
+            // 要求以目录分隔符或开头结束（避免部分匹配，如 a/b.cpp 匹配到 x/b.cpp 而不是 xx/b.cpp）
+            if (fi >= 0 && fp[fi] != '\\' && fp[fi] != '/') return 0;
+            return matchLen;
         }
 
         /// <summary>
@@ -1690,16 +1785,40 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var sourceExts = SharedConstants.SourceFileExtensions
                     .Where(e => e.StartsWith("."))
                     .ToArray();
-                var definitionPatterns = new[]
+                // ── 多语言定义/声明模式（优先级从高到低）──
+                // 模式1：类型声明 — class/struct/enum/interface/record/trait + 名称
+                // 模式2：函数/方法定义 — 返回类型 + 名称 + (...（C/C++/C#/Java/TS）
+                // 模式3：修饰符引导 — public/private/protected/static/export + 名称
+                // 模式4：Python 风格 — def name( 或 class name
+                // 模式5：C/C++ 成员 — ClassName::name / ClassName::~name
+                string escaped = Regex.Escape(symbolName);
+                var definitionPatterns = new (string pattern, string label)[]
                 {
-                    $@"\b(class|interface|struct|enum|record|delegate)\s+{Regex.Escape(symbolName)}\b",
-                    $@"\b(void|int|string|bool|var|async|Task|object|double|float|long|byte|char)\s+{Regex.Escape(symbolName)}\s*[\(\<]",
-                    $@"\b(public|private|protected|internal|static|override|virtual|abstract|sealed|partial)\s+.*\b{Regex.Escape(symbolName)}\b",
+                    // ── 类型声明（跨语言）──
+                    ($@"\b(class|struct|enum|interface|record|trait|union|namespace|module)\s+{escaped}\b", "type"),
+                    // ── C/C++ 函数定义：返回类型 + 名称 + ( ──
+                    ($@"\b(void|int|bool|char|short|long|float|double|auto|size_t|wchar_t|HRESULT|NTSTATUS)\s*\*?\s*{escaped}\s*\(", "c_func"),
+                    ($@"\b(unsigned|signed|const|static|inline|virtual|explicit|extern|friend)\s+.*\b{escaped}\s*\(", "c_mod_func"),
+                    // ── C#/Java 方法定义 ──
+                    ($@"\b(void|int|string|bool|var|async|Task|object|double|float|long|byte|char)\s+{escaped}\s*[\(\<]", "cs_func"),
+                    ($@"\b(public|private|protected|internal|static|override|virtual|abstract|sealed|partial|readonly|volatile)\s+.*\b{escaped}\b", "cs_mod"),
+                    // ── C/C++ 构造函数/析构函数  ClassName::ClassName / ClassName::~ClassName ──
+                    ($@"\b\w+::{escaped}\s*\(", "cpp_member"),
+                    // ── Python 风格 ──
+                    ($@"\bdef\s+{escaped}\s*\(", "py_func"),
+                    ($@"\bclass\s+{escaped}\b", "py_class"),
+                    // ── JS/TS 风格 ──
+                    ($@"\b(function|async\s+function)\s+{escaped}\s*\(", "js_func"),
+                    ($@"\b(let|const|var)\s+{escaped}\b", "js_var"),
+                    // ── 泛型模式：Name<T> 类型参数 ──
+                    ($@"\b{escaped}\s*<.*>\s*[\(\:]", "generic"),
                 };
 
                 string? foundFile = null;
                 int foundLine = 0;
+                string? matchLabel = null;
 
+                // ── 第1轮：严格定义匹配（所有模式，跨所有文件）──
                 await Task.Run(() =>
                 {
                     foreach (var ext in sourceExts)
@@ -1710,7 +1829,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             var files = Directory.GetFiles(workspaceRoot, "*" + ext, SearchOption.AllDirectories)
                                 .Where(f => !f.Contains("\\bin\\") && !f.Contains("\\obj\\")
                                     && !f.Contains("\\.git\\") && !f.Contains("\\node_modules\\")
-                                    && !f.Contains("\\packages\\"));
+                                    && !f.Contains("\\packages\\") && !f.Contains("\\TestResults\\")
+                                    && !f.Contains("\\.vs\\"));
                             foreach (var file in files.Take(500))
                             {
                                 try
@@ -1718,25 +1838,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     var lines = File.ReadAllLines(file);
                                     for (int i = 0; i < lines.Length; i++)
                                     {
-                                        // 优先匹配带类型声明的定义
-                                        foreach (var pattern in definitionPatterns)
+                                        string line = lines[i].Trim();
+                                        if (!line.Contains(symbolName)) continue;
+
+                                        foreach (var (pattern, label) in definitionPatterns)
                                         {
-                                            if (Regex.IsMatch(lines[i], pattern))
+                                            if (Regex.IsMatch(line, pattern, RegexOptions.IgnoreCase))
                                             {
                                                 foundFile = file;
                                                 foundLine = i + 1;
+                                                matchLabel = label;
                                                 break;
                                             }
                                         }
                                         if (foundFile != null) break;
-
-                                        // 宽松匹配：行中包含符号名
-                                        if (lines[i].Contains(symbolName))
-                                        {
-                                            foundFile = file;
-                                            foundLine = i + 1;
-                                            break;
-                                        }
                                     }
                                     if (foundFile != null) break;
                                 }
@@ -1746,6 +1861,88 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         catch { }
                     }
                 });
+
+                // ── 第2轮：宽松回退（仅在无定义匹配时，匹配优先级高于随机命中）──
+                if (foundFile == null)
+                {
+                    await Task.Run(() =>
+                    {
+                        foreach (var ext in sourceExts)
+                        {
+                            if (foundFile != null) break;
+                            try
+                            {
+                                var files = Directory.GetFiles(workspaceRoot, "*" + ext, SearchOption.AllDirectories)
+                                    .Where(f => !f.Contains("\\bin\\") && !f.Contains("\\obj\\")
+                                        && !f.Contains("\\.git\\") && !f.Contains("\\node_modules\\")
+                                        && !f.Contains("\\packages\\") && !f.Contains("\\TestResults\\"));
+                                foreach (var file in files.Take(300))
+                                {
+                                    try
+                                    {
+                                        var lines = File.ReadAllLines(file);
+                                        for (int i = 0; i < lines.Length; i++)
+                                        {
+                                            string line = lines[i].Trim();
+                                            // 优先：行以符号名开头（可能是定义）或包含 { / = / ( 等定义特征
+                                            if (line.StartsWith(symbolName, StringComparison.Ordinal)
+                                                || (line.Contains(symbolName)
+                                                    && (line.Contains('{') || line.Contains('=') || line.Contains('('))))
+                                            {
+                                                foundFile = file;
+                                                foundLine = i + 1;
+                                                matchLabel = "loose_def";
+                                                break;
+                                            }
+                                        }
+                                        if (foundFile != null) break;
+                                    }
+                                    catch { }
+                                }
+                            }
+                            catch { }
+                        }
+                    });
+                }
+
+                // ── 第3轮：纯文本匹配（最后手段）──
+                if (foundFile == null)
+                {
+                    await Task.Run(() =>
+                    {
+                        foreach (var ext in sourceExts)
+                        {
+                            if (foundFile != null) break;
+                            try
+                            {
+                                var files = Directory.GetFiles(workspaceRoot, "*" + ext, SearchOption.AllDirectories)
+                                    .Where(f => !f.Contains("\\bin\\") && !f.Contains("\\obj\\")
+                                        && !f.Contains("\\.git\\") && !f.Contains("\\node_modules\\")
+                                        && !f.Contains("\\packages\\"));
+                                foreach (var file in files.Take(200))
+                                {
+                                    try
+                                    {
+                                        var lines = File.ReadAllLines(file);
+                                        for (int i = 0; i < lines.Length; i++)
+                                        {
+                                            if (lines[i].Contains(symbolName))
+                                            {
+                                                foundFile = file;
+                                                foundLine = i + 1;
+                                                matchLabel = "text";
+                                                break;
+                                            }
+                                        }
+                                        if (foundFile != null) break;
+                                    }
+                                    catch { }
+                                }
+                            }
+                            catch { }
+                        }
+                    });
+                }
 
                 if (foundFile != null)
                 {
@@ -1790,7 +1987,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                         }
 
-                        Logger.Info($"[Nav] 打开符号 {symbolName}: {foundFile}:{foundLine}");
+                        Logger.Info($"[Nav] 打开符号 {symbolName}: {foundFile}:{foundLine} (match={matchLabel})");
                     }
                 }
                 else

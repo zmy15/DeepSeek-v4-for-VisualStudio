@@ -831,6 +831,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private static readonly Regex MethodCallSuffix = new(
             @"^([A-Z][A-Za-z0-9_]{2,})\(\)$", RegexOptions.Compiled);
 
+        // 文件路径 + 可选行号/行范围后缀: file.cpp:123 或 file.cpp:123-456
+        private static readonly Regex FileLineSuffixPattern = new(
+            @"^(?<filepath>.+?\.(?<ext>[a-zA-Z0-9]+)):(?<line>\d+)(?:-(?<endline>\d+))?$",
+            RegexOptions.Compiled);
+
         /// <summary>
         /// 后处理 HTML：将 <code> 中的文件名和符号名转为可点击的导航链接。
         /// 使用自定义 URI scheme vs-navigate:// 供 WebView2 NavigationStarting 拦截。
@@ -844,20 +849,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     string inner = match.Groups[1].Value;
                     // 跳过空内容、过长内容，以及 <pre> 内部的 <code>（无语言标记的围栏代码块）
-                    if (string.IsNullOrWhiteSpace(inner) || inner.Length > 80
+                    if (string.IsNullOrWhiteSpace(inner) || inner.Length > 120
                         || IsInsidePreTag(html, match.Index))
                         return match.Value;
 
-                    // ── 检测文件名 ──
-                    string ext = Path.GetExtension(inner);
-                    string baseName = Path.GetFileNameWithoutExtension(inner);
+                    // ── 检测 file:行号 模式（如 src/db_engine.cpp:368-429）──
+                    var fileLineMatch = FileLineSuffixPattern.Match(inner);
+                    string filePathCore = inner;
+                    string? lineParam = null;
+                    if (fileLineMatch.Success)
+                    {
+                        filePathCore = fileLineMatch.Groups["filepath"].Value;
+                        string lineStr = fileLineMatch.Groups["line"].Value;
+                        string? endLineStr = fileLineMatch.Groups["endline"].Success
+                            ? fileLineMatch.Groups["endline"].Value : null;
+                        lineParam = endLineStr != null ? $"{lineStr}-{endLineStr}" : lineStr;
+                    }
+
+                    // ── 检测文件名（支持带路径前缀如 src/db_engine.cpp）──
+                    string ext = Path.GetExtension(filePathCore);
+                    string baseName = Path.GetFileNameWithoutExtension(filePathCore);
                     if (!string.IsNullOrEmpty(ext) && !string.IsNullOrWhiteSpace(baseName)
                         && SourceFileExtensions.Contains(ext))
                     {
-                        string encodedName = Uri.EscapeDataString(inner);
+                        string encodedName = Uri.EscapeDataString(filePathCore);
                         string safeInner = EscapeHtmlAttributeSafe(inner);
                         string title = L.Format("chat.html.fileLinkTitle", safeInner);
-                        return $"<code><a class=\"file-link\" href=\"vs-navigate://file?name={encodedName}\" title=\"{title}\">{safeInner}</a></code>";
+                        string lineQuery = lineParam != null ? $"&line={Uri.EscapeDataString(lineParam)}" : "";
+                        return $"<code><a class=\"file-link\" href=\"vs-navigate://file?name={encodedName}{lineQuery}\" title=\"{title}\">{safeInner}</a></code>";
                     }
 
                     // ── 检测符号名（PascalCase / _underscorePrefix / MethodName()）──
