@@ -240,11 +240,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 string directSummary = BuildDirectSummaryMarkdown(plan, memorySummary);
 
                 // ── 第3层（可选）：用一次无工具 AI 调用润色自然语言部分 ──
+                // 🔑 v1.1.11：消费 ForwardedMessages（摘要生成是终端步骤，不需要完整对话历史），
+                // 避免 PolishSummaryWithAiAsync 通过 BuildContextAwareMessages 注入大量历史消息。
                 string aiSummary = string.Empty;
                 bool hasMeaningfulChanges = plan.ChangedFiles.Count > 0
                     || plan.Steps.Any(s => s.Status == AgentStepStatus.Completed && !string.IsNullOrWhiteSpace(s.ResultSummary));
                 if (!string.IsNullOrWhiteSpace(memorySummary) && hasMeaningfulChanges)
                 {
+                    context.ForwardedMessages = null;
                     aiSummary = await PolishSummaryWithAiAsync(directSummary, context);
                 }
 
@@ -427,27 +430,42 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 用一次无工具 AI 调用对直接摘要进行自然语言润色。
         /// 仅在记忆摘要非空且存在文件变更时调用。
+        /// 
+        /// 🔑 v1.1.11：通过 BuildContextAwareMessages + handoff 路径构建消息，
+        /// 而非手动拼接 raw messages。润色专用指令作为 AskAgent 的子任务 prompt
+        /// 注入在 Agent 系统提示之后、用户消息之前。
+        /// 
+        /// 消息结构：
+        ///   [0] SharedImmutablePrefix      ← 始终命中缓存
+        ///   [1] AskAgent.Definition.SystemPrompt  ← 与正常 Ask 调用共享
+        ///   [2] SummaryPolishSystemPrompt  ← 润色子任务指令
+        ///   [3] user: 待润色摘要内容       ← 每次不同
+        /// 
+        /// 前置条件：调用方已清空 context.ForwardedMessages，避免注入完整对话历史。
         /// </summary>
         private async Task<string> PolishSummaryWithAiAsync(string directSummary, AgentContext context)
         {
             try
             {
                 var ct = context.CancellationToken;
-                var L = LocalizationService.Instance;
 
-                var messages = new List<ChatApiMessage>
+                // ── 润色子任务指令作为额外 system 消息注入 ──
+                var polishInstructions = new List<ChatApiMessage>
                 {
                     new ChatApiMessage
                     {
                         Role = "system",
                         Content = AiPrompts.SummaryPolishSystemPrompt
-                    },
-                    new ChatApiMessage
-                    {
-                        Role = "user",
-                        Content = string.Format(AiPrompts.SummaryPolishUserPrompt, directSummary)
                     }
                 };
+
+                // ── 通过 BuildContextAwareMessages 走标准 handoff 路径 ──
+                // maxRecentTurns:0 → 不注入对话历史，保持润色调用轻量
+                var messages = BuildContextAwareMessages(
+                    Definition.SystemPrompt,
+                    string.Format(AiPrompts.SummaryPolishUserPrompt, directSummary),
+                    polishInstructions,
+                    maxRecentTurns: 0);
 
                 // 使用无工具调用的简单 API 调用
                 string result = await CallAiWithToolLoopAsync(
