@@ -1035,7 +1035,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             toolCalls);
                     }
 
-                    // ── 🔑 Explore 子代理消息注入：记录 ContextManager 当前条目数，
+                    // ── 🔑 Explore 子代理消息注入：记录 ContextManager 当前条目数
+                    //     （在 AddAssistantMessage 之后，避免注入时重复读取本条 assistant）。
                     //     供 runSubagent 执行后回读 Explore 内部工具循环消息。──
                     int cmCountBefore = Context?.ContextManager?.MessageCount ?? 0;
 

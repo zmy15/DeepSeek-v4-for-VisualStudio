@@ -197,8 +197,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Content = entry.Content,
                 };
 
+                // 🔑 序列化保真度：原样复制 ReasoningContent（null 保持 null），
+                //     不使用 ?? string.Empty 兜底。JsonIgnoreCondition.WhenWritingNull
+                //     会省略 null 但序列化 "" → JSON 字节不同 → 前缀缓存断裂。
                 if (entry.Role == "assistant" && entry.HasToolCalls)
-                    apiMsg.ReasoningContent = entry.ReasoningContent ?? string.Empty;
+                    apiMsg.ReasoningContent = entry.ReasoningContent;
 
                 if (entry.Role == "assistant" && entry.ToolCalls != null && entry.ToolCalls.Count > 0)
                     apiMsg.ToolCalls = entry.ToolCalls;
@@ -658,8 +661,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     if (entry.HasToolCalls)
                     {
-                        // 有工具调用 → 必须回传 reasoning_content（即使为空字符串也要包含字段，避免 API 报 400）
-                        apiMsg.ReasoningContent = entry.ReasoningContent ?? string.Empty;
+                        // 🔑 序列化保真度：原样复制，不强制兜底 empty string。
+                        //     ?? string.Empty 会将 null 转为 "" → JSON 多出字段 → 前缀缓存断裂。
+                        //     API 已验证接受 reasoning_content 为 null（省略）的 tool_calling assistant。
+                        apiMsg.ReasoningContent = entry.ReasoningContent;
                     }
                     // 无工具调用 → 不回传 reasoning_content（API 会忽略），保持为 null
                 }
@@ -946,8 +951,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Content = entry.Content,
                 };
 
+                // 🔑 序列化保真度：原样复制（与 GetEntryMessages 一致）
                 if (entry.Role == "assistant" && entry.HasToolCalls)
-                    apiMsg.ReasoningContent = entry.ReasoningContent ?? string.Empty;
+                    apiMsg.ReasoningContent = entry.ReasoningContent;
 
                 if (entry.Role == "assistant" && entry.ToolCalls != null && entry.ToolCalls.Count > 0)
                     apiMsg.ToolCalls = entry.ToolCalls;
