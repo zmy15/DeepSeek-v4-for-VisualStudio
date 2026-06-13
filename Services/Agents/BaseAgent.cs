@@ -1035,6 +1035,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             toolCalls);
                     }
 
+                    // ── 🔑 Explore 子代理消息注入：记录 ContextManager 当前条目数，
+                    //     供 runSubagent 执行后回读 Explore 内部工具循环消息。──
+                    int cmCountBefore = Context?.ContextManager?.MessageCount ?? 0;
+
                     // ── 并行执行工具调用（带超时保护，长时工具使用更长超时，已去重）──
                     //    被白名单拦截的工具跳过执行，直接返回拒绝消息。
                     var toolTasks = dedupedIndices.Select(idx =>
@@ -1056,6 +1060,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         return ExecuteToolWithTimeoutAsync(tc, workspaceRoot, ct, timeout);
                     }).ToList();
                     var dedupedResults = await Task.WhenAll(toolTasks).ConfigureAwait(false);
+
+                    // ── 🔑 记录 Explore 执行后的 CM 条目数（tool 结果尚未写入），
+                    //     用于精确读取 Explore 内部消息（不含即将写入的 runSubagent tool 结果）。──
+                    int cmCountAfterExplore = Context?.ContextManager?.MessageCount ?? 0;
 
                     // ── 将去重后的结果映射回原始 toolCalls 数组 ──
                     var toolResults = new string[toolCalls.Count];
@@ -1102,6 +1110,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         }
 
                         Logger.Info($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 返回: {(toolResult.Length > 200 ? toolResult.Substring(0, 200) + "..." : toolResult)}");
+                    }
+
+                    // ── 🔑 Explore 子代理消息注入（v1.1.11）：将 Explore 内部工具循环消息
+                    //     回注到父 Agent 的 messages 列表，使前缀缓存跨轮次一致。
+                    //     Explore 执行期间通过 AddAssistantMessage/AddToolResult 写入
+                    //     ContextManager 的消息，在此刻读出并插入到 toolInsertPos 之前，
+                    //     确保后续轮次从 ContextManager 重建时前缀结构完全一致。──
+                    if (toolCalls.Any(tc => tc.Function.Name == "runSubagent")
+                        && Context?.ContextManager != null)
+                    {
+                        if (cmCountAfterExplore > cmCountBefore)
+                        {
+                            // 读取 [cmCountBefore, cmCountAfterExplore) 范围的条目
+                            // （不含 tool 结果，因为 cmCountAfterExplore 在结果写入 CM 之前记录）
+                            var exploreMessages = Context.ContextManager.GetEntryMessages(cmCountBefore, cmCountAfterExplore);
+                            if (exploreMessages.Count > 0)
+                            {
+                                foreach (var em in exploreMessages)
+                                {
+                                    messages.Insert(toolInsertPos, em);
+                                    toolInsertPos++;
+                                }
+                                Logger.Info($"[Agent:{Definition.Name}] 🔄 注入 Explore 子代理消息: " +
+                                    $"{exploreMessages.Count} 条 (CM 索引 {cmCountBefore}→{cmCountAfterExplore})");
+                            }
+                        }
                     }
 
                     // ── 移交检测：如果 AI 调用了 request_handoff，立即终止循环 ──

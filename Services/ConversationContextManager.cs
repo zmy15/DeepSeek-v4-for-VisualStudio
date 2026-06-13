@@ -175,6 +175,47 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>获取消息总条数</summary>
         public int MessageCount => _entries.Count;
 
+        /// <summary>
+        /// 从指定起始索引开始，将 _entries 转换为 ChatApiMessage 列表（不含 SP/FP/DB 前缀）。
+        /// 用于子代理（Explore）执行后将内部工具循环消息回注到父代理消息列表。
+        /// </summary>
+        /// <param name="startIndex">起始索引（含）</param>
+        /// <param name="endIndex">结束索引（不含），默认到末尾</param>
+        public List<ChatApiMessage> GetEntryMessages(int startIndex, int endIndex = -1)
+        {
+            int end = endIndex < 0 ? _entries.Count : Math.Min(endIndex, _entries.Count);
+            var result = new List<ChatApiMessage>();
+            for (int i = startIndex; i < end; i++)
+            {
+                var entry = _entries[i];
+                if (string.IsNullOrEmpty(entry.Content) && (entry.ToolCalls == null || entry.ToolCalls.Count == 0))
+                    continue;
+
+                var apiMsg = new ChatApiMessage
+                {
+                    Role = entry.Role,
+                    Content = entry.Content,
+                };
+
+                if (entry.Role == "assistant" && entry.HasToolCalls)
+                    apiMsg.ReasoningContent = entry.ReasoningContent ?? string.Empty;
+
+                if (entry.Role == "assistant" && entry.ToolCalls != null && entry.ToolCalls.Count > 0)
+                    apiMsg.ToolCalls = entry.ToolCalls;
+
+                if (entry.Role == "tool")
+                {
+                    if (!string.IsNullOrEmpty(entry.ToolCallId))
+                        apiMsg.ToolCallId = entry.ToolCallId;
+                    if (!string.IsNullOrEmpty(entry.Name))
+                        apiMsg.Name = entry.Name;
+                }
+
+                result.Add(apiMsg);
+            }
+            return result;
+        }
+
         /// <summary>获取校准后的估算 Token 数（= 原始估算 × 校准系数）</summary>
         public int EstimatedTokens => (int)(_estimatedTokens * _calibrationFactor);
 
