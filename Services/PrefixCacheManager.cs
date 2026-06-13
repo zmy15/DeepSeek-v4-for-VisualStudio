@@ -123,11 +123,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 计算消息列表在关键前缀边界处的 SHA-256 哈希值。
         /// 每条边界 = 从 messages[0] 到当前位置（含）的所有消息的规范化串联。
         /// 
-        /// 边界定义：
-        ///   [0]      — SharedImmutablePrefix（跨 Agent 不变，最顶层缓存）
-        ///   [0..1]   — + FixedPrompt（Agent 专属提示词，Agent 切换时变化）
-        ///   [0..2]   — + DynamicBlock（搜索/RAG/记忆/压缩摘要，同轮次内稳定）
-        ///   [0..N-1] — 全部消息（完整请求前缀，每次调用不同）
+        /// 边界定义（基于 BuildApiMessages / BuildContextAwareMessages 的固定前缀结构）：
+        ///   [0]      — SharedImmutablePrefix（跨 Agent 永远不变，最顶层缓存）
+        ///   [0..1]   — + FixedPrompt from CM（用户自定义+AskAgent+MultiAgent+Memory+Skill，同 Agent 间稳定）
+        ///   [0..2]   — + DynamicBlock from CM（搜索/RAG/记忆/压缩摘要，同轮次内稳定）
+        ///   [0..N-1] — 全部消息（含对话历史 + Agent 行为指令 + 用户消息，每次调用不同）
+        /// 
+        /// 注：Agent 专属行为指令（如 EditAgent 的 "你是一个代码编辑器..."）在
+        ///     BuildContextAwareMessages 中位于对话历史之后，不在固定前缀边界 [0..2] 中。
+        ///     仅 CM 的 FP/DB 固定在历史之前（v1.1.11 从历史末尾移至此位置）。
         /// 
         /// 规范化格式：每条消息序列化为 "R:role\nC:content\n"，
         /// 确保 role 和 content 的字节级变化均可被 SHA-256 检测。
