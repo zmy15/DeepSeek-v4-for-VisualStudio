@@ -142,6 +142,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "apply_patch",
             "create_directory",
             "edit_notebook_file",
+            // 记忆工具 — 允许步骤内读写持久记忆
+            "memory",
         };
 
         protected override AgentDefinition CreateDefinition(AgentType agentType)

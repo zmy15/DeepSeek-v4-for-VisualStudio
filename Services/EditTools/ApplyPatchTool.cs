@@ -426,6 +426,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     continue;
                 }
 
+                // ── 纯插入验证：无删除行时，验证插入位置的前后上下文与文件一致 ──
+                if (chunk.DelLines.Count == 0 && chunk.InsLines.Count > 0 && !VerifyInsertContext(
+                    fileLines, matchedLine, chunk.OrigIndex, contextLines))
+                {
+                    failedHunks.Add(patch.Hunks[ci]);
+                    continue;
+                }
+
                 chunk.OrigIndex += matchedLine;
                 searchStartLine = matchedLine + contextLines.Length;
 
@@ -782,6 +790,86 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             }
 
             return passed;
+        }
+
+        /// <summary>
+        /// 纯插入验证：无删除行时，验证插入位置的上下文行在文件中实际存在。
+        /// 防御模糊匹配将插入定位到错误位置（如匹配到相似的 } 行）。
+        /// 取插入点前后的上下文行（各最多 3 行），验证它们与文件对应位置一致。
+        /// </summary>
+        private static bool VerifyInsertContext(
+            string[] fileLines, int matchedLine, int origIndex, string[] contextLines)
+        {
+            // 取插入点之前的上下文行（contextLines 中 origIndex 之前的行）
+            int preCtxCount = Math.Min(origIndex, 3);
+            int matchCount = 0;
+            int checkCount = 0;
+
+            if (preCtxCount > 0)
+            {
+                for (int i = 0; i < preCtxCount; i++)
+                {
+                    int ctxIdx = origIndex - preCtxCount + i;
+                    int fileIdx = matchedLine + ctxIdx;
+                    if (fileIdx >= fileLines.Length) return false;
+                    string ctxLine = contextLines[ctxIdx].Trim();
+                    string fileLine = fileLines[fileIdx].Trim();
+                    // 跳过纯空行/注释行（区分度太低）
+                    if (string.IsNullOrWhiteSpace(ctxLine) || ctxLine.StartsWith("//") || ctxLine.StartsWith("#") || ctxLine.StartsWith("--"))
+                        continue;
+                    checkCount++;
+                    if (string.Equals(ctxLine, fileLine, StringComparison.Ordinal))
+                        matchCount++;
+                    else if (ctxLine.Length >= 10)
+                    {
+                        // 允许模糊匹配（与上下文匹配的 Levenshtein 对齐）
+                        int dist = LevenshteinDistanceExtensions.LevenshteinDistance(ctxLine, fileLine);
+                        double similarity = 1.0 - (double)dist / Math.Max(ctxLine.Length, fileLine.Length);
+                        if (similarity >= 0.85) matchCount++;
+                    }
+                }
+            }
+
+            // 取插入点之后的上下文行
+            int postCtxStart = origIndex;
+            int postCtxCount = Math.Min(contextLines.Length - postCtxStart, 3);
+            int postMatchCount = 0;
+            int postCheckCount = 0;
+
+            if (postCtxCount > 0)
+            {
+                for (int i = 0; i < postCtxCount; i++)
+                {
+                    int ctxIdx = postCtxStart + i;
+                    int fileIdx = matchedLine + ctxIdx;
+                    if (fileIdx >= fileLines.Length) return false;
+                    string ctxLine = contextLines[ctxIdx].Trim();
+                    string fileLine = fileLines[fileIdx].Trim();
+                    if (string.IsNullOrWhiteSpace(ctxLine) || ctxLine.StartsWith("//") || ctxLine.StartsWith("#") || ctxLine.StartsWith("--"))
+                        continue;
+                    postCheckCount++;
+                    if (string.Equals(ctxLine, fileLine, StringComparison.Ordinal))
+                        postMatchCount++;
+                    else if (ctxLine.Length >= 10)
+                    {
+                        int dist = LevenshteinDistanceExtensions.LevenshteinDistance(ctxLine, fileLine);
+                        double similarity = 1.0 - (double)dist / Math.Max(ctxLine.Length, fileLine.Length);
+                        if (similarity >= 0.85) postMatchCount++;
+                    }
+                }
+            }
+
+            // ── 判断：≥ 75% 的非跳过行匹配 ──
+            bool prePassed = checkCount == 0 || matchCount >= Math.Ceiling(checkCount * 0.75);
+            bool postPassed = postCheckCount == 0 || postMatchCount >= Math.Ceiling(postCheckCount * 0.75);
+
+            if (!prePassed || !postPassed)
+            {
+                Logger.LogToFile("applypatch",
+                    $"[ApplyPatch] ⚠️ 插入位置验证失败: 前置={matchCount}/{checkCount}, 后置={postMatchCount}/{postCheckCount} (阈值=75%)");
+            }
+
+            return prePassed && postPassed;
         }
 
         /// <summary>

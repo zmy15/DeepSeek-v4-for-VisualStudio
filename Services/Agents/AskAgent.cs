@@ -249,10 +249,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 string aiSummary = string.Empty;
                 bool hasMeaningfulChanges = plan.ChangedFiles.Count > 0
                     || plan.Steps.Any(s => s.Status == AgentStepStatus.Completed && !string.IsNullOrWhiteSpace(s.ResultSummary));
-                if (!string.IsNullOrWhiteSpace(memorySummary) && hasMeaningfulChanges)
+                if (hasMeaningfulChanges)
                 {
                     context.ForwardedMessages = null;
-                    aiSummary = await PolishSummaryWithAiAsync(directSummary, context);
+                    // 将步骤语义描述追加到 directSummary，确保润色 AI 有足够上下文
+                    string enrichedSummary = AppendStepDescriptions(directSummary, plan);
+                    aiSummary = await PolishSummaryWithAiAsync(enrichedSummary, context);
                 }
 
                 // ── 构建最终 Markdown 总结（总是使用 BuildSummaryMarkdown，它有内置回退）──
@@ -504,6 +506,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 构建包含文件和项目上下文的 prompt。
         /// </summary>
+        /// <summary>
+        /// 将 plan 中每个步骤的 Description 追加到摘要文本中，
+        /// 确保 AI 润色时能看到具体的任务语义（而非仅文件统计）。
+        /// </summary>
+        private static string AppendStepDescriptions(string summary, AgentTaskPlan plan)
+        {
+            var meaningfulSteps = plan.Steps
+                .Where(s => !string.IsNullOrWhiteSpace(s.Description))
+                .ToList();
+            if (meaningfulSteps.Count == 0) return summary;
+
+            var sb = new StringBuilder(summary);
+            sb.AppendLine();
+            sb.AppendLine("## 步骤任务描述（润色参考）");
+            foreach (var step in meaningfulSteps)
+            {
+                sb.AppendLine($"- 步骤 {step.Index}: {step.Description}");
+            }
+            return sb.ToString();
+        }
+
         private static string BuildContextualPrompt(string userMessage, AgentContext context)
         {
             var sb = new StringBuilder();
