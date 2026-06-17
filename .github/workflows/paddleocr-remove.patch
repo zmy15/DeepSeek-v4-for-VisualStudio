@@ -63,7 +63,7 @@ index f71a8e2..367d836 100644
    <!-- ========================================================================
       将 System.* .NET Standard 桥接程序集强制复制到输出目录
 diff --git a/README.md b/README.md
-index cbe3730..e4b9f32 100644
+index 5e58913..839f6ab 100644
 --- a/README.md
 +++ b/README.md
 @@ -40,7 +40,7 @@
@@ -98,7 +98,7 @@ index cbe3730..e4b9f32 100644
  | MCP 远程 | MCP 协议 | 外部 OCR 服务 |
  
 diff --git a/README_EN.md b/README_EN.md
-index 6db3d30..694dac4 100644
+index 584419e..dc4ae55 100644
 --- a/README_EN.md
 +++ b/README_EN.md
 @@ -40,7 +40,7 @@
@@ -145,7 +145,7 @@ index 83db7eb..cb8f2fb 100644
                  };
  
 diff --git a/Services/OcrService.cs b/Services/OcrService.cs
-index e9e00a5..195cff5 100644
+index e9e00a5..f4edfb8 100644
 --- a/Services/OcrService.cs
 +++ b/Services/OcrService.cs
 @@ -21,9 +21,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
@@ -201,7 +201,15 @@ index e9e00a5..195cff5 100644
                  _ => false,
              };
          }
-@@ -429,18 +420,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
+@@ -414,7 +405,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
+         public static void ResetAllEngines()
+         {
+             Logger.Info("[OCR] 重置所有引擎状态（热切换设置）...");
+-            PaddleEngineWrapper.Reset();
+             Logger.Info("[OCR] 引擎状态已重置，下次 OCR 将使用新配置重新初始化");
+         }
+ 
+@@ -429,18 +419,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
              return $"{bytes / (1024.0 * 1024.0):F1} MB";
          }
  
@@ -220,7 +228,7 @@ index e9e00a5..195cff5 100644
  
          #endregion
  
-@@ -520,165 +499,5 @@ namespace DeepSeek_v4_for_VisualStudio.Services
+@@ -520,165 +498,5 @@ namespace DeepSeek_v4_for_VisualStudio.Services
          }
  
          #endregion
