@@ -198,6 +198,12 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>编辑后的完整文件内容（行尾已标准化为 CRLF）。供调用方通过 VS SDK 写入。</summary>
         [JsonIgnore]
         public string? FinalContent { get; set; }
+
+        /// <summary>写入后校验结果：null=未校验, true=通过, false=失败</summary>
+        public bool? PostWriteValidationPassed { get; set; }
+
+        /// <summary>校验失败的详细信息</summary>
+        public List<string>? ValidationErrors { get; set; }
     }
 }
 

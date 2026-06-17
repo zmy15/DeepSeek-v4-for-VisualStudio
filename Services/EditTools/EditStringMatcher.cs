@@ -645,5 +645,86 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         }
 
         #endregion
+
+        #region 结构完整性校验
+
+        /// <summary>
+        /// 对修改区域的代码进行快速结构校验。
+        /// 检查括号配对、基本语法标记等，返回问题列表。
+        /// </summary>
+        /// <param name="content">修改后文件完整内容</param>
+        /// <param name="editStartLine">编辑起始行（0-based）</param>
+        /// <param name="editEndLine">编辑结束行（0-based）</param>
+        /// <param name="originalLines">原始文件行数组（用于对比基线）</param>
+        /// <returns>问题描述列表，为空表示通过</returns>
+        public static List<string> ValidateStructureIntegrity(
+            string content, int editStartLine, int editEndLine, string[] originalLines)
+        {
+            var errors = new List<string>();
+            var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+            int checkStart = Math.Max(0, editStartLine - 20);
+            int checkEnd = Math.Min(lines.Length - 1, editEndLine + 20);
+
+            var bracketStack = new Stack<(char bracket, int line)>();
+            for (int i = checkStart; i <= checkEnd && i < lines.Length; i++)
+            {
+                foreach (char ch in lines[i])
+                {
+                    switch (ch)
+                    {
+                        case '{':
+                            bracketStack.Push(('{', i));
+                            break;
+                        case '}':
+                            if (bracketStack.Count == 0 || bracketStack.Peek().bracket != '{')
+                                errors.Add($"行 {i + 1}: 多余的 '}}' 闭合符号（缺少对应的 '{{'）");
+                            else
+                                bracketStack.Pop();
+                            break;
+                        case '(':
+                            bracketStack.Push(('(', i));
+                            break;
+                        case ')':
+                            if (bracketStack.Count > 0 && bracketStack.Peek().bracket == '(')
+                                bracketStack.Pop();
+                            else
+                                errors.Add($"行 {i + 1}: 可能多余的 ')' 闭合符号");
+                            break;
+                        case '[':
+                            bracketStack.Push(('[', i));
+                            break;
+                        case ']':
+                            if (bracketStack.Count > 0 && bracketStack.Peek().bracket == '[')
+                                bracketStack.Pop();
+                            else
+                                errors.Add($"行 {i + 1}: 可能多余的 ']' 闭合符号");
+                            break;
+                    }
+                }
+            }
+            foreach (var (bracket, line) in bracketStack)
+                errors.Add($"行 {line + 1}: '{bracket}' 没有对应的闭合符号");
+
+            int windowBraceDelta = CountBracesInRange(lines, checkStart, checkEnd) -
+                                   CountBracesInRange(originalLines,
+                                       Math.Min(checkStart, originalLines.Length - 1),
+                                       Math.Min(checkEnd, originalLines.Length - 1));
+            if (Math.Abs(windowBraceDelta) > 3)
+                errors.Add($"编辑窗口内括号数量变化较大 (Δ={windowBraceDelta})，请人工确认");
+
+            return errors;
+        }
+
+        private static int CountBracesInRange(string[] lines, int start, int end)
+        {
+            int count = 0;
+            for (int i = Math.Max(0, start); i <= end && i < lines.Length; i++)
+                foreach (char ch in lines[i])
+                    if (ch == '{' || ch == '}') count++;
+            return count;
+        }
+
+        #endregion
     }
 }

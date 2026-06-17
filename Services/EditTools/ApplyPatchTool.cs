@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
@@ -188,12 +188,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         public async Task<List<EditApplyResult>> ExecutePatchesAsync(
             List<PatchOperation> patches, CancellationToken ct)
         {
-            var results = new List<EditApplyResult>();
-
-            // ── 跟踪每个文件的内存内容（原子性）──
-            var fileState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
             // ── 事务性备份追踪：记录 文件路径 → 备份路径 ──
+            var results = new List<EditApplyResult>();
+            var fileState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var backups = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
             bool anyFailed = false;
 
@@ -220,49 +217,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
                 string currentContent = fileState[resolvedPath];
 
-                var result = await ApplySinglePatchAsync(patch, resolvedPath, currentContent, ct);
+                var result = await ApplyWithValidationAsync(
+                    patch, resolvedPath, currentContent, backups, ct);
 
-                // ── Healing ──
-                if (!result.Success && result.FailedHunks != null && result.FailedHunks.Count > 0)
+                if (result.Success && result.PostWriteValidationPassed != false)
                 {
-                    var healingRequest = new HealingRequest
-                    {
-                        FilePath = resolvedPath,
-                        CurrentFileContent = currentContent,
-                        OriginalOperationType = EditOperationType.ApplyPatch,
-                        FailedPatch = patch,
-                        FailureReason = result.ErrorMessage ?? LocalizationService.Instance["tool.edit.applyPatch.unknownReason"],
-                        FailedContextDetails = result.FailedHunks
-                            .Select(h => $"Hunk ({string.Join(", ", h.ContextMarkers.Take(3))})")
-                            .ToList(),
-                    };
-
-                    var healingResponse = await _healing!.HealAsync(healingRequest, ct);
-
-                    if (healingResponse?.Success == true && healingResponse.CorrectedPatch != null)
-                    {
-                        Logger.Info(LocalizationService.Instance.Format("tool.edit.insert.healingSuccess", resolvedPath));
-                        result = await ApplySinglePatchAsync(
-                            healingResponse.CorrectedPatch, resolvedPath, currentContent, ct);
-
-                        // ── Healing 后仍失败：不写入文件，事务机制将自动回滚备份 ──
-                        if (!result.Success)
-                        {
-                            int failedCount = result.FailedHunks?.Count ?? 0;
-                            int totalCount = patch.Hunks.Count;
-                            Logger.Warn(string.Format(
-                                "文件 '{0}' 编辑失败：{1}/{2} 个 Hunk 无法应用（含 Healing 修复尝试）。文件未被修改。",
-                                Path.GetFileName(resolvedPath), failedCount, totalCount));
-                        }
-                    }
-                }
-
-                if (result.Success && !string.IsNullOrEmpty(result.FinalContent))
-                {
-                    // ── 更新内存状态 + 写入磁盘 ──
-                    fileState[resolvedPath] = result.FinalContent;
-                    await Task.Run(() => File.WriteAllText(resolvedPath,
-                        EditStringMatcher.NormalizeToCrLf(result.FinalContent)), ct);
+                    // ── 更新内存状态（磁盘已由 ApplyWithValidationAsync 写入）──
+                    if (!string.IsNullOrEmpty(result.FinalContent))
+                        fileState[resolvedPath] = result.FinalContent;
                 }
 
                 results.Add(result);
@@ -456,6 +418,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     continue;
                 }
 
+                // ── 匹配后验证：检查 DelLines 是否与匹配位置的实际内容一致 ──
+                // 防御模糊匹配误匹配到错误位置（如匹配到方法签名而非实际调用点）
+                if (!VerifyDeletionLinesMatch(chunk, fileLines, matchedLine, contextLines))
+                {
+                    failedHunks.Add(patch.Hunks[ci]);
+                    continue;
+                }
+
                 chunk.OrigIndex += matchedLine;
                 searchStartLine = matchedLine + contextLines.Length;
 
@@ -500,6 +470,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             // ── 阶段 3：文件重建 ──
             string reconstructed = ReconstructFile(fileLines, chunks.Select(c => c.chunk).ToList());
             result.FinalContent = EditStringMatcher.NormalizeToCrLf(reconstructed);
+
+            // ── 事后花括号平衡校验（防御 AI patch 误匹配导致的结构损坏）──
+            // 复用已有的 ValidateStructureIntegrity，覆盖静态 ApplySinglePatch 路径
+            var finalLines = result.FinalContent.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            int editMin = result.AppliedEdits.Count > 0 ? result.AppliedEdits.Min(e => e.StartLine) : 0;
+            int editMax = result.AppliedEdits.Count > 0 ? result.AppliedEdits.Max(e => e.EndLine) : 0;
+            var structureErrors = EditStringMatcher.ValidateStructureIntegrity(
+                result.FinalContent, editMin, editMax, fileLines);
+            if (structureErrors.Count > 0)
+            {
+                result.Success = false;
+                result.ErrorMessage = $"结构完整性校验失败 ({Path.GetFileName(filePath)}):\n  " +
+                    string.Join("\n  ", structureErrors);
+                Logger.LogToFile("applypatch", $"[ApplyPatch] ❌ 结构校验失败: {result.ErrorMessage}");
+                return result;
+            }
+
             result.Success = true;
 
             // ── 日志：记录应用前后的内容（前后各 10 行上下文）──
@@ -692,6 +679,94 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// 匹配后验证：检查 DelLines 是否与文件匹配位置的实际内容一致。
+        /// 防御模糊匹配误匹配到错误位置——即使上下文行相似，要删除的行也必须与
+        /// 文件对应位置的行高度相似（≥ 75% 行匹配，或全部非空行匹配）。
+        /// </summary>
+        /// <param name="chunk">待应用的 Chunk（含 DelLines）</param>
+        /// <param name="fileLines">文件行数组</param>
+        /// <param name="matchedLine">上下文匹配到的文件行号（0-based）</param>
+        /// <param name="contextLines">用于匹配的上下文行（含 DelLines）</param>
+        /// <returns>true 表示删除行验证通过</returns>
+        internal static bool VerifyDeletionLinesMatch(
+            FileChunk chunk, string[] fileLines, int matchedLine, string[] contextLines)
+        {
+            if (chunk.DelLines.Count == 0) return true; // 纯新增 → 无需验证
+
+            // ── 找出 DelLines 在 contextLines 中的偏移位置 ──
+            // contextLines 包含 space 行 + minus 行（HunkToChunk 混合两者）
+            // DelLines 在 contextLines 中连续出现
+            int delOffsetInCtx = -1;
+            for (int i = 0; i <= contextLines.Length - chunk.DelLines.Count; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < chunk.DelLines.Count; j++)
+                {
+                    if (!string.Equals(contextLines[i + j], chunk.DelLines[j], StringComparison.Ordinal))
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) { delOffsetInCtx = i; break; }
+            }
+
+            if (delOffsetInCtx < 0) return true; // 无法定位 → 跳过验证（可能是纯新增或特殊情况）
+
+            int fileDelStart = matchedLine + delOffsetInCtx;
+
+            // ── 验证：DelLines 与文件对应行比较 ──
+            int matchCount = 0;
+            int nonEmptyCount = 0;
+            for (int j = 0; j < chunk.DelLines.Count; j++)
+            {
+                int fileLineIdx = fileDelStart + j;
+                if (fileLineIdx >= fileLines.Length) break;
+
+                string delLine = chunk.DelLines[j];
+                string fileLine = fileLines[fileLineIdx];
+
+                // 跳过纯空白行
+                if (string.IsNullOrWhiteSpace(delLine) && string.IsNullOrWhiteSpace(fileLine))
+                {
+                    matchCount++;
+                    continue;
+                }
+                if (string.IsNullOrWhiteSpace(delLine)) continue;
+
+                nonEmptyCount++;
+
+                // ── 多级比较 ──
+                string delTrimmed = EditStringMatcher.NormalizeUnicode(delLine).Trim();
+                string fileTrimmed = EditStringMatcher.NormalizeUnicode(fileLine).Trim();
+
+                if (string.Equals(delTrimmed, fileTrimmed, StringComparison.Ordinal))
+                {
+                    matchCount++;
+                }
+                else
+                {
+                    // Levenshtein 容错：允许轻微差异（如变量名变化）
+                    int dist = LevenshteinDistanceExtensions.LevenshteinDistance(delTrimmed, fileTrimmed);
+                    double similarity = 1.0 - (double)dist / Math.Max(delTrimmed.Length, fileTrimmed.Length);
+                    if (similarity >= 0.85 && delTrimmed.Length >= 10) // 长行允许 15% 差异
+                        matchCount++;
+                }
+            }
+
+            // ── 判断：≥ 75% 的非空行匹配，或全部行匹配 ──
+            bool passed = nonEmptyCount == 0 || matchCount >= Math.Max(1, (int)Math.Ceiling(nonEmptyCount * 0.75));
+
+            if (!passed)
+            {
+                Logger.LogToFile("applypatch",
+                    $"[ApplyPatch] ⚠️ 删除行验证失败: {matchCount}/{nonEmptyCount} 行匹配 (阈值=75%)，匹配位置行={fileDelStart + 1}");
+            }
+
+            return passed;
         }
 
         /// <summary>
@@ -1034,6 +1109,155 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         }
 
         #endregion
+
+        #region 写入后校验与回退重改
+
+        /// <summary>
+        /// 写入磁盘后对修改区域进行结构校验。
+        /// 返回 null 表示通过，否则返回错误信息列表。
+        /// </summary>
+        private static List<string>? ValidateWrittenContent(
+            string filePath, string writtenContent,
+            List<TextEditOperation> appliedEdits)
+        {
+            if (appliedEdits == null || appliedEdits.Count == 0) return null;
+
+            try
+            {
+                string diskContent = File.ReadAllText(filePath);
+                var baselineLines = writtenContent.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+                int minLine = appliedEdits.Min(e => e.StartLine);
+                int maxLine = appliedEdits.Max(e => e.EndLine);
+
+                var errors = EditStringMatcher.ValidateStructureIntegrity(
+                    diskContent, minLine, maxLine, baselineLines);
+
+                if (!string.Equals(writtenContent, diskContent, StringComparison.Ordinal))
+                    errors.Add("磁盘内容与预期输出不一致（可能存在并发写入）");
+
+                return errors.Count > 0 ? errors : null;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Validate] 校验异常: {filePath} — {ex.Message}");
+                return new List<string> { $"校验过程异常: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// 带校验回退的 Patch 应用循环。
+        /// 最多重试 2 次（含首次），每次失败后回退备份并调用 Healing 修正。
+        /// </summary>
+        private async Task<EditApplyResult> ApplyWithValidationAsync(
+            PatchOperation patch, string resolvedPath, string currentContent,
+            Dictionary<string, string?> backups, CancellationToken ct)
+        {
+            const int maxRetries = 2;
+            EditApplyResult? lastResult = null;
+            var healingPatch = patch;
+
+            for (int attempt = 0; attempt < maxRetries; attempt++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var result = await ApplySinglePatchAsync(healingPatch, resolvedPath, currentContent, ct);
+                lastResult = result;
+
+                if (!result.Success)
+                {
+                    if (result.FailedHunks != null && result.FailedHunks.Count > 0)
+                    {
+                        var healingRequest = new HealingRequest
+                        {
+                            FilePath = resolvedPath,
+                            CurrentFileContent = currentContent,
+                            OriginalOperationType = EditOperationType.ApplyPatch,
+                            FailedPatch = healingPatch,
+                            FailureReason = result.ErrorMessage ?? "匹配失败",
+                            FailedContextDetails = result.FailedHunks
+                                .Select(h => $"Hunk ({string.Join(", ", h.ContextMarkers.Take(3))})")
+                                .ToList(),
+                        };
+
+                        var healingResponse = await _healing!.HealAsync(healingRequest, ct);
+                        if (healingResponse?.Success == true && healingResponse.CorrectedPatch != null)
+                        {
+                            Logger.Info($"[Validate] Healing 成功 (attempt {attempt + 1})，重试应用");
+                            healingPatch = healingResponse.CorrectedPatch;
+                            continue;
+                        }
+                    }
+                    return result;
+                }
+
+                if (!string.IsNullOrEmpty(result.FinalContent))
+                {
+                    await Task.Run(() => File.WriteAllText(resolvedPath,
+                        EditStringMatcher.NormalizeToCrLf(result.FinalContent)), ct);
+
+                    var validationErrors = ValidateWrittenContent(
+                        resolvedPath, result.FinalContent, result.AppliedEdits);
+
+                    if (validationErrors == null)
+                    {
+                        result.PostWriteValidationPassed = true;
+                        Logger.Info($"[Validate] ✅ 校验通过: {Path.GetFileName(resolvedPath)}");
+                        return result;
+                    }
+
+                    result.PostWriteValidationPassed = false;
+                    result.ValidationErrors = validationErrors;
+                    Logger.Warn($"[Validate] ❌ 校验失败 (attempt {attempt + 1}): {Path.GetFileName(resolvedPath)}\n  " +
+                        string.Join("\n  ", validationErrors));
+
+                    if (attempt < maxRetries - 1)
+                    {
+                        if (backups.TryGetValue(resolvedPath, out var backupPath))
+                        {
+                            RestoreFromBackup(resolvedPath, backupPath);
+                            backups[resolvedPath] = CreateBackup(resolvedPath);
+                            currentContent = File.Exists(resolvedPath)
+                                ? File.ReadAllText(resolvedPath) : string.Empty;
+                            Logger.Info($"[Validate] 已回退 {Path.GetFileName(resolvedPath)}，准备重试");
+                        }
+
+                        var healingRequest = new HealingRequest
+                        {
+                            FilePath = resolvedPath,
+                            CurrentFileContent = currentContent,
+                            OriginalOperationType = EditOperationType.ApplyPatch,
+                            FailedPatch = healingPatch,
+                            FailureReason = $"写入后校验失败:\n{string.Join("\n", validationErrors)}",
+                            FailedContextDetails = validationErrors,
+                        };
+
+                        var healingResponse = await _healing!.HealAsync(healingRequest, ct);
+                        if (healingResponse?.Success == true && healingResponse.CorrectedPatch != null)
+                        {
+                            healingPatch = healingResponse.CorrectedPatch;
+                            continue;
+                        }
+                        else
+                        {
+                            Logger.Warn($"[Validate] Healing 无法修正校验问题，停止重试");
+                        }
+                    }
+                }
+
+                return result;
+            }
+
+            return lastResult ?? new EditApplyResult
+            {
+                FilePath = resolvedPath,
+                Success = false,
+                ErrorMessage = "达到最大重试次数",
+            };
+        }
+
+        #endregion
+
         #region Backup & Restore
 
         /// <summary>
