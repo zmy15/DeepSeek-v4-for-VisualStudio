@@ -243,8 +243,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (cacheable == 0) return string.Empty;
 
             double rate = (double)hitTokens / cacheable;
-            string level = rate >= 0.95 ? "high" : rate >= 0.50 ? "medium" : "low";
-            string icon = rate >= 0.95 ? "🟢" : rate >= 0.50 ? "🟡" : "🔴";
+            string level = rate >= 0.90 ? "high" : rate >= 0.50 ? "medium" : "low";
+            string icon = rate >= 0.90 ? "🟢" : rate >= 0.50 ? "🟡" : "🔴";
 
             // 命中率百分比
             string rateText = $"{rate * 100:F1}%";

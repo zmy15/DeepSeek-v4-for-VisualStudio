@@ -1374,7 +1374,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 double rate = usage.CacheHitRate;
 
                 string roundInfo = round > 0 ? $"[轮次#{round}] " : "";
-                string level = rate >= 0.95 ? "🟢" : rate >= 0.70 ? "🟡" : rate >= 0.30 ? "🟠" : "🔴";
+                string level = rate >= 0.90 ? "🟢" : rate >= 0.50 ? "🟡" : rate >= 0.20 ? "🟠" : "🔴";
 
                 Logger.Info($"[Cache] {level} {roundInfo}命中率: {usage.CacheHitRatePercent} " +
                     $"(命中 {hit:N0} / 未命中 {miss:N0} / 总计 {total:N0} tokens)");
@@ -1400,7 +1400,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (totalCacheable == 0) return;
 
                 double aggregateRate = (double)totalHit / totalCacheable;
-                string level = aggregateRate >= 0.95 ? "🟢" : aggregateRate >= 0.70 ? "🟡" : aggregateRate >= 0.30 ? "🟠" : "🔴";
+                string level = aggregateRate >= 0.90 ? "🟢" : aggregateRate >= 0.50 ? "🟡" : aggregateRate >= 0.20 ? "🟠" : "🔴";
 
                 Logger.Info($"[Cache] ═══════════════════════════════════════");
                 Logger.Info($"[Cache] {level} 本次工作流汇总 ({finalRound} 轮)");
@@ -1431,7 +1431,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (totalCacheable == 0) return string.Empty;
 
                 double rate = (double)totalHit / totalCacheable;
-                string icon = rate >= 0.95 ? "🟢" : rate >= 0.70 ? "🟡" : rate >= 0.30 ? "🟠" : "🔴";
+                string icon = rate >= 0.90 ? "🟢" : rate >= 0.50 ? "🟡" : rate >= 0.20 ? "🟠" : "🔴";
 
                 return $"\n\n---\n\n{icon} **Cache 命中率: {rate * 100:F1}%**" +
                     $" · {totalHit:N0} 命中 / {totalMiss:N0} 未命中" +

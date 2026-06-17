@@ -854,7 +854,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     }
 
                     double rate = (double)hit / cacheableTotal;
-                    string level = rate >= 0.95 ? "🟢" : rate >= 0.70 ? "🟡" : rate >= 0.30 ? "🟠" : "🔴";
+                    string level = rate >= 0.90 ? "🟢" : rate >= 0.50 ? "🟡" : rate >= 0.20 ? "🟠" : "🔴";
 
                     const int bytesPerToken = 3;
                     int msg0TokenEstimate = msg0Length / bytesPerToken;
