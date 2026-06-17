@@ -777,8 +777,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
             if (!passed)
             {
-                Logger.LogToFile("applypatch",
-                    $"[ApplyPatch] ⚠️ 删除行验证失败: {matchCount}/{nonEmptyCount} 行匹配 (阈值=75%)，匹配位置行={fileDelStart + 1}");
+                // Logger.LogToFile("applypatch",
+                //     $"[ApplyPatch] ⚠️ 删除行验证失败: {matchCount}/{nonEmptyCount} 行匹配 (阈值=75%)，匹配位置行={fileDelStart + 1}");
             }
 
             return passed;
@@ -857,8 +857,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
             if (!prePassed || !postPassed)
             {
-                Logger.LogToFile("applypatch",
-                    $"[ApplyPatch] ⚠️ 插入位置验证失败: 前置={matchCount}/{checkCount}, 后置={postMatchCount}/{postCheckCount} (阈值=75%)");
+                // Logger.LogToFile("applypatch",
+                //     $"[ApplyPatch] ⚠️ 插入位置验证失败: 前置={matchCount}/{checkCount}, 后置={postMatchCount}/{postCheckCount} (阈值=75%)");
             }
 
             return prePassed && postPassed;
@@ -1110,7 +1110,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             result.Success = true;
 
             // ── 日志：记录新建文件的内容 ──
-            Logger.LogToFile("applypatch", $"[ApplyPatch] ✨ 新建文件: {filePath}\n内容 ({result.FinalContent.Length} 字符):\n{GetTruncatedContent(result.FinalContent, 20)}");
+            // Logger.LogToFile("applypatch", $"[ApplyPatch] ✨ 新建文件: {filePath}\n内容 ({result.FinalContent.Length} 字符):\n{GetTruncatedContent(result.FinalContent, 20)}");
 
             return result;
         }
@@ -1131,7 +1131,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     try
                     {
                         string beforeContent = File.ReadAllText(filePath);
-                        Logger.LogToFile("applypatch", $"[ApplyPatch] 🗑️ 删除文件: {filePath}\n删除前内容（前20行）:\n{GetTruncatedContent(beforeContent, 20)}");
+                        // Logger.LogToFile("applypatch", $"[ApplyPatch] 🗑️ 删除文件: {filePath}\n删除前内容（前20行）:\n{GetTruncatedContent(beforeContent, 20)}");
                     }
                     catch { /* 读取失败不影响主流程 */ }
 
