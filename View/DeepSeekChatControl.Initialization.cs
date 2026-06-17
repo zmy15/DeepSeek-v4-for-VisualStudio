@@ -180,6 +180,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             string resolvedEngine = optionsProvider switch
             {
                 "Baidu" => "Baidu",
+                "Bing" => "Bing",
                 _ => "DuckDuckGo"
             };
 
@@ -187,8 +188,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             int idx = resolvedEngine switch
             {
                 "Baidu" => 0,
-                "DuckDuckGo" => 1,
-                _ => 1
+                "Bing" => 1,
+                "DuckDuckGo" => 2,
+                _ => 2
             };
             WebSearchEngineComboBox.SelectedIndex = idx;
 
@@ -255,14 +257,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string resolvedEngine = optionsProvider switch
                 {
                     "Baidu" => "Baidu",
+                    "Bing" => "Bing",
                     _ => "DuckDuckGo"
                 };
 
                 int idx = resolvedEngine switch
                 {
                     "Baidu" => 0,
-                    "DuckDuckGo" => 1,
-                    _ => 1
+                    "Bing" => 1,
+                    "DuckDuckGo" => 2,
+                    _ => 2
                 };
                 WebSearchEngineComboBox.SelectedIndex = idx;
 
@@ -405,6 +409,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         _webSearchService.ConfigureBaiduSearch(null!);
                         Logger.Info("联网搜索热重载: DuckDuckGo (百度 API Key 未配置)");
+                    }
+                    break;
+
+                case "Bing":
+                    if (_options != null && !string.IsNullOrWhiteSpace(_options.BingApiKey))
+                    {
+                        _webSearchService.ConfigureBingSearch(_options.BingApiKey);
+                        Logger.Info("联网搜索热重载: Bing (API Key 已配置)");
+                    }
+                    else
+                    {
+                        _webSearchService.ConfigureBingSearch(null!);
+                        Logger.Info("联网搜索热重载: DuckDuckGo (Bing API Key 未配置)");
                     }
                     break;
 

@@ -305,6 +305,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             var L = LocalizationService.Instance;
             WebSearchEngineComboBox.ItemsSource = new[] {
                 "🔍 " + L["websearch.searchEngine.baidu"],
+                "🌐 " + L["websearch.searchEngine.bing"],
                 "🦆 " + L["websearch.searchEngine.duckduckgo"]
             };
             WebSearchEngineComboBox.SelectedIndex = 0; // 默认百度

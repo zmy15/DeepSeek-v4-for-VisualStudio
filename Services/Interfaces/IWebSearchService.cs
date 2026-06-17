@@ -14,6 +14,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         bool IsBaiduQuotaExhausted { get; }
 
         void ConfigureBaiduSearch(string apiKey);
+        void ConfigureBingSearch(string apiKey);
         Task<List<WebSearchResult>> SearchAsync(string query, CancellationToken cancellationToken = default, string? searchRecency = null);
     }
 }

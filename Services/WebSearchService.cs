@@ -16,13 +16,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 {
     /// <summary>
     /// 联网搜索服务。
-    /// 搜索优先级：百度千帆 API（需 API Key）→ DuckDuckGo（免费备用）。
+    /// 搜索优先级：百度千帆 API（需 API Key）→ Bing API（需 Azure Key）→ DuckDuckGo（免费备用）。
     ///
     /// ⚠️ 计费提醒：
     /// - 百度搜索：每月免费 1500 次（约每天 50 次），超出后按量后付费
     ///   详情: https://cloud.baidu.com/doc/qianfan/s/Mmh4sv6ec
-    /// - DuckDuckGo：完全免费，但结果质量可能不如百度
-    /// - 当百度额度耗尽时会自动切换到 DuckDuckGo
+    /// - Bing 搜索：每月免费 1000 次（S1 免费层），超出后按量付费
+    ///   获取 Key: https://portal.azure.com/ → 创建 Bing Search 资源
+    /// - DuckDuckGo：完全免费，但结果质量可能不如百度/Bing
+    /// - 当百度/Bing 额度耗尽时会自动切换到 DuckDuckGo
     /// </summary>
     public class WebSearchService : IWebSearchService
     {
@@ -30,6 +32,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>百度千帆搜索 API 端点</summary>
         private const string BaiduSearchApiUrl = "https://qianfan.baidubce.com/v2/ai_search/web_search";
+
+        /// <summary>Bing Web Search API v7 端点</summary>
+        private const string BingSearchApiUrl = "https://api.bing.microsoft.com/v7.0/search";
 
         /// <summary>DuckDuckGo Lite 搜索端点（免费备用，无 JS，易解析）</summary>
         private const string DuckDuckGoLiteUrl = "https://lite.duckduckgo.com/lite/";
@@ -49,6 +54,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         private readonly HttpClient _httpClient;
         private string? _baiduApiKey;
+        private string? _bingApiKey;
         private SearchProvider _activeProvider;
         private bool _isBaiduQuotaExhausted;
 
@@ -110,6 +116,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 配置 Bing Web Search API Key（Azure 订阅密钥）。
+        /// 设置后优先使用 Bing 搜索。
+        /// </summary>
+        /// <param name="apiKey">Azure Portal 中 Bing Search 资源的订阅密钥</param>
+        public void ConfigureBingSearch(string apiKey)
+        {
+            _bingApiKey = apiKey;
+
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                _activeProvider = SearchProvider.Bing;
+                Logger.Info("搜索提供商切换为: Bing (Azure)");
+            }
+            else
+            {
+                _activeProvider = SearchProvider.DuckDuckGo;
+                Logger.Info("未配置 Bing API Key，使用 DuckDuckGo 搜索");
+            }
+        }
+
+        /// <summary>
         /// 执行联网搜索，返回格式化的搜索结果。
         /// 自动处理百度额度耗尽 → DuckDuckGo 的切换。
         /// </summary>
@@ -156,6 +183,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     {
                         Logger.Error($"百度搜索失败: {ex.Message}", ex);
                         // 网络错误等不切换 provider，下次重试
+                    }
+                }
+
+                // ── Bing 搜索 ──
+                if (_activeProvider == SearchProvider.Bing)
+                {
+                    try
+                    {
+                        var results = await SearchBingAsync(query, ct, searchRecency);
+                        if (results.Count > 0)
+                            return results;
+
+                        // Bing 返回空结果，回退到 DuckDuckGo
+                        _activeProvider = SearchProvider.DuckDuckGo;
+                        Logger.Info("Bing 搜索返回空结果，切换到 DuckDuckGo");
+                    }
+                    catch (ApiKeyInvalidException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error($"Bing 搜索失败: {ex.Message}", ex);
                     }
                 }
 
@@ -848,6 +898,139 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         #endregion
 
+        #region Private Methods - Bing
+
+        /// <summary>
+        /// 通过 Bing Web Search API v7 进行搜索。
+        /// API 文档: https://learn.microsoft.com/en-us/bing/search-apis/bing-web-search/reference/endpoints
+        /// </summary>
+        private async Task<List<WebSearchResult>> SearchBingAsync(string query, CancellationToken ct, string? searchRecency = null)
+        {
+            if (string.IsNullOrWhiteSpace(_bingApiKey))
+            {
+                Logger.Info("Bing API Key 未配置");
+                return new List<WebSearchResult>();
+            }
+
+            // 构建 URL 参数
+            var uriBuilder = new StringBuilder(BingSearchApiUrl);
+            uriBuilder.Append("?q=");
+            uriBuilder.Append(Uri.EscapeDataString(query));
+            uriBuilder.Append("&count=");
+            uriBuilder.Append(MaxSearchResults);
+            uriBuilder.Append("&mkt=zh-CN");
+            uriBuilder.Append("&textFormat=Raw");
+
+            if (!string.IsNullOrWhiteSpace(searchRecency))
+            {
+                // 将 searchRecency 映射为 Bing freshness 参数
+                string? freshness = searchRecency switch
+                {
+                    "week" => "Week",
+                    "month" => "Month",
+                    "semiyear" => null, // Bing 不支持半年, 忽略
+                    "year" => null,      // Bing 不支持年, 忽略
+                    _ => null
+                };
+                if (freshness != null)
+                {
+                    uriBuilder.Append("&freshness=");
+                    uriBuilder.Append(freshness);
+                }
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, uriBuilder.ToString());
+            request.Headers.Add("Ocp-Apim-Subscription-Key", _bingApiKey!);
+
+            using var response = await _httpClient.SendAsync(request, ct);
+            var responseJson = await response.Content.ReadAsStringAsync();
+
+            // ── 检查错误响应 ──
+            if (!response.IsSuccessStatusCode)
+            {
+                int statusCode = (int)response.StatusCode;
+                Logger.Error($"Bing 搜索返回 HTTP {statusCode}: {responseJson}");
+
+                if (statusCode == 401 || statusCode == 403)
+                {
+                    string detail = TryExtractBingError(responseJson);
+                    throw new ApiKeyInvalidException(
+                        $"Bing API Key 无效或已过期 (HTTP {statusCode})。\n" +
+                        $"请在 Azure Portal → Bing Search 资源 → Keys and Endpoint 中获取正确密钥。\n" +
+                        (string.IsNullOrEmpty(detail) ? "" : $"详情: {detail}"));
+                }
+
+                return new List<WebSearchResult>();
+            }
+
+            // ── 解析成功响应 ──
+            try
+            {
+                using var doc = JsonDocument.Parse(responseJson);
+
+                var results = new List<WebSearchResult>();
+
+                // 检查是否有错误（Bing 有时返回 200 但包含错误对象）
+                if (doc.RootElement.TryGetProperty("_type", out var typeEl) &&
+                    typeEl.GetString() == "ErrorResponse")
+                {
+                    string errorMsg = TryExtractBingError(responseJson);
+                    Logger.Error($"Bing 搜索业务错误: {errorMsg}");
+                    return new List<WebSearchResult>();
+                }
+
+                // 解析 webPages
+                if (doc.RootElement.TryGetProperty("webPages", out var webPages) &&
+                    webPages.TryGetProperty("value", out var value))
+                {
+                    foreach (var page in value.EnumerateArray())
+                    {
+                        results.Add(new WebSearchResult
+                        {
+                            Title = page.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "",
+                            Url = page.TryGetProperty("url", out var url) ? url.GetString() ?? "" : "",
+                            Snippet = page.TryGetProperty("snippet", out var snippet)
+                                ? TruncateSnippet(snippet.GetString() ?? "")
+                                : "",
+                            Date = page.TryGetProperty("datePublished", out var date) ? date.GetString() ?? "" : "",
+                        });
+                    }
+                }
+
+                Logger.Info($"Bing 搜索完成，获取 {results.Count} 条结果");
+                return results;
+            }
+            catch (JsonException ex)
+            {
+                Logger.Error($"解析 Bing 搜索响应 JSON 失败: {ex.Message}", ex);
+                return new List<WebSearchResult>();
+            }
+        }
+
+        /// <summary>
+        /// 尝试从 Bing 错误响应中提取可读的错误消息。
+        /// </summary>
+        private static string TryExtractBingError(string responseJson)
+        {
+            if (string.IsNullOrWhiteSpace(responseJson)) return string.Empty;
+            try
+            {
+                using var doc = JsonDocument.Parse(responseJson);
+                if (doc.RootElement.TryGetProperty("errors", out var errors) &&
+                    errors.GetArrayLength() > 0)
+                {
+                    var first = errors[0];
+                    string msg = first.TryGetProperty("message", out var m) ? m.GetString() ?? "" : "";
+                    string code = first.TryGetProperty("code", out var c) ? c.GetString() ?? "" : "";
+                    return string.IsNullOrEmpty(code) ? msg : $"[{code}] {msg}";
+                }
+            }
+            catch { }
+            return responseJson.Length > 200 ? responseJson.Substring(0, 200) : responseJson;
+        }
+
+        #endregion
+
         #region Private Methods - DuckDuckGo
 
         /// <summary>
@@ -1038,6 +1221,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>百度千帆 AI 搜索（每月免费 1500 次，需 API Key）</summary>
         Baidu,
+
+        /// <summary>Bing Web Search API v7（需 Azure 订阅 Key，免费层 1000 次/月）</summary>
+        Bing,
     }
 
     /// <summary>

@@ -1381,6 +1381,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     string newEngine = selected switch
                     {
                         string s when s.Contains("百度") || s.Contains("Baidu") => "Baidu",
+                        string s when s.Contains("Bing") || s.Contains("🌐") => "Bing",
                         _ => "DuckDuckGo"
                     };
                     _webSearchEngine = newEngine;
@@ -1388,8 +1389,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     int idx = newEngine switch
                     {
                         "Baidu" => 0,
-                        "DuckDuckGo" => 1,
-                        _ => 1
+                        "Bing" => 1,
+                        "DuckDuckGo" => 2,
+                        _ => 2
                     };
                     WebSearchEngineComboBox.SelectedIndex = idx;
                 }
@@ -1406,10 +1408,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     ApplyWebSearchConfig();
                 }
 
-                // 提示百度未配置 Key 的情况
+                // 提示百度/Bing 未配置 Key 的情况
                 if (_webSearchEngine == "Baidu" && (_options == null || string.IsNullOrWhiteSpace(_options.BaiduApiKey)))
                 {
                     StatusLabel.Text = LocalizationService.Instance["status.search.baiduKeyRequired"];
+                }
+                else if (_webSearchEngine == "Bing" && (_options == null || string.IsNullOrWhiteSpace(_options.BingApiKey)))
+                {
+                    StatusLabel.Text = LocalizationService.Instance["status.search.bingKeyRequired"];
                 }
                 else
                 {
@@ -1522,6 +1528,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string newEngine = selected switch
                 {
                     string s when s.Contains("百度") || s.Contains("Baidu") => "Baidu",
+                    string s when s.Contains("Bing") || s.Contains("🌐") => "Bing",
                     _ => "DuckDuckGo"
                 };
 
@@ -1535,6 +1542,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (_webSearchEngine == "Baidu" && (_options == null || string.IsNullOrWhiteSpace(_options.BaiduApiKey)))
                 {
                     StatusLabel.Text = LocalizationService.Instance["status.search.baiduKeyRequired"];
+                }
+                else if (_webSearchEngine == "Bing" && (_options == null || string.IsNullOrWhiteSpace(_options.BingApiKey)))
+                {
+                    StatusLabel.Text = LocalizationService.Instance["status.search.bingKeyRequired"];
                 }
             }
             catch (Exception ex)

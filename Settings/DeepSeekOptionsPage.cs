@@ -129,6 +129,12 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public string BaiduApiKey { get; set; } = string.Empty;
 
+        [LocalizedCategory("settings.category.webSearch")]
+        [LocalizedDisplayName("settings.bingApiKey.displayName")]
+        [LocalizedDescription("settings.bingApiKey.description")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public string BingApiKey { get; set; } = string.Empty;
+
         [LocalizedCategory("settings.category.editor")]
         [LocalizedDisplayName("settings.showDiffMarkers.displayName")]
         [LocalizedDescription("settings.showDiffMarkers.description")]
@@ -327,7 +333,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     {
         public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
-            => new(new[] { "Baidu", "DuckDuckGo" });
+            => new(new[] { "Baidu", "Bing", "DuckDuckGo" });
     }
 
     /// <summary>
