@@ -40,7 +40,7 @@
 | 📊 **代码差异预览** | 编辑器内红绿 Diff 标记（EditorDiffMarkerService），逐块确认或一键全部应用 |
 | 💡 **Ghost Text 补全** | 行内灰色预测文本，上下文感知，Tab 接受 |
 | 🌐 **联网搜索** | 百度千帆 + DuckDuckGo 双引擎，额度耗尽自动切换 |
-| 🖼️ **图像 OCR** | PaddleOCR-Sharp 本地 / Windows 内置 / MCP 远程三引擎 |
+| 🖼️ **图像 OCR** | Windows 内置 / MCP 远程双引擎 |
 | 📄 **文件解析** | 拖拽或粘贴 50+ 格式（代码/文档/PDF/Office/图片），基于 NPOI + PdfPig |
 | 🛡️ **终端审批** | 命令执行前弹窗确认（BlockAll / AllowAll / SmartBlock 三模式） |
 | 🌍 **国际化** | 中英文自动切换，支持 `zh-CN.user.json` 自定义翻译覆盖 |
@@ -84,7 +84,7 @@ git clone https://github.com/zmy15/DeepSeek-v4-for-VisualStudio.git
 | 模型 | `deepseek-v4-pro` | 旗舰模型，推理能力最强 |
 | 深度思考 | 开启，Reasoning Effort = `max` | 复杂任务效果更佳 |
 | 联网搜索 | 百度千帆 | 每月 1500 次免费额度 |
-| OCR 引擎 | PaddleOCR-Sharp | 本地离线识别，无网络依赖 |
+| OCR 引擎 | Windows 内置 | 系统自带，零依赖 |
 | Token Budget | 900000 | 充分利用 1M 上下文窗口 |
 
 ---
@@ -225,11 +225,10 @@ AI 通过 `memory` 工具管理三层持久化记忆：
 | 百度千帆 | Baidu | 1500 次/月 | 中文搜索质量高 |
 | DuckDuckGo | 免费 | 无限制 | 隐私友好 |
 
-### OCR 三引擎
+### OCR 双引擎
 
 | 引擎 | 实现 | 依赖 |
 |------|------|------|
-| PaddleOCR-Sharp | 本地离线 | Sdcb.PaddleOCR + OpenCvSharp |
 | Windows 内置 | 系统 API | Windows 10/11 |
 | MCP 远程 | MCP 协议 | 外部 OCR 服务 |
 
