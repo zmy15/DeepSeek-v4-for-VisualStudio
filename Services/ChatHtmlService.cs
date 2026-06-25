@@ -920,7 +920,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string autoScrollJs = hasStreamingMessage ? BuildAutoScrollJs() : "";
             bool isLight = ThemeService.Instance.IsLight;
 
-return "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
+            string htmlLang = LocalizationService.Instance.CurrentLanguage switch
+            {
+                "zh-CN" => "zh-CN",
+                _ => "en"
+            };
+
+return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'>" +
        "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
        "<style>" + PageCss + "</style>" +
        "<link rel='stylesheet' href='" + HighlightJsCdnStyle + 

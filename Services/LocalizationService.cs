@@ -287,11 +287,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 标准化语言代码：确保映射到支持的语言。
+        /// 无法识别时回退到 "en"（而非 DefaultLanguage），
+        /// 避免静默回退到中文。
         /// </summary>
         private static string NormalizeLanguageCode(string code)
         {
             if (string.IsNullOrWhiteSpace(code))
-                return DefaultLanguage;
+                return "en";
 
             code = code.Trim().ToLowerInvariant();
 
@@ -310,7 +312,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return lang.Code;
             }
 
-            return DefaultLanguage;
+            // 无法识别 → 英文（安全默认值）
+            return "en";
         }
 
         #endregion

@@ -196,7 +196,12 @@ namespace DeepSeek_v4_for_VisualStudio
             return null;
         }
 
-        public DeepSeekOptionsPage Options => (DeepSeekOptionsPage)GetDialogPage(typeof(DeepSeekOptionsPage));
+        /// <summary>
+        /// 获取选项页。优先返回 Step 2/7 中已缓存的实例，
+        /// 避免重复调用 GetDialogPage（VS 2026 中可能阻塞）。
+        /// </summary>
+        public DeepSeekOptionsPage Options => DeepSeekOptionsPage.Instance ?? 
+            (DeepSeekOptionsPage)(DeepSeekOptionsPage.Instance = (DeepSeekOptionsPage)GetDialogPage(typeof(DeepSeekOptionsPage)));
 
         #region Package Members
 
@@ -220,15 +225,47 @@ namespace DeepSeek_v4_for_VisualStudio
             }
 
             // ═══ 步骤 2/7：选项页 ═══
+            // VS 2026 中 GetDialogPage() 可能在设置存储未就绪时无限阻塞，
+            // 导致 VS 启动卡死。添加 5 秒超时保护，超时后使用内存回退实例。
             try
             {
-                DeepSeekOptionsPage.Instance = Options;
-                DiagnosticLog.Write("[DeepSeek Init] Step 2/7: Options page OK");
+                DeepSeekOptionsPage? opts = null;
+                var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                try
+                {
+                    opts = await Task.Run(() => (DeepSeekOptionsPage)GetDialogPage(typeof(DeepSeekOptionsPage)), cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    DiagnosticLog.Write("[DeepSeek Init] Step 2/7 GetDialogPage timed out after 5s — VS settings store may not be ready in VS 2026");
+                }
+
+                if (opts != null)
+                {
+                    DeepSeekOptionsPage.Instance = opts;
+                    DiagnosticLog.Write("[DeepSeek Init] Step 2/7: Options page OK");
+                }
+                else
+                {
+                    // 回退：创建内存实例，确保插件不因设置存储不可用而完全失效
+                    DeepSeekOptionsPage.Instance = new DeepSeekOptionsPage();
+                    DiagnosticLog.Write("[DeepSeek Init] Step 2/7: Options page FALLBACK (in-memory instance, settings will not persist this session)");
+                }
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 2/7 Options: {ex.GetType().Name}: {ex.Message}");
-                throw;
+                DiagnosticLog.Write($"[DeepSeek Init] Step 2/7 Options (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                // 非致命：创建回退实例
+                try
+                {
+                    DeepSeekOptionsPage.Instance = new DeepSeekOptionsPage();
+                    DiagnosticLog.Write("[DeepSeek Init] Step 2/7: Options page FALLBACK after exception");
+                }
+                catch (Exception ex2)
+                {
+                    DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 2/7 fallback creation: {ex2.GetType().Name}: {ex2.Message}");
+                    throw;
+                }
             }
 
             // ═══ 步骤 3/7：日志系统 ═══
