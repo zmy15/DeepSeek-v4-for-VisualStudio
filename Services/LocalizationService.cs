@@ -258,6 +258,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 检测用户系统 UI 语言，映射到支持的语言代码。
+        /// 检测失败时回退到 "en"（而非 DefaultLanguage），
+        /// 避免静默回退到中文导致非中文系统用户始终收到中文回复。
         /// </summary>
         private static string DetectSystemLanguage()
         {
@@ -270,12 +272,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (name.StartsWith("zh"))
                     return "zh-CN";
 
-                // 其他语言暂时返回英文
+                // 其他语言 → 英文
                 return "en";
             }
-            catch
+            catch (Exception ex)
             {
-                return DefaultLanguage;
+                // 检测失败时回退到英文，避免静默回退到中文
+                // 典型场景：VS 2026 中 CultureInfo.CurrentUICulture 可能因宿主环境变化而抛出异常
+                System.Diagnostics.Debug.WriteLine(
+                    $"[I18n] System language detection failed: {ex.Message}. Falling back to 'en'.");
+                return "en";
             }
         }
 

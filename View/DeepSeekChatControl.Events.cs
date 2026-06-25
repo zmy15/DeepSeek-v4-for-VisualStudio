@@ -1299,6 +1299,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (_apiService != null && ModelComboBox.SelectedItem is string model)
             {
                 _apiService.UpdateModel(model);
+                // ── 回写到选项页并持久化，确保 Tools→Options 和重启后生效 ──
+                if (_options != null && _options.SelectedModel != model)
+                {
+                    _options.SelectedModel = model;
+                    try { _options.SaveSettingsToStorage(); } catch { /* 非关键路径 */ }
+                }
                 Logger.Info($"模型切换为: {model}");
             }
         }

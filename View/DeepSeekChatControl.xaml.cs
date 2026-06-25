@@ -415,6 +415,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── 从设置恢复审批模式 ──
             RefreshApprovalModeFromSettings();
 
+            // ── 从设置恢复模型选择 ──
+            RefreshModelFromSettings();
+
             // ── 从设置恢复推理强度 ──
             RefreshReasoningEffortFromSettings();
 
@@ -962,6 +965,24 @@ namespace DeepSeek_v4_for_VisualStudio.View
             };
             if (ApprovalModeComboBox.SelectedIndex < 0)
                 ApprovalModeComboBox.SelectedValue = Models.ApprovalMode.SmartBlock;
+        }
+
+        /// <summary>
+        /// 从设置恢复模型下拉框选中值。
+        /// </summary>
+        private void RefreshModelFromSettings()
+        {
+            if (ModelComboBox == null || _options == null) return;
+            string savedModel = _options.SelectedModel ?? "deepseek-v4-pro";
+            // 如果保存的值不在下拉列表中，回退到默认值
+            if (ModelComboBox.Items.Contains(savedModel))
+                ModelComboBox.SelectedItem = savedModel;
+            else
+                ModelComboBox.SelectedIndex = 0;
+
+            // 同步更新 API 服务的模型
+            if (_apiService != null)
+                _apiService.UpdateModel((string?)ModelComboBox.SelectedItem ?? "deepseek-v4-pro");
         }
 
         /// <summary>
