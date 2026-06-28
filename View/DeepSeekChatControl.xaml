@@ -167,7 +167,7 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid Margin="0">
+    <Grid Margin="0" ClipToBounds="True">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -215,9 +215,11 @@
         <!-- WebView2 is created programmatically in InitializeChatWebView() to avoid
              XamlParseException caused by assembly version conflicts with ReSharper.
              See GitHub issue #18. -->
+        <!-- ClipToBounds=True 修复 GitHub issue #31: WebView2 HWND 穿透覆盖其他 VS 面板 -->
         <ContentControl Grid.Row="1"
                         x:Name="ChatWebViewHost"
-                        Margin="0" />
+                        Margin="0"
+                        ClipToBounds="True" />
 
         <!-- ═══ Diff 预览全局控制栏 ═══ -->
         <Border Grid.Row="2"

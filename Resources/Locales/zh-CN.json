@@ -135,6 +135,8 @@
     "chat.thinking":  "思考中...",
     "chat.generating":  "生成中...",
     "chat.copyCode":  "复制代码",
+    "contextMenu.copy":  "复制",
+    "contextMenu.selectAll":  "全选",
     "chat.insertCode":  "插入代码",
     "chat.saveToFile":  "保存到文件",
     "chat.acceptChanges":  "确认变更",

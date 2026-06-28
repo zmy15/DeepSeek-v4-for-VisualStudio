@@ -113,15 +113,27 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 ChatWebView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
                 ChatWebView.CoreWebView2.NavigationStarting += CoreWebView2_NavigationStarting;
 
-                // ── 禁用 WebView2 右键菜单，仅保留"复制"功能 ──
+                // ── 自定义右键菜单：保留复制、全选等常用操作 ──
                 ChatWebView.CoreWebView2.ContextMenuRequested += (cmSender, cmArgs) =>
                 {
-                    cmArgs.Handled = true;  // 阻止默认右键菜单
-                    // Ctrl+C 浏览器原生快捷键不受影响，复制功能保留
+                    cmArgs.MenuItems.Clear();
+
+                    cmArgs.MenuItems.Add(ChatWebView.CoreWebView2.Environment.CreateContextMenuItem(
+                        LocalizationService.Instance["contextMenu.copy"], null, CoreWebView2ContextMenuItemKind.Command));
+                    cmArgs.MenuItems[0].CustomItemSelected += (_, _) =>
+                        ChatWebView.CoreWebView2.ExecuteScriptAsync("document.execCommand('copy');");
+
+                    cmArgs.MenuItems.Add(ChatWebView.CoreWebView2.Environment.CreateContextMenuItem(
+                        LocalizationService.Instance["contextMenu.selectAll"], null, CoreWebView2ContextMenuItemKind.Command));
+                    cmArgs.MenuItems[1].CustomItemSelected += (_, _) =>
+                        ChatWebView.CoreWebView2.ExecuteScriptAsync("document.execCommand('selectAll');");
                 };
 
                 // ── 禁用 WebView2 状态栏（左下角），避免暴露 vs-navigate:// 等内部链接 URL ──
                 ChatWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+
+                // ── 禁用 F12 开发者工具 ──
+                ChatWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
 
                 // ── 构建初始 HTML 内容 ──
                 // 如果 LoadAndShowAsync 已接管首次渲染，跳过此处的 UpdateBrowser

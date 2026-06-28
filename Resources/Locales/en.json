@@ -135,6 +135,8 @@
     "chat.thinking":  "Thinking...",
     "chat.generating":  "Generating...",
     "chat.copyCode":  "Copy Code",
+    "contextMenu.copy":  "Copy",
+    "contextMenu.selectAll":  "Select All",
     "chat.insertCode":  "Insert Code",
     "chat.saveToFile":  "Save to File",
     "chat.acceptChanges":  "Accept Changes",
