@@ -399,21 +399,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
         }
 
-        /// <summary>
-        /// 根据工具窗口可见性控制 WebView2 的 Visibility。
-        /// 修复 GitHub issue #31: Auto-Hide → Pinned 状态切换时 WebView2 HWND
-        /// 可能穿透 WPF 布局边界覆盖其他 VS 面板（WPF Airspace 问题）。
-        /// 当面板被隐藏（Auto-Hide 缩回）时设为 Collapsed 以释放 HWND 渲染表面。
-        /// </summary>
-        internal void SetWebViewVisibility(bool visible)
-        {
-            if (ChatWebView != null)
-            {
-                ChatWebView.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-                Logger.Info($"[ChatWebView] Visibility set to {(visible ? "Visible" : "Collapsed")}");
-            }
-        }
-
         #endregion
 
         #region Public Methods
