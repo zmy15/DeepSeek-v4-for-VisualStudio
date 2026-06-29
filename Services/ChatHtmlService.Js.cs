@@ -239,7 +239,8 @@ window.__executeHandoff=function(targetAgent,label){
 window.__copyMessage=function(msgIndex){
     var container=document.getElementById('msg-body-'+msgIndex);
     if(!container)return;
-    var text=container.innerText||container.textContent||'';
+    // 优先读取原始 Markdown 内容（`data-raw-content`），避免复制渲染后的 HTML 文本
+    var text=container.getAttribute('data-raw-content')||container.innerText||container.textContent||'';
     var ok=false;
     if(navigator.clipboard&&navigator.clipboard.writeText){
         navigator.clipboard.writeText(text).then(function(){window._showCopyFeedback(msgIndex);});
@@ -306,6 +307,10 @@ window._showCopyFeedback=function(msgIndex){
                             // 清理流式阶段残留的 _textNode 引用
                             container._textNode = null;
                             container.innerHTML = msg.html;
+                            // 存储原始 Markdown 内容，供复制按钮使用
+                            if (msg.rawContent) {
+                                container.setAttribute('data-raw-content', msg.rawContent);
+                            }
                             container.style.whiteSpace = '';  // 流式结束，恢复默认 whitespace 处理
                             var cursor = document.getElementById('cursor-' + msg.i);
                             if (cursor) cursor.style.display = 'none';

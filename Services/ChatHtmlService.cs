@@ -152,6 +152,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 sb.Append(",\"footerHtml\":");
                 AppendJsonString(sb, extraFooterHtml);
             }
+            // 原始内容（供复制按钮读取，避免复制渲染后的 HTML 文本）
+            sb.Append(",\"rawContent\":");
+            AppendJsonString(sb, fullContent ?? string.Empty);
             // 本地化按钮文本
             sb.Append(",\"retryLabel\":");
             AppendJsonString(sb, L["chat.html.retryButton"]);
@@ -614,7 +617,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             sb.Append("<div class='msg-bubble ai'>");
             sb.Append($"<div class='msg-role-label ai'>DeepSeek{streamingDots}</div>");
             sb.Append(reasoningHtml);
-            sb.Append($"<div class='msg-content' id='msg-body-{idx}'>{bodyHtml}</div>");
+            // ── 内嵌原始 Markdown 内容（`data-raw-content`），供复制按钮读取 ──
+            string encodedRawContent = System.Net.WebUtility.HtmlEncode(msg.Content ?? string.Empty);
+            sb.Append($"<div class='msg-content' id='msg-body-{idx}' data-raw-content='{encodedRawContent}'>{bodyHtml}</div>");
             sb.Append(streamingCursor);
             // ── 缓存命中率统计卡片（放在操作按钮之前，消息内容下方）──
             if (!string.IsNullOrEmpty(msg.CacheFooterHtml))
