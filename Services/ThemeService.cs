@@ -380,6 +380,7 @@ p{margin:6px 0}a{color:#4fc1ff;text-decoration:none}a:hover{text-decoration:unde
 code{background:#333;color:#f48771;padding:1px 6px;border-radius:3px;font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:0.9em}
 pre{background:#252526;border:1px solid #3c3c3c;border-radius:8px;padding:32px 14px 12px 14px;margin:10px 0;overflow-x:auto;overflow-y:auto;max-height:480px;font-size:0.88em;line-height:1.5;position:relative}
 pre code{background:transparent;color:#d4d4d4;padding:0;font-size:inherit;white-space:pre;display:block}
+pre.mermaid-block{overflow:visible;max-height:none;background:transparent;border:none;padding:12px 8px}
 ul,ol{padding-left:22px;margin:6px 0}li{margin:2px 0}blockquote{border-left:3px solid #4fc1ff;padding:6px 12px;margin:8px 0;background:#2a2a2a;color:#aaa}
 table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #444;padding:6px 10px;text-align:left}th{background:#333;color:#e0e0e0;font-weight:600}hr{border:none;border-top:1px solid #444;margin:12px 0}
 .code-lang{position:absolute;top:6px;left:14px;color:#9cdcfe;font-size:10px;font-family:'Segoe UI',sans-serif;text-transform:uppercase}
@@ -487,6 +488,7 @@ p{margin:6px 0}a{color:#0078d4;text-decoration:none}a:hover{text-decoration:unde
 code{background:#f0f0f0;color:#c7254e;padding:1px 6px;border-radius:3px;font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:0.9em}
 pre{background:#f6f8fa;border:1px solid #d0d7de;border-radius:8px;padding:32px 14px 12px 14px;margin:10px 0;overflow-x:auto;overflow-y:auto;max-height:480px;font-size:0.88em;line-height:1.5;position:relative}
 pre code{background:transparent;color:#24292f;padding:0;font-size:inherit;white-space:pre;display:block}
+pre.mermaid-block{overflow:visible;max-height:none;background:transparent;border:none;padding:12px 8px}
 ul,ol{padding-left:22px;margin:6px 0}li{margin:2px 0}blockquote{border-left:3px solid #0078d4;padding:6px 12px;margin:8px 0;background:#f6f8fa;color:#656d76}
 table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #d0d7de;padding:6px 10px;text-align:left}th{background:#f6f8fa;color:#1e1e1e;font-weight:600}hr{border:none;border-top:1px solid #d0d7de;margin:12px 0}
 .code-lang{position:absolute;top:6px;left:14px;color:#0550ae;font-size:10px;font-family:'Segoe UI',sans-serif;text-transform:uppercase}
