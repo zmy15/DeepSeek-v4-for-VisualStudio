@@ -384,7 +384,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string? toolChoice = null,
             double? temperature = null,
             string? responseFormat = null,
-            string? model = null)
+            string? model = null,
+            bool? thinkingEnabled = null)
         {
             // ── 工具 Schema 规范化：按名称排序，消除注册顺序对缓存的影响 ──
             //     参考 CodeWhale prefix_cache.rs:316-331
@@ -394,13 +395,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string? effectiveToolChoice = toolChoice
                 ?? (normalizedTools != null && normalizedTools.Count > 0 ? "auto" : null);
 
+            // thinking 优先级: 显式传入 > 实例默认值
+            bool effectiveThinking = thinkingEnabled ?? _thinkingEnabled;
+
             var request = new DeepSeekChatRequest
             {
                 Model = model ?? _model,
                 Messages = new List<ChatApiMessage>(messages),
                 Stream = true,
-                Thinking = new ThinkingControl { Type = _thinkingEnabled ? "enabled" : "disabled" },
-                ReasoningEffort = _thinkingEnabled ? _reasoningEffort : null,
+                Thinking = new ThinkingControl { Type = effectiveThinking ? "enabled" : "disabled" },
+                ReasoningEffort = effectiveThinking ? _reasoningEffort : null,
                 Tools = normalizedTools,
                 ToolChoice = effectiveToolChoice,
                 MaxTokens = maxTokens,

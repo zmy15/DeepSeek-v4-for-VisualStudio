@@ -450,12 +450,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             string? toolChoice = null,
             double? temperature = null,
             string? responseFormat = null,
-            string? model = null)
+            string? model = null,
+            bool? thinkingEnabled = null)
         {
             // 🔑 传入完整工具集以保持 Prefix Cache 稳定
             var fullTools = TryGetFullToolSet();
             var sb = new StringBuilder();
-            await foreach (var chunk in _apiService.ChatStreamAsync(messages, fullTools, ct, maxTokens, toolChoice, temperature, responseFormat, model))
+            await foreach (var chunk in _apiService.ChatStreamAsync(messages, fullTools, ct, maxTokens, toolChoice, temperature, responseFormat, model, thinkingEnabled))
             {
                 if (IsContentChunk(chunk))
                     sb.Append(chunk);

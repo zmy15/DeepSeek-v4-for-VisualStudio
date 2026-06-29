@@ -140,8 +140,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 Logger.Info("[AI标题] 正在调用 API 生成标题…");
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                // ── toolChoice:"none" 防止 AI 调用工具导致返回空响应；使用 flash 小模型节省成本 ──
-                string rawTitle = await _activeAgent.CallAiWithMessagesAsync(messages, cts.Token, maxTokens: 128, temperature: 0.3, toolChoice: "none", model: "deepseek-v4-flash");
+                // ── toolChoice:"none" 防止 AI 调用工具；thinkingEnabled:false 防止思考模型只输出推理而 content 为空 ──
+                string rawTitle = await _activeAgent.CallAiWithMessagesAsync(messages, cts.Token, maxTokens: 128, temperature: 0.3, toolChoice: "none", model: "deepseek-v4-flash", thinkingEnabled: false);
 
                 if (string.IsNullOrWhiteSpace(rawTitle))
                 {
