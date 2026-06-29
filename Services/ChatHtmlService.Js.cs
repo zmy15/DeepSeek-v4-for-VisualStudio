@@ -117,13 +117,13 @@ window.__renderMermaid=function(container){
     if(!container||typeof mermaid==='undefined')return;
     try{
         var codes=container.querySelectorAll('code.language-mermaid');
-        for(var i=0;i<codes.length;i++){
-            var code=codes[i];
-            var pre=code.parentElement;
+        for(let i=0;i<codes.length;i++){
+            let code=codes[i];
+            let pre=code.parentElement;
             if(!pre||pre.classList.contains('mermaid-block'))continue;
-            var src=code.textContent.trim();
+            let src=code.textContent.trim();
             if(!src)continue;
-            var id='mermaid-svg-'+(Date.now())+'-'+i;
+            let id='mermaid-svg-'+(Date.now())+'-'+i;
             try{
                 // 使用 mermaid.render 生成 SVG 并替换
                 mermaid.render(id,src).then(function(result){
