@@ -535,6 +535,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     startEntryIdx = Math.Max(tokenWindowStart, aggressiveStart);
                     Logger.Info($"[CacheWindow] 触发压缩: {triggerReason}, 压缩到保留~{aggressiveTurns}轮");
                 }
+                else if (startEntryIdx > 0)
+                {
+                    // ── 非窗口超限触发：由调用方传入 startEntryIdx（如 BuildApiMessagesRecentTurns 限制轮次）──
+                    Logger.Info($"[CacheWindow] 触发压缩: 调用方限制(startEntry={startEntryIdx}), 当前{TurnCount}轮");
+                }
                 if (startEntryIdx > 0)
                 {
                     CompressEntriesBeforeWindow(startEntryIdx);
