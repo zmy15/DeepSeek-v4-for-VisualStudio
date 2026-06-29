@@ -106,6 +106,43 @@ window.__renderMath=function(container){
         }
 
         /// <summary>
+        /// Mermaid 图表渲染函数。
+        /// 查找 <code class="language-mermaid"> 代码块，使用 Mermaid 渲染为 SVG 图表。
+        /// 渲染后标记 .mermaid-block 防止 highlight.js 二次处理。
+        /// </summary>
+        private static string BuildRenderMermaidJsFunction()
+        {
+            return @"
+window.__renderMermaid=function(container){
+    if(!container||typeof mermaid==='undefined')return;
+    try{
+        var codes=container.querySelectorAll('code.language-mermaid');
+        for(var i=0;i<codes.length;i++){
+            var code=codes[i];
+            var pre=code.parentElement;
+            if(!pre||pre.classList.contains('mermaid-block'))continue;
+            var src=code.textContent.trim();
+            if(!src)continue;
+            var id='mermaid-svg-'+(Date.now())+'-'+i;
+            try{
+                // 使用 mermaid.render 生成 SVG 并替换
+                mermaid.render(id,src).then(function(result){
+                    pre.innerHTML=result.svg;
+                    pre.classList.add('mermaid-block');
+                }).catch(function(e){
+                    // 渲染失败时保留源码（含错误标记）
+                    pre.classList.add('mermaid-block');
+                    pre.style.borderLeft='3px solid #e07878';
+                });
+            }catch(e2){
+                pre.classList.add('mermaid-block');
+            }
+        }
+    }catch(e){}
+};";
+        }
+
+        /// <summary>
         /// 智能自动滚动 JS.
         /// 用户滚动离开底部 → 暂停自动滚动；
         /// 用户滚回底部附近 → 恢复自动滚动。
@@ -183,6 +220,8 @@ window.__appendMessageHtml=function(html){
     }
     // 渲染数学公式（KaTeX）
     window.__renderMath(container);
+    // 渲染 Mermaid 图表
+    window.__renderMermaid(container);
 };";
         }
 
@@ -391,6 +430,8 @@ window._showCopyFeedback=function(msgIndex){
                             if(msgDiv&&window.hljs)decorateCodeBlocks(msgDiv);
                             // 渲染数学公式（KaTeX）
                             window.__renderMath(container);
+                            // 渲染 Mermaid 图表
+                            window.__renderMermaid(container);
                         }
                     }
                     // ★ 清除状态栏文本

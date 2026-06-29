@@ -963,12 +963,21 @@ return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'
        "  window.__renderMath(document.getElementById('chat-container'));" +
        "};" +
        "document.head.appendChild(katexScript);" +
+       // ── Mermaid 加载：初始化并渲染初始图表 ──
+       "var mermaidScript=document.createElement('script');" +
+       "mermaidScript.src='" + MermaidCdnScript + "';" +
+       "mermaidScript.onload=function(){" +
+       "  mermaid.initialize({startOnLoad:false,theme:'" + (ThemeService.Instance.IsLight ? "default" : "dark") + "',securityLevel:'loose'});" +
+       "  window.__renderMermaid(document.getElementById('chat-container'));" +
+       "};" +
+       "document.head.appendChild(mermaidScript);" +
        BuildDecorateCodeBlocksJsFunction() +
        BuildShiftScrollJs() +
        autoScrollJs +
        BuildAppendMessageJsFunction() +
        BuildRetryEditJsFunctions() +
        BuildRenderMathJsFunction() +
+       BuildRenderMermaidJsFunction() +
        // ── 页面就绪信号 ──
        "window.__pageReady=true;" +
        "if(window.chrome?.webview)window.chrome.webview.postMessage('__pageReady__');" +
