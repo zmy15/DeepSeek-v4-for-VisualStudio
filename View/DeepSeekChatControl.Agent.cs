@@ -847,32 +847,51 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
 
             // ── 将 Agent 响应同步到树和上下文管理器（修复上下文丢失问题）──
-            await SyncAgentResponseToTreeAndContextAsync();
-
-            // ── AI 自动生成会话标题（Agent 工作流完成后触发）──
-            if (_pendingAiTitle && !string.IsNullOrWhiteSpace(_firstUserMessageForTitle))
+            try
             {
-                var capturedFirstUserMsg = _firstUserMessageForTitle;
-                // 从 Agent 响应消息中获取第一条助手回复作为标题生成的上下文
-                string firstAssistantReply = string.Empty;
-                lock (_lock)
+                await SyncAgentResponseToTreeAndContextAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[AgentFlow] SyncAgentResponseToTreeAndContextAsync 失败: {ex.Message}", ex);
+            }
+
+            // ── AI 自动生成会话标题（Agent 工作流完成后触发，独立 try 确保同步失败也不影响标题生成）──
+            try
+            {
+                if (_pendingAiTitle && !string.IsNullOrWhiteSpace(_firstUserMessageForTitle))
                 {
-                    if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count)
+                    var capturedFirstUserMsg = _firstUserMessageForTitle;
+                    // 从 Agent 响应消息中获取第一条助手回复作为标题生成的上下文
+                    string firstAssistantReply = string.Empty;
+                    lock (_lock)
                     {
-                        firstAssistantReply = _messages[_agentStreamingMsgIndex].Content ?? string.Empty;
+                        if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count)
+                        {
+                            firstAssistantReply = _messages[_agentStreamingMsgIndex].Content ?? string.Empty;
+                        }
                     }
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await GenerateAiTitleAsync(capturedFirstUserMsg, firstAssistantReply);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Warn($"[AI标题] Agent 工作流标题生成异常: {ex.Message}");
+                            // 最终兜底：直接使用用户消息作为标题
+                            if (_activeSession != null && _activeSession.Title == LocalizationService.Instance["session.new"])
+                            {
+                                FallbackAutoTitle(capturedFirstUserMsg);
+                            }
+                        }
+                    });
                 }
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await GenerateAiTitleAsync(capturedFirstUserMsg, firstAssistantReply);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warn($"[AI标题] Agent 工作流标题生成异常: {ex.Message}");
-                    }
-                });
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[AI标题] 标题生成初始化失败: {ex.Message}", ex);
             }
 
             // ── 记录 Cache 命中率 ──
