@@ -307,6 +307,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 lock (_lock) { _isGenerating = false; }
                                 UpdateButtonsState();
                                 StatusLabel.Text = LocalizationService.Instance["status.ready"];
+
+                                // ── 兜底标题生成：确保新会话标题一定会更新 ──
+                                if (_pendingAiTitle && !string.IsNullOrWhiteSpace(_firstUserMessageForTitle))
+                                {
+                                    FallbackAutoTitle(_firstUserMessageForTitle);
+                                }
                             }
                         });
                         return;

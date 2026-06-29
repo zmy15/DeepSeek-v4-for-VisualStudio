@@ -140,28 +140,40 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 Logger.Info("[AI标题] 正在调用 API 生成标题…");
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                string title = await _activeAgent.CallAiWithMessagesAsync(messages, cts.Token, maxTokens: 128, temperature: 0.3);
+                string rawTitle = await _activeAgent.CallAiWithMessagesAsync(messages, cts.Token, maxTokens: 128, temperature: 0.3);
 
-                if (!string.IsNullOrWhiteSpace(title))
+                if (string.IsNullOrWhiteSpace(rawTitle))
                 {
-                    // 清理标题：去除引号、换行、首尾空白
-                    title = title.Trim().Trim('"', '\'', '「', '」', '《', '》', '"', '"');
-                    // RAG-MARK: no-truncate — 不再截断 AI 生成的标题
-
-                    if (!string.IsNullOrWhiteSpace(title) && _activeSession.Title == LocalizationService.Instance["session.new"])
-                    {
-                        _activeSession.Title = title;
-                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                        PopulateSessionComboBox();
-                        SaveCurrentSession();
-                        Logger.Info($"[AI标题] 会话标题已更新为: {title}");
-                    }
+                    Logger.Warn($"[AI标题] API 返回空标题 (raw='{rawTitle ?? "<null>"}')，回退到截取模式");
+                    FallbackAutoTitle(firstUserMessage);
+                    return;
                 }
+
+                // 清理标题：去除引号、换行、首尾空白
+                string title = rawTitle.Trim().Trim('"', '\'', '「', '」', '《', '》', '"', '"');
+
+                if (string.IsNullOrWhiteSpace(title))
+                {
+                    Logger.Warn($"[AI标题] 清理后标题为空 (raw='{rawTitle}', trimmed='{title}')，回退到截取模式");
+                    FallbackAutoTitle(firstUserMessage);
+                    return;
+                }
+
+                if (_activeSession.Title != LocalizationService.Instance["session.new"])
+                {
+                    Logger.Info($"[AI标题] 标题已被更新为 '{_activeSession.Title}'，跳过覆盖");
+                    return;
+                }
+
+                _activeSession.Title = title;
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                PopulateSessionComboBox();
+                SaveCurrentSession();
+                Logger.Info($"[AI标题] 会话标题已更新为: {title} (raw='{rawTitle}')");
             }
             catch (Exception ex)
             {
                 Logger.Warn($"[AI标题] 生成失败，回退到截取模式: {ex.Message}");
-                // 回退：使用原始截取逻辑
                 FallbackAutoTitle(firstUserMessage);
             }
             finally
