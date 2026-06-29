@@ -75,8 +75,8 @@ document.addEventListener('wheel',function(e){
         /// <summary>
         /// KaTeX 数学公式渲染函数。
         /// Markdig 的 UseMathematics() 将 $...$ / $$...$$ 转换为
-        /// &lt;span class="math"&gt;...&lt;/span&gt; 和 &lt;div class="math"&gt;...&lt;/div&gt;。
-        /// 本函数读取这些元素的 textContent（LaTeX 源码），调用 katex.render 渲染。
+        /// &lt;span class="math"&gt;\(...\)&lt;/span&gt; 和 &lt;div class="math"&gt;\[...\]&lt;/div&gt;。
+        /// 本函数剥离 Markdig 附加的 \(/\) 和 \[/\] 分隔符后，调用 katex.render 渲染。
         /// </summary>
         private static string BuildRenderMathJsFunction()
         {
@@ -89,6 +89,11 @@ window.__renderMath=function(container){
             var el=mathEls[i];
             var tex=el.textContent.trim();
             if(!tex)continue;
+            // Markdig 的 math renderer 会在内容外包一层 \(/\) 或 \[/\]
+            // KaTeX 只需要纯 LaTeX 内容，必须剥离这些分隔符
+            if((tex.startsWith('\\(',0)||tex.startsWith('\\[',0))&&(tex.endsWith('\\)')||tex.endsWith('\\]'))){
+                tex=tex.substring(2,tex.length-2).trim();
+            }
             var isDisplay=el.tagName==='DIV';
             try{
                 katex.render(tex,el,{displayMode:isDisplay,throwOnError:false});
