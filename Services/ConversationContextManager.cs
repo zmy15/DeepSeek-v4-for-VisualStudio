@@ -114,6 +114,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         public int CacheWindowMaxEntries { get; set; } = 500;
 
+        /// <summary>
+        /// 压缩后保留轮次的比例（0.0~1.0）。
+        /// 触发压缩时不只压缩到窗口边界，而是进一步压缩到窗口大小的此比例，
+        /// 为后续对话增长留出余量，减少频繁压缩导致的缓存断裂。
+        /// 默认 0.5：窗口 30 轮 → 压缩后保留 ~15 轮。
+        /// </summary>
+        public double CompressionAggressiveness { get; set; } = 0.5;
+
         // ── 🔑 缓存边界快照（v1.1.10）──
         //     Agent Handoff 时，在注入过渡消息前保存 _entries 的快照索引，
         //     目标 Agent 可调用 BuildApiMessagesUpToSnapshot() 仅包含边界前的历史，
@@ -518,7 +526,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 int tokenWindowStart = FindCacheWindowStart();
                 if (tokenWindowStart > startEntryIdx)
-                    startEntryIdx = tokenWindowStart;
+                {
+                    // ── 激进压缩：不仅压缩窗口外的，还按 CompressionAggressiveness
+                    //     比例进一步压缩窗口内的旧轮次，为后续对话增长留余量，
+                    //     避免刚压缩完加一轮又触发下一次压缩 → 频繁缓存断裂 ──
+                    int aggressiveTurns = Math.Max(1, (int)(CacheWindowMaxTurns * CompressionAggressiveness));
+                    int aggressiveStart = FindTurnStartIndex(aggressiveTurns);
+                    startEntryIdx = Math.Max(tokenWindowStart, aggressiveStart);
+                }
                 if (startEntryIdx > 0)
                 {
                     CompressEntriesBeforeWindow(startEntryIdx);
@@ -685,6 +700,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             // 所有条目都在窗口内
+            return 0;
+        }
+
+        /// <summary>
+        /// 从末尾向前扫描，找到保留最近 maxTurns 轮所需的起始条目索引。
+        /// 用于激进压缩：触发裁剪时不仅移除窗口外的，还多移除一部分窗口内的旧轮次。
+        /// </summary>
+        private int FindTurnStartIndex(int maxTurns)
+        {
+            if (maxTurns <= 0) return _entries.Count;
+
+            int turnCount = 0;
+            int lastUserTurn = -1;
+
+            for (int i = _entries.Count - 1; i >= 0; i--)
+            {
+                var entry = _entries[i];
+                if (entry.Role == "user" && entry.TurnIndex > 0)
+                {
+                    if (lastUserTurn != entry.TurnIndex)
+                    {
+                        turnCount++;
+                        lastUserTurn = entry.TurnIndex;
+                        if (turnCount >= maxTurns)
+                            return i;
+                    }
+                }
+            }
+
             return 0;
         }
 
