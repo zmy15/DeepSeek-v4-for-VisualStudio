@@ -398,7 +398,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             }
                             BatchStreamingUpdate(capturedMsgIdx, content, reasoning);
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            Logger.Warn($"[Agent] OnThinkingChunk BatchStreamingUpdate 异常: {ex.Message}");
+                        }
                     });
                 };
 
@@ -423,7 +426,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                         if (ChatWebView.CoreWebView2 == null || capturedMsgIdx < 0) return;
                         try { BatchStreamingUpdate(capturedMsgIdx, content, reasoning); }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            Logger.Warn($"[Agent] OnContentChunk BatchStreamingUpdate 异常: {ex.Message}");
+                        }
                     });
 
                 };

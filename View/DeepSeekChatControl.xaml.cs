@@ -1231,8 +1231,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         if (_streamBatchStates.Count == 0) return;
                         pending = new Dictionary<int, StreamBatchState>(_streamBatchStates);
                     }
-                    foreach (var kvp in pending)
-                        BatchStreamingUpdate(kvp.Key);
+                    // ── 切换到 UI 线程再调用 BatchStreamingUpdate，避免 PostStreamingUpdate
+                    //     访问 ChatWebView.CoreWebView2 时触发跨线程 InvalidOperationException ──
+                    _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+                    {
+                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                        foreach (var kvp in pending)
+                            BatchStreamingUpdate(kvp.Key);
+                    });
                 }
                 catch { }
             };
