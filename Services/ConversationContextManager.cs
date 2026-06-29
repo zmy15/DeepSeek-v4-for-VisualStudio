@@ -524,7 +524,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             //     快照冻结时跳过压缩（压缩会 MUTATE entries，破坏快照保护的前缀稳定性）。
             if (!_cacheSnapshotEntryIndex.HasValue)
             {
-                int tokenWindowStart = FindCacheWindowStart();
+                int tokenWindowStart = FindCacheWindowStart(out string triggerReason);
                 if (tokenWindowStart > startEntryIdx)
                 {
                     // ── 激进压缩：不仅压缩窗口外的，还按 CompressionAggressiveness
@@ -533,6 +533,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     int aggressiveTurns = Math.Max(1, (int)(CacheWindowMaxTurns * CompressionAggressiveness));
                     int aggressiveStart = FindTurnStartIndex(aggressiveTurns);
                     startEntryIdx = Math.Max(tokenWindowStart, aggressiveStart);
+                    Logger.Info($"[CacheWindow] 触发压缩: {triggerReason}, 压缩到保留~{aggressiveTurns}轮");
                 }
                 if (startEntryIdx > 0)
                 {
@@ -647,11 +648,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 从 _entries 末尾向前遍历，累计轮次、token 数（UTF-8 字节估算）、条目数，
         /// 直到达到任一限制。返回窗口内第一个条目的索引（包含），0 表示全部保留。
         /// </summary>
-        private int FindCacheWindowStart()
+        private int FindCacheWindowStart(out string triggerReason)
         {
             int maxTurns = CacheWindowMaxTurns;
             int maxTokens = CacheWindowMaxTokens;
             int maxEntries = CacheWindowMaxEntries;
+
+            triggerReason = "none";
 
             // 全部禁用 → 返回 0
             if (maxTurns <= 0 && maxTokens <= 0 && maxEntries <= 0)
@@ -695,6 +698,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 if (turnLimitExceeded || tokenLimitExceeded || entryLimitExceeded)
                 {
+                    var reasons = new List<string>();
+                    if (turnLimitExceeded) reasons.Add($"轮次数>{maxTurns}(当前{TurnCount})");
+                    if (tokenLimitExceeded) reasons.Add($"Token>{maxTokens / 1000}K(当前{EstimatedTokens / 1000}K)");
+                    if (entryLimitExceeded) reasons.Add($"条目数>{maxEntries}(当前{_entries.Count})");
+                    triggerReason = string.Join(", ", reasons);
                     return i;
                 }
             }
