@@ -383,7 +383,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             int? maxTokens = null,
             string? toolChoice = null,
             double? temperature = null,
-            string? responseFormat = null)
+            string? responseFormat = null,
+            string? model = null)
         {
             // ── 工具 Schema 规范化：按名称排序，消除注册顺序对缓存的影响 ──
             //     参考 CodeWhale prefix_cache.rs:316-331
@@ -395,7 +396,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             var request = new DeepSeekChatRequest
             {
-                Model = _model,
+                Model = model ?? _model,
                 Messages = new List<ChatApiMessage>(messages),
                 Stream = true,
                 Thinking = new ThinkingControl { Type = _thinkingEnabled ? "enabled" : "disabled" },

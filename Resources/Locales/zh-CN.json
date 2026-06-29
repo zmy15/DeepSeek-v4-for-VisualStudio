@@ -562,7 +562,7 @@
     "session.deleted":  "会话已删除",
     "session.saveFailed":  "保存会话失败",
     "session.deleteFailed":  "删除会话文件失败",
-    "session.generateTitlePrompt":  "请根据以下对话内容，生成一个简洁的会话标题（不超过20个字，不要引号，不要省略号）：\n\n用户：{0}\n\n助手：{1}\n\n标题：",
+    "session.generateTitlePrompt":  "请根据以下对话内容，生成一个简洁的会话标题（不超过20个字，不要引号，不要省略号，不要使用工具，直接输出标题文本）：\n\n用户：{0}\n\n助手：{1}\n\n标题：",
     "═══ Agent Definitions ═══":  "═══ Agent Definitions ═══",
     "agent.ask.description":  "回答技术问题、解释代码、讨论方案。内置代码搜索/读取工具，可自行查阅代码库。纯问答模式，不修改代码。",
     "agent.ask.argumentHint":  "输入你的技术问题",

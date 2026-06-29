@@ -50,6 +50,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <param name="toolChoice">工具调用策略: "auto"(默认), "none"(禁用), "required"(强制). null 表示仅在有 tools 时启用 auto</param>
         /// <param name="temperature">采样温度 (0.0 ~ 2.0)。null 表示不设置（使用 API 默认值）</param>
         /// <param name="responseFormat">JSON Output 模式: "json_object" 启用，null 不启用</param>
+        /// <param name="model">覆盖默认模型。null 使用实例默认模型。用于轻量任务（如标题生成）使用 flash 模型</param>
         IAsyncEnumerable<string> ChatStreamAsync(
             IEnumerable<ChatApiMessage> messages,
             List<ToolDefinition>? tools = null,
@@ -57,7 +58,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             int? maxTokens = null,
             string? toolChoice = null,
             double? temperature = null,
-            string? responseFormat = null);
+            string? responseFormat = null,
+            string? model = null);
 
         /// <summary>非流式完整调用</summary>
         /// <param name="responseFormat">JSON Output 模式: "json_object" 启用，null 不启用</param>

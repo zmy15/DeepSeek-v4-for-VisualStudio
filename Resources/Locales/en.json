@@ -563,7 +563,7 @@
     "session.deleted":  "Session deleted",
     "session.saveFailed":  "Failed to save session",
     "session.deleteFailed":  "Failed to delete session file",
-    "session.generateTitlePrompt":  "Based on the following conversation, generate a concise session title (max 10 words, no quotes, no ellipsis):\n\nUser: {0}\n\nAssistant: {1}\n\nTitle:",
+    "session.generateTitlePrompt":  "Based on the following conversation, generate a concise session title (max 10 words, no quotes, no ellipsis, do NOT use any tools, just output the title directly):\n\nUser: {0}\n\nAssistant: {1}\n\nTitle:",
     "═══ Agent Definitions ═══":  "═══ Agent Definitions ═══",
     "agent.ask.description":  "Answer technical questions, explain code, discuss solutions. Has built-in code search/read tools for self-service codebase lookup. Pure Q\u0026A mode, no code modifications.",
     "agent.ask.argumentHint":  "Ask your technical question",
