@@ -755,14 +755,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 string htmlContent;
 
+                // ── 兼容 LaTeX 数学公式分隔符：\(...\) → $...$，\[...\] → $$...$$ ──
+                // Markdig 的 UseMathematics() 仅识别 $ 分隔符，
+                // 但 AI 模型通常输出 LaTeX 标准的 \(\) 和 \[\] 语法。
+                string processedMarkdown = Regex.Replace(markdown ?? string.Empty,
+                    @"\\\((.+?)\\\)", @"$$$1$$", RegexOptions.Singleline);
+                processedMarkdown = Regex.Replace(processedMarkdown,
+                    @"\\\[(.+?)\\\]", @"$$$$$1$$$$", RegexOptions.Singleline);
+
                 // ── 处理 <think>...</think> 思考块 ──
-                Match thinkMatch = Regex.Match(markdown,
+                Match thinkMatch = Regex.Match(processedMarkdown,
                     @"^<think>(?<content>.*)</think>(?<answer>.*)$",
                     RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
                 if (!thinkMatch.Success)
                 {
-                    htmlContent = Markdown.ToHtml(markdown, MarkdownPipeline);
+                    htmlContent = Markdown.ToHtml(processedMarkdown, MarkdownPipeline);
                 }
                 else
                 {
