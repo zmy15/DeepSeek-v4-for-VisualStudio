@@ -95,11 +95,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 缓存友好窗口：消息列表超过此估算 token 数时自动裁剪旧轮次并压缩为摘要。
-        /// 默认 400K tokens，减少压缩频率、增大单次压缩范围，
+        /// 默认 800K tokens，减少压缩频率、增大单次压缩范围，
         /// 降低前缀缓存因压缩导致的断裂次数。
         /// 设为 0 禁用缓存窗口裁剪。
         /// </summary>
-        public int CacheWindowMaxTokens { get; set; } = 400_000;
+        public int CacheWindowMaxTokens { get; set; } = 800_000;
 
         /// <summary>
         /// 缓存友好窗口：最多保留的最近轮次数。
