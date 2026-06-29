@@ -73,6 +73,34 @@ document.addEventListener('wheel',function(e){
         }
 
         /// <summary>
+        /// KaTeX 数学公式渲染函数。
+        /// Markdig 的 UseMathematics() 将 $...$ / $$...$$ 转换为
+        /// &lt;span class="math"&gt;...&lt;/span&gt; 和 &lt;div class="math"&gt;...&lt;/div&gt;。
+        /// 本函数读取这些元素的 textContent（LaTeX 源码），调用 katex.render 渲染。
+        /// </summary>
+        private static string BuildRenderMathJsFunction()
+        {
+            return @"
+window.__renderMath=function(container){
+    if(!container||typeof katex==='undefined')return;
+    try{
+        var mathEls=container.querySelectorAll('.math');
+        for(var i=0;i<mathEls.length;i++){
+            var el=mathEls[i];
+            var tex=el.textContent.trim();
+            if(!tex)continue;
+            var isDisplay=el.tagName==='DIV';
+            try{
+                katex.render(tex,el,{displayMode:isDisplay,throwOnError:false});
+            }catch(e2){
+                // 渲染失败时保留原始 LaTeX 文本（可读性优于空白）
+            }
+        }
+    }catch(e){}
+};";
+        }
+
+        /// <summary>
         /// 智能自动滚动 JS.
         /// 用户滚动离开底部 → 暂停自动滚动；
         /// 用户滚回底部附近 → 恢复自动滚动。
@@ -148,6 +176,8 @@ window.__appendMessageHtml=function(html){
     if (typeof window.__scrollToBottom === 'function') {
         window.__scrollToBottom('smooth');
     }
+    // 渲染数学公式（KaTeX）
+    window.__renderMath(container);
 };";
         }
 
@@ -335,8 +365,8 @@ window._showCopyFeedback=function(msgIndex){
                                 var retryBtn=document.createElement('button');
                                 retryBtn.id='retry-btn-'+msg.i;
                                 retryBtn.className='msg-action-btn retry-btn';
-                                retryBtn.textContent=msg.retryLabel||'Retry';
-                                retryBtn.title=msg.retryTitle||'Retry this message';
+                                retryBtn.textContent='↻';
+                                retryBtn.title=msg.retryTitle||'Regenerate response';
                                 retryBtn.onclick=function(){window.__retryMessage(msg.i);};
                                 var msgBody=document.getElementById('msg-body-'+msg.i);
                                 if(msgBody)msgBody.parentNode.insertBefore(retryBtn,msgBody.nextSibling);
@@ -354,6 +384,8 @@ window._showCopyFeedback=function(msgIndex){
                             }
                             // 高亮代码块
                             if(msgDiv&&window.hljs)decorateCodeBlocks(msgDiv);
+                            // 渲染数学公式（KaTeX）
+                            window.__renderMath(container);
                         }
                     }
                     // ★ 清除状态栏文本

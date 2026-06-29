@@ -934,6 +934,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'>" +
        "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
        "<style>" + PageCss + "</style>" +
+       "<link rel='stylesheet' href='" + KaTeXCdnCss + "' />" +
        "<link rel='stylesheet' href='" + HighlightJsCdnStyle + 
        "' media='none' onload=\"if(this.media!=='all')this.media='all'\" />" +
        "</head><body>" +
@@ -945,11 +946,19 @@ return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'
        "  window.decorateCodeBlocks(document.getElementById('chat-container'));" +
        "};" +
        "document.head.appendChild(hljsScript);" +
+       // ── KaTeX 加载：katex.js 加载完成后执行初始数学渲染 ──
+       "var katexScript=document.createElement('script');" +
+       "katexScript.src='" + KaTeXCdnScript + "';" +
+       "katexScript.onload=function(){" +
+       "  window.__renderMath(document.getElementById('chat-container'));" +
+       "};" +
+       "document.head.appendChild(katexScript);" +
        BuildDecorateCodeBlocksJsFunction() +
        BuildShiftScrollJs() +
        autoScrollJs +
        BuildAppendMessageJsFunction() +
        BuildRetryEditJsFunctions() +
+       BuildRenderMathJsFunction() +
        // ── 页面就绪信号 ──
        "window.__pageReady=true;" +
        "if(window.chrome?.webview)window.chrome.webview.postMessage('__pageReady__');" +
