@@ -37,11 +37,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     string delta = allMessages.Substring(_lastRenderedMessagesLength);
                     string jsFragment = System.Text.Json.JsonSerializer.Serialize(delta);
 
+                    // ── 在 await 之前推进 _lastRenderedMessagesLength，防止并发 UpdateBrowser
+                    //     调用读到旧值导致 delta 计算重复（产生两个用户气泡）──
+                    _lastRenderedMessagesLength = allMessages.Length;
+
                     try
                     {
                         string script = $"window.__appendMessageHtml({jsFragment});";
                         await ChatWebView.CoreWebView2.ExecuteScriptAsync(script);
-                        _lastRenderedMessagesLength = allMessages.Length;
                         return;
                     }
                     catch
@@ -51,21 +54,24 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         {
                             string appendJson = $"{{\"type\":\"appendHtml\",\"html\":{jsFragment}}}";
                             ChatWebView.CoreWebView2.PostWebMessageAsString(appendJson);
-                            _lastRenderedMessagesLength = allMessages.Length;
                             return;
                         }
                         catch
                         {
                             // PostWebMessageAsString 也失败时才回退到全量刷新（极少情况）
+                            // 重置 _lastRenderedMessagesLength，因为增量内容未成功渲染
+                            // 全量刷新会重建整个页面，重置为当前 _messagesHtml 实际长度
                         }
                     }
                 }
 
-                // ── 全量刷新路径（仅首次初始化或 PostWebMessageAsString 也失败时）──
+                // ── 全量刷新路径（首次初始化、增量失败回退、或 _lastRenderedMessagesLength 被并发调用重置后）──
+                // 需要重新读取 _messagesHtml 长度，因为并发调用可能已追加新内容
+                string allMessagesNow = _messagesHtml.ToString();
                 string html = ChatHtmlService.BuildInitialPage(_messages);
                 ChatWebView.CoreWebView2.NavigateToString(html);
                 _browserInitialized = true;
-                _lastRenderedMessagesLength = allMessages.Length;
+                _lastRenderedMessagesLength = allMessagesNow.Length;
             }
             catch (Exception ex)
             {
