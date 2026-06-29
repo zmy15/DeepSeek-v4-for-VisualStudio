@@ -103,16 +103,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 缓存友好窗口：最多保留的最近轮次数。
-        /// 默认 15 轮，配合 CacheWindowMaxTokens 使用（两者中限制更严格者生效）。
+        /// 默认 30 轮，配合 CacheWindowMaxTokens 使用（两者中限制更严格者生效）。
         /// </summary>
-        public int CacheWindowMaxTurns { get; set; } = 15;
+        public int CacheWindowMaxTurns { get; set; } = 30;
 
         /// <summary>
         /// 缓存友好窗口：最多保留的消息条目数（兜底保护）。
-        /// 默认 200 条，防止单轮大量工具调用导致窗口失控。
+        /// 默认 500 条，防止单轮大量工具调用导致窗口失控。
         /// 设为 0 不限条目数。
         /// </summary>
-        public int CacheWindowMaxEntries { get; set; } = 200;
+        public int CacheWindowMaxEntries { get; set; } = 500;
 
         // ── 🔑 缓存边界快照（v1.1.10）──
         //     Agent Handoff 时，在注入过渡消息前保存 _entries 的快照索引，
