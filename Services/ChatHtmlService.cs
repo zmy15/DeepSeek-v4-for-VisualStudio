@@ -920,6 +920,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         #endregion
 
+        #region Full Page Builder
+
         private static string WrapFullPage(string messagesHtml, bool hasStreamingMessage)
         {
             string autoScrollJs = hasStreamingMessage ? BuildAutoScrollJs() : "";
@@ -965,6 +967,10 @@ return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'
        "setTimeout(function(){window.__scrollToBottom('auto');},100);" +
        "</script></body></html>";
         }
+
+        #endregion
+
+        #region Agent UI Builders
 
         /// <summary>
         /// 构建 Agent 步骤流程管线 HTML（垂直管线布局）。
@@ -1285,7 +1291,11 @@ return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'
 
     var container=document.getElementById('chat-container');
     if(container)window.__insertBeforeTaskPanel(div);
-    window.__scrollToBottom('smooth');
+    wind#endregion
+
+        #region HTML/JS String Helpers
+
+        ow.__scrollToBottom('smooth');
 }})();";
         }
 
@@ -1324,6 +1334,10 @@ return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'
         {
             if (string.IsNullOrEmpty(text)) return string.Empty;
             string escaped = System.Net.WebUtility.HtmlEncode(text);
+        #endregion
+
+        #region Task Panel Helpers
+
             // 将 \n 转换为 <br> 以在 HTML 中正确显示换行
             return escaped.Replace("\n", "<br>");
         }
@@ -1508,6 +1522,8 @@ return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'
     window.__scrollToBottom('smooth');
 }})();";
         }
+
+        #endregion
     }
 }
 
