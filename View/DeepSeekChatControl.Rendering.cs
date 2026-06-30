@@ -243,6 +243,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 通过 PostWebMessageAsString 非阻塞推送流式完成（含 Markdown 渲染 HTML）。
+        /// 若消息过大导致 PostWebMessageAsString 失败，自动降级为全量页面刷新。
         /// </summary>
         private void PostStreamEnd(int messageIndex, string fullContent, string reasoningContent, string? extraFooterHtml = null)
         {
@@ -255,7 +256,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             catch (Exception ex)
             {
-                Logger.Error($"[Render] PostStreamEnd 异常: {ex.Message}", ex);
+                // ── 降级方案：PostWebMessageAsString 可能因消息过大（>1MB）或 JSON 转义问题失败，
+                //     回退到全量页面刷新（NavigateToString），确保 Markdown 正确渲染 ──
+                Logger.Error($"[Render] PostStreamEnd 发送失败 (内容长度: {fullContent?.Length ?? 0}), 回退到全量刷新: {ex.Message}", ex);
+
+                try
+                {
+                    // 更新对应消息的最终内容，标记流式结束，触发 RebuildMessagesHtml 重新渲染
+                    lock (_lock)
+                    {
+                        if (messageIndex >= 0 && messageIndex < _messages.Count)
+                        {
+                            var msg = _messages[messageIndex];
+                            msg.Content = fullContent ?? string.Empty;
+                            msg.ReasoningContent = reasoningContent ?? string.Empty;
+                            msg.IsStreaming = false;
+                            msg.IsHtml = false; // 让 RebuildMessagesHtml 重新走 Markdown → HTML 渲染
+                        }
+                    }
+                    RebuildMessagesHtml();
+                    UpdateBrowser();
+                }
+                catch (Exception fallbackEx)
+                {
+                    Logger.Error($"[Render] PostStreamEnd 全量刷新降级也失败: {fallbackEx.Message}", fallbackEx);
+                }
             }
         }
 

@@ -1,4 +1,5 @@
 ﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Utils;
 using Markdig;
 using System;
 using System.Collections.Generic;
@@ -807,9 +808,40 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 return htmlContent;
             }
-            catch
+            catch (Exception ex)
             {
-                return "<pre>" + System.Net.WebUtility.HtmlEncode(markdown) + "</pre>";
+                // ★ 记录异常详情，便于排查哪种 Markdown 语法导致渲染失败
+                Logger.Error($"[Markdown] RenderMarkdownToHtml 失败 (内容长度: {markdown?.Length ?? 0}): {ex.Message}", ex);
+
+                // ── 分段降级渲染：尝试逐段渲染，至少保留部分格式 ──
+                try
+                {
+                    var fallback = new StringBuilder();
+                    var sections = (markdown ?? string.Empty).Split(new[] { "\n\n" }, StringSplitOptions.None);
+                    foreach (var section in sections)
+                    {
+                        if (string.IsNullOrWhiteSpace(section))
+                        {
+                            fallback.Append("<br>");
+                            continue;
+                        }
+                        try
+                        {
+                            fallback.Append(Markdown.ToHtml(section, MarkdownPipeline));
+                        }
+                        catch
+                        {
+                            string truncated = section.Length > 500 ? section.Substring(0, 500) : section;
+                            fallback.Append("<p>").Append(System.Net.WebUtility.HtmlEncode(truncated)).Append("</p>");
+                        }
+                    }
+                    return fallback.ToString();
+                }
+                catch
+                {
+                    // 最终降级：纯 pre 标签
+                    return "<pre>" + System.Net.WebUtility.HtmlEncode(markdown ?? string.Empty) + "</pre>";
+                }
             }
         }
 

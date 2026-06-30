@@ -377,65 +377,84 @@ window._showCopyFeedback=function(msgIndex){
                     _rafPending=false;
                     delete _streamBuf[msg.i];  // 清除可能残留的流式缓冲，避免 textNode 覆盖 innerHTML
 
+                    // ── 兜底：无论渲染成功与否，先清理流式状态（光标、textNode）──
+                    var cursorEl = document.getElementById('cursor-' + msg.i);
+                    if (cursorEl) cursorEl.style.display = 'none';
+                    var containerEl = document.getElementById('msg-body-' + msg.i);
+                    if (containerEl) {
+                        containerEl._textNode = null;
+                        containerEl.style.whiteSpace = '';
+                    }
+
                     // ★ 渲染 Markdown（独立于 _flushStreamBuf，不受其异常影响）
                     if (msg.html) {
-                        var container = document.getElementById('msg-body-' + msg.i);
-                        if (container) {
-                            // 清理流式阶段残留的 _textNode 引用
-                            container._textNode = null;
-                            container.innerHTML = msg.html;
-                            // 存储原始 Markdown 内容，供复制按钮使用
-                            if (msg.rawContent) {
-                                container.setAttribute('data-raw-content', msg.rawContent);
-                            }
-                            container.style.whiteSpace = '';  // 流式结束，恢复默认 whitespace 处理
-                            var cursor = document.getElementById('cursor-' + msg.i);
-                            if (cursor) cursor.style.display = 'none';
-                            // 注入尾部 HTML
-                            if(msg.footerHtml){
-                                var footerDiv=document.createElement('div');
-                                footerDiv.innerHTML=msg.footerHtml;
-                                container.appendChild(footerDiv);
-                            }
-                            // 推理面板
-                            if(msg.reasoningHtml){
-                                var rp=document.getElementById('reasoning-'+msg.i);
-                                var rb=document.getElementById('reasoning-body-'+msg.i);
-                                if(rp&&rb){
-                                    rp.style.display='block';
-                                    rb.innerHTML=msg.reasoningHtml;
+                        try {
+                            var container = containerEl;
+                            if (container) {
+                                container.innerHTML = msg.html;
+                                // 存储原始 Markdown 内容，供复制按钮使用
+                                if (msg.rawContent) {
+                                    container.setAttribute('data-raw-content', msg.rawContent);
                                 }
+                                // 注入尾部 HTML
+                                if(msg.footerHtml){
+                                    var footerDiv=document.createElement('div');
+                                    footerDiv.innerHTML=msg.footerHtml;
+                                    container.appendChild(footerDiv);
+                                }
+                                // 推理面板
+                                if(msg.reasoningHtml){
+                                    var rp=document.getElementById('reasoning-'+msg.i);
+                                    var rb=document.getElementById('reasoning-body-'+msg.i);
+                                    if(rp&&rb){
+                                        rp.style.display='block';
+                                        rb.innerHTML=msg.reasoningHtml;
+                                    }
+                                }
+                                // 高亮代码块
+                                var msgDiv=document.getElementById('msg-'+msg.i);
+                                if(msgDiv&&window.hljs)decorateCodeBlocks(msgDiv);
+                                // 渲染数学公式（KaTeX）
+                                window.__renderMath(container);
+                                // 渲染 Mermaid 图表
+                                window.__renderMermaid(container);
                             }
-                            // 注入重试按钮
-                            var msgDiv=document.getElementById('msg-'+msg.i);
-                            if(msgDiv&&!document.getElementById('retry-btn-'+msg.i)){
-                                var retryBtn=document.createElement('button');
-                                retryBtn.id='retry-btn-'+msg.i;
-                                retryBtn.className='msg-action-btn retry-btn';
-                                retryBtn.textContent='↻';
-                                retryBtn.title=msg.retryTitle||'Regenerate response';
-                                retryBtn.onclick=function(){window.__retryMessage(msg.i);};
-                                var msgBody=document.getElementById('msg-body-'+msg.i);
-                                if(msgBody)msgBody.parentNode.insertBefore(retryBtn,msgBody.nextSibling);
+                        } catch(renderErr) {
+                            // ── innerHTML 渲染失败时的降级：显示带样式的错误提示 ──
+                            console.error('[DeepSeek] streamEnd render error:', renderErr);
+                            if (containerEl) {
+                                containerEl.innerHTML = '<div style=\'padding:12px;border-left:3px solid #e07878;background:#2a1a1a;color:#e07878;font-size:12px\'>⚠️ Markdown 渲染失败，请刷新页面重试。原始内容已保留在下方。</div>' +
+                                    '<pre style=\'max-height:300px;overflow-y:auto;font-size:11px;margin-top:8px\'>' +
+                                    (msg.rawContent||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') +
+                                    '</pre>';
                             }
-                            // 注入复制按钮
-                            if(msgDiv&&!document.getElementById('copy-btn-'+msg.i)){
-                                var copyBtn=document.createElement('button');
-                                copyBtn.id='copy-btn-'+msg.i;
-                                copyBtn.className='msg-action-btn copy-msg-btn';
-                                copyBtn.textContent='📋';
-                                copyBtn.title=msg.copyLabel||'Copy this response';
-                                copyBtn.onclick=function(){window.__copyMessage(msg.i);};
-                                var msgBody2=document.getElementById('msg-body-'+msg.i);
-                                if(msgBody2)msgBody2.parentNode.insertBefore(copyBtn,msgBody2.nextSibling);
-                            }
-                            // 高亮代码块
-                            if(msgDiv&&window.hljs)decorateCodeBlocks(msgDiv);
-                            // 渲染数学公式（KaTeX）
-                            window.__renderMath(container);
-                            // 渲染 Mermaid 图表
-                            window.__renderMermaid(container);
                         }
+                    }
+                    // 注入重试/复制按钮（无论渲染成功与否都尝试注入，失败时也能看到按钮）
+                    try {
+                        var msgDiv2=document.getElementById('msg-'+msg.i);
+                        if(msgDiv2&&!document.getElementById('retry-btn-'+msg.i)){
+                            var retryBtn=document.createElement('button');
+                            retryBtn.id='retry-btn-'+msg.i;
+                            retryBtn.className='msg-action-btn retry-btn';
+                            retryBtn.textContent='↻';
+                            retryBtn.title=msg.retryTitle||'Regenerate response';
+                            retryBtn.onclick=function(){window.__retryMessage(msg.i);};
+                            var msgBody=document.getElementById('msg-body-'+msg.i);
+                            if(msgBody)msgBody.parentNode.insertBefore(retryBtn,msgBody.nextSibling);
+                        }
+                        if(msgDiv2&&!document.getElementById('copy-btn-'+msg.i)){
+                            var copyBtn=document.createElement('button');
+                            copyBtn.id='copy-btn-'+msg.i;
+                            copyBtn.className='msg-action-btn copy-msg-btn';
+                            copyBtn.textContent='📋';
+                            copyBtn.title=msg.copyLabel||'Copy this response';
+                            copyBtn.onclick=function(){window.__copyMessage(msg.i);};
+                            var msgBody2=document.getElementById('msg-body-'+msg.i);
+                            if(msgBody2)msgBody2.parentNode.insertBefore(copyBtn,msgBody2.nextSibling);
+                        }
+                    } catch(btnErr) {
+                        console.error('[DeepSeek] streamEnd button injection error:', btnErr);
                     }
                     // ★ 清除状态栏文本
                     var st = document.getElementById('status-text');
@@ -480,6 +499,9 @@ window._showCopyFeedback=function(msgIndex){
 
             // 更新正文内容
             if(container&&msg.c!==undefined){
+                // ★ 防护：若 streamEnd 已将 _textNode 显式置为 null，说明已渲染完成，
+                //    此时不应再创建 textNode 覆盖 innerHTML（防止 late chunk 竞态）
+                if(container._textNode===null)continue;
                 var textNode=container._textNode;
                 if(!textNode){
                     textNode=document.createTextNode('');
