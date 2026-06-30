@@ -885,10 +885,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     }
 
                     // ── 检测文件名（支持带路径前缀如 src/db_engine.cpp）──
-                    string ext = Path.GetExtension(filePathCore);
-                    string baseName = Path.GetFileNameWithoutExtension(filePathCore);
-                    if (!string.IsNullOrEmpty(ext) && !string.IsNullOrWhiteSpace(baseName)
-                        && SourceFileExtensions.Contains(ext))
+                    // ★ 用安全方法提取扩展名，避免 Path.GetExtension 对含非法字符的文本抛 ArgumentException
+                    string ext = SafeGetExtension(filePathCore);
+                    if (string.IsNullOrEmpty(ext) || !SourceFileExtensions.Contains(ext))
+                    {
+                        // 不是源码文件 → 跳过文件链接检测，继续尝试符号名匹配
+                        goto checkSymbol;
+                    }
+
+                    // 提取基础名（不含扩展名部分），同样避免 Path.GetFileNameWithoutExtension 抛异常
+                    string baseName = filePathCore.EndsWith(ext, StringComparison.OrdinalIgnoreCase)
+                        ? filePathCore.Substring(0, filePathCore.Length - ext.Length).TrimEnd('.')
+                        : string.Empty;
+
+                    if (!string.IsNullOrWhiteSpace(baseName))
                     {
                         string encodedName = Uri.EscapeDataString(filePathCore);
                         string safeInner = EscapeHtmlAttributeSafe(inner);
@@ -896,6 +906,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         string lineQuery = lineParam != null ? $"&line={Uri.EscapeDataString(lineParam)}" : "";
                         return $"<code><a class=\"file-link\" href=\"vs-navigate://file?name={encodedName}{lineQuery}\" title=\"{title}\">{safeInner}</a></code>";
                     }
+
+                checkSymbol:
 
                     // ── 检测符号名（PascalCase / _underscorePrefix / MethodName()）──
                     string symbolName = inner;
@@ -929,6 +941,41 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             int lastPreOpen = before.LastIndexOf("<pre>", StringComparison.Ordinal);
             int lastPreClose = before.LastIndexOf("</pre>", StringComparison.Ordinal);
             return lastPreOpen > lastPreClose;
+        }
+
+        /// <summary>
+        /// 安全提取文件扩展名（含点号，如 ".cs"）。
+        /// 不同于 Path.GetExtension，本方法不验证路径合法性，直接基于字符串操作，
+        /// 避免 Markdown 中非路径文本含非法字符时抛出 ArgumentException。
+        /// </summary>
+        private static string SafeGetExtension(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+
+            // 从右向左查找最后一个 '.'，跳过路径分隔符之后的部分
+            int lastDot = -1;
+            for (int i = path.Length - 1; i >= 0; i--)
+            {
+                char c = path[i];
+                if (c == '\\' || c == '/')
+                    break; // 遇到路径分隔符，停止（扩展名应在文件名部分）
+                if (c == '.')
+                {
+                    lastDot = i;
+                    break;
+                }
+            }
+            if (lastDot < 0) return string.Empty;
+
+            string ext = path.Substring(lastDot);
+            // 仅当扩展名看起来合理时才返回（字母/数字组成，长度 2-10）
+            if (ext.Length < 2 || ext.Length > 10) return string.Empty;
+            foreach (char c in ext)
+            {
+                if (!char.IsLetterOrDigit(c) && c != '.')
+                    return string.Empty;
+            }
+            return ext;
         }
 
         #endregion
