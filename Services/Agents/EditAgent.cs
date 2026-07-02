@@ -1,6 +1,7 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Services.EditTools;
+using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.ToolWindows;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
@@ -39,6 +40,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         // ── 累积累推理/思考内容（跨步骤收集，供 UI 渲染思考面板）──
         private string? _accumulatedReasoning;
+
+        // ── 用户原始消息（用于检测跳过构建的意图）──
+        private string? _lastUserMessage;
 
         // ── 本轮已修改文件追踪（用于步骤间重读提示）──
         private readonly HashSet<string> _lastModifiedFiles = new(StringComparer.OrdinalIgnoreCase);
@@ -210,6 +214,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             _logs.Clear();
             _accumulatedReasoning = null;
             PendingHandoffRequest = null;
+            _lastUserMessage = userMessage;
 
             var result = new AgentResult
             {
@@ -432,38 +437,46 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 // ── Planning 模式：所有步骤完成后统一编译验证一次 ──
                 // 必须 plan.IsCompleted 才触发最终构建（防止 JSON 回退单步计划误触发）
+                // v1.1.12: 检查 ShouldSkipAutoBuild() 以尊重用户设置和提示中的意图
                 if (context.IsPlanningMode && plan.IsCompleted
                     && plan.ChangedFiles.Count > 0
                     && !plan.IsCancelled && !_agentCts!.IsCancellationRequested)
                 {
-                    AddLog("INFO", LocalizationService.Instance["agent.log.editFinalBuild"]);
-                    NotifyPlanUpdated();
-                    try
+                    if (ShouldSkipAutoBuild())
                     {
-                        string finalBuildResult;
-                        if (BuiltInTools != null)
-                        {
-                            finalBuildResult = await BuiltInTools.ExecuteBuiltInToolAsync(
-                                "build_solution", "{}", context.SolutionPath,
-                                _agentCts?.Token ?? context.CancellationToken)
-                                ?? LocalizationService.Instance["agent.log.editBuildToolNoResult"];
-                        }
-                        else
-                        {
-                            finalBuildResult = await ExecuteBuildStepAsync(
-                                new AgentStep { Title = LocalizationService.Instance["agent.log.editFinalBuildStepTitle"] }, context.SolutionPath,
-                                _agentCts.Token);
-                        }
-                        string oneLine = finalBuildResult.Split(new[] { '\r', '\n' },
-                            StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? finalBuildResult;
-                        if (finalBuildResult.Contains("✅") || finalBuildResult.Contains("0 个错误") || finalBuildResult.Contains("0 errors"))
-                            AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editFinalBuildOk"], oneLine));
-                        else
-                            AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.editFinalBuildWarn"], oneLine));
+                        AddLog("INFO", LocalizationService.Instance["agent.edit.autoBuildDisabledSkip"]);
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.finalBuildException"], ex.Message));
+                        AddLog("INFO", LocalizationService.Instance["agent.log.editFinalBuild"]);
+                        NotifyPlanUpdated();
+                        try
+                        {
+                            string finalBuildResult;
+                            if (BuiltInTools != null)
+                            {
+                                finalBuildResult = await BuiltInTools.ExecuteBuiltInToolAsync(
+                                    "build_solution", "{}", context.SolutionPath,
+                                    _agentCts?.Token ?? context.CancellationToken)
+                                    ?? LocalizationService.Instance["agent.log.editBuildToolNoResult"];
+                            }
+                            else
+                            {
+                                finalBuildResult = await ExecuteBuildStepAsync(
+                                    new AgentStep { Title = LocalizationService.Instance["agent.log.editFinalBuildStepTitle"] }, context.SolutionPath,
+                                    _agentCts.Token);
+                            }
+                            string oneLine = finalBuildResult.Split(new[] { '\r', '\n' },
+                                StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? finalBuildResult;
+                            if (finalBuildResult.Contains("✅") || finalBuildResult.Contains("0 个错误") || finalBuildResult.Contains("0 errors"))
+                                AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.editFinalBuildOk"], oneLine));
+                            else
+                                AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.editFinalBuildWarn"], oneLine));
+                        }
+                        catch (Exception ex)
+                        {
+                            AddLog("WARN", string.Format(LocalizationService.Instance["agent.log.finalBuildException"], ex.Message));
+                        }
                     }
                 }
             }
@@ -645,14 +658,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
 
                 // ── 使用工具调用循环：AI 可以先探索再修改（v1.1.10：支持步骤内增量编辑）──
+                // v1.1.12: 当用户关闭自动编译或在提示中要求跳过时，从工具列表中移除 build_solution
                 AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.callingAiToolLoop"], retry));
                 var thinkingBuilder = new StringBuilder();
+                var stepToolWhitelist = new List<string>(CodeStepTools);
+                if (ShouldSkipAutoBuild())
+                {
+                    stepToolWhitelist.Remove("build_solution");
+                    AddLog("INFO", LocalizationService.Instance["agent.edit.autoBuildDisabledSkip"]);
+                }
                 result = await CallAiWithToolLoopAsync(
                     messages,
                     workspaceRoot,
                     ct,
                     maxTokens: 8192,
-                    toolWhitelist: new List<string>(CodeStepTools),
+                    toolWhitelist: stepToolWhitelist,
                     onThinking: (thinking) =>
                     {
                         thinkingBuilder.Append(thinking);
@@ -943,7 +963,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             }
 
             // ── 编译验证阶段（AI 可使用完整 EditTools，包括 build_solution）──
-            if (changes.Count > 0 && !ct.IsCancellationRequested && !context.IsPlanningMode)
+            // v1.1.12: 当用户关闭自动编译或在提示中要求跳过时，跳过整个验证阶段
+            if (changes.Count > 0 && !ct.IsCancellationRequested && !context.IsPlanningMode
+                && !ShouldSkipAutoBuild())
             {
                 AddLog("INFO", LocalizationService.Instance["agent.log.verifyPhaseStarted"]);
 
@@ -2814,10 +2836,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (PendingHandoffRequest != null)
                 return ConvertHandoffRequestToHandoff(PendingHandoffRequest);
 
-            // ── 有编译警告 → Build Agent ──
+            // ── 检查是否应跳过自动编译 ──
+            bool skipBuild = ShouldSkipAutoBuild();
+
+            // ── 有编译警告 → Build Agent（除非用户/设置禁用了自动编译）──
             if (HasBuildWarningsInLogs())
+            {
+                if (skipBuild)
+                {
+                    AddLog("INFO", LocalizationService.Instance["agent.edit.autoBuildDisabledByUser"]);
+                    return BuildSummaryHandoff(plan);
+                }
                 return Definition.Handoffs.FirstOrDefault(h => h.TargetAgent == AgentType.Build)
                     ?? BuildSummaryHandoff(plan);
+            }
 
             // ── 默认 → Ask Agent 生成总结 ──
             return BuildSummaryHandoff(plan);
@@ -3591,6 +3623,57 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             || msg.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0)))
                     return true;
             }
+            return false;
+        }
+
+        /// <summary>
+        /// 判断是否应跳过自动编译（整合设置和用户提示两个维度）。
+        /// 1. 用户设置：DeepSeekOptionsPage.Instance.EnableAutoBuild 为 false
+        /// 2. 用户提示：原始消息中包含"不要编译""跳过构建""don't build"等短语
+        /// </summary>
+        private bool ShouldSkipAutoBuild()
+        {
+            // 维度1：检查用户设置
+            if (!(Settings.DeepSeekOptionsPage.Instance?.EnableAutoBuild ?? true))
+                return true;
+
+            // 维度2：检查用户提示中的意图
+            return UserPromptSaysSkipBuild();
+        }
+
+        /// <summary>
+        /// 检查用户原始消息中是否包含跳过构建的意图。
+        /// 支持中/英文关键词匹配。
+        /// </summary>
+        private bool UserPromptSaysSkipBuild()
+        {
+            if (string.IsNullOrWhiteSpace(_lastUserMessage))
+                return false;
+
+            string msg = _lastUserMessage;
+
+            // ── 中文关键词 ──
+            if (msg.Contains("不要编译") || msg.Contains("不要构建")
+                || msg.Contains("别编译") || msg.Contains("别构建")
+                || msg.Contains("跳过编译") || msg.Contains("跳过构建")
+                || msg.Contains("不编译") || msg.Contains("不构建")
+                || msg.Contains("无需编译") || msg.Contains("无需构建")
+                || msg.Contains("不用编译") || msg.Contains("不用构建")
+                || msg.Contains("禁止编译") || msg.Contains("禁止构建")
+                || msg.Contains("免编译") || msg.Contains("免构建"))
+                return true;
+
+            // ── 英文关键词 ──
+            string lower = msg.ToLowerInvariant();
+            if (lower.Contains("don't build") || lower.Contains("do not build")
+                || lower.Contains("skip build") || lower.Contains("skip the build")
+                || lower.Contains("no build") || lower.Contains("without build")
+                || lower.Contains("without building") || lower.Contains("don't compile")
+                || lower.Contains("do not compile") || lower.Contains("skip compile")
+                || lower.Contains("no compile") || lower.Contains("without compile")
+                || lower.Contains("without compiling") || lower.Contains("don't run build"))
+                return true;
+
             return false;
         }
 

@@ -263,6 +263,12 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public int MaxConsecutiveErrors { get; set; } = 5;
 
+        [LocalizedCategory("settings.category.agent")]
+        [LocalizedDisplayName("settings.enableAutoBuild.displayName")]
+        [LocalizedDescription("settings.enableAutoBuild.description")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public bool EnableAutoBuild { get; set; } = true;
+
         // ═══════════════════════════════════════════════
         //  审批模式设置
         // ═══════════════════════════════════════════════
