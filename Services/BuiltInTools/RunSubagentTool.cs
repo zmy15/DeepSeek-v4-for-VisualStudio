@@ -56,18 +56,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             agentName = new
                             {
                                 type = "string",
-                                description = "子 Agent 名称。使用 \"Explore\" 进行代码库探索和搜索。",
+                                description = L["tool.runSubagent.param.agentName"],
                                 @enum = new[] { "Explore" }
                             },
                             prompt = new
                             {
                                 type = "string",
-                                description = "委派给子 Agent 的完整任务描述，包括搜索目标、期望的详细程度（quick/medium/thorough）等。"
+                                description = L["tool.runSubagent.param.prompt"]
                             },
                             description = new
                             {
                                 type = "string",
-                                description = "简短（3-5 词）任务摘要，用于日志和追踪。"
+                                description = L["tool.runSubagent.param.description"]
                             }
                         },
                         required = new[] { "agentName", "prompt" }

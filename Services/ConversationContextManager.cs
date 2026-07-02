@@ -624,10 +624,109 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (!string.IsNullOrWhiteSpace(_memoryContext))
                 parts.Add(_memoryContext!);
 
+            // 语言一致性守卫：检测用户最后一条消息的语言，确保回复语言与用户一致
+            string? languageGuard = BuildLanguageGuard();
+            if (languageGuard != null)
+                parts.Add(languageGuard);
+
             if (parts.Count == 0)
                 return null;
 
             return string.Join("\n\n", parts);
+        }
+
+        /// <summary>
+        /// 检测最后一条用户消息的语言，如果用户使用英文而系统/记忆中有中文内容，
+        /// 则生成一条语言一致性守卫指令，防止模型被中文上下文误导而用中文回复。
+        /// </summary>
+        private string? BuildLanguageGuard()
+        {
+            // 反向查找最后一条用户消息
+            string? lastUserMessage = null;
+            for (int i = _entries.Count - 1; i >= 0; i--)
+            {
+                if (_entries[i].Role == "user" && !string.IsNullOrWhiteSpace(_entries[i].Content))
+                {
+                    lastUserMessage = _entries[i].Content;
+                    break;
+                }
+            }
+
+            if (lastUserMessage == null)
+                return null;
+
+            bool isEnglish = IsEnglishMessage(lastUserMessage);
+            if (!isEnglish)
+                return null;
+
+            // 检查记忆上下文中是否包含中文（如果记忆是中文但用户用英文，需要守卫）
+            bool memoryHasChinese = !string.IsNullOrWhiteSpace(_memoryContext)
+                && ContainsCjkCharacters(_memoryContext);
+
+            // 即使用户记忆中没有中文，也始终确保英文回复（因为用户用英文提问）
+            return memoryHasChinese
+                ? "⚠️ LANGUAGE OVERRIDE: The user is writing in English. Even though some context or memory content above is in Chinese, you MUST respond in English. The memory content is metadata — the user's actual communication language is English."
+                : null;
+        }
+
+        /// <summary>
+        /// 检测文本是否主要为英文（非 CJK 语言）。
+        /// 统计 CJK 字符占比，若低于 15% 则判定为英文消息。
+        /// </summary>
+        private static bool IsEnglishMessage(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return true; // 空消息默认为英文
+
+            int cjkCount = 0;
+            int totalLetters = 0;
+
+            foreach (char c in text)
+            {
+                if (char.IsLetter(c))
+                {
+                    totalLetters++;
+                    // CJK 统一表意文字范围
+                    if ((c >= 0x4E00 && c <= 0x9FFF) ||   // CJK Unified Ideographs
+                        (c >= 0x3400 && c <= 0x4DBF) ||   // CJK Unified Ideographs Extension A
+                        (c >= 0x3000 && c <= 0x303F) ||   // CJK Symbols and Punctuation
+                        (c >= 0xFF00 && c <= 0xFFEF) ||   // Halfwidth and Fullwidth Forms
+                        (c >= 0xF900 && c <= 0xFAFF))     // CJK Compatibility Ideographs
+                    {
+                        cjkCount++;
+                    }
+                }
+            }
+
+            // 如果没有字母字符，默认为英文
+            if (totalLetters == 0)
+                return true;
+
+            double cjkRatio = (double)cjkCount / totalLetters;
+            return cjkRatio < 0.15;
+        }
+
+        /// <summary>
+        /// 检测文本中是否包含 CJK 字符。
+        /// </summary>
+        private static bool ContainsCjkCharacters(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            foreach (char c in text)
+            {
+                if ((c >= 0x4E00 && c <= 0x9FFF) ||
+                    (c >= 0x3400 && c <= 0x4DBF) ||
+                    (c >= 0x3000 && c <= 0x303F) ||
+                    (c >= 0xFF00 && c <= 0xFFEF) ||
+                    (c >= 0xF900 && c <= 0xFAFF))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

@@ -532,20 +532,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             var sb = new StringBuilder();
 
+            var L = LocalizationService.Instance;
+
             if (!string.IsNullOrEmpty(context.SolutionPath))
             {
-                sb.AppendLine($"[当前解决方案: {context.SolutionPath}]");
+                sb.AppendLine(string.Format(L["system.contextSolutionLabel"], context.SolutionPath));
                 sb.AppendLine();
             }
 
             if (!string.IsNullOrEmpty(context.FileContext))
             {
-                sb.AppendLine("[用户提供的文件内容]");
+                sb.AppendLine(L["system.contextFileContent"]);
                 sb.AppendLine(context.FileContext);
                 sb.AppendLine();
             }
 
-            sb.AppendLine("[用户问题]");
+            sb.AppendLine(L["system.contextUserQuestion"]);
             sb.AppendLine(userMessage);
 
             return sb.ToString();

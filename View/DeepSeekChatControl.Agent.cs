@@ -162,7 +162,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         workspaceRoot = Path.GetDirectoryName(workspaceRoot) ?? workspaceRoot;
                 }
                 catch { }
-                systemPrompt += $"\n\n## 工作区信息\n当前工作区根目录: `{workspaceRoot}`\n所有文件操作请使用此目录下的 Windows 绝对路径。";
+                systemPrompt += string.Format(LocalizationService.Instance["system.workspaceInfo"], workspaceRoot);
             }
 
             _contextManager.SetSystemPrompt(string.IsNullOrWhiteSpace(systemPrompt) ? null : systemPrompt);

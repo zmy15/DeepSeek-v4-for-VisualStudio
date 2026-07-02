@@ -39,21 +39,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 Function = new ToolFunction
                 {
                     Name = "memory",
-                    Description = "管理 AI 持久化记忆系统，支持三个作用域。\n\n" +
-                        "作用域说明：\n" +
-                        "- user: 用户记忆，跨所有工作区和会话的持久笔记，存储偏好、模式、通用见解\n" +
-                        "- session: 会话记忆，当前对话范围内，存储任务特定上下文和进行中笔记，会话结束后清除\n" +
-                        "- repo: 仓库记忆，当前解决方案范围内，存储代码库约定、构建命令、项目结构事实等\n\n" +
-                        "路径格式：'/memories/' 下为 user 作用域，'/memories/session/' 下为 session 作用域，" +
-                        "'/memories/repo/' 下为 repo 作用域。\n" +
-                        "例如：'/memories/build-notes.md' (user)，'/memories/repo/conventions.md' (repo)\n\n" +
-                        "操作说明：\n" +
-                        "- view: 查看文件内容或列出目录。可提供 view_range 参数（[start_line, end_line]，1-indexed）\n" +
-                        "- create: 创建新文件（已存在则报错）。需提供 file_text\n" +
-                        "- str_replace: 精确替换字符串。old_str 在文件中必须恰好出现一次\n" +
-                        "- insert: 在指定行号插入文本（0 表示文件开头）。需提供 insert_line 和 insert_text\n" +
-                        "- delete: 删除文件或递归删除目录\n" +
-                        "- rename: 重命名/移动文件或目录。需提供 old_path 和 new_path",
+                    Description = L["tool.memory.desc"],
                     Parameters = new
                     {
                         type = "object",
@@ -63,47 +49,47 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             {
                                 type = "string",
                                 @enum = new[] { "view", "create", "str_replace", "insert", "delete", "rename" },
-                                description = "要执行的操作"
+                                description = L["tool.memory.param.command"]
                             },
                             path = new
                             {
                                 type = "string",
-                                description = "文件或目录路径。如 '/memories/notes.md' 或 '/memories/repo/'"
+                                description = L["tool.memory.param.path"]
                             },
                             file_text = new
                             {
                                 type = "string",
-                                description = "要写入文件的内容（create 操作必需）"
+                                description = L["tool.memory.param.file_text"]
                             },
                             old_str = new
                             {
                                 type = "string",
-                                description = "要替换的精确文本（str_replace 操作必需，必须唯一）"
+                                description = L["tool.memory.param.old_str"]
                             },
                             new_str = new
                             {
                                 type = "string",
-                                description = "替换后的新文本（str_replace 操作必需）"
+                                description = L["tool.memory.param.new_str"]
                             },
                             insert_line = new
                             {
                                 type = "integer",
-                                description = "插入位置的行号（insert 操作必需，0-based，0 表示文件开头）"
+                                description = L["tool.memory.param.insert_line"]
                             },
                             insert_text = new
                             {
                                 type = "string",
-                                description = "要插入的文本（insert 操作必需）"
+                                description = L["tool.memory.param.insert_text"]
                             },
                             old_path = new
                             {
                                 type = "string",
-                                description = "当前路径（rename 操作必需）"
+                                description = L["tool.memory.param.old_path"]
                             },
                             new_path = new
                             {
                                 type = "string",
-                                description = "目标路径（rename 操作必需）"
+                                description = L["tool.memory.param.new_path"]
                             },
                             view_range = new
                             {
@@ -111,7 +97,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                                 items = new { type = "integer" },
                                 minItems = 2,
                                 maxItems = 2,
-                                description = "可选。查看文件时的行范围 [start, end]，1-indexed"
+                                description = L["tool.memory.param.view_range"]
                             }
                         },
                         required = new[] { "command" }

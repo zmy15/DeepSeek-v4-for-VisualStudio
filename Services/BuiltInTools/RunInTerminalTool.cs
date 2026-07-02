@@ -38,12 +38,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         properties = new
                         {
                             command = new { type = "string", description = LocalizationService.Instance["tool.runInTerminal.param.command"] },
-                            explanation = new { type = "string", description = "命令用途的简短说明（这条命令做什么）" },
-                            purpose = new { type = "string", description = "操作目的——为什么要执行此命令，要达成什么目标（如：验证编译是否通过、检查文件是否存在）" },
+                            explanation = new { type = "string", description = LocalizationService.Instance["tool.runInTerminal.param.explanation"] },
+                            purpose = new { type = "string", description = LocalizationService.Instance["tool.runInTerminal.param.purpose"] },
                             mode = new
                             {
                                 type = "string",
-                                description = "执行模式：sync（等待完成）或 async（后台运行）。默认 sync。",
+                                description = LocalizationService.Instance["tool.runInTerminal.param.mode"],
                                 @enum = new[] { "sync", "async" }
                             }
                         },
@@ -84,8 +84,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             if (IsBuildCommand(command))
             {
                 return LocalizationService.Instance["tool.runTerminal.buildBlocked"] + "\n\n" +
-                    $"编译错误也会自动进入 VS Error List，可通过 get_errors 工具获取详细错误信息。\n\n" +
-                    $"被拦截的命令: {command}";
+                    LocalizationService.Instance.Format("tool.runInTerminal.buildBlockedExtra", command);
             }
 
             // ── Unix 风格命令检测与修正（安全网：即使 AI prompt 已要求 PowerShell，仍有概率输出 Unix 命令）──
@@ -104,7 +103,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 vcvarsPath = BuildService.FindVcvarsBat();
                 if (vcvarsPath == null)
-                    vcvarsWarning = "⚠️ 未找到 vcvars64.bat，cmake --build 可能因缺少 MSVC 环境而失败。建议使用 build_solution 工具。\n\n";
+                    vcvarsWarning = LocalizationService.Instance["tool.runInTerminal.vcvarsNotFound"] + "\n\n";
             }
 
             // ── 检测并剥离 AI 不必要的 cmd /c "..." 2>&1 包装 ──
@@ -225,8 +224,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         var timeoutSb = new StringBuilder();
                         if (!string.IsNullOrEmpty(warningPrefix))
                             timeoutSb.Append(warningPrefix);
-                        timeoutSb.AppendLine($"⏱️ 终端命令超时 ({SyncTimeout.TotalMinutes:F0} 分钟)，已强制终止");
-                        timeoutSb.AppendLine($"命令: {command}");
+                        timeoutSb.AppendLine(LocalizationService.Instance.Format("tool.runInTerminal.timeout", SyncTimeout.TotalMinutes));
+                        timeoutSb.AppendLine(LocalizationService.Instance.Format("tool.runInTerminal.commandLabel", command));
                         if (!string.IsNullOrWhiteSpace(partialStdout))
                             timeoutSb.AppendLine(partialStdout);
                         if (!string.IsNullOrWhiteSpace(partialStderr))

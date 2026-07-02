@@ -89,9 +89,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 contextSummary = string.Join(" | ", recent);
             }
 
+            var L = Services.LocalizationService.Instance;
             string contextLine = string.IsNullOrWhiteSpace(contextSummary)
-                ? $"用户问题：{userQuery}"
-                : $"对话上下文：{contextSummary}\n用户问题：{userQuery}";
+                ? string.Format(L["system.searchUserQuestion"], userQuery)
+                : string.Format(L["system.searchContextSummary"], contextSummary, userQuery);
 
             string optimizationPrompt = AiPrompts.BuildSearchOptimizationPrompt(contextLine, isBaiduSearch);
             string systemPrompt = AiPrompts.GetSearchOptimizationSystemPrompt(isBaiduSearch);
