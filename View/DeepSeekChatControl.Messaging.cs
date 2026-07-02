@@ -65,6 +65,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (string.IsNullOrWhiteSpace(userText)) userText = string.Empty;
             bool hasAttachments = _attachedFilePaths.Count > 0;
 
+            // ── 输入历史记录（仅记录用户实际输入，不含技能指令解析结果）──
+            if (!string.IsNullOrEmpty(userText) && !userText.StartsWith("/"))
+            {
+                RecordInputHistory(userText);
+            }
+
             // 编辑模式
             if (_pendingEditMsgIndex >= 0)
             {

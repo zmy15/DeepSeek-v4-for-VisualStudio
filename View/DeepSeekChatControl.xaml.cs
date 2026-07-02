@@ -132,6 +132,131 @@ namespace DeepSeek_v4_for_VisualStudio.View
         // ── 文件上传 ──
         private readonly List<string> _attachedFilePaths = new(); // 已选文件路径列表
 
+        // ── 输入历史 ──
+        private readonly List<string> _inputHistory = new();  // 已发送的消息历史
+        private int _historyIndex = -1;                        // 当前浏览位置（-1=未浏览）
+        private string? _savedCurrentInput;                    // 浏览前保存的当前输入
+        private static readonly string _historyBaseDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "DeepSeekVS", "history");
+
+        /// <summary>根据解决方案路径计算历史文件路径（与会话存储同目录）</summary>
+        private string GetInputHistoryFilePath()
+        {
+            Directory.CreateDirectory(_historyBaseDir);
+            if (string.IsNullOrWhiteSpace(_solutionPath))
+                return Path.Combine(_historyBaseDir, "_unsaved.json");
+            using (var sha256 = System.Security.Cryptography.SHA256.Create())
+            {
+                var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(_solutionPath));
+                var hash = BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 16);
+                return Path.Combine(_historyBaseDir, $"proj_{hash}.json");
+            }
+        }
+
+        /// <summary>
+        /// 加载持久化的输入历史（按项目隔离）。
+        /// </summary>
+        private void LoadInputHistory()
+        {
+            try
+            {
+                var filePath = GetInputHistoryFilePath();
+                if (File.Exists(filePath))
+                {
+                    var json = File.ReadAllText(filePath, Encoding.UTF8);
+                    var history = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json);
+                    if (history != null)
+                    {
+                        _inputHistory.Clear();
+                        int start = history.Count > 100 ? history.Count - 100 : 0;
+                        _inputHistory.AddRange(history.GetRange(start, history.Count - start));
+                        Logger.Info($"[InputHistory] 已加载 {_inputHistory.Count} 条历史 → {Path.GetFileName(filePath)}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[InputHistory] 加载历史失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 持久化保存输入历史（按项目隔离）。
+        /// </summary>
+        private void SaveInputHistory()
+        {
+            try
+            {
+                var filePath = GetInputHistoryFilePath();
+                var dir = Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+
+                var json = System.Text.Json.JsonSerializer.Serialize(_inputHistory);
+                File.WriteAllText(filePath, json, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[InputHistory] 保存历史失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 记录一条输入到历史（去重相邻重复，上限 100 条）。
+        /// </summary>
+        private void RecordInputHistory(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+            // 去重：与上一条相同则不重复记录
+            if (_inputHistory.Count > 0 && _inputHistory[_inputHistory.Count - 1] == text)
+                return;
+            _inputHistory.Add(text);
+            if (_inputHistory.Count > 100)
+                _inputHistory.RemoveAt(0);
+            _historyIndex = -1;
+            _savedCurrentInput = null;
+
+            // 持久化保存
+            SaveInputHistory();
+        }
+
+        /// <summary>
+        /// 按方向浏览输入历史。由 InputTextBox_PreviewKeyDown 调用。
+        /// </summary>
+        private void NavigateInputHistory(int direction)
+        {
+            if (_inputHistory.Count == 0) return;
+
+            // 首次浏览：保存当前输入框内容
+            if (_historyIndex == -1)
+            {
+                _savedCurrentInput = InputTextBox.Text;
+                _historyIndex = _inputHistory.Count;
+            }
+
+            _historyIndex += direction;
+
+            if (_historyIndex < 0)
+            {
+                _historyIndex = 0;
+                return;
+            }
+
+            if (_historyIndex >= _inputHistory.Count)
+            {
+                // 超出历史范围：恢复到浏览前的内容
+                _historyIndex = -1;
+                InputTextBox.Text = _savedCurrentInput ?? string.Empty;
+                _savedCurrentInput = null;
+                InputTextBox.CaretIndex = InputTextBox.Text.Length;
+                return;
+            }
+
+            InputTextBox.Text = _inputHistory[_historyIndex];
+            InputTextBox.CaretIndex = InputTextBox.Text.Length;
+        }
+
         // ── 多会话支持 ──
         private SessionsContainer? _sessionsContainer;
         private ChatSession? _activeSession;
@@ -434,6 +559,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
             {
                 await ResolveSolutionPathAsync();
+                LoadInputHistory();  // 加载该项目的历史输入（路径依赖 _solutionPath）
                 await LoadAndShowAsync();
             });
 

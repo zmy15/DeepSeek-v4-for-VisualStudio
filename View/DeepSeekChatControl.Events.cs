@@ -110,6 +110,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
             }
 
+            // ── 输入历史导航（无弹出框时，上下键浏览历史输入）──
+            if (!AgentSuggestionPopup.IsOpen && !SkillSuggestionPopup.IsOpen)
+            {
+                if (e.Key == Key.Up)
+                {
+                    e.Handled = true;
+                    NavigateInputHistory(-1);
+                    return;
+                }
+                if (e.Key == Key.Down)
+                {
+                    e.Handled = true;
+                    NavigateInputHistory(1);
+                    return;
+                }
+            }
+
             // ── 编辑模式下 ESC 取消编辑 ──
             if (e.Key == Key.Escape && _pendingEditMsgIndex >= 0)
             {
