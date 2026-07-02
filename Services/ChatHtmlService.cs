@@ -1019,7 +1019,7 @@ return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'
        "var mermaidScript=document.createElement('script');" +
        "mermaidScript.src='" + MermaidCdnScript + "';" +
        "mermaidScript.onload=function(){" +
-       "  mermaid.initialize({startOnLoad:false,theme:'" + (ThemeService.Instance.IsLight ? "default" : "dark") + "',securityLevel:'loose'});" +
+       "  mermaid.initialize({startOnLoad:false,theme:'" + (ThemeService.Instance.IsLight ? "default" : "dark") + "',securityLevel:'loose',suppressErrorRendering:true});" +
        "  window.__renderMermaid(document.getElementById('chat-container'));" +
        "};" +
        "document.head.appendChild(mermaidScript);" +

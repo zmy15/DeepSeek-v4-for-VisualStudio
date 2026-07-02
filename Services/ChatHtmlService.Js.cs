@@ -127,20 +127,31 @@ window.__renderMermaid=function(container){
             let src=code.textContent.trim();
             if(!src)continue;
             let id='mermaid-svg-'+(Date.now())+'-'+i;
-            try{
-                // 使用 mermaid.render 生成 SVG 并替换
-                mermaid.render(id,src).then(function(result){
+            // 先用 parse() 预校验语法，语法错误时不调用 render()，从根源避免 Mermaid 注入错误 UI
+            (async function(){
+                try{
+                    await mermaid.parse(src);
+                    // 解析通过，开始渲染
+                    var result=await mermaid.render(id,src);
                     pre.innerHTML=result.svg;
                     pre.classList.add('mermaid-block');
-                }).catch(function(e){
-                    // 渲染失败时保留源码（含错误标记）
+                }catch(e){
+                    // 语法错误或渲染失败时保留源码，红色左边框标记
                     pre.classList.add('mermaid-block');
                     pre.style.borderLeft='3px solid #e07878';
-                });
-            }catch(e2){
-                pre.classList.add('mermaid-block');
+                }
+            })();
+        }
+    // 清理 Mermaid 可能注入到 body/container 的错误元素（炸弹图标等）
+    setTimeout(function(){
+        var allSvgs=document.querySelectorAll('svg[id]');
+        for(var s=0;s<allSvgs.length;s++){
+            var txt=(allSvgs[s].textContent||'').toLowerCase();
+            if(txt.indexOf('syntax error')>=0||txt.indexOf('syntaxerror')>=0){
+                allSvgs[s].parentElement&&allSvgs[s].parentElement.removeChild(allSvgs[s]);
             }
         }
+    },200);
     }catch(e){}
 };";
         }
