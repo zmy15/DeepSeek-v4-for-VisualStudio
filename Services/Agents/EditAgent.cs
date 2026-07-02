@@ -104,6 +104,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 任务与记忆
             "manage_todo_list",
             "memory",
+            // 用户交互
+            "VisualStudio_askQuestions",  // 向用户提问澄清
         };
 
         /// <summary>

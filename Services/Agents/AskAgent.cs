@@ -45,6 +45,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "read_file",          // 读取文件
             "list_dir",           // 浏览目录结构
             "get_errors",         // 获取编译错误
+            // ── 用户交互 ──
+            "VisualStudio_askQuestions",  // 向用户提问澄清
             // ── 委派与联网 ──
             "runSubagent",        // 深度探索任务委派给 ExploreAgent
             "fetch_webpage",      // 联网搜索（无需代码库访问）
