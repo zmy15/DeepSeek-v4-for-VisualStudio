@@ -1,4 +1,5 @@
 using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
@@ -87,11 +88,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         {
             var results = new List<EditApplyResult>();
 
+            // ── 备份追踪 ──
+            BackupService.BeginSession();
+            var backups = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var edit in edits)
             {
                 if (ct.IsCancellationRequested) break;
 
                 string resolvedPath = EditPatchService.ResolvePath(edit.FilePath, WorkspaceRoot);
+
+                // ── 首次接触文件时创建备份 ──
+                if (!backups.ContainsKey(resolvedPath))
+                {
+                    backups[resolvedPath] = BackupService.CreateBackup(resolvedPath);
+                }
+
                 var result = await ApplySingleInsertEditAsync(edit, resolvedPath, ct);
 
                 // ── Healing ──
@@ -151,6 +163,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 results.Add(result);
             }
 
+            // ── 事务提交/回滚 ──
+            bool anyFailed = results.Any(r => !r.Success);
+            if (anyFailed)
+            {
+                Logger.Warn("[InsertEditTool] 部分编辑失败，回滚所有已修改文件");
+                BackupService.RollbackAll(backups);
+            }
+            else
+            {
+                foreach (var kvp in backups)
+                    BackupService.CleanupBackup(kvp.Value);
+            }
+
+            BackupService.EndSession();
             return results;
         }
 

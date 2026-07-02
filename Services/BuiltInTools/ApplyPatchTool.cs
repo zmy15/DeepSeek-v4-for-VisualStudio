@@ -1,4 +1,5 @@
 ﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Services.EditTools;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
@@ -138,7 +139,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             // ── 首次接触此文件时创建备份 ──
                             if (File.Exists(filePath) && !backups.ContainsKey(filePath))
                             {
-                                backups[filePath] = EditTools.ApplyPatchTool.CreateBackup(filePath);
+                                backups[filePath] = BackupService.CreateBackup(filePath);
                             }
 
                             var result = EditTools.ApplyPatchTool.ApplySinglePatch(
@@ -169,14 +170,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         if (anyFailed)
                         {
                             foreach (var kv in backups)
-                                EditTools.ApplyPatchTool.RestoreFromBackup(kv.Key, kv.Value);
+                                BackupService.RestoreFromBackup(kv.Key, kv.Value);
                             Logger.Warn("[Backup] 静态降级路径：部分 patch 失败，已回滚所有文件");
                         }
                         else
                         {
                             // ── 成功清理 ──
                             foreach (var kv in backups)
-                                EditTools.ApplyPatchTool.CleanupBackup(kv.Value);
+                                BackupService.CleanupBackup(kv.Value);
                         }
 
                         return results.Count > 0
@@ -187,7 +188,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     {
                         // ── 异常回滚 ──
                         foreach (var kv in backups)
-                            EditTools.ApplyPatchTool.RestoreFromBackup(kv.Key, kv.Value);
+                            BackupService.RestoreFromBackup(kv.Key, kv.Value);
                         throw;
                     }
                 }

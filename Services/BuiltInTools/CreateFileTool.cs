@@ -1,4 +1,5 @@
 using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
@@ -83,7 +84,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 }
 
                 bool existed = File.Exists(filePath);
+
+                // ── 覆盖已存在文件前创建备份 ──
+                string? backupPath = null;
+                if (existed)
+                {
+                    backupPath = BackupService.CreateBackup(filePath);
+                }
+
                 await Task.Run(() => File.WriteAllText(filePath, normalizedContent, Encoding.UTF8));
+
+                // ── 写入成功 → 清理备份 ──
+                if (backupPath != null)
+                    BackupService.CleanupBackup(backupPath);
 
                 return existed
                     ? LocalizationService.Instance.Format("tool.createFile.overwritten", Path.GetFileName(filePath))

@@ -1,4 +1,5 @@
 using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
@@ -211,7 +212,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     // ── 首次接触文件时创建备份（事务开始）──
                     if (!backups.ContainsKey(resolvedPath))
                     {
-                        backups[resolvedPath] = CreateBackup(resolvedPath);
+                        backups[resolvedPath] = BackupService.CreateBackup(resolvedPath);
                     }
                 }
 
@@ -237,12 +238,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             if (anyFailed)
             {
                 Logger.Warn("[Transaction] 部分 patch 应用失败，回滚所有已修改文件");
-                RollbackAll(backups);
+                BackupService.RollbackAll(backups);
             }
             else
             {
                 foreach (var kvp in backups)
-                    CleanupBackup(kvp.Value);
+                    BackupService.CleanupBackup(kvp.Value);
 
             }
 
@@ -1305,8 +1306,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     {
                         if (backups.TryGetValue(resolvedPath, out var backupPath))
                         {
-                            RestoreFromBackup(resolvedPath, backupPath);
-                            backups[resolvedPath] = CreateBackup(resolvedPath);
+                            BackupService.RestoreFromBackup(resolvedPath, backupPath);
+                            backups[resolvedPath] = BackupService.CreateBackup(resolvedPath);
                             currentContent = File.Exists(resolvedPath)
                                 ? File.ReadAllText(resolvedPath) : string.Empty;
                             Logger.Info($"[Validate] 已回退 {Path.GetFileName(resolvedPath)}，准备重试");
@@ -1348,96 +1349,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
         #endregion
 
-        #region Backup & Restore
-
-        /// <summary>
-        /// 创建文件的 .orig.bak 备份，返回备份文件路径。
-        /// 文件不存在则返回 null。异常静默捕获并记录日志。
-        /// </summary>
-        internal static string? CreateBackup(string filePath)
-        {
-            try
-            {
-                if (!File.Exists(filePath))
-                    return null;
-
-                string backupPath = filePath + ".orig.bak";
-                File.Copy(filePath, backupPath, overwrite: true);
-                Logger.Info($"[Backup] 已创建备份: {backupPath}");
-                return backupPath;
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn($"[Backup] 创建备份失败: {filePath} — {ex.Message}");
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// 从备份恢复文件并删除备份。backupPath 为 null 或文件不存在则无操作。
-        /// 异常静默捕获并记录日志，保留备份文件让用户手动恢复。
-        /// </summary>
-        internal static void RestoreFromBackup(string filePath, string? backupPath)
-        {
-            if (string.IsNullOrEmpty(backupPath) || !File.Exists(backupPath))
-                return;
-
-            try
-            {
-                File.Copy(backupPath, filePath, overwrite: true);
-                File.Delete(backupPath);
-                Logger.Info($"[Backup] 已从备份恢复: {filePath} ← {backupPath}");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn($"[Backup] 从备份恢复失败: {filePath} ← {backupPath} — {ex.Message}（备份文件已保留，请手动恢复）");
-            }
-        }
-
-        /// <summary>
-        /// 删除备份文件。backupPath 为 null 或文件不存在则无操作。
-        /// 异常静默捕获并记录日志。
-        /// </summary>
-        internal static void CleanupBackup(string? backupPath)
-        {
-            if (string.IsNullOrEmpty(backupPath) || !File.Exists(backupPath))
-                return;
-
-            try
-            {
-                File.Delete(backupPath);
-                Logger.Info($"[Backup] 已清理备份: {backupPath}");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn($"[Backup] 清理备份失败: {backupPath} — {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 遍历备份字典，恢复所有已备份的文件。
-        /// 用于事务失败时的统一回滚。单个文件恢复失败不中断其他文件的恢复。
-        /// </summary>
-        internal static void RollbackAll(Dictionary<string, string?> backups)
-        {
-            foreach (var kvp in backups)
-            {
-                try
-                {
-                    RestoreFromBackup(kvp.Key, kvp.Value);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warn($"[Transaction] 回滚失败: {kvp.Key} — {ex.Message}（备份文件已保留，请手动恢复）");
-                }
-            }
-        }
-
-        #endregion
-
         #region ApplyPatch 日志
-
-        /// <summary>
         /// 记录补丁应用前后的文件内容（前后各 10 行上下文）。
         /// </summary>
         private static void LogAppliedChanges(string filePath, string beforeContent, string afterContent,

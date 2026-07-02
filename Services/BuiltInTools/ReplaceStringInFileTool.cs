@@ -1,4 +1,5 @@
 using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Concurrent;
@@ -104,7 +105,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 newContent = newContent.Replace("\n", "\r\n");
 
+                // ── 写入前备份 ──
+                string? backupPath = BackupService.CreateBackup(filePath);
+
                 File.WriteAllText(filePath, newContent, Encoding.UTF8);
+
+                // ── 写入成功 → 清理备份 ──
+                BackupService.CleanupBackup(backupPath);
+
                 return LocalizationService.Instance.Format("tool.replaceString.replaced", Path.GetFileName(filePath));
             }
             catch (Exception ex)

@@ -1,4 +1,5 @@
 using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
@@ -211,9 +212,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
         /// <summary>
         /// 批量应用所有编辑。
-        /// 1. 先通过文件系统写入
-        /// 2. 再通过 VS 文本缓冲区更新已打开的编辑器
-        /// 3. 检查新引入的诊断错误
+        /// 1. 创建备份
+        /// 2. 先通过文件系统写入
+        /// 3. 再通过 VS 文本缓冲区更新已打开的编辑器
+        /// 4. 检查新引入的诊断错误
+        /// 5. 全部成功则清理备份，有失败则回滚
         /// </summary>
         protected async Task<EditToolResult> ApplyAllEditsAsync(
             List<PreparedEdit> edits,
@@ -221,6 +224,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         {
             var result = new EditToolResult();
             var fileResults = new List<EditedFileResult>();
+
+            // ── 备份追踪 ──
+            BackupService.BeginSession();
+            var backups = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var prepared in edits)
             {
@@ -264,6 +271,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     continue;
                 }
 
+                // ── 创建备份 ──
+                if (!backups.ContainsKey(prepared.FilePath))
+                {
+                    backups[prepared.FilePath] = BackupService.CreateBackup(prepared.FilePath);
+                }
+
                 // ── 写入文件系统 ──
                 try
                 {
@@ -304,13 +317,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             result.Files = fileResults;
             result.AllSucceeded = result.FailureCount == 0;
 
+            // ── 事务提交/回滚 ──
             if (!result.AllSucceeded)
             {
+                Logger.Warn("[AbstractEditTool] 部分编辑失败，回滚所有已修改文件");
+                BackupService.RollbackAll(backups);
                 result.ErrorSummary = string.Join("; ",
                     fileResults.Where(f => f.ErrorMessage != null)
                                .Select(f => $"{Path.GetFileName(f.FilePath)}: {f.ErrorMessage}"));
             }
+            else
+            {
+                result.ErrorSummary = string.Join("; ",
+                    fileResults.Where(f => f.ErrorMessage != null)
+                               .Select(f => $"{Path.GetFileName(f.FilePath)}: {f.ErrorMessage}"));
 
+                // ── 成功清理备份 ──
+                foreach (var kvp in backups)
+                    BackupService.CleanupBackup(kvp.Value);
+            }
+
+            BackupService.EndSession();
             return result;
         }
 
