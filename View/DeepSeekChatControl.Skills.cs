@@ -56,9 +56,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── 创建技能 ──
             if (commandName == "create-skill")
             {
-                var skillNameArg = parts.Length > 1 ? parts[1] : null;
-                Logger.Info($"[Skill] 调用元命令: /create-skill (参数: {skillNameArg ?? "(无)"}, 用户输入: \"{userText}\")");
-                await CreateSkillAsync(skillNameArg);
+                var rawArgs = parts.Length > 1 ? parts[1] : null;
+                var (parsedName, options) = ParseCreateSkillArgs(rawArgs);
+                Logger.Info($"[Skill] 调用元命令: /create-skill (名称: {parsedName ?? "(无)"}, alwaysInject: {options.AlwaysInject}, 用户输入: \"{userText}\")");
+                await CreateSkillAsync(parsedName, options);
                 return null;
             }
 
@@ -134,75 +135,49 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (_skillDiscoveryResult == null)
                     _skillDiscoveryResult = await SkillService.Instance.DiscoverSkillsAsync(_solutionPath);
 
+                var L = LocalizationService.Instance;
                 var sb = new StringBuilder();
-                sb.AppendLine("## 📋 Skill 系统");
+                sb.AppendLine(L["skills.help.title"]);
                 sb.AppendLine();
-                sb.AppendLine("### 🛠️ 内置命令");
+                sb.AppendLine(L["skills.help.builtinCommands"]);
                 sb.AppendLine("| 命令 | 说明 |");
                 sb.AppendLine("|------|------|");
-                sb.AppendLine("| `/help` | 显示此帮助信息 |");
-                sb.AppendLine("| `/create-skill <名称>` | 创建新的自定义 Skill 模板 |");
-                sb.AppendLine("| `/refresh-skills` | 强制刷新技能缓存 |");
+                sb.AppendLine($"| `/help` | {L["skills.help.cmdHelp"]} |");
+                sb.AppendLine($"| `/create-skill <名称>` | {L["skills.help.cmdCreateSkill"]} |");
+                sb.AppendLine($"| `/refresh-skills` | {L["skills.help.cmdRefresh"]} |");
                 sb.AppendLine();
 
                 var allSkills = _skillDiscoveryResult?.Skills ?? new List<SkillDefinition>();
                 if (allSkills.Count == 0)
                 {
-                    sb.AppendLine("### 📦 自定义技能");
-                    sb.AppendLine("暂无可用技能。");
-                    sb.AppendLine();
-                    sb.AppendLine("**快速创建技能：**");
-                    sb.AppendLine("输入 `/create-skill 技能名` 一键生成模板。");
-                    sb.AppendLine();
-                    sb.AppendLine("**手动创建：**");
-                    sb.AppendLine("1. 在项目根目录创建 `.github/skills/<技能名>/SKILL.md`");
-                    sb.AppendLine("2. 或在用户目录创建 `~/.copilot/skills/<技能名>/SKILL.md`");
-                    sb.AppendLine();
-                    sb.AppendLine("**SKILL.md 格式：**");
-                    sb.AppendLine("```yaml");
-                    sb.AppendLine("---");
-                    sb.AppendLine("name: my-skill");
-                    sb.AppendLine("description: '技能描述（含触发关键词）。Use when: ...'");
-                    sb.AppendLine("argument-hint: '[可选参数]'");
-                    sb.AppendLine("user-invocable: true");
-                    sb.AppendLine("---");
-                    sb.AppendLine("# 技能标题");
-                    sb.AppendLine("## 何时使用");
-                    sb.AppendLine("- 场景一");
-                    sb.AppendLine("## 流程");
-                    sb.AppendLine("1. 步骤一");
-                    sb.AppendLine("2. 步骤二");
-                    sb.AppendLine("```");
+                    sb.AppendLine(L["skills.help.customSkills"]);
+                    sb.AppendLine(L["skills.help.noSkills"]);
                 }
                 else
                 {
-                    sb.AppendLine("### 📦 自定义技能");
+                    sb.AppendLine(L["skills.help.customSkills"]);
                     sb.AppendLine("| 命令 | 来源 | 类型 | 说明 |");
                     sb.AppendLine("|------|------|------|------|");
                     foreach (var skill in allSkills)
                     {
                         var sourceLabel = skill.Source switch
                         {
-                            SkillSource.Project => "📁 项目",
-                            SkillSource.User => "👤 用户",
-                            SkillSource.BuiltIn => "📦 内置",
+                            SkillSource.Project => L["popup.skillSource.project"],
+                            SkillSource.User => L["popup.skillSource.user"],
+                            SkillSource.BuiltIn => L["popup.skillSource.package"],
                             _ => "❓"
                         };
-                        var typeLabel = skill.UserInvocable ? "✅ 可调用" : "🤖 自动";
+                        var typeLabel = skill.UserInvocable ? L["skills.help.typeInvocable"] : L["skills.help.typeAuto"];
                         var desc = TruncateText(skill.Description, 60);
                         sb.AppendLine($"| `/{skill.Name}` | {sourceLabel} | {typeLabel} | {desc} |");
                     }
                     sb.AppendLine();
-                    sb.AppendLine($"💡 输入 `/create-skill 新技能名` 创建更多技能。");
+                    sb.AppendLine(L["skills.help.createMore"]);
                 }
 
                 sb.AppendLine();
-                sb.AppendLine("### ⏱️ 技能何时被调用？");
-                sb.AppendLine("| 方式 | 触发条件 | 说明 |");
-                sb.AppendLine("|------|----------|------|");
-                sb.AppendLine("| 🗣️ **用户显式调用** | 输入 `/技能名` | 用户主动通过斜杠命令调用 |");
-                sb.AppendLine("| 🧠 **AI 语义匹配** | AI 分析用户意图 | AI 自动识别匹配的技能并加载 |");
-                sb.AppendLine("| 📍 **上下文推断** | 多轮对话积累 | AI 根据对话历史主动建议技能 |");
+                sb.AppendLine(L["skills.help.whenCalled"]);
+                sb.AppendLine(L["skills.help.whenCalledTable"]);
 
                 var helpMsg = new ChatMessage
                 {
@@ -214,7 +189,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _messages.Add(helpMsg);
                 AddMessagesHtml("assistant", helpMsg.Content);
                 UpdateBrowser();
-                StatusLabel.Text = string.Format(LocalizationService.Instance["skills.countAvailable"], allSkills.Count);
+                StatusLabel.Text = string.Format(L["skills.countAvailable"], allSkills.Count);
             }
             catch (Exception ex)
             {
@@ -234,16 +209,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
+                var L = LocalizationService.Instance;
                 var count = _skillDiscoveryResult?.TotalCount ?? 0;
-                StatusLabel.Text = LocalizationService.Instance.Format("status.skillRefreshed", count);
+                StatusLabel.Text = L.Format("status.skillRefreshed", count);
                 Logger.Info($"[Skill] 手动刷新完成: {count} 个技能");
 
                 var sb = new StringBuilder();
-                sb.AppendLine($"✅ **技能已刷新**: 共发现 {count} 个技能");
+                sb.AppendLine(L.Format("skills.refreshed", count));
                 if (_skillDiscoveryResult != null && _skillDiscoveryResult.UserInvocableSkills.Count > 0)
                 {
                     sb.AppendLine();
-                    sb.AppendLine("可用命令：");
+                    sb.AppendLine(L["skills.availableCommands"]);
                     foreach (var s in _skillDiscoveryResult.UserInvocableSkills)
                         sb.AppendLine($"- `/{s.Name}` — {s.Description}");
                 }
@@ -269,72 +245,113 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 创建新的自定义 Skill 模板。
         /// </summary>
-        private async Task CreateSkillAsync(string? skillName)
+        private async Task CreateSkillAsync(string? skillName, SkillCreateOptions options = default)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
             try
             {
                 string? targetDir = null;
-                string locationLabel;
+                string locationLabel = string.Empty;
 
-                if (!string.IsNullOrEmpty(_solutionPath))
+                // ── 根据 --level 选项确定目标目录 ──
+                if (options.Level == SkillSource.User)
                 {
-                    var solutionDir = Path.GetDirectoryName(_solutionPath);
-                    var current = solutionDir;
-                    while (!string.IsNullOrEmpty(current))
+                    targetDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                        ".vs", "deepseek", "skills");
+                    locationLabel = targetDir;
+                }
+                else if (options.Level == SkillSource.Project)
+                {
+                    if (!string.IsNullOrEmpty(_solutionPath))
                     {
-                        if (Directory.GetFiles(current, "*.sln").Length > 0)
+                        var solutionDir = Path.GetDirectoryName(_solutionPath);
+                        var current = solutionDir;
+                        while (!string.IsNullOrEmpty(current))
                         {
-                            solutionDir = current;
-                            break;
+                            if (Directory.GetFiles(current, "*.sln").Length > 0)
+                            {
+                                solutionDir = current;
+                                break;
+                            }
+                            var parent = Directory.GetParent(current);
+                            if (parent == null) break;
+                            current = parent.FullName;
                         }
-                        var parent = Directory.GetParent(current);
-                        if (parent == null) break;
-                        current = parent.FullName;
+
+                        if (solutionDir != null)
+                        {
+                            targetDir = Path.Combine(solutionDir, ".github", "skills");
+                            locationLabel = targetDir;
+                        }
                     }
 
-                    if (solutionDir != null)
+                    if (targetDir == null)
                     {
-                        targetDir = Path.Combine(solutionDir, ".github", "skills");
-                        locationLabel = $"项目目录: {targetDir}";
+                        // 无解决方案时回退到用户目录
+                        targetDir = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                            ".vs", "deepseek", "skills");
+                        locationLabel = targetDir;
+                    }
+                }
+                else
+                {
+                    // ── 自动检测（默认行为）──
+                    if (!string.IsNullOrEmpty(_solutionPath))
+                    {
+                        var solutionDir = Path.GetDirectoryName(_solutionPath);
+                        var current = solutionDir;
+                        while (!string.IsNullOrEmpty(current))
+                        {
+                            if (Directory.GetFiles(current, "*.sln").Length > 0)
+                            {
+                                solutionDir = current;
+                                break;
+                            }
+                            var parent = Directory.GetParent(current);
+                            if (parent == null) break;
+                            current = parent.FullName;
+                        }
+
+                        if (solutionDir != null)
+                        {
+                            targetDir = Path.Combine(solutionDir, ".github", "skills");
+                            locationLabel = targetDir;
+                        }
+                        else
+                        {
+                            targetDir = Path.Combine(
+                                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                                ".vs", "deepseek", "skills");
+                            locationLabel = targetDir;
+                        }
                     }
                     else
                     {
                         targetDir = Path.Combine(
                             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                            ".copilot", "skills");
-                        locationLabel = $"用户目录: {targetDir}";
+                            ".vs", "deepseek", "skills");
+                        locationLabel = targetDir;
                     }
                 }
-                else
-                {
-                    targetDir = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                        ".copilot", "skills");
-                    locationLabel = $"用户目录: {targetDir}";
-                }
+
+                var L = LocalizationService.Instance;
 
                 if (string.IsNullOrWhiteSpace(skillName))
                 {
                     var promptMsg = new ChatMessage
                     {
                         Role = "assistant",
-                        Content = "## 🛠️ 创建新技能\n\n" +
-                                  "请告诉我新技能的名称（小写字母+数字+连字符），例如：\n" +
-                                  "```\n/create-skill my-test-helper\n```\n\n" +
-                                  $"技能将创建在: `{locationLabel}`\n\n" +
-                                  "技能名称规范：\n" +
-                                  "- 1-64 个字符\n" +
-                                  "- 仅限小写字母、数字和连字符 (-)\n" +
-                                  "- 示例: `code-review`, `api-doc-gen`, `deploy-check`",
+                        Content = L.Format("skills.create.promptName", locationLabel),
                         Timestamp = DateTime.Now,
                         IsRendered = true,
                     };
                     _messages.Add(promptMsg);
                     AddMessagesHtml("assistant", promptMsg.Content);
                     UpdateBrowser();
-                    StatusLabel.Text = LocalizationService.Instance["skills.enterName"];
+                    StatusLabel.Text = L["skills.enterName"];
                     return;
                 }
 
@@ -343,19 +360,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     var errorMsg = new ChatMessage
                     {
                         Role = "assistant",
-                        Content = $"⚠️ **无效的技能名称**: `{skillName}`\n\n" +
-                                  "技能名称必须：\n" +
-                                  "- 1-64 个字符\n" +
-                                  "- 仅限小写字母、数字和连字符 (-)\n" +
-                                  "- 以字母或数字开头\n\n" +
-                                  "有效示例: `code-review`, `api-doc-gen`, `deploy-check`",
+                        Content = L.Format("skills.create.invalidName", skillName),
                         Timestamp = DateTime.Now,
                         IsRendered = true,
                     };
                     _messages.Add(errorMsg);
                     AddMessagesHtml("assistant", errorMsg.Content);
                     UpdateBrowser();
-                    StatusLabel.Text = string.Format(LocalizationService.Instance["skills.invalidName"], skillName);
+                    StatusLabel.Text = L.Format("skills.invalidName", skillName);
                     return;
                 }
 
@@ -365,45 +377,27 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     var existsMsg = new ChatMessage
                     {
                         Role = "assistant",
-                        Content = $"⚠️ 技能 `{skillName}` 已存在于 `{skillDir}`。\n\n" +
-                                  $"输入 `/refresh-skills` 刷新后即可使用。",
+                        Content = L.Format("skills.create.alreadyExists", skillName, skillDir),
                         Timestamp = DateTime.Now,
                         IsRendered = true,
                     };
                     _messages.Add(existsMsg);
                     AddMessagesHtml("assistant", existsMsg.Content);
                     UpdateBrowser();
-                    StatusLabel.Text = LocalizationService.Instance.Format("status.skillExists", skillName);
+                    StatusLabel.Text = L.Format("status.skillExists", skillName);
                     return;
                 }
 
                 Directory.CreateDirectory(skillDir);
 
-                var skillContent = $@"---
-name: {skillName}
-description: '[请填写技能描述，包含触发关键词。Use when: ...]'
-argument-hint: '[可选参数提示]'
-user-invocable: true
----
-
-# {FormatSkillTitle(skillName)}
-
-## 何时使用
-- [描述触发此技能的用户场景]
-- [例如：用户请求 XXX 操作时]
-
-## 流程
-1. [步骤一：描述第一步操作]
-2. [步骤二：描述第二步操作]
-3. [步骤三：描述第三步操作]
-
-## 输出格式
-- [描述期望的输出格式]
-- [例如：使用 Markdown 表格、代码块等]
-
-## 注意事项
-- [列出需要注意的边界条件、限制等]
-";
+                var skillContent = L.Format("skills.template.content", skillName, FormatSkillTitle(skillName));
+                // 如果指定了 --always-inject，在 YAML front matter 中插入
+                if (options.AlwaysInject)
+                {
+                    skillContent = skillContent.Replace(
+                        "user-invocable: true",
+                        "user-invocable: true\nalways-inject: true");
+                }
 
                 var skillFilePath = Path.Combine(skillDir, "SKILL.md");
                 File.WriteAllText(skillFilePath, skillContent, Encoding.UTF8);
@@ -419,32 +413,20 @@ user-invocable: true
 
                 _skillDiscoveryResult = await SkillService.Instance.DiscoverSkillsAsync(_solutionPath, forceRefresh: true);
 
+                var alwaysInjectLine = options.AlwaysInject
+                    ? L["skills.create.success.alwaysInject"] + "\n"
+                    : "";
                 var successMsg = new ChatMessage
                 {
                     Role = "assistant",
-                    Content = $"## ✅ 技能创建成功!\n\n" +
-                              $"**技能名称**: `{skillName}`\n" +
-                              $"**位置**: `{skillDir}`\n\n" +
-                              $"### 文件结构\n" +
-                              $"```\n" +
-                              $"{skillName}/\n" +
-                              $"├── SKILL.md          ← 技能定义（请编辑 description）\n" +
-                              $"├── scripts/          ← 可执行脚本\n" +
-                              $"├── references/       ← 参考文档\n" +
-                              $"└── assets/           ← 模板资源\n" +
-                              $"```\n\n" +
-                              $"### 下一步\n" +
-                              $"1. ✏️ 编辑 `SKILL.md`，填写 **description**（这是 AI 发现技能的关键）\n" +
-                              $"2. 📝 完善「何时使用」和「流程」部分\n" +
-                              $"3. 🔄 输入 `/refresh-skills` 刷新缓存后即可使用\n\n" +
-                              $"现在输入 `/{skillName}` 即可调用（模板内容需先完善）。",
+                    Content = L.Format("skills.create.success", skillName, skillDir, alwaysInjectLine, skillFilePath),
                     Timestamp = DateTime.Now,
                     IsRendered = true,
                 };
                 _messages.Add(successMsg);
                 AddMessagesHtml("assistant", successMsg.Content);
                 UpdateBrowser();
-                StatusLabel.Text = LocalizationService.Instance.Format("status.skillCreated", skillName);
+                StatusLabel.Text = L.Format("status.skillCreated", skillName);
             }
             catch (Exception ex)
             {
@@ -570,6 +552,14 @@ user-invocable: true
                     return null;
                 }
 
+                // 始终注入的技能已在系统提示中完整加载，无需重复注入
+                if (matchedSkill.AlwaysInject)
+                {
+                    Logger.Info($"[SkillRoute] 技能 '{skillName}' 已标记为始终注入，跳过重复加载");
+                    StatusLabel.Text = LocalizationService.Instance["status.thinking"];
+                    return null;
+                }
+
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 StatusLabel.Text = string.Format(LocalizationService.Instance["skills.autoLoaded"], skillName);
 
@@ -585,6 +575,68 @@ user-invocable: true
             }
         }
 
+
+        #endregion
+
+        #region Create Skill Options
+
+        /// <summary>
+        /// /create-skill 命令的选项。
+        /// </summary>
+        private struct SkillCreateOptions
+        {
+            /// <summary>是否每次对话都注入完整指令</summary>
+            public bool AlwaysInject;
+
+            /// <summary>技能级别（null=自动，Project=项目级，User=用户级）</summary>
+            public SkillSource? Level;
+        }
+
+        /// <summary>
+        /// 解析 /create-skill 的参数，分离技能名称和选项。
+        /// 支持: /create-skill name --always-inject --level project|user
+        /// </summary>
+        private static (string? skillName, SkillCreateOptions options) ParseCreateSkillArgs(string? rawArgs)
+        {
+            var options = new SkillCreateOptions();
+            if (string.IsNullOrWhiteSpace(rawArgs))
+                return (null, options);
+
+            var parts = rawArgs!.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            string? skillName = null;
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var part = parts[i];
+                if (part.StartsWith("--", StringComparison.Ordinal))
+                {
+                    switch (part.ToLowerInvariant())
+                    {
+                        case "--always-inject":
+                            options.AlwaysInject = true;
+                            break;
+                        case "--level":
+                            if (i + 1 < parts.Length)
+                            {
+                                var levelArg = parts[++i].ToLowerInvariant();
+                                options.Level = levelArg switch
+                                {
+                                    "project" => SkillSource.Project,
+                                    "user" => SkillSource.User,
+                                    _ => null
+                                };
+                            }
+                            break;
+                    }
+                }
+                else if (skillName == null)
+                {
+                    skillName = part;
+                }
+            }
+
+            return (skillName, options);
+        }
 
         #endregion
     }

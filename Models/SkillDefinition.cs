@@ -38,6 +38,14 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [JsonPropertyName("disable-model-invocation")]
         public bool DisableModelInvocation { get; set; } = false;
 
+        /// <summary>
+        /// 是否每次对话都注入完整指令（默认 false，即按需选择注入）。
+        /// 启用后，技能完整指令始终出现在系统提示中，无需 AI 发现或用户显式调用。
+        /// 与 disable-model-invocation 互斥：若 always-inject 为 true，则 disable-model-invocation 无效。
+        /// </summary>
+        [JsonPropertyName("always-inject")]
+        public bool AlwaysInject { get; set; } = false;
+
         /// <summary>SKILL.md 正文（Markdown 格式的指令和流程）</summary>
         public string Body { get; set; } = string.Empty;
 
@@ -113,7 +121,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
     {
         /// <summary>项目级：.github/skills/、.agents/skills/、.claude/skills/</summary>
         Project,
-        /// <summary>用户级：~/.copilot/skills/、~/.agents/skills/、~/.claude/skills/</summary>
+        /// <summary>用户级：~/.vs/deepseek/skills/、~/.agents/skills/、~/.claude/skills/</summary>
         User,
         /// <summary>内置技能（随扩展发布）</summary>
         BuiltIn
@@ -140,9 +148,13 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public List<SkillDefinition> UserInvocableSkills =>
             Skills.FindAll(s => s.UserInvocable);
 
-        /// <summary>AI 可自动加载的技能</summary>
+        /// <summary>AI 可自动加载的技能（排除始终注入的技能，因为它们已加载）</summary>
         public List<SkillDefinition> AutoLoadableSkills =>
-            Skills.FindAll(s => !s.DisableModelInvocation);
+            Skills.FindAll(s => !s.DisableModelInvocation && !s.AlwaysInject);
+
+        /// <summary>始终注入的技能（每次对话都加载完整指令）</summary>
+        public List<SkillDefinition> AlwaysInjectSkills =>
+            Skills.FindAll(s => s.AlwaysInject);
     }
 
     /// <summary>

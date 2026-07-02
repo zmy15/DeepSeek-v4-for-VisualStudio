@@ -892,7 +892,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     .Select(s => new SkillSuggestionItem
                     {
                         Name = s.Name,
-                        Description = s.Description,
+                        Description = s.AlwaysInject
+                            ? $"🔄 {L["popup.skillDesc.alwaysInject"]} — {s.Description}"
+                            : s.Description,
                         Source = s.Source switch
                         {
                             SkillSource.Project => L["popup.skillSource.project"],
@@ -1665,11 +1667,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // ── 文件搜索策略：逐级路径后缀匹配，优先精确路径 ──
                 string? filePath = null;
 
-                // 策略1：直接拼接工作区根目录（处理如 src/db_engine.cpp 的路径）
-                string directPath = Path.Combine(workspaceRoot, fileName.Replace('/', '\\'));
-                if (File.Exists(directPath))
+                // 策略0：绝对路径直接使用（支持工作区外的文件，如用户级 skill）
+                if (Path.IsPathRooted(fileName) && File.Exists(fileName))
                 {
-                    filePath = directPath;
+                    filePath = fileName;
+                }
+
+                // 策略1：直接拼接工作区根目录（处理如 src/db_engine.cpp 的路径）
+                if (filePath == null)
+                {
+                    string directPath = Path.Combine(workspaceRoot, fileName.Replace('/', '\\'));
+                    if (File.Exists(directPath))
+                    {
+                        filePath = directPath;
+                    }
                 }
 
                 // 策略2：递归搜索文件名（忽略路径前缀）

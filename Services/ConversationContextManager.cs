@@ -48,6 +48,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>Skill 发现上下文（独立存储）</summary>
         private string? _skillContext;
 
+        /// <summary>始终注入的技能上下文（独立存储，每次对话均注入完整指令）</summary>
+        private string? _alwaysInjectSkillsContext;
+
         /// <summary>RAG 检索上下文（独立存储，注入为 system 消息）</summary>
         private string? _ragContext;
 
@@ -255,6 +258,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public void SetSkillContext(string? skillContext)
         {
             _skillContext = skillContext;
+        }
+
+        /// <summary>
+        /// 设置始终注入的技能上下文（每次对话均加载完整技能指令）。
+        /// </summary>
+        public void SetAlwaysInjectSkillsContext(string? alwaysInjectSkillsContext)
+        {
+            _alwaysInjectSkillsContext = alwaysInjectSkillsContext;
         }
 
         /// <summary>
@@ -1201,6 +1212,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             _fixedSystemPrompt = null;
             _searchContext = null;
             _skillContext = null;
+            _alwaysInjectSkillsContext = null;
             _ragContext = null;
             _memoryContext = null;
             _compressor?.Clear();
@@ -1222,6 +1234,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             sb.AppendLine($"系统提示词: {(_systemPrompt != null ? $"{_systemPrompt.Length} 字符 ({stats.SystemPromptTokens} tokens)" : "无")}");
             sb.AppendLine($"搜索上下文: {(_searchContext != null ? $"{_searchContext.Length} 字符 ({stats.SearchContextTokens} tokens)" : "无")}");
             sb.AppendLine($"Skill 上下文: {(_skillContext != null ? $"{_skillContext.Length} 字符" : "无")}");
+            sb.AppendLine($"始终注入 Skill: {(_alwaysInjectSkillsContext != null ? $"{_alwaysInjectSkillsContext.Length} 字符" : "无")}");
             sb.AppendLine($"RAG 上下文: {(_ragContext != null ? $"{_ragContext.Length} 字符" : "无")}");
             sb.AppendLine($"压缩摘要: {stats.CompressedTurns} 组 ({stats.CompressedSummaryTokens} tokens)");
             sb.AppendLine();
@@ -1246,16 +1259,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         private string? BuildFinalSystemPrompt()
         {
-            if (string.IsNullOrWhiteSpace(_systemPrompt) && string.IsNullOrWhiteSpace(_skillContext))
+            if (string.IsNullOrWhiteSpace(_systemPrompt) && string.IsNullOrWhiteSpace(_skillContext) && string.IsNullOrWhiteSpace(_alwaysInjectSkillsContext))
                 return null;
 
-            if (string.IsNullOrWhiteSpace(_systemPrompt))
-                return _skillContext;
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(_systemPrompt))
+                parts.Add(_systemPrompt);
+            if (!string.IsNullOrWhiteSpace(_skillContext))
+                parts.Add(_skillContext);
+            if (!string.IsNullOrWhiteSpace(_alwaysInjectSkillsContext))
+                parts.Add(_alwaysInjectSkillsContext);
 
-            if (string.IsNullOrWhiteSpace(_skillContext))
-                return _systemPrompt;
-
-            return _systemPrompt + "\n\n" + _skillContext;
+            return string.Join("\n\n", parts);
         }
 
         #endregion

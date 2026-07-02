@@ -14,7 +14,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// 
     /// 支持的 Skill 目录位置：
     ///   - 项目级: .github/skills/、.agents/skills/、.claude/skills/
-    ///   - 用户级: %USERPROFILE%\.copilot\skills\、%USERPROFILE%\.agents\skills\、%USERPROFILE%\.claude\skills\
+    ///   - 用户级: %USERPROFILE%\.vs\deepseek\skills\、%USERPROFILE%\.agents\skills\、%USERPROFILE%\.claude\skills\
     ///   - 内置级: 扩展安装目录下的 BuiltInSkills/
     /// 
     /// SKILL.md 格式：
@@ -254,7 +254,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             var userSkillRoots = new[]
             {
-                Path.Combine(userProfile, ".copilot", "skills"),
+                Path.Combine(userProfile, ".vs", "deepseek", "skills"),
                 Path.Combine(userProfile, ".agents", "skills"),
                 Path.Combine(userProfile, ".claude", "skills"),
             };
@@ -413,6 +413,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         break;
                     case "disable-model-invocation":
                         skill.DisableModelInvocation = ParseBool(value, false);
+                        break;
+                    case "always-inject":
+                        skill.AlwaysInject = ParseBool(value, false);
                         break;
                 }
             }
@@ -632,11 +635,43 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             foreach (var skill in result.AutoLoadableSkills)
             {
+                // 始终注入的技能不在此列出（它们已在系统提示中完整加载）
+                if (skill.AlwaysInject)
+                    continue;
                 lines.Add(skill.GetDiscoveryText());
                 lines.Add(string.Empty);
             }
 
             lines.Add("</available_skills>");
+
+            return string.Join("\n", lines);
+        }
+
+        /// <summary>
+        /// 生成始终注入技能的上下文（每次对话均加载完整指令）。
+        /// 与 GenerateSkillsDiscoveryContext 互补：后者提供可选择加载的技能摘要，
+        /// 此方法返回始终激活的技能完整指令，直接嵌入系统提示。
+        /// </summary>
+        public string GenerateAlwaysInjectSkillsContext(SkillDiscoveryResult? discoveryResult = null)
+        {
+            var result = discoveryResult ?? _cachedResult;
+            if (result == null || result.AlwaysInjectSkills.Count == 0)
+                return string.Empty;
+
+            var lines = new List<string>
+            {
+                "<always_active_skills>",
+                "以下技能指令在每次对话中始终生效。请严格遵循这些指令。",
+                string.Empty,
+            };
+
+            foreach (var skill in result.AlwaysInjectSkills)
+            {
+                lines.Add(skill.GetFullInstructions());
+                lines.Add(string.Empty);
+            }
+
+            lines.Add("</always_active_skills>");
 
             return string.Join("\n", lines);
         }

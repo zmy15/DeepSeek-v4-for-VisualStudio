@@ -30,6 +30,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>生成 Skill 发现上下文（供注入 system prompt）</summary>
         string GenerateSkillsDiscoveryContext(SkillDiscoveryResult? discoveryResult = null);
 
+        /// <summary>生成始终注入技能的上下文（每次对话均加载完整指令）</summary>
+        string GenerateAlwaysInjectSkillsContext(SkillDiscoveryResult? discoveryResult = null);
+
         /// <summary>生成用户可调用的 Skill 列表</summary>
         string GenerateUserInvocableSkillsList(SkillDiscoveryResult? discoveryResult = null);
 

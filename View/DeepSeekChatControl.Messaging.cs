@@ -101,6 +101,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
             }
 
+            // ── 技能指令注入：将解析后的技能指令替换为用户实际发送内容 ──
+            // userText 保持原始命令用于气泡显示，skillInstructions 作为 AI 实际接收内容
+            string effectiveUserText = !string.IsNullOrEmpty(skillInstructions) ? skillInstructions : userText;
+            if (!string.IsNullOrEmpty(skillInstructions))
+            {
+                Logger.Info($"[SkillFlow] 技能指令已注入 (长度: {skillInstructions.Length})，原始命令: \"{userText}\"");
+            }
+
             if (string.IsNullOrEmpty(userText) && !hasAttachments)
             {
                 lock (_lock) { _isGenerating = false; }
@@ -165,12 +173,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 userDisplayContent = $"[已上传 {attachedFileNames.Count} 个文件]";
 
             string fullUserContent;
-            if (!string.IsNullOrEmpty(fileContext) && !string.IsNullOrEmpty(userText))
-                fullUserContent = fileContext + "\n" + userText;
+            if (!string.IsNullOrEmpty(fileContext) && !string.IsNullOrEmpty(effectiveUserText))
+                fullUserContent = fileContext + "\n" + effectiveUserText;
             else if (!string.IsNullOrEmpty(fileContext))
                 fullUserContent = fileContext + "\n请分析以上文件内容。";
             else
-                fullUserContent = userText ?? string.Empty;
+                fullUserContent = effectiveUserText ?? string.Empty;
 
             // ── 🚀 立即显示用户消息气泡（在路由/技能调用之前）──
             var earlyUserMsg = new ChatMessage
@@ -201,7 +209,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 不做预处理（不提取、不预抓取），避免浪费 token 和网络请求。
 
                 // @agent 显式路由
-                string agentRoutedUserText = userText ?? string.Empty;
+                string agentRoutedUserText = effectiveUserText;
                 AgentRoutingResult? explicitRoute = null;
                 string? agentSkillInstructions = null;
                 if (!string.IsNullOrEmpty(userText) && userText.StartsWith("@"))
@@ -243,15 +251,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
 
                 // 所有非斜杠命令消息统一走 Agent 工作流（从 AskAgent 起始）
-                if (_activeAgent != null && _agentFactory != null && !string.IsNullOrEmpty(userText) && !userText.StartsWith("/"))
+                if (_activeAgent != null && _agentFactory != null && !string.IsNullOrEmpty(effectiveUserText) && !effectiveUserText.StartsWith("/"))
                 {
                     // ── 确保系统提示词已初始化（新会话时 _fixedSystemPrompt 为 null，
                     //     BuildRequestMessagesAsync 在上方未被调用，需在此处补做初始化）──
                     await EnsureSystemPromptInitializedAsync();
 
                     // ── 预分类任务规模，Large 任务提前路由到 Plan Agent ──
-                    var taskSize = Services.Agents.EditAgent.ClassifyTaskSize(userText);
-                    Logger.Info($"[TaskSize] \"{userText.Truncate(60)}\" → {taskSize}");
+                    var taskSize = Services.Agents.EditAgent.ClassifyTaskSize(effectiveUserText);
+                    Logger.Info($"[TaskSize] \"{effectiveUserText.Truncate(60)}\" → {taskSize}");
 
                     var routing = explicitRoute ?? new AgentRoutingResult
                     {
@@ -263,7 +271,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     };
 
                     // ── 上下文感知意图覆盖：当存在待处理计划时的特殊路由 ──
-                    routing = OverrideRoutingForPlanContext(userText, routing);
+                    routing = OverrideRoutingForPlanContext(effectiveUserText, routing);
 
                     // ── 统一走 Agent 工作流：所有非斜杠命令消息均由 AskAgent 入口处理 ──
 

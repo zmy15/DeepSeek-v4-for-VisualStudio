@@ -76,6 +76,9 @@ namespace DeepSeek_v4_for_VisualStudio.Tests.Fixtures
             public string GenerateSkillsDiscoveryContext(SkillDiscoveryResult? discoveryResult = null)
                 => string.Empty;
 
+            public string GenerateAlwaysInjectSkillsContext(SkillDiscoveryResult? discoveryResult = null)
+                => string.Empty;
+
             public string GenerateUserInvocableSkillsList(SkillDiscoveryResult? discoveryResult = null)
                 => string.Empty;
 

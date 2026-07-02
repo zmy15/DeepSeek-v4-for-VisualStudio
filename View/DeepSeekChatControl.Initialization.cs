@@ -379,7 +379,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
                 else
                 {
-                    Logger.Info("[Skill] 未发现任何 Skill 定义。可在 .github/skills/<name>/SKILL.md 或 ~/.copilot/skills/<name>/SKILL.md 中创建。");
+                    Logger.Info("[Skill] 未发现任何 Skill 定义。可在 .github/skills/<name>/SKILL.md 或 ~/.vs/deepseek/skills/<name>/SKILL.md 中创建。");
                 }
             }
             catch (Exception ex)

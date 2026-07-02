@@ -174,10 +174,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string skillContext = SkillService.Instance.GenerateSkillsDiscoveryContext(_skillDiscoveryResult);
                 _contextManager.SetSkillContext(string.IsNullOrWhiteSpace(skillContext) ? null : skillContext);
 
+                // 注入始终激活的技能完整指令（每次对话均加载）
+                string alwaysInjectContext = SkillService.Instance.GenerateAlwaysInjectSkillsContext(_skillDiscoveryResult);
+                _contextManager.SetAlwaysInjectSkillsContext(string.IsNullOrWhiteSpace(alwaysInjectContext) ? null : alwaysInjectContext);
+
                 if (!string.IsNullOrWhiteSpace(skillContext) && _skillDiscoveryResult != null)
                 {
                     var skillNames = string.Join(", ", _skillDiscoveryResult.AutoLoadableSkills.ConvertAll(s => s.Name));
-                    Logger.Info($"[Skill] 系统提示注入: {_skillDiscoveryResult.AutoLoadableSkills.Count} 个 → {skillNames}");
+                    Logger.Info($"[Skill] 系统提示注入: {_skillDiscoveryResult.AutoLoadableSkills.Count} 个可选 + {_skillDiscoveryResult.AlwaysInjectSkills.Count} 个始终激活 → 可选: {skillNames}");
+                    if (_skillDiscoveryResult.AlwaysInjectSkills.Count > 0)
+                    {
+                        var alwaysNames = string.Join(", ", _skillDiscoveryResult.AlwaysInjectSkills.ConvertAll(s => s.Name));
+                        Logger.Info($"[Skill] 始终激活技能: {alwaysNames}");
+                    }
                 }
             }
             catch (Exception ex) { Logger.Warn($"[Skill] 上下文初始化失败: {ex.Message}"); }
