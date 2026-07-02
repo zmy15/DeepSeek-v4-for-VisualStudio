@@ -105,8 +105,6 @@
     "settings.autocompleteDelay.description":  "How many milliseconds to wait after you stop typing before requesting completion suggestions.",
     "settings.autocompleteContinueAfterAccept.displayName":  "Continue Completion After Accept",
     "settings.autocompleteContinueAfterAccept.description":  "When enabled, accepting a completion immediately triggers a new prediction.",
-    "settings.autocompleteModel.displayName":  "Completion Model",
-    "settings.autocompleteModel.description":  "Optional: specify a different model for code completion. Leave empty to use the default model. A faster model (like deepseek-v4-flash) is recommended.",
     "settings.tokenBudget.displayName":  "Token Budget Limit",
     "settings.tokenBudget.description":  "DeepSeek V4 has a 1M token context window.\nThis setting controls the maximum tokens sent to the API (reserving 100K for model output).\nDefault is 900,000. Reduce to lower API costs; increase for more context.",
     "settings.enableAutoCompression.displayName":  "Enable Auto Compression",

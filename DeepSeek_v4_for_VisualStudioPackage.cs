@@ -212,19 +212,32 @@ namespace DeepSeek_v4_for_VisualStudio
         /// </summary>
         protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
         {
-            // ═══ 步骤 1/7：基类初始化 ═══
+            // ═══ 步骤 1/8：基类初始化 ═══
             try
             {
                 await base.InitializeAsync(cancellationToken, progress);
-                DiagnosticLog.Write("[DeepSeek Init] Step 1/7: base.InitializeAsync OK");
+                DiagnosticLog.Write("[DeepSeek Init] Step 1/8: base.InitializeAsync OK");
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 1/7 base.InitializeAsync: {ex.GetType().Name}: {ex.Message}");
+                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 1/8 base.InitializeAsync: {ex.GetType().Name}: {ex.Message}");
                 throw;
             }
 
-            // ═══ 步骤 2/7：选项页 ═══
+            // ═══ 步骤 2/8：国际化（提前初始化，避免选项页加载时拿到默认语言）═══
+            try
+            {
+                // 先自动检测系统语言，确保选项页属性描述符构建时使用正确语言
+                LocalizationService.Instance.Initialize(null);
+                DiagnosticLog.Write("[DeepSeek Init] Step 2/8: Localization (auto-detect) OK");
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 2/8 Localization: {ex.GetType().Name}: {ex.Message}");
+                throw;
+            }
+
+            // ═══ 步骤 3/8：选项页 ═══
             // VS 2026 中 GetDialogPage() 可能在设置存储未就绪时无限阻塞，
             // 导致 VS 启动卡死。添加 5 秒超时保护，超时后使用内存回退实例。
             try
@@ -237,13 +250,13 @@ namespace DeepSeek_v4_for_VisualStudio
                 }
                 catch (OperationCanceledException)
                 {
-                    DiagnosticLog.Write("[DeepSeek Init] Step 2/7 GetDialogPage timed out after 5s — VS settings store may not be ready in VS 2026");
+                    DiagnosticLog.Write("[DeepSeek Init] Step 3/8 GetDialogPage timed out after 5s — VS settings store may not be ready in VS 2026");
                 }
 
                 if (opts != null)
                 {
                     DeepSeekOptionsPage.Instance = opts;
-                    DiagnosticLog.Write("[DeepSeek Init] Step 2/7: Options page OK");
+                    DiagnosticLog.Write("[DeepSeek Init] Step 3/8: Options page OK");
                 }
                 else
                 {
@@ -254,58 +267,58 @@ namespace DeepSeek_v4_for_VisualStudio
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] Step 2/7 Options (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                DiagnosticLog.Write($"[DeepSeek Init] Step 3/8 Options (non-fatal): {ex.GetType().Name}: {ex.Message}");
                 // 非致命：创建回退实例
                 try
                 {
                     DeepSeekOptionsPage.Instance = new DeepSeekOptionsPage();
-                    DiagnosticLog.Write("[DeepSeek Init] Step 2/7: Options page FALLBACK after exception");
+                    DiagnosticLog.Write("[DeepSeek Init] Step 3/8: Options page FALLBACK after exception");
                 }
                 catch (Exception ex2)
                 {
-                    DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 2/7 fallback creation: {ex2.GetType().Name}: {ex2.Message}");
+                    DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 3/8 fallback creation: {ex2.GetType().Name}: {ex2.Message}");
                     throw;
                 }
             }
 
-            // ═══ 步骤 3/7：日志系统 ═══
+            // ═══ 步骤 4/8：日志系统 ═══
             try
             {
                 Logger.Initialize(this);
-                DiagnosticLog.Write("[DeepSeek Init] Step 3/7: Logger OK");
+                DiagnosticLog.Write("[DeepSeek Init] Step 4/8: Logger OK");
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] Step 3/7 Logger.Initialize (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                DiagnosticLog.Write($"[DeepSeek Init] Step 4/8 Logger.Initialize (non-fatal): {ex.GetType().Name}: {ex.Message}");
                 // 非致命：日志不可用时继续
             }
 
-            // ═══ 步骤 4/7：国际化 ═══
+            // ═══ 步骤 5/8：根据用户设置细化语言 ═══
             try
             {
                 InitializeLocalization();
-                DiagnosticLog.Write("[DeepSeek Init] Step 4/7: Localization OK");
+                DiagnosticLog.Write("[DeepSeek Init] Step 5/8: Localization (user override) OK");
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 4/7 Localization: {ex.GetType().Name}: {ex.Message}");
+                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 5/8 Localization: {ex.GetType().Name}: {ex.Message}");
                 DiagnosticLog.Write($"[DeepSeek Init] Stack: {ex.StackTrace}");
                 throw;
             }
 
-            // ═══ 步骤 5/7：设置变更订阅 ═══
+            // ═══ 步骤 6/8：设置变更订阅 ═══
             try
             {
                 DeepSeekOptionsPage.SettingsChanged += OnSettingsChanged;
-                DiagnosticLog.Write("[DeepSeek Init] Step 5/8: SettingsChanged OK");
+                DiagnosticLog.Write("[DeepSeek Init] Step 6/8: SettingsChanged OK");
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 5/8 SettingsChanged: {ex.GetType().Name}: {ex.Message}");
+                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 6/8 SettingsChanged: {ex.GetType().Name}: {ex.Message}");
                 throw;
             }
 
-            // ═══ 步骤 6/8：主题服务（UI 线程）═══
+            // ═══ 步骤 7/9：主题服务（UI 线程）═══
             try
             {
                 await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
@@ -313,22 +326,22 @@ namespace DeepSeek_v4_for_VisualStudio
                 // 从设置恢复用户主题偏好
                 var savedTheme = Options?.ThemeMode ?? Models.ThemeMode.Auto;
                 ThemeService.Instance.UserThemeMode = savedTheme;
-                DiagnosticLog.Write("[DeepSeek Init] Step 6/8: ThemeService OK");
+                DiagnosticLog.Write("[DeepSeek Init] Step 7/9: ThemeService OK");
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] Step 6/8 ThemeService (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                DiagnosticLog.Write($"[DeepSeek Init] Step 7/9 ThemeService (non-fatal)：{ex.GetType().Name}: {ex.Message}");
             }
 
-            // ═══ 步骤 7/8：DI 容器 ═══
+            // ═══ 步骤 8/9：DI 容器 ═══
             try
             {
                 CompositionRoot.Build();
-                DiagnosticLog.Write("[DeepSeek Init] Step 7/8: DI container OK");
+                DiagnosticLog.Write("[DeepSeek Init] Step 8/9: DI container OK");
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 7/8 CompositionRoot.Build: {ex.GetType().Name}: {ex.Message}");
+                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 8/9 CompositionRoot.Build: {ex.GetType().Name}: {ex.Message}");
                 DiagnosticLog.Write($"[DeepSeek Init] Stack: {ex.StackTrace}");
                 throw;
             }
@@ -381,20 +394,20 @@ namespace DeepSeek_v4_for_VisualStudio
                 });
             };
 
-            // ═══ 步骤 8/8：注册菜单命令 ═══
+            // ═══ 步骤 9/9：注册菜单命令 ═══
             try
             {
                 await ShowChatWindowCommand.InitializeAsync(this);
-                DiagnosticLog.Write("[DeepSeek Init] Step 8/8: Commands registered OK");
+                DiagnosticLog.Write("[DeepSeek Init] Step 9/9: Commands registered OK");
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 8/8 ShowChatWindowCommand.InitializeAsync: {ex.GetType().Name}: {ex.Message}");
+                DiagnosticLog.Write($"[DeepSeek Init] FATAL Step 9/9 ShowChatWindowCommand.InitializeAsync: {ex.GetType().Name}: {ex.Message}");
                 DiagnosticLog.Write($"[DeepSeek Init] Stack: {ex.StackTrace}");
                 throw;
             }
 
-            DiagnosticLog.Write("[DeepSeek Init] All 8 steps completed successfully");
+            DiagnosticLog.Write("[DeepSeek Init] All 9 steps completed successfully");
 
             // 延迟显示工具窗口，避免在包初始化期间调用 ShowToolWindowAsync
             // 导致 COMException (0x80049283): LoadPackageWithContext 冲突

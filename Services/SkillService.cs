@@ -111,7 +111,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // 1. 项目级技能发现
                 if (!string.IsNullOrEmpty(solutionPath))
                 {
-                    var solutionDir = FindSolutionRoot(solutionPath);
+                    var solutionDir = FindSolutionRoot(solutionPath!);
                     if (solutionDir != null)
                     {
                         var projectSkills = await DiscoverInDirectoryAsync(

@@ -6,25 +6,43 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
 {
     /// <summary>
     /// 本地化的 CategoryAttribute，通过 LocalizationService 在运行时解析分类名称。
-    /// 用法: [LocalizedCategory("settings.category.api")]
+    /// .NET Framework 中 Category 属性非 virtual 且 GetLocalizedString() 仅首次调用。
+    /// 解决方案：重写 GetLocalizedString() 提供初值，语言切换时用反射
+    /// 直接改写基类内部 categoryValue 字段，绕过 localized 缓存标志。
     /// </summary>
     [AttributeUsage(AttributeTargets.Property | AttributeTargets.Class, AllowMultiple = false)]
     internal class LocalizedCategoryAttribute : CategoryAttribute
     {
         private readonly string _key;
 
-        public LocalizedCategoryAttribute(string key)
+        public LocalizedCategoryAttribute(string key) : base(key)
         {
             _key = key ?? string.Empty;
+            LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
         }
 
-        /// <summary>
-        /// 重写此方法以返回本地化后的分类名。VS 属性窗口通过此方法获取显示文本。
-        /// </summary>
         protected override string GetLocalizedString(string value)
         {
-            // value 是构造时传入的原始 key，这里忽略它，直接用 _key 查表
             return LocalizationService.Instance[_key];
+        }
+
+        private void OnLanguageChanged(object? sender, EventArgs e)
+        {
+            // 直接改写基类 categoryValue 为当前语言的值，
+            // 绕过 localized 标志位，无需 TypeDescriptor.Refresh
+            try
+            {
+                var field = typeof(CategoryAttribute).GetField("categoryValue",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (field != null)
+                {
+                    field.SetValue(this, LocalizationService.Instance[_key]);
+                }
+            }
+            catch
+            {
+                // 静默忽略
+            }
         }
     }
 
@@ -37,6 +55,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     {
         private readonly string _key;
         private string? _cachedDisplayName;
+        private bool _subscribed;
 
         public LocalizedDisplayNameAttribute(string key)
         {
@@ -53,8 +72,11 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
                 if (_cachedDisplayName == null)
                 {
                     _cachedDisplayName = LocalizationService.Instance[_key];
-                    // 订阅语言变更以清除缓存
-                    LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
+                    if (!_subscribed)
+                    {
+                        _subscribed = true;
+                        LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
+                    }
                 }
                 return _cachedDisplayName;
             }
@@ -75,6 +97,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     {
         private readonly string _key;
         private string? _cachedDescription;
+        private bool _subscribed;
 
         public LocalizedDescriptionAttribute(string key)
         {
@@ -91,7 +114,11 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
                 if (_cachedDescription == null)
                 {
                     _cachedDescription = LocalizationService.Instance[_key];
-                    LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
+                    if (!_subscribed)
+                    {
+                        _subscribed = true;
+                        LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
+                    }
                 }
                 return _cachedDescription;
             }

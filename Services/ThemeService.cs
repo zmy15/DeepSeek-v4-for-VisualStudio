@@ -217,7 +217,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                         if (!string.IsNullOrEmpty(colorTheme))
                         {
-                            bool? result = ParseThemeGuid(colorTheme);
+                            bool? result = ParseThemeGuid(colorTheme!);
                             if (result.HasValue)
                             {
                                 Logger.Info($"[ThemeService] Registry RESULT: IsLight={result.Value} (from ColorTheme)");

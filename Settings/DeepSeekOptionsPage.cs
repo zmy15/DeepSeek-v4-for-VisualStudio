@@ -15,6 +15,20 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     public class DeepSeekOptionsPage : DialogPage
     {
         /// <summary>
+        /// 静态构造：订阅语言变更，刷新属性描述符缓存。
+        /// 注意：VS 选项对话框的分类标题在对话框打开期间无法热更新
+        /// （VS 内部属性检查器缓存），关闭后重新打开即可生效。
+        /// DisplayName 和 Description 不受此限制。
+        /// </summary>
+        static DeepSeekOptionsPage()
+        {
+            LocalizationService.Instance.LanguageChanged += (_, _) =>
+            {
+                TypeDescriptor.Refresh(typeof(DeepSeekOptionsPage));
+            };
+        }
+
+        /// <summary>
         /// 当用户在 Options 对话框中点击"确定"或"应用"时触发。
         /// 订阅此事件可实现设置热切换，无需重启聊天窗口。
         /// </summary>
@@ -169,12 +183,6 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [LocalizedDescription("settings.autocompleteContinueAfterAccept.description")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public bool AutoCompleteContinueAfterAccept { get; set; } = true;
-
-        [LocalizedCategory("settings.category.autocomplete")]
-        [LocalizedDisplayName("settings.autocompleteModel.displayName")]
-        [LocalizedDescription("settings.autocompleteModel.description")]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-        public string AutoCompleteModel { get; set; } = string.Empty;
 
         // ═══════════════════════════════════════════════
         //  上下文管理设置（DeepSeek V4 1M 上下文窗口）
