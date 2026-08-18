@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Markdig;
 using System;
@@ -996,8 +996,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'>" +
        "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
        "<style>" + PageCss + "</style>" +
-       "<link rel='stylesheet' href='" + KaTeXCdnCss + "' />" +
-       "<link rel='stylesheet' href='" + HighlightJsCdnStyle + 
+       // ── KaTeX / Highlight.js CSS 均为非阻塞加载（media='none' + onload 翻转）──
+       // 关键：Chromium 中 <link rel='stylesheet'> 会阻塞其后所有 <script> 的执行，
+       // 而 __pageReady__ 信号正是在 body 末尾的内联脚本中发送的。
+       // 若 KaTeX CSS 采用阻塞式加载，CDN（cdnjs.cloudflare.com）缓慢时
+       // 页面就绪信号会被网络拖慢 10~30 秒。media='none' 不匹配任何环境，
+       // 既不阻塞渲染也不阻塞脚本执行，加载完成后翻转为 'all' 生效。
+       "<link rel='stylesheet' href='" + KaTeXCdnCss +
+       "' media='none' onload=\"if(this.media!=='all')this.media='all'\" />" +
+       "<link rel='stylesheet' href='" + HighlightJsCdnStyle +
        "' media='none' onload=\"if(this.media!=='all')this.media='all'\" />" +
        "</head><body>" +
        "<div id='chat-container'>" + messagesHtml + "</div>" +
