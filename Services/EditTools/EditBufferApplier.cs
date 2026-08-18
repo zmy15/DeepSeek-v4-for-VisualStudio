@@ -7,9 +7,11 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
+using Microsoft.VisualStudio.Text.Operations;
 using Microsoft.VisualStudio.TextManager.Interop;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
@@ -23,6 +25,188 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
     /// </summary>
     public static class EditBufferApplier
     {
+        /// <summary>
+        /// 统一写入入口（异步版）：将完整内容写入"已在编辑器中打开"的文档。
+        ///
+        /// 已打开的文档永远"通过 buffer 写、用编辑器自己的 Save 持久化"：
+        /// 1. 若 buffer 因用户自己的修改而 dirty，先 Save 一次把用户内容落盘（避免静默吞掉用户未保存编辑）；
+        /// 2. 在一个撤销事务中整体替换 buffer 内容（保留一步 Ctrl+Z）；
+        /// 3. 通过 ITextDocument.Save() 持久化 —— 编辑器主动保存不会被 VS 当作外部更改，
+        ///    buffer 保存后回到 clean，"文件已在磁盘上修改"弹窗的条件永远不成立。
+        ///
+        /// 未打开的文档不适用此入口（返回 false），调用方应回退 File.WriteAllText 裸写盘。
+        /// </summary>
+        /// <returns>true = 文档已打开且写入+保存成功；false = 未打开或失败，调用方回退磁盘写入。</returns>
+        public static async Task<bool> TryWriteOpenDocumentAsync(string filePath, string fullContent)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || fullContent == null)
+                return false;
+
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            return WriteToOpenDocumentOnUIThread(filePath, fullContent);
+        }
+
+        /// <summary>
+        /// 统一写入入口（同步版）：语义同 <see cref="TryWriteOpenDocumentAsync"/>。
+        /// 供 StagedEditWorkspace 等同步路径以 Func&lt;string,string,bool&gt; 委托注入使用：
+        /// 已在 UI 线程则直接执行；否则通过 JoinableTaskFactory 切换到 UI 线程。
+        /// </summary>
+        public static bool TryWriteOpenDocument(string filePath, string fullContent)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || fullContent == null)
+                return false;
+
+            if (ThreadHelper.CheckAccess())
+                return WriteToOpenDocumentOnUIThread(filePath, fullContent);
+
+            try
+            {
+                return ThreadHelper.JoinableTaskFactory.Run(
+                    () => TryWriteOpenDocumentAsync(filePath, fullContent));
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BufferWriter] 切换 UI 线程写入失败: {Path.GetFileName(filePath)} — {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 若文件已在编辑器中打开且有未保存修改（用户自己的编辑），先通过编辑器 Save 落盘。
+        /// 用于 StagedEditWorkspace 在登记 Baseline 之前冲刷用户未保存内容，
+        /// 保证 Baseline 捕获的是用户最新内容（撤销时不丢失用户编辑）。
+        /// </summary>
+        /// <returns>true = 文档已打开（且现已 clean）；false = 未打开。</returns>
+        public static bool TrySaveOpenDocument(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return false;
+
+            if (ThreadHelper.CheckAccess())
+                return SaveOpenDocumentOnUIThread(filePath);
+
+            try
+            {
+                return ThreadHelper.JoinableTaskFactory.Run(async () =>
+                {
+                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    return SaveOpenDocumentOnUIThread(filePath);
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BufferWriter] 切换 UI 线程冲刷失败: {Path.GetFileName(filePath)} — {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// UI 线程上执行：buffer 整体替换 + 编辑器 Save。
+        /// 任何异常都被捕获并返回 false（调用方回退磁盘写入），绝不部分生效后中断。
+        /// </summary>
+        private static bool WriteToOpenDocumentOnUIThread(string filePath, string fullContent)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            try
+            {
+                var textBuffer = GetTextBufferForFile(filePath);
+                if (textBuffer == null)
+                    return false; // 未在编辑器中打开 → 调用方回退磁盘写入
+
+                if (!textBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument? textDoc)
+                    || textDoc == null)
+                    return false;
+
+                // 1. buffer 因用户自己的修改而 dirty → 先保存用户内容，避免静默吞掉
+                if (textDoc.IsDirty)
+                    textDoc.Save();
+
+                // 2. 单个撤销事务内整体替换（保留一步 Ctrl+Z），参照 OpenBufferCommitTarget 的用法
+                ITextUndoTransaction? transaction = null;
+                try
+                {
+                    var undoRegistry = GetUndoHistoryRegistry();
+                    if (undoRegistry != null)
+                    {
+                        var history = undoRegistry.RegisterHistory(textBuffer);
+                        transaction = history.CreateTransaction("AI Edit (write-through)");
+                    }
+
+                    using (ITextEdit edit = textBuffer.CreateEdit())
+                    {
+                        ITextSnapshot snapshot = textBuffer.CurrentSnapshot;
+                        if (snapshot.Length > 0)
+                            edit.Replace(0, snapshot.Length, fullContent);
+                        else
+                            edit.Insert(0, fullContent);
+                        edit.Apply();
+                    }
+
+                    transaction?.Complete();
+                }
+                finally
+                {
+                    transaction?.Dispose();
+                }
+
+                // 3. 编辑器自己的 Save：不会被当作外部更改，保存后 buffer 回到 clean
+                textDoc.Save();
+
+                Logger.Info($"[BufferWriter] 已通过编辑器 buffer 写入并保存: {Path.GetFileName(filePath)}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BufferWriter] 写入已打开文档失败: {Path.GetFileName(filePath)} — {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>UI 线程上执行：若已打开且 dirty 则 Save。</summary>
+        private static bool SaveOpenDocumentOnUIThread(string filePath)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            try
+            {
+                var textBuffer = GetTextBufferForFile(filePath);
+                if (textBuffer == null)
+                    return false;
+
+                if (textBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument? textDoc)
+                    && textDoc != null
+                    && textDoc.IsDirty)
+                {
+                    textDoc.Save();
+                    Logger.Info($"[BufferWriter] 已冲刷用户未保存内容: {Path.GetFileName(filePath)}");
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BufferWriter] 冲刷已打开文档失败: {Path.GetFileName(filePath)} — {ex.Message}");
+                return false;
+            }
+        }
+
+        private static ITextUndoHistoryRegistry? GetUndoHistoryRegistry()
+        {
+            try
+            {
+                var componentModel = (IComponentModel?)
+                    Package.GetGlobalService(typeof(SComponentModel));
+                return componentModel?.DefaultExportProvider
+                    .GetExport<ITextUndoHistoryRegistry>()?.Value;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         /// <summary>
         /// 通过 VS 文本缓冲区将 TextEdit 应用到已打开的文件编辑器。
         /// 使用 ITextEdit 确保整个操作为一个撤销单元。

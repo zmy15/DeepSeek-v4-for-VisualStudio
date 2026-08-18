@@ -314,6 +314,7 @@
     "diff.createFailed":  "❌ Failed to create diff view: {0}",
     "diff.hunkListHeader":  "Change Blocks",
     "diff.revertHunk":  "↩ Revert Block",
+    "diff.keepHunk":  "✓ Keep Block",
     "diff.hunkTypeInsert":  "Insert",
     "diff.hunkTypeDelete":  "Delete",
     "diff.hunkTypeModify":  "Modify",

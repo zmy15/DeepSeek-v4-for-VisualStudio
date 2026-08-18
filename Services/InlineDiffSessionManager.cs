@@ -162,6 +162,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 尝试获取指定 buffer 的活跃 Session（供编辑器内嵌挂件查询）。
+        /// </summary>
+        public bool TryGetSession(ITextBuffer buffer, out InlineDiffSession? session)
+        {
+            lock (_lock)
+            {
+                return _activeByBuffer.TryGetValue(buffer, out session);
+            }
+        }
+
+        /// <summary>
         /// 注册待处理 Proposal（文件不在编辑器中打开时）。
         /// 当用户稍后打开文件时，通过 <see cref="TryActivatePending"/> 自动激活。
         /// </summary>
@@ -223,6 +234,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 接受所有活跃 Session 的变更。
+        ///
+        /// - 写穿模式 Session（关联 Workspace）：磁盘已是最终内容，直接 ConfirmWriteThrough
+        ///   确认并清除撤销追踪，不重写文件/缓冲区（避免 FileCommitTarget 裸写盘触发
+        ///   VS「文件已在磁盘上修改」弹窗，也避免覆盖用户逐块撤销后的内容）。
+        /// - 普通预览 Session：走批量提交，且优先使用 Session 自带的 CommitTarget
+        ///   （已打开文档 → OpenBufferCommitTarget，通过 buffer+编辑器 Save 提交）。
         /// </summary>
         public async Task<BatchApplyResult> AcceptAllAsync(CancellationToken cancellationToken)
         {
@@ -232,11 +249,39 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 sessions = _activeByBuffer.Values.ToList();
             }
 
-            // 构建 Batch
-            var changes = sessions.Select(s => s.Change).ToList();
-            var batch = new PreparedChangeBatch { Changes = changes };
+            // ── 分流：写穿模式直接确认，普通模式收集后批量提交 ──
+            var normalSessions = new List<InlineDiffSession>();
+            foreach (var session in sessions)
+            {
+                if (session.Workspace != null)
+                {
+                    try { session.ConfirmWriteThrough(); }
+                    catch (Exception ex) { Logger.Warn($"[SessionManager] 写穿确认失败: {ex.Message}"); }
+                }
+                else
+                {
+                    normalSessions.Add(session);
+                }
+            }
 
-            var result = await _coordinator.CommitBatchAsync(batch, cancellationToken);
+            BatchApplyResult result;
+            if (normalSessions.Count == 0)
+            {
+                result = BatchApplyResult.AllOk(Array.Empty<ApplyResult>());
+            }
+            else
+            {
+                // 构建 Batch + 优先使用 Session 自带的 CommitTarget
+                var changes = normalSessions.Select(s => s.Change).ToList();
+                var batch = new PreparedChangeBatch { Changes = changes };
+
+                var preferredTargets = new Dictionary<string, IProposalCommitTarget>(
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var session in normalSessions)
+                    preferredTargets[session.Change.FilePath] = session.CommitTarget;
+
+                result = await _coordinator.CommitBatchAsync(batch, preferredTargets, cancellationToken);
+            }
 
             // 清理已提交的 Session
             foreach (var session in sessions)

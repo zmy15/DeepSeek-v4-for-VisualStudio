@@ -29,6 +29,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>是否已撤销（该块的修改已回滚到 Baseline）。</summary>
         public bool IsReverted { get; set; }
 
+        /// <summary>是否已被用户保留（接受该块修改，不再提示撤销）。</summary>
+        public bool IsAccepted { get; set; }
+
         /// <summary>是否为纯新增。</summary>
         public bool IsPureInsert => OldLineCount == 0 && NewLineCount > 0;
 

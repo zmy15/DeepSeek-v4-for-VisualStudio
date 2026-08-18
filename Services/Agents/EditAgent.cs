@@ -651,6 +651,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 供 diff 预览和逐块撤销使用。若在此之后才初始化，工具编辑将走 BackupService 直接落盘，
             // 不登记 hunks，导致 diff 无数据可显示。
             _stagedWorkspace ??= new Editing.StagedEditWorkspace();
+
+            // ── 注入已打开文档写入器：已打开文档通过 buffer+编辑器 Save 写入 ──
+            // 避免 File.WriteAllText 裸写盘在 dirty buffer 场景触发 VS「文件已在磁盘上修改」弹窗；
+            // 未打开的文件 writer 返回 false，自动回退裸写盘。
+            _stagedWorkspace.OpenDocumentWriter = EditBufferApplier.TryWriteOpenDocument;
+            _stagedWorkspace.OpenDocumentFlusher = EditBufferApplier.TrySaveOpenDocument;
+
             _stagedWorkspace.Discard(); // 清空上一轮残留
 
             EnsureEditTools(workspaceRoot);
@@ -1753,7 +1760,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         string? dir = Path.GetDirectoryName(resolvedPath);
                         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                             Directory.CreateDirectory(dir);
-                        await Task.Run(() => File.WriteAllText(resolvedPath, string.Empty, System.Text.Encoding.UTF8), ct);
+
+                        // 已在编辑器打开（如同名文档）→ buffer+编辑器 Save；否则裸写盘
+                        bool createdViaBuffer = await EditBufferApplier.TryWriteOpenDocumentAsync(
+                            resolvedPath, string.Empty);
+                        if (!createdViaBuffer)
+                            await Task.Run(() => File.WriteAllText(resolvedPath, string.Empty, System.Text.Encoding.UTF8), ct);
+
                         AddLog("INFO", LocalizationService.Instance.Format("agent.log.editPreCreateFile", Path.GetFileName(resolvedPath)));
                         await AddFileToProjectAsync(resolvedPath, ct);
                     }

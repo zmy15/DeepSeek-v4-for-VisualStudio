@@ -175,9 +175,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     Label = "规划此大型任务",
                     TargetAgent = AgentType.Plan,
-                    Prompt = string.Format(
-                        "用户提出了一个大型任务，请深入分析需求、研究代码库，并制定详细的实现计划。\n\n用户请求: {0}",
-                        userMessage),
+                    Prompt = "用户提出了一个大型任务，请深入分析需求、研究代码库，并制定详细的实现计划。\n\n用户请求: " + userMessage,
                     AutoSend = true,
                     ShowContinueOn = false,
                 },
@@ -249,10 +247,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         private static string BuildAutoSplitPrompt(string userMessage)
         {
-            // 转义 userMessage 中的花括号，防止 string.Format 将其解释为格式占位符
-            string escapedMessage = (userMessage ?? "").Replace("{", "{{").Replace("}", "}}");
-            return string.Format(AiPrompts.AutoSplitSystemPrompt,
-                MaxFilesPerEdit, MaxLinesPerEdit, escapedMessage);
+            // 使用 Replace 而非 string.Format，避免模板中的 JSON 花括号引起 FormatException
+            return AiPrompts.AutoSplitSystemPrompt
+                .Replace("{0}", MaxFilesPerEdit.ToString())
+                .Replace("{1}", MaxLinesPerEdit.ToString())
+                .Replace("{2}", userMessage ?? "");
         }
 
         /// <summary>

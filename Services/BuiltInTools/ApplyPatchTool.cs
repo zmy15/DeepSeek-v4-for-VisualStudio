@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Services.EditTools;
 using DeepSeek_v4_for_VisualStudio.Utils;
@@ -172,11 +172,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                                 string normalized = EditStringMatcher.NormalizeToCrLf(result.FinalContent);
                                 if (Workspace != null)
                                 {
+                                    // WriteFile 内部对已打开文档走 buffer+编辑器 Save
                                     Workspace.WriteFile(filePath, normalized);
                                 }
                                 else
                                 {
-                                    await Task.Run(() => File.WriteAllText(filePath, normalized));
+                                    // 已打开文档 → buffer+编辑器 Save；未打开 → 裸写盘
+                                    bool writtenViaBuffer = await EditBufferApplier.TryWriteOpenDocumentAsync(
+                                        filePath, normalized);
+                                    if (!writtenViaBuffer)
+                                        await Task.Run(() => File.WriteAllText(filePath, normalized));
                                 }
                                 results.Add(LocalizationService.Instance.Format("tool.applyPatch.applied",
                                     Path.GetFileName(filePath), patch.Hunks.Count));

@@ -2,6 +2,7 @@ using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Editor;
+using Microsoft.VisualStudio.Text.Differencing;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Text.Operations;
 using Microsoft.VisualStudio.TextManager.Interop;
@@ -46,6 +47,12 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
             IWpfTextView view = AdapterService.GetWpfTextView(textViewAdapter);
 
             if (view == null)
+            {
+                return;
+            }
+
+            if (view.Roles.Contains(DifferenceViewerRoles.DiffTextViewRole) ||
+                view.Roles.Contains(DifferenceViewerRoles.UbiquitousDiffTextViewRole))
             {
                 return;
             }

@@ -82,6 +82,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
         {
+            // 加固：该工具会访问 DTE / Error List 等 UI 线程 COM 对象。
+            // agent 可能在后台线程调用此工具，若在后台线程执行 CheckBuildInProgress
+            // (JTF.Run + SwitchToMainThreadAsync) 会同步阻塞线程池等待 UI 线程，
+            // 存在挂起风险。统一在方法开头切换到 UI 线程，后续访问全部安全。
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
             bool includeSelected = GetBoolArg(args, "includeSelected", false);
 
             if (includeSelected && _buildService != null)

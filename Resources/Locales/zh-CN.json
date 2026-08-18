@@ -313,6 +313,7 @@
     "diff.createFailed":  "❌ 创建差异视图失败: {0}",
     "diff.hunkListHeader":  "变更块",
     "diff.revertHunk":  "↩ 撤销此块",
+    "diff.keepHunk":  "✓ 保留此块",
     "diff.hunkTypeInsert":  "新增",
     "diff.hunkTypeDelete":  "删除",
     "diff.hunkTypeModify":  "修改",

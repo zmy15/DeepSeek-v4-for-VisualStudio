@@ -50,8 +50,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
         /// 批量提交。先全量预检，全部通过后才执行写入。
         /// 任一文件冲突时返回 Rejected，不执行任何写入。
         /// </summary>
-        public async Task<BatchApplyResult> CommitBatchAsync(
+        public Task<BatchApplyResult> CommitBatchAsync(
             PreparedChangeBatch batch, CancellationToken cancellationToken)
+            => CommitBatchAsync(batch, preferredTargets: null, cancellationToken);
+
+        /// <summary>
+        /// 批量提交（可指定优先 CommitTarget）。
+        /// preferredTargets 以文件路径为键，通常传入各 InlineDiffSession 自带的 CommitTarget：
+        /// 已打开文档对应 <see cref="OpenBufferCommitTarget"/>（通过 buffer+编辑器 Save 提交），
+        /// 避免对已打开文档一律 FileCommitTarget 裸写盘，在 dirty buffer 场景触发
+        /// VS「文件已在磁盘上修改」弹窗。
+        /// </summary>
+        public async Task<BatchApplyResult> CommitBatchAsync(
+            PreparedChangeBatch batch,
+            IReadOnlyDictionary<string, IProposalCommitTarget>? preferredTargets,
+            CancellationToken cancellationToken)
         {
             if (batch == null)
                 throw new ArgumentNullException(nameof(batch));
@@ -65,8 +78,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
 
             foreach (var change in batch.Changes)
             {
-                // 为每个 change 创建对应的 CommitTarget
-                var target = CreateCommitTarget(change);
+                // 为每个 change 创建对应的 CommitTarget（优先使用调用方指定的 Session 自带 Target）
+                var target = ResolveCommitTarget(change, preferredTargets);
                 var preflight = await target.PreflightAsync(change, cancellationToken);
 
                 preflightResults.Add((change, preflight));
@@ -96,7 +109,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
             {
                 foreach (var (change, _) in preflightResults)
                 {
-                    var target = CreateCommitTarget(change);
+                    var target = ResolveCommitTarget(change, preferredTargets);
                     var result = await target.CommitAsync(change, cancellationToken);
 
                     results.Add(result);
@@ -140,12 +153,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
         }
 
         /// <summary>
-        /// 根据 PreparedChangeSet 创建对应的 CommitTarget。
-        /// 注意：此方法是简化版，实际使用时需要根据场景（已打开/未打开/新文件）选择正确的 Target。
-        /// 完整实现中应通过 DI 或工厂获取 Target。
+        /// 解析 Change 的 CommitTarget：优先使用 Session 自带的 Target
+        /// （已打开文档 → OpenBufferCommitTarget），否则按操作类型创建默认 Target。
         /// </summary>
-        private static IProposalCommitTarget CreateCommitTarget(PreparedChangeSet change)
+        private static IProposalCommitTarget ResolveCommitTarget(
+            PreparedChangeSet change,
+            IReadOnlyDictionary<string, IProposalCommitTarget>? preferredTargets)
         {
+            if (preferredTargets != null &&
+                preferredTargets.TryGetValue(change.FilePath, out var preferred))
+            {
+                return preferred;
+            }
+
             return change.Operation switch
             {
                 ProposedFileOperation.Add => new NewFileCommitTarget(),

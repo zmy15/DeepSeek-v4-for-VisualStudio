@@ -1,6 +1,7 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Services.Agents;
+using DeepSeek_v4_for_VisualStudio.Services.EditTools;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.ComponentModelHost;
@@ -609,8 +610,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         // ── 情况1：有原始内容 → 写回原始内容 ──
                         if (!string.IsNullOrEmpty(change.OriginalContent))
                         {
-                            // 优先通过 VS SDK 回退（若文件在编辑器中打开则纳入 Undo 栈）
-                            bool revertedViaVS = await TryRevertViaVSSdkAsync(change.FilePath, change.OriginalContent);
+                            // 优先通过已打开文档 buffer+编辑器 Save 回退（纳入 Undo 栈，不触发外部更改弹窗）
+                            bool revertedViaVS = await EditBufferApplier.TryWriteOpenDocumentAsync(
+                                change.FilePath, change.OriginalContent);
                             if (!revertedViaVS)
                             {
                                 // 回退：文件未在编辑器中打开，直接写磁盘
@@ -641,8 +643,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                 string? dir = Path.GetDirectoryName(change.FilePath);
                                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                                     Directory.CreateDirectory(dir);
-                                await Task.Run(() =>
-                                    File.WriteAllText(change.FilePath, change.OriginalContent, Encoding.UTF8));
+
+                                // 已打开文档 → buffer+编辑器 Save；未打开 → 裸写盘
+                                bool restoredViaBuffer = await EditBufferApplier.TryWriteOpenDocumentAsync(
+                                    change.FilePath, change.OriginalContent);
+                                if (!restoredViaBuffer)
+                                    await Task.Run(() =>
+                                        File.WriteAllText(change.FilePath, change.OriginalContent, Encoding.UTF8));
+
                                 revertedCount++;
                                 Logger.Info($"[FileHistory] ✅ 已恢复删除的文件: {Path.GetFileName(change.FilePath)}");
                             }
@@ -685,82 +693,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
 
             return true;
-        }
-
-        /// <summary>
-        /// 尝试通过 VS SDK 的 ITextBuffer API 回退文件内容。
-        /// 若文件当前在 VS 编辑器中打开，则使用 ITextEdit 操作（纳入 VS Undo 栈）；
-        /// 若未打开，则返回 false，由调用方回退到磁盘写入。
-        /// </summary>
-        /// <returns>true 表示已通过 VS SDK 成功回退；false 表示文件未打开，需磁盘回退。</returns>
-        private static async Task<bool> TryRevertViaVSSdkAsync(string filePath, string originalContent)
-        {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-            try
-            {
-                var componentModel = (IComponentModel)ServiceProvider.GlobalProvider.GetService(typeof(SComponentModel));
-                var editorAdapter = componentModel?.DefaultExportProvider
-                    .GetExport<IVsEditorAdaptersFactoryService>()?.Value;
-                if (editorAdapter == null) return false;
-
-                // ── 通过 RDT 查找文件是否在编辑器中打开 ──
-                var rdt = (IVsRunningDocumentTable?)ServiceProvider.GlobalProvider.GetService(typeof(SVsRunningDocumentTable));
-                if (rdt == null) return false;
-
-                IEnumRunningDocuments? enumDocs;
-                if (rdt.GetRunningDocumentsEnum(out enumDocs) != VSConstants.S_OK || enumDocs == null)
-                    return false;
-
-                uint[] cookieArray = new uint[1];
-                uint fetched;
-                while (enumDocs.Next(1, cookieArray, out fetched) == VSConstants.S_OK && fetched == 1)
-                {
-                    uint cookie = cookieArray[0];
-                    uint flags; uint readLocks; uint editLocks;
-                    string? docPath; IVsHierarchy? hierarchy; uint itemId; IntPtr docDataPtr;
-
-                    if (rdt.GetDocumentInfo(cookie, out flags, out readLocks, out editLocks,
-                        out docPath, out hierarchy, out itemId, out docDataPtr) != VSConstants.S_OK)
-                        continue;
-
-                    if (docPath == null || !string.Equals(docPath, filePath, StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    if (docDataPtr == IntPtr.Zero) continue;
-
-                    // ── 找到匹配的文档 → 通过 ITextBuffer 回退 ──
-                    var vsTextBuffer = Marshal.GetObjectForIUnknown(docDataPtr) as IVsTextBuffer;
-                    if (vsTextBuffer == null) continue;
-
-                    var textBuffer = editorAdapter.GetDataBuffer(vsTextBuffer);
-                    if (textBuffer == null) continue;
-
-                    using (var edit = textBuffer.CreateEdit())
-                    {
-                        var snapshot = textBuffer.CurrentSnapshot;
-                        if (snapshot.Length > 0)
-                            edit.Replace(0, snapshot.Length, originalContent);
-                        else
-                            edit.Insert(0, originalContent);
-                        edit.Apply();
-                    }
-
-                    // ── 保存文件 ──
-                    if (textBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument textDoc))
-                    {
-                        textDoc.Save();
-                    }
-
-                    Logger.Info($"[FileHistory] ✅ 通过 VS SDK 回退已打开文件: {Path.GetFileName(filePath)}");
-                    return true;
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn($"[FileHistory] VS SDK 回退失败，回退到磁盘写入: {Path.GetFileName(filePath)} - {ex.Message}");
-            }
-
-            return false;
         }
 
         /// <summary>

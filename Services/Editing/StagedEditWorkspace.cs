@@ -31,6 +31,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
         private readonly Dictionary<string, StagedFile> _trackedFiles
             = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// 已打开文档写入器（可选注入，推荐 EditBufferApplier.TryWriteOpenDocument）。
+        /// 签名：(filePath, fullContent) => true 表示文件已在编辑器打开并通过 buffer+编辑器 Save 写入。
+        /// 命中时避免 File.WriteAllText 裸写盘在 dirty buffer 场景触发 VS「文件已在磁盘上修改」弹窗；
+        /// 返回 false（未打开）时回退裸写盘。磁盘仍是权威内容，写穿设计与 Baseline 追踪不受影响。
+        /// </summary>
+        public Func<string, string, bool>? OpenDocumentWriter { get; set; }
+
+        /// <summary>
+        /// 已打开文档冲刷器（可选注入，推荐 EditBufferApplier.TrySaveOpenDocument）。
+        /// 在首次接触某文件、登记 Baseline 之前调用：若该文件在编辑器中打开且有未保存修改，
+        /// 先通过编辑器 Save 落盘，保证 Baseline 捕获用户最新内容（撤销时不丢失用户编辑）。
+        /// </summary>
+        public Func<string, bool>? OpenDocumentFlusher { get; set; }
+
         /// <summary>当前追踪（有改动）的文件数</summary>
         public int StagedCount
         {
@@ -53,8 +68,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
         }
 
         /// <summary>
-        /// 写入文件内容（直接落盘）。
+        /// 写入文件内容（写穿落盘）。
         /// 首次接触此文件时记录 Baseline（原始内容 + 哈希），供用户撤销时恢复。
+        ///
+        /// 落盘路径：
+        /// - 注入 OpenDocumentWriter 且文件已在编辑器打开 → buffer 整体替换 + 编辑器 Save（锁外执行，
+        ///   因内部需切换 UI 线程，持 _lock 等待 UI 线程会有死锁风险）；
+        /// - 否则 → File.WriteAllText 裸写盘（原有行为）。
         /// </summary>
         public void WriteFile(string filePath, string newContent)
         {
@@ -62,6 +82,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
                 throw new ArgumentException("文件路径不能为空", nameof(filePath));
 
             var normalizedPath = NormalizePath(filePath);
+            string content = newContent ?? string.Empty;
+
+            // ── 首次接触 + 注入冲刷器：先把已打开文档的用户未保存内容落盘 ──
+            // （在读取 Baseline 之前执行，保证 Baseline 包含用户的未保存编辑；锁外执行防死锁）
+            bool shouldFlush;
+            lock (_lock)
+            {
+                shouldFlush = OpenDocumentFlusher != null
+                    && !_trackedFiles.ContainsKey(normalizedPath)
+                    && File.Exists(normalizedPath);
+            }
+
+            if (shouldFlush)
+            {
+                try { OpenDocumentFlusher!.Invoke(normalizedPath); }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[StagedWorkspace] 冲刷已打开文档失败: {Path.GetFileName(normalizedPath)} — {ex.Message}");
+                }
+            }
 
             lock (_lock)
             {
@@ -86,11 +126,40 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
                     };
                 }
 
-                // ── 直接落盘 ──
-                File.WriteAllText(normalizedPath, newContent ?? string.Empty);
-
-                Logger.Info($"[StagedWorkspace] 写穿: {Path.GetFileName(normalizedPath)} ({newContent?.Length ?? 0} chars)");
+                // ── 无 writer：直接落盘（原有行为，锁内执行）──
+                if (OpenDocumentWriter == null)
+                {
+                    File.WriteAllText(normalizedPath, content);
+                    Logger.Info($"[StagedWorkspace] 写穿: {Path.GetFileName(normalizedPath)} ({content.Length} chars)");
+                    return;
+                }
             }
+
+            // ── writer 路径：锁外执行（内部切换 UI 线程，持锁等待会有死锁风险）──
+            WriteViaOpenDocumentOrDisk(normalizedPath, content);
+            Logger.Info($"[StagedWorkspace] 写穿: {Path.GetFileName(normalizedPath)} ({content.Length} chars)");
+        }
+
+        /// <summary>
+        /// 统一落盘：优先通过已打开文档 buffer + 编辑器 Save 写入；未打开/失败时回退裸写盘。
+        /// 必须在 _lock 外调用（writer 内部可能切换 UI 线程）。
+        /// </summary>
+        private void WriteViaOpenDocumentOrDisk(string normalizedPath, string content)
+        {
+            bool written = false;
+            try
+            {
+                if (OpenDocumentWriter != null)
+                    written = OpenDocumentWriter(normalizedPath, content);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[StagedWorkspace] buffer 写入异常，回退磁盘: {Path.GetFileName(normalizedPath)} — {ex.Message}");
+                written = false;
+            }
+
+            if (!written)
+                File.WriteAllText(normalizedPath, content);
         }
 
         /// <summary>
@@ -168,47 +237,61 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
         /// <summary>
         /// 撤销所有变更：将每个被追踪文件恢复到其 Baseline 内容（写回磁盘）。
         /// 新建文件会被删除，删除的文件会被恢复。
+        ///
+        /// 恢复写入优先通过已打开文档 buffer + 编辑器 Save（避免 dirty buffer 场景弹窗），
+        /// 未打开的文件回退裸写盘。写入在 _lock 外执行（writer 内部可能切换 UI 线程）。
         /// </summary>
         public void RestoreToBaseline()
         {
+            List<StagedFile> files;
             lock (_lock)
             {
-                foreach (var file in _trackedFiles.Values)
+                files = _trackedFiles.Values.ToList();
+            }
+
+            foreach (var file in files)
+            {
+                try
                 {
-                    try
+                    switch (file.Operation)
                     {
-                        switch (file.Operation)
-                        {
-                            case ProposedFileOperation.Add:
-                                // 新建文件 → 回滚删除
-                                if (File.Exists(file.FilePath))
-                                    File.Delete(file.FilePath);
-                                break;
-                            case ProposedFileOperation.Delete:
-                                // 删除的文件 → 恢复
-                                if (!string.IsNullOrEmpty(file.BaselineContent))
-                                {
-                                    string? dir = Path.GetDirectoryName(file.FilePath);
-                                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                                        Directory.CreateDirectory(dir);
-                                    File.WriteAllText(file.FilePath, file.BaselineContent);
-                                }
-                                break;
-                            default:
-                                // 修改 → 恢复原文
-                                File.WriteAllText(file.FilePath, file.BaselineContent);
-                                break;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warn($"[StagedWorkspace] 撤销失败: {Path.GetFileName(file.FilePath)} — {ex.Message}");
+                        case ProposedFileOperation.Add:
+                            // 新建文件 → 回滚删除
+                            if (File.Exists(file.FilePath))
+                                File.Delete(file.FilePath);
+                            break;
+                        case ProposedFileOperation.Delete:
+                            // 删除的文件 → 恢复
+                            if (!string.IsNullOrEmpty(file.BaselineContent))
+                            {
+                                EnsureDirectoryExists(file.FilePath);
+                                WriteViaOpenDocumentOrDisk(file.FilePath, file.BaselineContent);
+                            }
+                            break;
+                        default:
+                            // 修改 → 恢复原文
+                            WriteViaOpenDocumentOrDisk(file.FilePath, file.BaselineContent);
+                            break;
                     }
                 }
-
-                _trackedFiles.Clear();
-                Logger.Info($"[StagedWorkspace] 已将所有改动恢复到 Baseline");
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[StagedWorkspace] 撤销失败: {Path.GetFileName(file.FilePath)} — {ex.Message}");
+                }
             }
+
+            lock (_lock)
+            {
+                _trackedFiles.Clear();
+            }
+            Logger.Info($"[StagedWorkspace] 已将所有改动恢复到 Baseline");
+        }
+
+        private static void EnsureDirectoryExists(string filePath)
+        {
+            string? dir = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
         }
 
         /// <summary>
@@ -259,7 +342,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
                     : string.Empty;
 
                 // 重算 hunks（若内容已变化如部分撤销后）
+                var previousHunks = file.Hunks;
                 file.Hunks = ComputeHunks(file.BaselineContent, currentContent);
+
+                // ── 回填已撤销/已保留标记 ──
+                // 重算会新建实例，需按 OldText+NewText 精确匹配恢复状态：
+                // 已撤销块在重算后自然消失（内容已等于 Baseline），无需回填；
+                // 已保留块内容未变，按内容匹配即可恢复其标记。
+                foreach (var hunk in file.Hunks)
+                {
+                    foreach (var prev in previousHunks)
+                    {
+                        if (!prev.IsReverted && !prev.IsAccepted)
+                            continue;
+
+                        if (string.Equals(prev.OldText, hunk.OldText, StringComparison.Ordinal) &&
+                            string.Equals(prev.NewText, hunk.NewText, StringComparison.Ordinal))
+                        {
+                            hunk.IsReverted = prev.IsReverted;
+                            hunk.IsAccepted = prev.IsAccepted;
+                            break;
+                        }
+                    }
+                }
+
                 return file.Hunks;
             }
         }
@@ -267,9 +373,58 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
         /// <summary>
         /// 撤销单个差异块：只将该块的内容恢复到 Baseline，
         /// 其他块保持不变。从当前内容中定位该块并替换。
+        ///
+        /// 落盘优先通过已打开文档 buffer + 编辑器 Save（写入在 _lock 外执行，
+        /// writer 内部可能切换 UI 线程，持锁等待会有死锁风险）。
         /// </summary>
         /// <returns>true 表示撤销成功</returns>
         public bool RestoreSingleHunk(string filePath, int hunkIndex)
+        {
+            var normalizedPath = NormalizePath(filePath);
+
+            string revertedContent;
+            lock (_lock)
+            {
+                if (!_trackedFiles.TryGetValue(normalizedPath, out var file))
+                    return false;
+
+                if (hunkIndex < 0 || hunkIndex >= file.Hunks.Count)
+                    return false;
+
+                var hunk = file.Hunks[hunkIndex];
+                if (hunk.IsReverted || hunk.IsAccepted)
+                    return false;
+
+                string currentContent = File.Exists(normalizedPath)
+                    ? File.ReadAllText(normalizedPath)
+                    : string.Empty;
+
+                revertedContent = ApplyHunkRevert(currentContent, hunk);
+
+                // ── 标记已撤销 ──
+                hunk.IsReverted = true;
+
+                Logger.Info($"[StagedWorkspace] 已撤销单块 [{hunkIndex}] ({Path.GetFileName(normalizedPath)})");
+
+                // 若所有块都撤销了，等价于恢复到 Baseline
+                if (file.Hunks.All(h => h.IsReverted))
+                {
+                    // 由调用方决定是否整文件回滚标记
+                }
+            }
+
+            // ── 落盘（锁外执行）──
+            WriteViaOpenDocumentOrDisk(normalizedPath, revertedContent);
+
+            return true;
+        }
+
+        /// <summary>
+        /// 保留单个差异块：接受该块的修改（磁盘内容不变，写穿模式已落盘），
+        /// 该块不再计入待处理，也不再显示撤销/保留按钮。
+        /// </summary>
+        /// <returns>true 表示保留成功</returns>
+        public bool AcceptSingleHunk(string filePath, int hunkIndex)
         {
             var normalizedPath = NormalizePath(filePath);
 
@@ -282,29 +437,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
                     return false;
 
                 var hunk = file.Hunks[hunkIndex];
-                if (hunk.IsReverted)
+                if (hunk.IsReverted || hunk.IsAccepted)
                     return false;
 
-                string currentContent = File.Exists(normalizedPath)
-                    ? File.ReadAllText(normalizedPath)
-                    : string.Empty;
+                hunk.IsAccepted = true;
 
-                string revertedContent = ApplyHunkRevert(currentContent, hunk);
-
-                // ── 落盘 ──
-                File.WriteAllText(normalizedPath, revertedContent);
-
-                // ── 标记已撤销 ──
-                hunk.IsReverted = true;
-
-                Logger.Info($"[StagedWorkspace] 已撤销单块 [{hunkIndex}] ({Path.GetFileName(normalizedPath)})");
-
-                // 若所有块都撤销了，等价于恢复到 Baseline
-                if (file.Hunks.All(h => h.IsReverted))
-                {
-                    // 由调用方决定是否整文件回滚标记
-                }
-
+                Logger.Info($"[StagedWorkspace] 已保留单块 [{hunkIndex}] ({Path.GetFileName(normalizedPath)})");
                 return true;
             }
         }
@@ -319,7 +457,43 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
             {
                 if (!_trackedFiles.TryGetValue(normalizedPath, out var file))
                     return false;
-                return file.Hunks.Any(h => !h.IsReverted);
+                return file.Hunks.Any(h => !h.IsReverted && !h.IsAccepted);
+            }
+        }
+
+        /// <summary>
+        /// 构建「仅含待处理块」的显示基线：在当前内容的基础上，
+        /// 把所有待处理（未保留且未撤销）块回退为 Baseline 原文。
+        /// 以它作为 Diff 左侧时，只有待处理块会显示为差异：
+        /// 已保留块并入新基线（不再高亮），已撤销块天然与基线一致（同样不显示）。
+        /// </summary>
+        public string BuildPendingOnlyBaseline(string filePath)
+        {
+            var normalizedPath = NormalizePath(filePath);
+
+            // 先刷新 hunks（重算 + 回填已保留/已撤销标记），确保标志位最新
+            GetHunks(normalizedPath);
+
+            lock (_lock)
+            {
+                string currentContent = File.Exists(normalizedPath)
+                    ? File.ReadAllText(normalizedPath)
+                    : string.Empty;
+
+                if (!_trackedFiles.TryGetValue(normalizedPath, out var file))
+                    return currentContent;
+
+                string content = currentContent;
+
+                // 从后往前回退：先替换靠后的块，前面块的行号不会被推移
+                for (int i = file.Hunks.Count - 1; i >= 0; i--)
+                {
+                    var hunk = file.Hunks[i];
+                    if (hunk.IsReverted || hunk.IsAccepted) continue;
+                    content = ApplyHunkRevert(content, hunk);
+                }
+
+                return content;
             }
         }
 

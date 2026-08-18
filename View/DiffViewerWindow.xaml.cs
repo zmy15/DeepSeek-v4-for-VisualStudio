@@ -42,13 +42,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
             DiffHost.SetViewerHandle(handle);
         }
 
-        /// <summary>设置逐块撤销列表。</summary>
+        /// <summary>设置逐块撤销/保留列表。</summary>
         public void SetHunks(
             System.Collections.Generic.IReadOnlyList<DeepSeek_v4_for_VisualStudio.Models.DiffHunkInfo> hunks,
             string? filePath = null,
-            Action<int>? onRevertHunk = null)
+            Action<int>? onRevertHunk = null,
+            Action<int>? onKeepHunk = null)
         {
             DiffHost.OnRevertHunk = onRevertHunk ?? DiffHost.OnRevertHunk;
+            DiffHost.OnKeepHunk = onKeepHunk ?? DiffHost.OnKeepHunk;
             DiffHost.SetHunks(hunks, filePath);
         }
 

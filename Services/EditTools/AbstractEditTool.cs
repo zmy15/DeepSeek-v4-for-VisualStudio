@@ -223,10 +223,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         /// <summary>
         /// 批量应用所有编辑。
         /// 1. 创建备份
-        /// 2. 先通过文件系统写入
-        /// 3. 再通过 VS 文本缓冲区更新已打开的编辑器
-        /// 4. 检查新引入的诊断错误
-        /// 5. 全部成功则清理备份，有失败则回滚
+        /// 2. 已打开文档 → buffer 整体替换 + 编辑器 Save；未打开 → 文件系统写入
+        /// 3. 检查新引入的诊断错误
+        /// 4. 全部成功则清理备份，有失败则回滚
         /// </summary>
         protected async Task<EditToolResult> ApplyAllEditsAsync(
             List<PreparedEdit> edits,
@@ -296,41 +295,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 {
                     if (Workspace != null)
                     {
-                        // Workspace 模式：直接落盘 + 撤销追踪（不创建文件备份）
+                        // Workspace 模式：写穿落盘 + 撤销追踪（不创建文件备份）。
+                        // WriteFile 内部对已打开文档走 buffer+编辑器 Save 统一写入，buffer 已同步，
+                        // 不再调用 ApplyEditsToOpenDocumentAsync 二次打补丁（那正是把 buffer 弄脏的元凶）。
                         Workspace.WriteFile(prepared.FilePath, finalContent);
                         fileResult.FinalContent = finalContent;
-
-                        // ── 同步更新 VS 编辑器缓冲区 ──
-                        try
-                        {
-                            await EditBufferApplier.ApplyEditsToOpenDocumentAsync(
-                                prepared.FilePath, prepared.GeneratedEdit.TextEdits);
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Warn(LocalizationService.Instance.Format("tool.edit.vsUpdateFailed", ToolName, ex.Message));
-                        }
                     }
                     else
                     {
-                        // 直接写盘（原有行为）
+                        // 直接写盘模式
                         if (!backups.ContainsKey(prepared.FilePath))
                         {
                             backups[prepared.FilePath] = BackupService.CreateBackup(prepared.FilePath);
                         }
 
-                        await Task.Run(() => File.WriteAllText(prepared.FilePath, finalContent), ct);
-
-                        // ── 更新 VS 编辑器缓冲区 ──
+                        // 已打开文档 → buffer+编辑器 Save；未打开 → 裸写盘
+                        bool writtenViaBuffer = false;
                         try
                         {
-                            await EditBufferApplier.ApplyEditsToOpenDocumentAsync(
-                                prepared.FilePath, prepared.GeneratedEdit.TextEdits);
+                            writtenViaBuffer = await EditBufferApplier.TryWriteOpenDocumentAsync(
+                                prepared.FilePath, finalContent);
                         }
                         catch (Exception ex)
                         {
                             Logger.Warn(LocalizationService.Instance.Format("tool.edit.vsUpdateFailed", ToolName, ex.Message));
                         }
+
+                        if (!writtenViaBuffer)
+                            await Task.Run(() => File.WriteAllText(prepared.FilePath, finalContent), ct);
                     }
                 }
                 catch (Exception ex)

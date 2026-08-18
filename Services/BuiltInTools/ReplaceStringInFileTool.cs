@@ -1,5 +1,6 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
+using DeepSeek_v4_for_VisualStudio.Services.EditTools;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Concurrent;
@@ -124,7 +125,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 // ── 写入前备份 ──
                 string? backupPath = BackupService.CreateBackup(filePath);
 
-                File.WriteAllText(filePath, newContent, Encoding.UTF8);
+                // 已打开文档 → buffer+编辑器 Save；未打开 → 裸写盘
+                bool writtenViaBuffer = false;
+                try
+                {
+                    writtenViaBuffer = await EditBufferApplier.TryWriteOpenDocumentAsync(filePath, newContent);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[ReplaceString] buffer 写入失败，回退磁盘: {Path.GetFileName(filePath)} — {ex.Message}");
+                }
+
+                if (!writtenViaBuffer)
+                    File.WriteAllText(filePath, newContent, Encoding.UTF8);
 
                 // ── 写入成功 → 清理备份 ──
                 BackupService.CleanupBackup(backupPath);

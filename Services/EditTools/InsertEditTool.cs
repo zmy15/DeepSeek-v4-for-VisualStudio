@@ -155,11 +155,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                                 string fallbackContent = EditStringMatcher.NormalizeToCrLf(edit.FullContent);
                                 if (Workspace != null)
                                 {
+                                    // WriteFile 内部对已打开文档走 buffer+编辑器 Save
                                     Workspace.WriteFile(resolvedPath, fallbackContent);
                                 }
                                 else
                                 {
-                                    await Task.Run(() => File.WriteAllText(resolvedPath, fallbackContent), ct);
+                                    bool writtenViaBuffer = await EditBufferApplier.TryWriteOpenDocumentAsync(
+                                        resolvedPath, fallbackContent);
+                                    if (!writtenViaBuffer)
+                                        await Task.Run(() => File.WriteAllText(resolvedPath, fallbackContent), ct);
                                 }
                                 result.Success = true;
                                 result.FinalContent = edit.FullContent;
@@ -177,23 +181,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     string normalizedContent = EditStringMatcher.NormalizeToCrLf(result.FinalContent);
                     if (Workspace != null)
                     {
+                        // WriteFile 内部对已打开文档走 buffer+编辑器 Save 统一写入，buffer 已同步，
+                        // 不再调用 ApplyEditsToOpenDocumentAsync 二次打补丁（那正是把 buffer 弄脏的元凶）。
                         Workspace.WriteFile(resolvedPath, normalizedContent);
-
-                        // ── 同步更新 VS 编辑器缓冲区 ──
-                        try
-                        {
-                            await EditBufferApplier.ApplyEditsToOpenDocumentAsync(
-                                resolvedPath, result.AppliedEdits);
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Warn(LocalizationService.Instance.Format(
-                                "tool.edit.vsUpdateFailed", ToolName, ex.Message));
-                        }
                     }
                     else
                     {
-                        await Task.Run(() => File.WriteAllText(resolvedPath, normalizedContent), ct);
+                        // 已打开文档 → buffer+编辑器 Save；未打开 → 裸写盘
+                        bool writtenViaBuffer = await EditBufferApplier.TryWriteOpenDocumentAsync(
+                            resolvedPath, normalizedContent);
+                        if (!writtenViaBuffer)
+                            await Task.Run(() => File.WriteAllText(resolvedPath, normalizedContent), ct);
                     }
                 }
 

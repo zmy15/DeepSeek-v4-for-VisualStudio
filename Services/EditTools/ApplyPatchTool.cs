@@ -230,25 +230,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
                 if (Workspace != null)
                 {
-                    // ── Workspace 模式：直接落盘 + 撤销追踪 ──
+                    // ── Workspace 模式：写穿落盘 + 撤销追踪 ──
                     result = ApplySinglePatch(patch, resolvedPath, currentContent);
 
                     if (result.Success && !string.IsNullOrEmpty(result.FinalContent))
                     {
                         string normalizedContent = EditStringMatcher.NormalizeToCrLf(result.FinalContent);
+                        // WriteFile 内部对已打开文档走 buffer+编辑器 Save 统一写入，buffer 已同步，
+                        // 不再调用 ApplyEditsToOpenDocumentAsync 二次打补丁（那正是把 buffer 弄脏的元凶）。
                         Workspace.WriteFile(resolvedPath, normalizedContent);
-
-                        // ── 同步更新 VS 编辑器缓冲区 ──
-                        try
-                        {
-                            await EditBufferApplier.ApplyEditsToOpenDocumentAsync(
-                                resolvedPath, result.AppliedEdits);
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Warn(LocalizationService.Instance.Format(
-                                "tool.edit.vsUpdateFailed", ToolName, ex.Message));
-                        }
                     }
                 }
                 else
@@ -1323,8 +1313,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
                 if (!string.IsNullOrEmpty(result.FinalContent))
                 {
-                    await Task.Run(() => File.WriteAllText(resolvedPath,
-                        EditStringMatcher.NormalizeToCrLf(result.FinalContent)), ct);
+                    // 已打开文档 → buffer+编辑器 Save；未打开 → 裸写盘（校验从磁盘读回，两条路径均覆盖）
+                    string contentToWrite = EditStringMatcher.NormalizeToCrLf(result.FinalContent);
+                    bool writtenViaBuffer = await EditBufferApplier.TryWriteOpenDocumentAsync(
+                        resolvedPath, contentToWrite);
+                    if (!writtenViaBuffer)
+                        await Task.Run(() => File.WriteAllText(resolvedPath, contentToWrite), ct);
 
                     var validationErrors = ValidateWrittenContent(
                         resolvedPath, result.FinalContent, result.AppliedEdits);

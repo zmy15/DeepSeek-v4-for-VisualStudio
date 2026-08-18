@@ -78,10 +78,14 @@ public class TerminalWindowHelperTests
         var method = typeof(TerminalWindowHelper).GetMethod("ShowFinalDiffAsync")!;
         var parameters = method.GetParameters();
 
-        parameters.Should().HaveCount(3);
+        // 写穿模式新增了可选的 workspace 撤销追踪参数（第 4 个，带默认值）
+        parameters.Should().HaveCount(4);
         parameters[0].ParameterType.Should().Be(typeof(string)); // oldContent
         parameters[1].ParameterType.Should().Be(typeof(string)); // newContent
         parameters[2].ParameterType.Should().Be(typeof(string)); // filePath
+        parameters[3].ParameterType.Should().Be(
+            typeof(DeepSeek_v4_for_VisualStudio.Services.Editing.StagedEditWorkspace)); // workspace
+        parameters[3].HasDefaultValue.Should().BeTrue();
     }
 
     [Fact]

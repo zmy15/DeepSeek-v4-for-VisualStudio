@@ -1,4 +1,4 @@
-<UserControl x:Class="DeepSeek_v4_for_VisualStudio.View.InlineDiffHostControl"
+﻿<UserControl x:Class="DeepSeek_v4_for_VisualStudio.View.InlineDiffHostControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:utils="clr-namespace:DeepSeek_v4_for_VisualStudio.Utils"
@@ -8,8 +8,6 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- 工具栏 -->
@@ -117,49 +115,10 @@
                 </StackPanel>
             </Grid>
         </Border>
-
         <!-- Diff 查看器宿主 -->
-        <Border Grid.Row="1"
-                x:Name="DiffViewerHost"
-                Background="#1E1E1E" />
-
-        <!-- 变更块列表（逐块撤销） -->
-        <Border Grid.Row="2"
-                x:Name="HunkListBorder"
-                Background="#252526"
-                BorderBrush="#3F3F46"
-                BorderThickness="0,1,0,0"
-                MaxHeight="180"
-                Visibility="Collapsed">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0"
-                           x:Name="HunkListHeader"
-                           Text="{utils:I18n diff.hunkListHeader}"
-                           Foreground="#A0A0A0"
-                           FontSize="11"
-                           FontWeight="SemiBold"
-                           Padding="12,6"
-                           Background="#1E1E1E" />
-                <ScrollViewer Grid.Row="1"
-                              VerticalScrollBarVisibility="Auto">
-                    <ItemsControl x:Name="HunkList"
-                                  HorizontalAlignment="Stretch" />
-                </ScrollViewer>
-            </Grid>
-        </Border>
-
-        <!-- 底部状态栏 -->
-        <Border Grid.Row="3"
-                Background="#007ACC"
-                Padding="12,6">
-            <TextBlock x:Name="BottomStatusLabel"
-                       Foreground="White"
-                       FontSize="11"
-                       Text="{utils:I18n diff.guideText}" />
-        </Border>
+        <Grid Grid.Row="1" x:Name="ViewerArea">
+            <Border x:Name="DiffViewerHost"
+                    Background="#1E1E1E" />
+        </Grid>
     </Grid>
 </UserControl>

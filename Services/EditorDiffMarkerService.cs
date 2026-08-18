@@ -1,4 +1,4 @@
-using DeepSeek_v4_for_VisualStudio.Models;
+﻿using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services.Editing;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using DeepSeek_v4_for_VisualStudio.View;
@@ -55,7 +55,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         // ── 新版 Session-based diff ──
         private readonly InlineDiffSessionManager _sessionManager = new();
-        private readonly FloatingWindowDiffHost _diffHost = new();
+        private readonly Dictionary<ITextBuffer, EditorDiffHost> _editorHosts = new();
+        private readonly object _editorHostsLock = new();
 
         /// <summary>待处理 diff 的默认过期时间（30 分钟）。</summary>
         private static readonly TimeSpan PendingDiffTtl = TimeSpan.FromMinutes(30);
@@ -217,8 +218,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             };
 
-            // 显示
-            _diffHost.Show(session);
+            // 显示：先登记宿主，待编辑器首帧渲染后再挂载覆盖层，避免阻塞视图创建
+            var editorHost = new EditorDiffHost(textView);
+
+            lock (_editorHostsLock)
+            {
+                _editorHosts[textView.TextBuffer] = editorHost;
+            }
+
+            textView.VisualElement.Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    if (!textView.IsClosed && session.State == InlineDiffSessionState.Showing)
+                        editorHost.Show(session);
+                }),
+                System.Windows.Threading.DispatcherPriority.Loaded);
 
             PendingDiffCountChanged?.Invoke();
             Logger.Info($"[EditorDiff] Inline Diff Session 已创建: {session.SessionId.Substring(0, 8)} ({Path.GetFileName(filePath)})");
@@ -240,6 +254,96 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 return _activeWindows.Count;
             }
+        }
+
+        /// <summary>
+        /// 编辑器内嵌挂件：获取指定 buffer 的活跃 Session 及差异块（Hunks）。
+        /// 返回 null 表示该 buffer 无活跃 Session。
+        /// </summary>
+        public InlineDiffSession? GetActiveSessionForBuffer(ITextBuffer buffer)
+        {
+            if (_sessionManager.TryGetSession(buffer, out var session))
+                return session;
+            return null;
+        }
+
+        /// <summary>
+        /// 编辑器内嵌挂件：获取指定 buffer 当前待处理的差异块（含已撤销状态）。
+        /// </summary>
+        public IReadOnlyList<Models.DiffHunkInfo> GetHunksForBuffer(ITextBuffer buffer)
+        {
+            var session = GetActiveSessionForBuffer(buffer);
+            if (session?.Workspace == null)
+                return Array.Empty<Models.DiffHunkInfo>();
+            return session.Workspace.GetHunks(session.Change.FilePath);
+        }
+
+        /// <summary>
+        /// 编辑器内嵌挂件：撤销指定 buffer 的某个差异块，并刷新编辑器。
+        /// </summary>
+        public bool RevertHunkForBuffer(ITextBuffer buffer, int hunkIndex)
+        {
+            var session = GetActiveSessionForBuffer(buffer);
+            if (session?.Workspace == null) return false;
+
+            bool ok = session.Workspace.RestoreSingleHunk(session.Change.FilePath, hunkIndex);
+            if (ok)
+            {
+                // 同步 VS 编辑器缓冲区（写穿已落盘，此处刷新内存 buffer）
+                PendingDiffCountChanged?.Invoke();
+                Logger.Info($"[EditorDiff] 编辑器内嵌：已撤销块 [{hunkIndex}] ({System.IO.Path.GetFileName(session.Change.FilePath)})");
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// 编辑器内嵌挂件：保留指定 buffer 的某个差异块（磁盘不变，仅确认该块）。
+        /// </summary>
+        public bool AcceptHunkForBuffer(ITextBuffer buffer, int hunkIndex)
+        {
+            var session = GetActiveSessionForBuffer(buffer);
+            if (session?.Workspace == null) return false;
+
+            bool ok = session.Workspace.AcceptSingleHunk(session.Change.FilePath, hunkIndex);
+            if (ok)
+            {
+                PendingDiffCountChanged?.Invoke();
+                Logger.Info($"[EditorDiff] 编辑器内嵌：已保留块 [{hunkIndex}] ({System.IO.Path.GetFileName(session.Change.FilePath)})");
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// 编辑器内嵌挂件：保留全部。写穿模式下磁盘即最终内容，
+        /// 只确认并清除撤销追踪（不重写文件）；非写穿模式走正常 Commit 流程。
+        /// </summary>
+        public void ConfirmAllForBuffer(ITextBuffer buffer)
+        {
+            var session = GetActiveSessionForBuffer(buffer);
+            if (session == null) return;
+
+            CloseEditorHost(buffer);
+
+            if (session.Workspace != null)
+            {
+                session.ConfirmWriteThrough();
+            }
+            else
+            {
+                _ = session.CommitAsync(System.Threading.CancellationToken.None);
+            }
+        }
+
+        /// <summary>
+        /// 编辑器内嵌挂件：撤销全部。恢复 Baseline 并关闭浮动 Diff 窗口。
+        /// </summary>
+        public void DismissSessionForBuffer(ITextBuffer buffer)
+        {
+            var session = GetActiveSessionForBuffer(buffer);
+            if (session == null) return;
+
+            CloseEditorHost(buffer);
+            session.Dismiss();
         }
         #endregion
 
@@ -542,6 +646,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return textDoc.FilePath;
             return null;
         }
+
+        /// <summary>
+        /// Close the editor-embedded diff host (remove from adornment layer).
+        /// </summary>
+        private void CloseEditorHost(ITextBuffer buffer)
+        {
+            lock (_editorHostsLock)
+            {
+                if (_editorHosts.TryGetValue(buffer, out var host))
+                {
+                    host.Close();
+                    _editorHosts.Remove(buffer);
+                }
+            }
+        }
+
 
         #endregion
     }

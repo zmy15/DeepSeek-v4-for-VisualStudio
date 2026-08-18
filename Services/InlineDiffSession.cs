@@ -220,6 +220,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 写穿模式下的「保留全部」：磁盘内容即最终结果。
+        /// 只确认并清除撤销追踪，不重新写入文件/缓冲区，
+        /// 避免 CommitAsync 把整个 Proposal 重写回缓冲区，
+        /// 覆盖用户已逐块撤销的内容。
+        /// </summary>
+        public void ConfirmWriteThrough()
+        {
+            if (State == InlineDiffSessionState.Committed ||
+                State == InlineDiffSessionState.Dismissed ||
+                State == InlineDiffSessionState.Disposed)
+                return;
+
+            Workspace?.ConfirmAll();
+
+            TransitionTo(InlineDiffSessionState.Committed);
+            Dispose();
+        }
+
+        /// <summary>
         /// 检查是否存在冲突（仅对已打开文档有效）。
         /// </summary>
         public bool HasConflict()

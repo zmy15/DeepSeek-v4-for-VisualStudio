@@ -1,9 +1,11 @@
-using DeepSeek_v4_for_VisualStudio.Models;
+﻿using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Differencing;
 using Microsoft.VisualStudio.Text.Editor;
+using Microsoft.VisualStudio.Text.Formatting;
 using System;
 using System.Collections.Generic;
 using System.Windows;
@@ -19,9 +21,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
     /// </summary>
     public partial class InlineDiffHostControl : UserControl
     {
+        public const string HunkButtonsLayerName = "DeepSeekHunkButtonsLayer";
+
         #region Fields
 
         private IWpfDifferenceViewer? _viewer;
+        private IWpfTextView? _inlineView;
+        private IAdornmentLayer? _hunkButtonsLayer;
+        private IWpfDifferenceViewer? _statusBarViewer;
 
         /// <summary>用户点击「保留」时的回调</summary>
         public Action? OnAccept { get; set; }
@@ -32,8 +39,32 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>用户点击「撤销某块」时的回调（参数：块索引）</summary>
         public Action<int>? OnRevertHunk { get; set; }
 
+        /// <summary>Callback when user clicks [Keep this hunk] (arg: hunk index)</summary>
+        public Action<int>? OnKeepHunk { get; set; }
+
         /// <summary>当前显示的 hunks</summary>
         private IReadOnlyList<DiffHunkInfo> _hunks = Array.Empty<DiffHunkInfo>();
+
+        private string? _hunkFilePath;
+
+        /// <summary>宿主编辑器视图（由 EditorDiffHost 注入，用于缩放同步）。</summary>
+        private IWpfTextView? _hostTextView;
+
+        /// <summary>
+        /// 宿主编辑器视图。设置后 diff 各子视图的缩放跟随其 ZoomLevel，
+        /// 与编辑器页面的缩放保持一致。
+        /// </summary>
+        public IWpfTextView? HostTextView
+        {
+            get => _hostTextView;
+            set
+            {
+                if (ReferenceEquals(_hostTextView, value)) return;
+                DetachZoomSource();
+                _hostTextView = value;
+                SyncZoomFromHostEditor();
+            }
+        }
 
         #endregion
 
@@ -42,6 +73,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         public InlineDiffHostControl()
         {
             InitializeComponent();
+            Unloaded += (_, __) => DetachZoomSource();
         }
 
         #endregion
@@ -53,6 +85,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         public void SetViewer(IWpfDifferenceViewer viewer)
         {
+            DetachViewer();
             _viewer = viewer ?? throw new ArgumentNullException(nameof(viewer));
 
             // 解除 host 自身的旧 child
@@ -68,6 +101,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // 订阅差异变化事件以更新统计
             _viewer.DifferenceBuffer.SnapshotDifferenceChanged += OnSnapshotDifferenceChanged;
+            _inlineView = _viewer.InlineView;
+            if (_inlineView != null)
+                _inlineView.LayoutChanged += OnViewerLayoutChanged;
+
+            SyncZoomFromHostEditor();
+            QueueLayoutHunkButtons();
+            HideViewerStatusBar(viewer);
+            QueueHideViewerStatusBar(viewer);
+            Dispatcher.BeginInvoke(
+                new Action(LayoutHunkButtons),
+                System.Windows.Threading.DispatcherPriority.Render);
             UpdateStats();
         }
 
@@ -80,12 +124,21 @@ namespace DeepSeek_v4_for_VisualStudio.View
             SetViewer(handle.Viewer);
         }
 
-        /// <summary>
-        /// 更新底部状态栏文本。
-        /// </summary>
-        public void SetStatusText(string text)
+        public void DetachViewer()
         {
-            BottomStatusLabel.Text = text;
+            if (_viewer != null)
+            {
+                _viewer.DifferenceBuffer.SnapshotDifferenceChanged -= OnSnapshotDifferenceChanged;
+            }
+            if (_inlineView != null)
+                _inlineView.LayoutChanged -= OnViewerLayoutChanged;
+
+            _hunkButtonsLayer?.RemoveAllAdornments();
+            DetachStatusBarWatcher();
+            DiffViewerHost.Child = null;
+            _hunkButtonsLayer = null;
+            _inlineView = null;
+            _viewer = null;
         }
 
         /// <summary>
@@ -96,44 +149,153 @@ namespace DeepSeek_v4_for_VisualStudio.View
         public void SetHunks(IReadOnlyList<DiffHunkInfo> hunks, string? filePath = null)
         {
             _hunks = hunks ?? Array.Empty<DiffHunkInfo>();
+            _hunkFilePath = filePath;
+            LayoutHunkButtons();
+        }
 
-            if (_hunks.Count == 0)
-            {
-                HunkListBorder.Visibility = Visibility.Collapsed;
-                HunkList.Items.Clear();
-                return;
-            }
 
-            HunkListBorder.Visibility = Visibility.Visible;
-            HunkList.Items.Clear();
 
-            string fileName = System.IO.Path.GetFileName(filePath ?? string.Empty);
-            HunkListHeader.Text = $"{fileName} — {LocalizationService.Instance["diff.hunkListHeader"]} ({_hunks.Count})";
+        /// <summary>
+        /// 刷新块列表（撤销某块后更新状态）。
+        /// </summary>
+        public void RefreshHunks(IReadOnlyList<DiffHunkInfo> hunks, string? filePath = null)
+        {
+            SetHunks(hunks, filePath);
+        }
+
+        #endregion
+
+        #region Hunk Buttons
+
+        private void OnViewerLayoutChanged(object? sender, TextViewLayoutChangedEventArgs e)
+        {
+            QueueLayoutHunkButtons();
+        }
+
+        private void LayoutHunkButtons()
+        {
+            if (_viewer == null || _viewer.IsClosed) return;
+
+            var inlineView = _viewer.InlineView;
+            if (inlineView == null) return;
+            _inlineView = inlineView;
+            _hunkButtonsLayer = inlineView.GetAdornmentLayer(HunkButtonsLayerName);
+            _hunkButtonsLayer.RemoveAllAdornments();
+
+            double viewportWidth = Math.Max(0, inlineView.ViewportWidth);
+            if (viewportWidth <= 0) return;
 
             for (int i = 0; i < _hunks.Count; i++)
             {
-                HunkList.Items.Add(CreateHunkItem(i, _hunks[i]));
+                var hunk = _hunks[i];
+                if (hunk.IsReverted || hunk.IsAccepted) continue;
+
+                var textLine = FindInlineLineForHunk(hunk, inlineView);
+                if (textLine == null) continue;
+
+                var group = MakeHunkButtonGroup(i);
+                group.HorizontalAlignment = HorizontalAlignment.Right;
+                group.Margin = new Thickness(0, 0, 8, 0);
+
+                group.Measure(new Size(viewportWidth, double.PositiveInfinity));
+                double top = textLine.TextTop +
+                    Math.Max(0, (textLine.TextHeight - group.DesiredSize.Height) / 2);
+
+                var container = new Grid
+                {
+                    Width = viewportWidth,
+                    VerticalAlignment = VerticalAlignment.Top,
+                };
+                container.Children.Add(group);
+
+                Canvas.SetLeft(container, 0);
+                Canvas.SetTop(container, top);
+
+                _hunkButtonsLayer.AddAdornment(
+                    AdornmentPositioningBehavior.OwnerControlled,
+                    new SnapshotSpan(textLine.Start, 0),
+                    null,
+                    container,
+                    null);
             }
         }
 
-        /// <summary>
-        /// 创建单个 hunk 的展示项（含「撤销此块」/「保留此块」按钮）。
-        /// </summary>
-        private UIElement CreateHunkItem(int index, DiffHunkInfo hunk)
+        private ITextViewLine? FindInlineLineForHunk(
+            DiffHunkInfo hunk,
+            IWpfTextView inlineView)
         {
-            var panel = new DockPanel
-            {
-                Margin = new Thickness(2, 2, 2, 0),
-                LastChildFill = true,
-            };
+            var difference = _viewer?.DifferenceBuffer.CurrentSnapshotDifference;
+            if (difference == null) return null;
 
-            // 撤销 / 保留按钮
-            var btnPanel = new StackPanel
+            bool useRight = hunk.NewLineCount > 0 && hunk.NewStartLine >= 0;
+            var sourceSnapshot = useRight
+                ? difference.RightBufferSnapshot
+                : difference.LeftBufferSnapshot;
+            int lineNumber = useRight ? hunk.NewStartLine : hunk.OldStartLine;
+            if (lineNumber < 0 || lineNumber >= sourceSnapshot.LineCount) return null;
+
+            var sourcePoint = sourceSnapshot.GetLineFromLineNumber(lineNumber).Start;
+            SnapshotPoint inlinePoint;
+            try
             {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 0, 8, 0),
+                inlinePoint = difference.MapToInlineSnapshot(
+                    sourcePoint,
+                    PositionAffinity.Successor);
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
+
+            if (inlinePoint.Snapshot.Version != inlineView.TextSnapshot.Version)
+            {
+                try
+                {
+                    inlinePoint = inlinePoint.TranslateTo(
+                        inlineView.TextSnapshot,
+                        PointTrackingMode.Positive);
+                }
+                catch (ArgumentException)
+                {
+                    return null;
+                }
+            }
+
+            return inlineView.TextViewLines?
+                .GetTextViewLineContainingBufferPosition(inlinePoint);
+        }
+
+        private void QueueLayoutHunkButtons()
+        {
+            var inlineView = _viewer?.InlineView;
+            if (inlineView == null || inlineView.IsClosed) return;
+
+            inlineView.VisualElement.Dispatcher.BeginInvoke(
+                new Action(LayoutHunkButtons),
+                inlineView.VisualElement.Dispatcher == Dispatcher
+                    ? System.Windows.Threading.DispatcherPriority.Render
+                    : System.Windows.Threading.DispatcherPriority.Send);
+            Dispatcher.BeginInvoke(
+                new Action(LayoutHunkButtons),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private StackPanel MakeHunkButtonGroup(int index)
+        {
+            var keepBtn = new Button
+            {
+                Content = LocalizationService.Instance["diff.keepHunk"],
+                Background = new SolidColorBrush(Color.FromRgb(0x2E, 0x6B, 0x33)),
+                Foreground = Brushes.White,
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x3F, 0x8F, 0x47)),
+                BorderThickness = new Thickness(1),
+                MinWidth = 62, MaxWidth = 62, MinHeight = 20,
+                FontSize = 9,
+                Padding = new Thickness(2, 1, 2, 1),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Margin = new Thickness(0, 0, 4, 0),
             };
-            DockPanel.SetDock(btnPanel, Dock.Right);
+            keepBtn.Click += (s, e) => OnKeepHunk?.Invoke(index);
 
             var revertBtn = new Button
             {
@@ -142,62 +304,17 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Foreground = Brushes.White,
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0xB8, 0x40, 0x40)),
                 BorderThickness = new Thickness(1),
-                MinWidth = 70,
-                FontSize = 11,
-                Padding = new Thickness(6, 2, 6, 2),
-                Tag = index,
-                IsEnabled = !hunk.IsReverted,
+                MinWidth = 62, MaxWidth = 62, MinHeight = 20,
+                FontSize = 9,
+                Padding = new Thickness(2, 1, 2, 1),
+                Cursor = System.Windows.Input.Cursors.Hand,
             };
-            revertBtn.Click += (s, e) =>
-            {
-                int idx = (int)((Button)s!).Tag;
-                OnRevertHunk?.Invoke(idx);
-            };
-            btnPanel.Children.Add(revertBtn);
+            revertBtn.Click += (s, e) => OnRevertHunk?.Invoke(index);
 
-            // 块描述文本
-            string typeLabel = hunk.IsPureInsert
-                ? LocalizationService.Instance["diff.hunkTypeInsert"]
-                : hunk.IsPureDelete
-                    ? LocalizationService.Instance["diff.hunkTypeDelete"]
-                    : LocalizationService.Instance["diff.hunkTypeModify"];
-
-            string location = hunk.NewStartLine >= 0
-                ? $"L{hunk.NewStartLine + 1}-{hunk.NewStartLine + hunk.NewLineCount}"
-                : $"L{hunk.OldStartLine + 1}-{hunk.OldStartLine + hunk.OldLineCount}";
-
-            var text = new TextBlock
-            {
-                Text = $"[{index + 1}] {typeLabel}  {location}" + (hunk.IsReverted ? "  🔄" : ""),
-                Foreground = hunk.IsReverted
-                    ? new SolidColorBrush(Color.FromRgb(0x6A, 0xA0, 0x5A))
-                    : new SolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4)),
-                FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            };
-
-            panel.Children.Add(btnPanel);
-            panel.Children.Add(text);
-
-            var container = new Border
-            {
-                Child = panel,
-                Background = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x30)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3E)),
-                BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(8, 3, 4, 3),
-            };
-
-            return container;
-        }
-
-        /// <summary>
-        /// 刷新块列表（撤销某块后更新状态）。
-        /// </summary>
-        public void RefreshHunks(IReadOnlyList<DiffHunkInfo> hunks, string? filePath = null)
-        {
-            SetHunks(hunks, filePath);
+            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            sp.Children.Add(keepBtn);
+            sp.Children.Add(revertBtn);
+            return sp;
         }
 
         #endregion
@@ -307,6 +424,53 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 将 diff 各子视图（inline / 左 / 右）的 ZoomLevel 同步为宿主编辑器的缩放，
+        /// 并订阅宿主选项变化以便后续缩放时实时跟随。
+        /// </summary>
+        private void SyncZoomFromHostEditor()
+        {
+            var source = _hostTextView;
+            if (source == null || source.IsClosed) return;
+
+            source.Options.OptionChanged -= OnHostZoomChanged;
+            source.Options.OptionChanged += OnHostZoomChanged;
+
+            ApplyZoom(source.ZoomLevel);
+        }
+
+        private void OnHostZoomChanged(object? sender, EditorOptionChangedEventArgs e)
+        {
+            if (    e.OptionId == DefaultWpfViewOptions.ZoomLevelId.Name)
+                ApplyZoom(_hostTextView?.ZoomLevel ?? 100d);
+        }
+
+        private void ApplyZoom(double zoomLevel)
+        {
+            if (_viewer == null || _viewer.IsClosed) return;
+            if (zoomLevel <= 0) return;
+
+            if (_viewer.InlineView is IWpfTextView inline)
+                TrySetZoom(inline, zoomLevel);
+            if (_viewer.LeftView is IWpfTextView left)
+                TrySetZoom(left, zoomLevel);
+            if (_viewer.RightView is IWpfTextView right)
+                TrySetZoom(right, zoomLevel);
+        }
+
+        private static void TrySetZoom(IWpfTextView view, double zoomLevel)
+        {
+            try { view.ZoomLevel = (float)zoomLevel; }
+            catch (Exception ex) { Logger.Warn($"[DiffHost] 同步缩放失败: {ex.Message}"); }
+        }
+
+        private void DetachZoomSource()
+        {
+            if (_hostTextView == null) return;
+            _hostTextView.Options.OptionChanged -= OnHostZoomChanged;
+            _hostTextView = null;
+        }
+
+        /// <summary>
         /// 若元素已有逻辑/可视化父级，则从父级中解除。WPF 中同一元素不能是多个宿主的孩子。
         /// </summary>
         private static void TryDetachFromParent(System.Windows.UIElement element)
@@ -336,6 +500,153 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 Logger.Warn($"[DiffHost] 解除元素父级失败: {ex.Message}");
             }
+        }
+
+        private void QueueHideViewerStatusBar(IWpfDifferenceViewer viewer)
+        {
+            var visualElement = viewer.VisualElement;
+            void HideIfCurrent()
+            {
+                if (ReferenceEquals(_viewer, viewer) && !viewer.IsClosed)
+                    HideViewerStatusBar(viewer);
+            }
+
+            visualElement.Dispatcher.BeginInvoke(
+                new Action(HideIfCurrent),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+            visualElement.Dispatcher.BeginInvoke(
+                new Action(HideIfCurrent),
+                System.Windows.Threading.DispatcherPriority.ContextIdle);
+        }
+
+        private void HideViewerStatusBar(IWpfDifferenceViewer viewer)
+        {
+            DetachStatusBarWatcher();
+            _statusBarViewer = viewer;
+
+            if (TryCollapseStatusBarElements(viewer.VisualElement))
+                return;
+
+            if (viewer.VisualElement is FrameworkElement frameworkElement)
+            {
+                frameworkElement.LayoutUpdated += OnViewerStatusBarLayoutUpdated;
+            }
+        }
+
+        private void OnViewerStatusBarLayoutUpdated(object? sender, EventArgs e)
+        {
+            if (_statusBarViewer == null || sender is not FrameworkElement element) return;
+
+            element.Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    if (!ReferenceEquals(_statusBarViewer?.VisualElement, element)) return;
+                    if (TryCollapseStatusBarElements(element))
+                        DetachStatusBarWatcher();
+                }),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private static bool TryCollapseStatusBarElements(DependencyObject root)
+        {
+            bool collapsedStatusBar = CollapseElementsNamedStatusBar(root);
+            if (collapsedStatusBar) return true;
+
+            var indicator = FindStatusBarIndicator(root);
+            if (indicator == null) return false;
+
+            if (CollapseStatusBarAncestor(root, indicator))
+                return true;
+
+            indicator.Visibility = Visibility.Collapsed;
+            return true;
+        }
+
+        private static bool CollapseElementsNamedStatusBar(DependencyObject element)
+        {
+            if (element == null) return false;
+
+            bool collapsed = false;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++)
+            {
+                var child = VisualTreeHelper.GetChild(element, i);
+                if (child is UIElement uiElement &&
+                    child.GetType().Name.IndexOf("StatusBar", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    uiElement.Visibility = Visibility.Collapsed;
+                    collapsed = true;
+                }
+
+                collapsed |= CollapseElementsNamedStatusBar(child);
+            }
+
+            return collapsed;
+        }
+
+        private static UIElement? FindStatusBarIndicator(DependencyObject element)
+        {
+            if (element == null) return null;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++)
+            {
+                var child = VisualTreeHelper.GetChild(element, i);
+                if (child is TextBlock textBlock && IsStatusBarText(textBlock.Text))
+                    return textBlock;
+
+                if (child is ContentControl contentControl &&
+                    contentControl.Content is string text &&
+                    IsStatusBarText(text))
+                {
+                    return contentControl;
+                }
+
+                var descendant = FindStatusBarIndicator(child);
+                if (descendant != null)
+                    return descendant;
+            }
+
+            return null;
+        }
+
+        private static bool IsStatusBarText(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+
+            return (text.Contains("行", StringComparison.Ordinal) &&
+                    text.Contains("字符", StringComparison.Ordinal)) ||
+                   (text.Contains("Ln", StringComparison.OrdinalIgnoreCase) &&
+                    text.Contains("Col", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool CollapseStatusBarAncestor(DependencyObject root, DependencyObject indicator)
+        {
+            UIElement? candidate = null;
+            DependencyObject? current = indicator;
+
+            while (current != null && !ReferenceEquals(current, root))
+            {
+                if (current is FrameworkElement frameworkElement &&
+                    frameworkElement.ActualHeight > 0 &&
+                    frameworkElement.ActualHeight <= 40)
+                {
+                    candidate = frameworkElement;
+                }
+
+                current = VisualTreeHelper.GetParent(current);
+            }
+
+            if (candidate == null) return false;
+
+            candidate.Visibility = Visibility.Collapsed;
+            return true;
+        }
+
+        private void DetachStatusBarWatcher()
+        {
+            if (_statusBarViewer == null) return;
+
+            _statusBarViewer.VisualElement.LayoutUpdated -= OnViewerStatusBarLayoutUpdated;
+            _statusBarViewer = null;
         }
 
         #endregion
