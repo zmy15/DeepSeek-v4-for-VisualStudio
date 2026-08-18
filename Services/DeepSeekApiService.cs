@@ -54,6 +54,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private long _totalCacheMissTokens;
         private long _totalPromptTokens;
         private long _totalCompletionTokens;
+        private double _totalSessionCostYuan;
 
         /// <summary>
         /// 累计 Chat API 统计（跨所有 API 调用汇总，含 Agent 内部调用）。
@@ -64,6 +65,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public long TotalCacheMissTokens => Interlocked.Read(ref _totalCacheMissTokens);
         public long TotalPromptTokens => Interlocked.Read(ref _totalPromptTokens);
         public long TotalCompletionTokens => Interlocked.Read(ref _totalCompletionTokens);
+
+        /// <summary>
+        /// 累计费用（元，人民币）。每次 API 调用按"调用时点的实际模型 × 高峰/空闲时段"单价计价后累加。
+        /// </summary>
+        public double TotalSessionCostYuan => Volatile.Read(ref _totalSessionCostYuan);
 
         // ── FIM（代码补全）独立统计，不与聊天 Token 混合 ──
         private long _totalFimPromptTokens;
@@ -89,6 +95,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// DeepSeek V4 官方定价（¥/百万 tokens），按模型（Flash/Pro）× 时段（高峰/空闲）四档：
+        ///   输入（缓存命中）:   空闲 Flash ¥0.05 / Pro ¥0.15 ；高峰 Flash ¥0.10 / Pro ¥0.30
+        ///   输入（缓存未命中）: 空闲 Flash ¥1.5  / Pro ¥4.5  ；高峰 Flash ¥3.0  / Pro ¥9.0
+        ///   输出:               空闲 Flash ¥4.5  / Pro ¥13.5 ；高峰 Flash ¥9.0  / Pro ¥27.0
+        /// </summary>
+        /// <returns>(缓存未命中单价, 缓存命中单价, 输出单价)</returns>
+        public static (double CacheMiss, double CacheHit, double Output) GetPricing(bool isFlash, bool isPeak)
+            => isFlash
+                ? (CacheMiss: isPeak ? 3.0 : 1.5,
+                   CacheHit:  isPeak ? 0.10 : 0.05,
+                   Output:    isPeak ? 9.0 : 4.5)
+                : (CacheMiss: isPeak ? 9.0 : 4.5,
+                   CacheHit:  isPeak ? 0.30 : 0.15,
+                   Output:    isPeak ? 27.0 : 13.5);
+
+        /// <summary>
+        /// 判断当前是否处于北京高峰时段（9:00-12:00、14:00-18:00，其余为空闲时段）。
+        /// 北京时间为 UTC+8 且无夏令时，直接由 UTC 偏移计算，不依赖系统时区库。
+        /// </summary>
+        public static bool IsBeijingPeakTime()
+        {
+            int hour = DateTime.UtcNow.AddHours(8).Hour;
+            return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18);
+        }
+
+        /// <summary>
         /// 重置累计 Chat 统计（新会话开始时调用）。
         /// </summary>
         public void ResetAccumulatedStats()
@@ -97,17 +129,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Interlocked.Exchange(ref _totalCacheMissTokens, 0);
             Interlocked.Exchange(ref _totalPromptTokens, 0);
             Interlocked.Exchange(ref _totalCompletionTokens, 0);
+            Interlocked.Exchange(ref _totalSessionCostYuan, 0.0);
         }
 
         /// <summary>
         /// 从持久化数据恢复累计 Chat 统计（重启后调用）。
         /// </summary>
-        public void RestoreAccumulatedStats(long hitTokens, long missTokens, long promptTokens, long completionTokens)
+        public void RestoreAccumulatedStats(long hitTokens, long missTokens, long promptTokens, long completionTokens, double costYuan)
         {
             Interlocked.Exchange(ref _totalCacheHitTokens, hitTokens);
             Interlocked.Exchange(ref _totalCacheMissTokens, missTokens);
             Interlocked.Exchange(ref _totalPromptTokens, promptTokens);
             Interlocked.Exchange(ref _totalCompletionTokens, completionTokens);
+            Interlocked.Exchange(ref _totalSessionCostYuan, costYuan);
         }
 
         // ── 单轮统计快照（用于显示"本次问答"的 Cache 命中率，而非整个 Session 累计值）──
@@ -149,13 +183,40 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 线程安全地累加一次 API 调用的 Usage 统计到累计值（Chat API）。
+        /// 同时按"本次调用的实际模型 × 调用结束时点的时段"单价累计费用（元），
+        /// 跨高峰/空闲边界的会话自动分档计价。
         /// </summary>
-        private void AccumulateStats(DeepSeekUsage usage)
+        /// <param name="usage">本次调用的 usage</param>
+        /// <param name="effectiveModel">本次调用实际使用的模型（null 时取实例默认模型，如标题生成的 flash 覆盖）</param>
+        private void AccumulateStats(DeepSeekUsage usage, string? effectiveModel = null)
         {
             Interlocked.Add(ref _totalCacheHitTokens, usage.PromptCacheHitTokens);
             Interlocked.Add(ref _totalCacheMissTokens, usage.PromptCacheMissTokens);
             Interlocked.Add(ref _totalPromptTokens, usage.PromptTokens);
             Interlocked.Add(ref _totalCompletionTokens, usage.CompletionTokens);
+
+            // ── 费用累计：按调用时点的模型 × 高峰/空闲单价计价 ──
+            string model = effectiveModel ?? _model ?? string.Empty;
+            bool isFlash = model.Contains("flash", StringComparison.OrdinalIgnoreCase);
+            var (missPrice, hitPrice, outputPrice) = GetPricing(isFlash, IsBeijingPeakTime());
+            double cost = usage.PromptCacheMissTokens / 1_000_000.0 * missPrice
+                        + usage.PromptCacheHitTokens / 1_000_000.0 * hitPrice
+                        + usage.CompletionTokens / 1_000_000.0 * outputPrice;
+            AddAccumulatedCost(cost);
+        }
+
+        /// <summary>
+        /// 线程安全地累加费用（double 无 Interlocked.Add 重载，使用 CAS 循环）。
+        /// </summary>
+        private void AddAccumulatedCost(double cost)
+        {
+            if (cost <= 0) return;
+            double initial, updated;
+            do
+            {
+                initial = Volatile.Read(ref _totalSessionCostYuan);
+                updated = initial + cost;
+            } while (Interlocked.CompareExchange(ref _totalSessionCostYuan, updated, initial) != initial);
         }
 
         /// <summary>
@@ -946,7 +1007,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     if (chunk?.Usage != null)
                     {
                         LastUsage = chunk.Usage;
-                        AccumulateStats(chunk.Usage);
+                        AccumulateStats(chunk.Usage, model);
                         cacheInfo = $"{chunk.Usage.PromptCacheHitTokens}|{chunk.Usage.PromptCacheMissTokens}|{chunk.Usage.PromptTokens}|{chunk.Usage.CompletionTokens}";
                     }
                 }

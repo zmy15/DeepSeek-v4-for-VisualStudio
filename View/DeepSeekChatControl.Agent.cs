@@ -1276,8 +1276,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _activeSession.CumulativeCacheHitTokens,
                     _activeSession.CumulativeCacheMissTokens,
                     _activeSession.CumulativePromptTokens,
-                    _activeSession.CumulativeCompletionTokens);
-                Logger.Info($"[Cache] 从会话恢复累计统计: hit={_activeSession.CumulativeCacheHitTokens}, miss={_activeSession.CumulativeCacheMissTokens}");
+                    _activeSession.CumulativeCompletionTokens,
+                    _activeSession.CumulativeCostYuan);
+                Logger.Info($"[Cache] 从会话恢复累计统计: hit={_activeSession.CumulativeCacheHitTokens}, miss={_activeSession.CumulativeCacheMissTokens}, cost=¥{_activeSession.CumulativeCostYuan:F4}");
             }
             catch (Exception ex)
             {

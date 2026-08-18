@@ -87,6 +87,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _activeSession.CumulativeCacheMissTokens = _apiService.TotalCacheMissTokens;
                 _activeSession.CumulativePromptTokens = _apiService.TotalPromptTokens;
                 _activeSession.CumulativeCompletionTokens = _apiService.TotalCompletionTokens;
+                _activeSession.CumulativeCostYuan = _apiService.TotalSessionCostYuan;
             }
 
             _sessionsContainer.ActiveSessionId = _activeSession.Id;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -531,6 +531,10 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>累计 Completion Token 数</summary>
         [DataMember]
         public long CumulativeCompletionTokens { get; set; }
+
+        /// <summary>累计费用（元）。按每次调用时点的模型 × 高峰/空闲时段单价计价</summary>
+        [DataMember]
+        public double CumulativeCostYuan { get; set; }
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Services.Agents;
 using DeepSeek_v4_for_VisualStudio.Settings;
@@ -713,9 +713,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 格式化当前会话的 token 消耗信息。
         /// 包含：API 实际 Token 消耗 + 费用估算 + 上下文窗口利用率。
-        /// 费用基于 DeepSeek V4 官方定价（¥/百万 tokens）：
-        ///   Flash: 输入 ¥1/M（缓存未命中）/ ¥0.02/M（缓存命中），输出 ¥2/M
-        ///   Pro:   输入 ¥3/M（缓存未命中）/ ¥0.025/M（缓存命中），输出 ¥6/M
+        /// 费用基于 DeepSeek V4 官方定价（¥/百万 tokens），按模型 × 时段分档：
+        ///   高峰时段（北京时间 9:00-12:00、14:00-18:00）：
+        ///     Flash: 输入 ¥3/M（未命中）/ ¥0.10/M（命中），输出 ¥9/M
+        ///     Pro:   输入 ¥9/M（未命中）/ ¥0.30/M（命中），输出 ¥27/M
+        ///   空闲时段（其余时间）：
+        ///     Flash: 输入 ¥1.5/M（未命中）/ ¥0.05/M（命中），输出 ¥4.5/M
+        ///     Pro:   输入 ¥4.5/M（未命中）/ ¥0.15/M（命中），输出 ¥13.5/M
+        /// 费用在每次 API 调用时按"当时点的模型 × 时段"单价累计
+        /// （见 DeepSeekApiService.AccumulateStats），跨高峰/空闲的会话自动分档计价。
         /// </summary>
         private string FormatSessionConsumption()
         {
@@ -738,17 +744,21 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             else
             {
-                // 计算费用
+                // ── 模型档位（用于标签显示与兜底估算）──
                 string modelName = _options?.SelectedModel ?? "deepseek-v4-pro";
                 bool isFlash = modelName.Contains("flash", StringComparison.OrdinalIgnoreCase);
-                double inputCacheMissPrice = isFlash ? 1.0 : 3.0;
-                double inputCacheHitPrice = isFlash ? 0.02 : 0.025;
-                double outputPrice = isFlash ? 2.0 : 6.0;
 
-                double inputCacheMissCost = (cacheMissTokens / 1_000_000.0) * inputCacheMissPrice;
-                double inputCacheHitCost = (cacheHitTokens / 1_000_000.0) * inputCacheHitPrice;
-                double outputCost = (completionTokens / 1_000_000.0) * outputPrice;
-                double totalCost = inputCacheMissCost + inputCacheHitCost + outputCost;
+                // ── 费用：优先使用 ApiService 按调用时点（模型 × 高峰/空闲）累计的真实计价；
+                //    旧版本会话没有累计费用字段时，按当前时段单价估算兜底 ──
+                double totalCost = _apiService.TotalSessionCostYuan;
+                if (totalCost <= 0)
+                {
+                    var (missPrice, hitPrice, outputPrice) = DeepSeekApiService.GetPricing(
+                        isFlash, DeepSeekApiService.IsBeijingPeakTime());
+                    totalCost = cacheMissTokens / 1_000_000.0 * missPrice
+                              + cacheHitTokens / 1_000_000.0 * hitPrice
+                              + completionTokens / 1_000_000.0 * outputPrice;
+                }
 
                 string costStr = totalCost >= 0.01
                     ? $"¥{totalCost:F2}"
