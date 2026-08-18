@@ -105,6 +105,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (_inlineView != null)
                 _inlineView.LayoutChanged += OnViewerLayoutChanged;
 
+            DisableViewerBottomBars(viewer);
             SyncZoomFromHostEditor();
             QueueLayoutHunkButtons();
             HideViewerStatusBar(viewer);
@@ -139,6 +140,30 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _hunkButtonsLayer = null;
             _inlineView = null;
             _viewer = null;
+        }
+
+        private static void DisableViewerBottomBars(IWpfDifferenceViewer viewer)
+        {
+            if (viewer.InlineView != null)
+                DisableBottomBars(viewer.InlineView);
+            if (viewer.LeftView != null)
+                DisableBottomBars(viewer.LeftView);
+            if (viewer.RightView != null)
+                DisableBottomBars(viewer.RightView);
+        }
+
+        private static void DisableBottomBars(IWpfTextView view)
+        {
+            try
+            {
+                view.Options.SetOptionValue(DefaultTextViewHostOptions.HorizontalScrollBarId, false);
+                view.Options.SetOptionValue(DefaultTextViewHostOptions.RowColMarginOptionId, false);
+                view.Options.SetOptionValue(DefaultTextViewHostOptions.ZoomControlId, false);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[DiffHost] 关闭 viewer 底部栏失败: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -435,7 +460,33 @@ namespace DeepSeek_v4_for_VisualStudio.View
             source.Options.OptionChanged -= OnHostZoomChanged;
             source.Options.OptionChanged += OnHostZoomChanged;
 
+            SyncViewOptionsFromHost(source);
             ApplyZoom(source.ZoomLevel);
+        }
+
+        private void SyncViewOptionsFromHost(IWpfTextView source)
+        {
+            if (_viewer == null || _viewer.IsClosed) return;
+
+            foreach (var view in new[] { _viewer.InlineView, _viewer.LeftView, _viewer.RightView })
+            {
+                if (view == null) continue;
+
+                try
+                {
+                    if (!ReferenceEquals(view.Options.Parent, source.Options))
+                        view.Options.Parent = source.Options;
+
+                    view.Options.SetOptionValue(
+                        DefaultWpfViewOptions.AppearanceCategory,
+                        source.Options.GetOptionValue<string>(
+                            DefaultWpfViewOptions.AppearanceCategory));
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[DiffHost] 同步视图外观失败: {ex.Message}");
+                }
+            }
         }
 
         private void OnHostZoomChanged(object? sender, EditorOptionChangedEventArgs e)
