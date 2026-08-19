@@ -1719,7 +1719,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
                 catch { }
 
-                // 设置 Agent 类型供 GitTool 运行时校验（ExploreAgent 只能执行只读操作）
+                // 设置 Agent 类型供 GitTool 运行时校验（Ask/Explore 只能执行只读操作）
                 GitTool.CurrentAgentType = Definition.Type;
 
                 // 解析额外参数以细化操作分类

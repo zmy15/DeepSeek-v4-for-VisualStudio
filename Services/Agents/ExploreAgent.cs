@@ -20,7 +20,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     /// - 使用多种搜索策略（glob、grep、语义搜索、符号搜索）进行深度检索
     /// - 回答关于代码结构、依赖关系、实现模式的复杂问题
     /// - 被 Ask Agent / Plan Agent 作为子代理并行调用
-    /// - 绝不修改任何文件
+    /// - 绝不修改工作区文件（可通过 memory 工具维护扩展自己的仓库记忆）
     /// 
     /// ⚠️ 定位：深度检索引擎。简单的单文件查找应由调用方（Ask/Plan Agent）
     /// 直接使用内置工具完成，只有需要跨文件多步骤综合分析时才调用 Explore。
@@ -124,13 +124,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// Explore Agent 默认只读工具集。
-        /// 这些工具只能检查工作区，绝不能修改文件。
+        /// 这些工具只能检查工作区；memory 工具仅写入扩展记忆库，不属于工作区文件修改。
         /// </summary>
         public static readonly string[] DefaultReadTools = new[]
         {
             "search",           // 语义搜索
             "file_search",      // glob 文件搜索
             "grep_search",      // 文本/正则搜索
+            "symbol_search",    // 符号搜索（类/方法/接口/属性）
             "read_file",        // 读取文件内容
             "list_dir",         // 列出目录内容
             "get_errors",       // 获取编译错误

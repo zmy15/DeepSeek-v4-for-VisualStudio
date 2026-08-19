@@ -1613,9 +1613,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (string.IsNullOrEmpty(e.Uri)) return;
 
-            // ── 只拦截 vs-navigate:// 自定义协议 ──
+            // ── 真实导航会重置用户缩放，先屏蔽持久化事件，导航完成后恢复保存的比例 ──
             if (!e.Uri.StartsWith("vs-navigate://", StringComparison.OrdinalIgnoreCase))
+            {
+                _suppressWebViewZoomPersistence = true;
                 return;
+            }
+
+            // ── 只拦截 vs-navigate:// 自定义协议 ──
+            _suppressWebViewZoomPersistence = false;
 
             e.Cancel = true; // 阻止 WebView2 导航
 

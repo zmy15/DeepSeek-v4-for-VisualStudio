@@ -100,7 +100,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         /// <summary>
         /// 当前调用 Agent 类型（由 BaseAgent 在执行前设置，用于运行时权限校验）。
-        /// ExploreAgent 只能执行只读操作。
+        /// AskAgent / ExploreAgent 只能执行只读操作。
         /// </summary>
         public static AgentType? CurrentAgentType { get; set; }
 
@@ -207,8 +207,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 return L["tool.git.noRepo"];
 
             // ── 运行时 Agent 权限校验 ──
-            // ExploreAgent 只能执行只读操作；EditAgent/BuildAgent 无限制
-            if (CurrentAgentType == AgentType.Explore)
+            // AskAgent / ExploreAgent 只能执行只读操作；EditAgent/BuildAgent 无限制
+            if (CurrentAgentType is AgentType.Ask or AgentType.Explore)
             {
                 bool isReadOnly = ReadOnlyOps.Contains(operation)
                     // branch 无参数（list）→ 只读
@@ -220,8 +220,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 if (!isReadOnly)
                 {
-                    Logger.Warn($"[GitTool] ExploreAgent 尝试执行写操作被拒绝: git {operation}");
-                    return string.Format(L["tool.git.agentBlocked"], operation, "Explore");
+                    Logger.Warn($"[GitTool] 只读 Agent 尝试执行写操作被拒绝 ({CurrentAgentType}): git {operation}");
+                    return string.Format(
+                        L["tool.git.agentBlocked"],
+                        CurrentAgentType.ToString(),
+                        operation);
                 }
             }
 

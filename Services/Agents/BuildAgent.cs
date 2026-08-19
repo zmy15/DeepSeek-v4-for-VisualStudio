@@ -39,6 +39,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 构建与诊断
             "build_solution",
             "get_errors",
+            "file_search",      // 直接定位文件，构建错误路径/名称不完整时使用
+            "grep_search",      // 直接定位符号/错误文本引用
+            "list_dir",         // 快速查看项目目录结构
             // 文件读写与编辑
             "read_file",
             "replace_string_in_file",

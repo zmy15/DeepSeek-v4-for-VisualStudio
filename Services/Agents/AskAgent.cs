@@ -52,6 +52,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "fetch_webpage",      // 联网搜索（无需代码库访问）
             "request_handoff",    // 移交任务给其他 Agent
             "memory",             // 记忆管理
+            "git",                // Git 只读操作（运行时禁止写操作）
         };
 
         protected override AgentDefinition CreateDefinition(AgentType agentType)
@@ -100,7 +101,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static string BuildSystemPrompt()
         {
             return LocalizationService.Instance["agent.ask.systemPromptFragment"]
-                + AiPrompts.AskAgentPromptFragment;
+                + AiPrompts.AskAgentPromptFragment
+                + "\n\n" + AiPrompts.AskGitInstructions;
         }
 
         #endregion
@@ -566,6 +568,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             if (plan.IsCancelled)
                 return L["edit.summary.cancelled"];
+
+            // AI 已产出总结时直接使用，不再套固定 Markdown 模板。
+            // 图表、表格、标题等组织方式由 AI 根据变更内容自行决定。
+            if (!string.IsNullOrWhiteSpace(aiSummary))
+                return aiSummary.Trim();
 
             var sb = new StringBuilder();
             sb.AppendLine(L["edit.summary.complete"]);

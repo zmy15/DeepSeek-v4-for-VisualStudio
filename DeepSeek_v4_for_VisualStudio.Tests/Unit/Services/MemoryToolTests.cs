@@ -144,6 +144,26 @@ public class MemoryToolTests
         result.Should().StartWith("❌");
     }
 
+    [Fact]
+    public async Task Execute_StrReplace_NonexistentFile_ReturnsRecoveryHint()
+    {
+        string path = $"missing-{Guid.NewGuid():N}.md";
+        var args = new Dictionary<string, JsonElement>
+        {
+            ["command"] = JsonSerializer.SerializeToElement("str_replace"),
+            ["path"] = JsonSerializer.SerializeToElement($"/memories/repo/{path}"),
+            ["old_str"] = JsonSerializer.SerializeToElement("old"),
+            ["new_str"] = JsonSerializer.SerializeToElement("new"),
+        };
+
+        var result = await _tool.ExecuteAsync(args, null);
+
+        result.Should().StartWith("❌");
+        result.Should().Contain(path);
+        result.Should().Contain("view");
+        result.Should().Contain("create");
+    }
+
     #endregion
 
     #region Execute — Session Scope

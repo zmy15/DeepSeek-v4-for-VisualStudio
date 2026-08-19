@@ -85,6 +85,16 @@ public class ExploreAgentTests
     }
 
     [Fact]
+    public void Definition_AllowsMemoryToolForRepositoryKnowledge()
+    {
+        var agent = new ExploreAgent(_apiService);
+
+        agent.Definition.AllowedTools.Should().Contain("memory");
+        agent.Definition.SystemPrompt.Should().Contain("/memories/repo/project-structure.md");
+        agent.Definition.SystemPrompt.Should().Contain("memory");
+    }
+
+    [Fact]
     public void Definition_SystemPrompt_ContainsExploreMode()
     {
         var agent = new ExploreAgent(_apiService);
@@ -104,6 +114,7 @@ public class ExploreAgentTests
         ExploreAgent.DefaultReadTools.Should().Contain("file_search");
         ExploreAgent.DefaultReadTools.Should().Contain("grep_search");
         ExploreAgent.DefaultReadTools.Should().Contain("read_file");
+        ExploreAgent.DefaultReadTools.Should().Contain("symbol_search");
         ExploreAgent.DefaultReadTools.Should().Contain("search"); // semantic_search alias
     }
 

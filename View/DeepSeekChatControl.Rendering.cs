@@ -1,5 +1,6 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
+using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.Web.WebView2.Core;
 using System;
@@ -14,6 +15,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
     /// </summary>
     public partial class DeepSeekChatControl
     {
+        private bool _suppressWebViewZoomPersistence;
+
         #region Private Methods - Rendering
 
         /// <summary>
@@ -118,6 +121,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 ChatWebView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
                 ChatWebView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
                 ChatWebView.CoreWebView2.NavigationStarting += CoreWebView2_NavigationStarting;
+                ChatWebView.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
+                ChatWebView.ZoomFactorChanged += ChatWebView_ZoomFactorChanged;
+
+                ApplyPersistedWebView2Zoom();
 
                 // ── 自定义右键菜单：保留复制、全选等常用操作 ──
                 ChatWebView.CoreWebView2.ContextMenuRequested += (cmSender, cmArgs) =>
@@ -281,6 +288,76 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     Logger.Error($"[Render] PostStreamEnd 全量刷新降级也失败: {fallbackEx.Message}", fallbackEx);
                 }
+            }
+        }
+
+        /// <summary>
+        /// 保存 WebView2 页面缩放比例并在每次导航后恢复。
+        /// </summary>
+        private double GetPersistedWebView2ZoomFactor()
+        {
+            int percent = DeepSeekOptionsPage.NormalizeWebView2ZoomPercent(
+                _options?.WebView2ZoomPercent ?? DeepSeekOptionsPage.DefaultWebView2ZoomPercent);
+            return percent / 100.0;
+        }
+
+        private void ApplyPersistedWebView2Zoom()
+        {
+            if (ChatWebView?.CoreWebView2 == null) return;
+
+            try
+            {
+                _suppressWebViewZoomPersistence = true;
+                ChatWebView.ZoomFactor = GetPersistedWebView2ZoomFactor();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Render] 恢复 WebView2 缩放失败: {ex.Message}");
+            }
+            finally
+            {
+                _suppressWebViewZoomPersistence = false;
+            }
+        }
+
+        private void CoreWebView2_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(() => CoreWebView2_NavigationCompleted(sender, e));
+                return;
+            }
+
+            ApplyPersistedWebView2Zoom();
+        }
+
+        private void ChatWebView_ZoomFactorChanged(object? sender, EventArgs e)
+        {
+            if (_suppressWebViewZoomPersistence || ChatWebView == null) return;
+
+            try
+            {
+                int percent = DeepSeekOptionsPage.NormalizeWebView2ZoomPercent(
+                    (int)Math.Round(ChatWebView.ZoomFactor * 100));
+                if (percent == (_options?.WebView2ZoomPercent ?? DeepSeekOptionsPage.DefaultWebView2ZoomPercent))
+                    return;
+
+                if (_options != null)
+                {
+                    _options.WebView2ZoomPercent = percent;
+                    try { _options.SaveSettingsToStorage(); } catch { }
+                }
+                else if (DeepSeekOptionsPage.Instance != null)
+                {
+                    DeepSeekOptionsPage.Instance.WebView2ZoomPercent = percent;
+                    try { DeepSeekOptionsPage.Instance.SaveSettingsToStorage(); } catch { }
+                }
+
+                Logger.Info($"[Render] WebView2 缩放已保存: {percent}%");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Render] 保存 WebView2 缩放失败: {ex.Message}");
             }
         }
 

@@ -324,6 +324,27 @@ public class GitToolTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_AskAgent_WriteOperation_Blocked()
+    {
+        var root = GetProjectRoot();
+        if (root == null || !GitTool.IsGitAvailable) return;
+
+        GitTool.CurrentAgentType = AgentType.Ask;
+        try
+        {
+            var args = ParseArgs("{\"operation\": \"add\", \"files\": [\"test.cs\"]}");
+            var result = await new GitTool().ExecuteAsync(args, root);
+
+            result.Should().Contain("⛔");
+            result.Should().Contain("Ask");
+        }
+        finally
+        {
+            GitTool.CurrentAgentType = null;
+        }
+    }
+
+    [Fact]
     public async Task ExecuteAsync_EditAgent_WriteOperation_NotBlockedByAgent()
     {
         var root = GetProjectRoot();

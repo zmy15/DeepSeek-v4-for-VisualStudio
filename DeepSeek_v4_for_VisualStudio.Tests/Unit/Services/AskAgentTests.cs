@@ -82,6 +82,25 @@ public class AskAgentTests
 
         agent.Definition.SystemPrompt.Should().NotBeNullOrEmpty();
         agent.Definition.SystemPrompt.Should().Contain("Ask");
+        agent.Definition.SystemPrompt.Should().Contain("git");
+        agent.Definition.SystemPrompt.Should().Contain("只读");
+    }
+
+    [Fact]
+    public void SummaryPrompts_AllowFreeMarkdownOutput()
+    {
+        var handoffPrompt = global::DeepSeek_v4_for_VisualStudio.Services.LocalizationService.Instance["agent.edit.handoffAskPrompt"];
+        var polishPrompt = global::DeepSeek_v4_for_VisualStudio.Services.AiPrompts.SummaryPolishSystemPrompt;
+
+        handoffPrompt.Should().Contain("Markdown");
+        handoffPrompt.Should().Contain("Mermaid");
+        handoffPrompt.Should().Contain("LaTeX");
+        handoffPrompt.Should().Contain("不要求固定结构");
+
+        polishPrompt.Should().Contain("Markdown");
+        polishPrompt.Should().Contain("Mermaid");
+        polishPrompt.Should().Contain("LaTeX");
+        polishPrompt.Should().Contain("不要求固定结构");
     }
 
     [Fact]
@@ -94,6 +113,7 @@ public class AskAgentTests
         agent.Definition.AllowedTools.Should().Contain("request_handoff");
         agent.Definition.AllowedTools.Should().Contain("fetch_webpage");
         agent.Definition.AllowedTools.Should().Contain("memory");
+        agent.Definition.AllowedTools.Should().Contain("git");
         // Ask agent has built-in search/read tools for self-service code lookup
         agent.Definition.AllowedTools.Should().Contain("symbol_search");
         agent.Definition.AllowedTools.Should().Contain("file_search");
@@ -125,6 +145,7 @@ public class AskAgentTests
         AskAgent.AskTools.Should().Contain("request_handoff");
         AskAgent.AskTools.Should().Contain("fetch_webpage");
         AskAgent.AskTools.Should().Contain("memory");
+        AskAgent.AskTools.Should().Contain("git");
         // Ask agent has built-in search/read tools
         AskAgent.AskTools.Should().Contain("symbol_search");
         AskAgent.AskTools.Should().Contain("file_search");
@@ -269,7 +290,7 @@ const y = 2;
     #region BuildSummaryMarkdown
 
     [Fact]
-    public void BuildSummaryMarkdown_WithChanges_IncludesFileList()
+    public void BuildSummaryMarkdown_WithChanges_UsesAiSummaryDirectly()
     {
         var plan = new AgentTaskPlan
         {
@@ -283,11 +304,41 @@ const y = 2;
 
         var result = BuildSummaryMarkdownPublic(plan, "AI 生成的变更摘要");
 
-        result.Should().Contain("测试计划");
-        // BuildSummaryMarkdown uses Path.GetFileName() so only filename shown
-        result.Should().Contain("a.ts");
-        result.Should().Contain("b.ts");
         result.Should().Contain("AI 生成的变更摘要");
+        result.Should().NotContain("测试计划");
+        result.Should().NotContain("a.ts");
+        result.Should().NotContain("b.ts");
+    }
+
+    [Fact]
+    public void BuildSummaryMarkdown_WithAiSummary_UsesAiSummaryDirectly()
+    {
+        var plan = new AgentTaskPlan
+        {
+            Title = "测试计划",
+            ChangedFiles =
+            {
+                new FileChangeSummary { FilePath = "src/a.ts", LinesAdded = 10, LinesRemoved = 2 },
+            },
+        };
+
+        string aiSummary = """
+            ## 自由总结
+
+            本次实现了完整登录流程。
+
+            ```mermaid
+            flowchart LR
+                A[登录] --> B[令牌]
+            ```
+            """;
+
+        var result = BuildSummaryMarkdownPublic(plan, aiSummary);
+
+        result.Should().Be(aiSummary);
+        result.Should().NotContain("测试计划");
+        result.Should().NotContain("a.ts");
+        result.Should().NotContain("步骤执行详情");
     }
 
     [Fact]

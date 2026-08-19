@@ -133,6 +133,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// Edit Agent 代码步骤完整工具集（v1.1.10）。
         /// 包含探索工具 + 编辑工具，允许 AI 在步骤内执行增量编辑：
         /// 探索 → 编辑 → 读取结果 → 继续编辑 → ...，而非强制一次性输出所有变更。
+        /// 不包含 build_solution：编译由步骤后的验证阶段或 Planning 最终构建统一触发，避免重复构建。
         /// 循环检测机制（BaseAgent.CallAiWithToolLoopAsync）防止死循环。
         /// </summary>
         private static readonly string[] CodeStepTools = new[]
@@ -141,7 +142,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "read_file",
             "get_errors",
             "runSubagent",
-            "build_solution",
             "git",
             // 编辑工具 — 允许步骤内增量编辑
             "replace_string_in_file",
@@ -698,15 +698,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
 
                 // ── 使用工具调用循环：AI 可以先探索再修改（v1.1.10：支持步骤内增量编辑）──
-                // v1.1.12: 当用户关闭自动编译或在提示中要求跳过时，从工具列表中移除 build_solution
+                // 编译统一交给步骤结束后的验证阶段（非 Planning）或计划完成后的最终构建，
+                // 代码步骤内不提供 build_solution，避免同一轮出现两次构建。
                 AddLog("INFO", string.Format(LocalizationService.Instance["agent.log.callingAiToolLoop"], retry));
                 var thinkingBuilder = new StringBuilder();
                 var stepToolWhitelist = new List<string>(CodeStepTools);
-                if (ShouldSkipAutoBuild())
-                {
-                    stepToolWhitelist.Remove("build_solution");
-                    AddLog("INFO", LocalizationService.Instance["agent.edit.autoBuildDisabledSkip"]);
-                }
                 result = await CallAiWithToolLoopAsync(
                     messages,
                     workspaceRoot,

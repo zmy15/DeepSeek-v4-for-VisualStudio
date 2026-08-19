@@ -173,6 +173,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         public static string ExploreAgentInstructions => L["system.exploreAgentInstructions"];
 
+        /// <summary>
+        /// Explore Agent 仓库记忆指令 — 指导其复用并更新项目结构记忆。
+        /// </summary>
+        public static string ExploreMemoryInstructions => L["system.exploreMemoryInstructions"];
+
         #endregion
 
         #region Change Summary Prompts
@@ -299,8 +304,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>Ask Agent — 代码库探索策略 + 记忆系统 + 移交规则</summary>
         public static string AskAgentPromptFragment => L["system.agent.askPromptFragment"];
 
+        /// <summary>Ask Agent — Git 只读操作规则</summary>
+        public static string AskGitInstructions => L["system.agent.askGitInstructions"];
+
         /// <summary>Explore Agent — 深度检索模式完整系统提示</summary>
-        public static string ExploreAgentSystemPrompt => L["system.agent.explorePrompt"];
+        public static string ExploreAgentSystemPrompt =>
+            L["system.agent.explorePrompt"] + "\n\n" + ExploreMemoryInstructions;
 
         /// <summary>Explore Agent — 定义描述</summary>
         public static string ExploreAgentDescription => L["system.agent.exploreDescription"];

@@ -215,7 +215,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 return LocalizationService.Instance["tool.memory.strReplaceMissingNew"];
 
             var (scope, path) = ParseMemoryPath(rawPath);
-            return await _memoryService.StrReplaceAsync(scope, path, oldStr, newStr, _getSessionId(), solutionPath);
+            try
+            {
+                return await _memoryService.StrReplaceAsync(scope, path, oldStr, newStr, _getSessionId(), solutionPath);
+            }
+            catch (System.IO.FileNotFoundException)
+            {
+                // 模型偶尔会直接尝试编辑尚未创建的记忆文件；返回可恢复指引，
+                // 让下一轮工具调用选择 view/create，而不是当作扩展异常处理。
+                Logger.Warn($"[MemoryTool] str_replace 目标不存在: {scope}/{path}");
+                return LocalizationService.Instance.Format("tool.memory.strReplaceFileNotFound", scope, path);
+            }
         }
 
         private async Task<string> ExecuteInsertAsync(Dictionary<string, JsonElement> args, string? solutionPath)

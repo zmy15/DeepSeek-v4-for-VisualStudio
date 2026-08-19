@@ -249,6 +249,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _options = _package.Options;
 
                 ApplyBottomAreaScale();
+                ApplyPersistedWebView2Zoom();
 
                 // ── OCR 热重载 ──
                 OcrService.ResetAllEngines();

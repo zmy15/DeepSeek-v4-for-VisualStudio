@@ -20,6 +20,9 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         internal const int MinBottomAreaScalePercent = 50;
         internal const int MaxBottomAreaScalePercent = 300;
         internal const int DefaultBottomAreaScalePercent = 100;
+        internal const int MinWebView2ZoomPercent = 50;
+        internal const int MaxWebView2ZoomPercent = 300;
+        internal const int DefaultWebView2ZoomPercent = 100;
 
         /// <summary>
         /// 静态构造：订阅语言变更，刷新属性描述符缓存。
@@ -378,6 +381,28 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         {
             if (value < MinBottomAreaScalePercent) return MinBottomAreaScalePercent;
             if (value > MaxBottomAreaScalePercent) return MaxBottomAreaScalePercent;
+            return value;
+        }
+
+        private int _webView2ZoomPercent = DefaultWebView2ZoomPercent;
+
+        /// <summary>
+        /// WebView2 页面缩放百分比（50-300）。由用户在 WebView2 中缩放时自动更新，
+        /// 用于页面重建/重启后恢复相同比例。
+        /// </summary>
+        [Browsable(false)]
+        [DefaultValue(DefaultWebView2ZoomPercent)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public int WebView2ZoomPercent
+        {
+            get => _webView2ZoomPercent;
+            set => _webView2ZoomPercent = NormalizeWebView2ZoomPercent(value);
+        }
+
+        internal static int NormalizeWebView2ZoomPercent(int value)
+        {
+            if (value < MinWebView2ZoomPercent) return MinWebView2ZoomPercent;
+            if (value > MaxWebView2ZoomPercent) return MaxWebView2ZoomPercent;
             return value;
         }
 

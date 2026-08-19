@@ -143,6 +143,18 @@ public class EditAgentTests
         }
     }
 
+    [Fact]
+    public void CodeStepTools_DoesNotContainBuildToAvoidDuplicateBuilds()
+    {
+        var field = typeof(EditAgent).GetField(
+            "CodeStepTools",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        var tools = (string[])field!.GetValue(null)!;
+
+        tools.Should().NotContain("build_solution");
+    }
+
     #endregion
 
     #region ExploreAgent Property
