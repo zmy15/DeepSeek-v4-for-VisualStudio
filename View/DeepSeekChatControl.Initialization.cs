@@ -355,7 +355,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _mcpManager = new McpManagerService();
                 OcrService.McpManager = _mcpManager; // 注入 OCR 服务
 
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
                 await _mcpManager.InitializeAsync(enabledConfigs, cts.Token);
 
                 // ── 更新 BuiltInToolService 的 MCP 引用，使 Agent 工具集包含 MCP 工具 ──

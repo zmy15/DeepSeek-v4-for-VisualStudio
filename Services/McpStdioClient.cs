@@ -253,7 +253,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         #region JSON-RPC 通信
 
         /// <summary>
-        /// 发送 JSON-RPC 请求并等待响应（带 15 秒硬超时）。
+        /// 发送 JSON-RPC 请求并等待响应（带 60 秒硬超时）。
         /// </summary>
         private async Task<JsonRpcResponse> SendRequestAsync(string method, object? @params, CancellationToken cancellationToken)
         {
@@ -278,18 +278,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             await SendLineAsync(requestJson);
 
             // ── 双重超时保护 ──
-            using var hardCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            using var hardCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, hardCts.Token);
             linkedCts.Token.Register(() => tcs.TrySetCanceled(), useSynchronizationContext: false);
 
             try
             {
-                var completed = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(15), CancellationToken.None));
+                var completed = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(60), CancellationToken.None));
                 if (completed != tcs.Task)
                 {
                     lock (_lock) { _pendingRequests.Remove(id); }
                     throw new McpException(
-                        $"MCP 请求超时 (15s): {method} (id={id})。\n" +
+                        $"MCP 请求超时 (60s): {method} (id={id})。\n" +
                         $"{LocalizationService.Instance["mcp.serverProcessStatus"]}: {(_process?.HasExited == true ? string.Format(LocalizationService.Instance["mcp.processStatusExited"], _process.ExitCode) : LocalizationService.Instance["mcp.processStatusRunning"])}");
                 }
                 return await tcs.Task;
