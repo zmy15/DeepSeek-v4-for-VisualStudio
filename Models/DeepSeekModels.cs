@@ -532,9 +532,13 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [DataMember]
         public long CumulativeCompletionTokens { get; set; }
 
-        /// <summary>累计费用（元）。按每次调用时点的模型 × 高峰/空闲时段单价计价</summary>
+        /// <summary>累计费用（元，国内价目）。按每次调用时点的模型 × 高峰/空闲时段单价计价</summary>
         [DataMember]
         public double CumulativeCostYuan { get; set; }
+
+        /// <summary>累计费用（美元，国际价目）。与人民币双轨累计，显示时按账户币种取用</summary>
+        [DataMember]
+        public double CumulativeCostUsd { get; set; }
     }
 
     /// <summary>

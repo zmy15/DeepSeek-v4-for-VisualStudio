@@ -26,8 +26,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>累计 Completion token 数（仅聊天，不含 FIM）</summary>
         long TotalCompletionTokens { get; }
 
-        /// <summary>累计费用（元）。按每次 API 调用时点的模型 × 高峰/空闲时段单价计价累加</summary>
+        /// <summary>累计费用（元，国内价目）。按每次 API 调用时点的模型 × 高峰/空闲时段单价计价累加</summary>
         double TotalSessionCostYuan { get; }
+
+        /// <summary>累计费用（美元，国际价目）。与人民币双轨累计，显示时按账户币种取用</summary>
+        double TotalSessionCostUsd { get; }
+
+        /// <summary>账户币种（"CNY" 国内 / "USD" 国际），由余额 API 自动捕获，首次查询前默认 "CNY"</summary>
+        string AccountCurrency { get; }
 
         /// <summary>FIM 代码补全累计 Prompt Token 数（独立于聊天统计）</summary>
         long TotalFimPromptTokens { get; }
@@ -41,7 +47,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         void ResetAccumulatedStats();
 
         /// <summary>从持久化数据恢复累计统计（重启后调用）</summary>
-        void RestoreAccumulatedStats(long hitTokens, long missTokens, long promptTokens, long completionTokens, double costYuan);
+        void RestoreAccumulatedStats(long hitTokens, long missTokens, long promptTokens, long completionTokens, double costYuan, double costUsd);
 
         /// <summary>更新使用的模型</summary>
         void UpdateModel(string model);

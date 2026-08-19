@@ -715,14 +715,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 格式化当前会话的 token 消耗信息。
         /// 包含：API 实际 Token 消耗 + 费用估算 + 上下文窗口利用率。
-        /// 费用基于 DeepSeek V4 官方定价（¥/百万 tokens），按模型 × 时段分档：
-        ///   高峰时段（北京时间 9:00-12:00、14:00-18:00）：
-        ///     Flash: 输入 ¥3/M（未命中）/ ¥0.10/M（命中），输出 ¥9/M
-        ///     Pro:   输入 ¥9/M（未命中）/ ¥0.30/M（命中），输出 ¥27/M
-        ///   空闲时段（其余时间）：
-        ///     Flash: 输入 ¥1.5/M（未命中）/ ¥0.05/M（命中），输出 ¥4.5/M
-        ///     Pro:   输入 ¥4.5/M（未命中）/ ¥0.15/M（命中），输出 ¥13.5/M
-        /// 费用在每次 API 调用时按"当时点的模型 × 时段"单价累计
+        /// 费用基于 DeepSeek V4 官方定价，按"国内/国际 × 模型 × 时段"分档
+        /// （国内 ¥ 价目 / 国际 $ 价目，高峰时段均为北京时间 9:00-12:00、14:00-18:00，
+        /// 详见 DeepSeekApiService.GetPricing）。
+        /// 币种由余额 API 返回值自动判定（CNY→国内价，USD→国际价），首次查询前默认国内价。
+        /// 费用在每次 API 调用时按"当时点的模型 × 时段"双币种累计
         /// （见 DeepSeekApiService.AccumulateStats），跨高峰/空闲的会话自动分档计价。
         /// </summary>
         private string FormatSessionConsumption()
@@ -750,23 +747,35 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string modelName = _options?.SelectedModel ?? "deepseek-v4-pro";
                 bool isFlash = modelName.Contains("flash", StringComparison.OrdinalIgnoreCase);
 
-                // ── 费用：优先使用 ApiService 按调用时点（模型 × 高峰/空闲）累计的真实计价；
+                // ── 币种判定：余额 API 缓存优先，其次 ApiService 捕获值，默认 CNY（国内价）──
+                string currency =
+                    (_lastBalance != null && _lastBalance.BalanceInfos.Count > 0
+                        ? _lastBalance.BalanceInfos[0].Currency
+                        : null)
+                    ?? _apiService.AccountCurrency;
+                if (string.IsNullOrWhiteSpace(currency))
+                    currency = "CNY";
+                currency = currency.ToUpperInvariant();
+                bool isUsd = currency == "USD";
+                string symbol = GetCurrencySymbol(currency);
+
+                // ── 费用：优先使用 ApiService 按调用时点（模型 × 高峰/空闲）双轨累计的真实计价；
                 //    旧版本会话没有累计费用字段时，按当前时段单价估算兜底 ──
-                double totalCost = _apiService.TotalSessionCostYuan;
+                double totalCost = isUsd ? _apiService.TotalSessionCostUsd : _apiService.TotalSessionCostYuan;
                 if (totalCost <= 0)
                 {
                     var (missPrice, hitPrice, outputPrice) = DeepSeekApiService.GetPricing(
-                        isFlash, DeepSeekApiService.IsBeijingPeakTime());
+                        isFlash, DeepSeekApiService.IsBeijingPeakTime(), currency);
                     totalCost = cacheMissTokens / 1_000_000.0 * missPrice
                               + cacheHitTokens / 1_000_000.0 * hitPrice
                               + completionTokens / 1_000_000.0 * outputPrice;
                 }
 
                 string costStr = totalCost >= 0.01
-                    ? $"¥{totalCost:F2}"
+                    ? $"{symbol}{totalCost:F2}"
                     : totalCost > 0
-                        ? $"¥{totalCost:F4}"
-                        : "¥0";
+                        ? $"{symbol}{totalCost:F4}"
+                        : $"{symbol}0";
 
                 string modelLabel = isFlash ? "Flash" : "Pro";
 

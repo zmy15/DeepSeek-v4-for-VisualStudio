@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
@@ -55,6 +55,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private long _totalPromptTokens;
         private long _totalCompletionTokens;
         private double _totalSessionCostYuan;
+        private double _totalSessionCostUsd;
+
+        /// <summary>
+        /// 账户币种（"CNY" 国内 / "USD" 国际），由余额 API 返回值自动捕获。
+        /// 首次余额查询前默认 "CNY"。用于选择计价价目表与显示符号。
+        /// </summary>
+        private volatile string _accountCurrency = "CNY";
 
         /// <summary>
         /// 累计 Chat API 统计（跨所有 API 调用汇总，含 Agent 内部调用）。
@@ -67,9 +74,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public long TotalCompletionTokens => Interlocked.Read(ref _totalCompletionTokens);
 
         /// <summary>
-        /// 累计费用（元，人民币）。每次 API 调用按"调用时点的实际模型 × 高峰/空闲时段"单价计价后累加。
+        /// 累计费用（元，人民币，国内价目）。每次 API 调用按"调用时点的实际模型 × 高峰/空闲时段"单价计价后累加。
         /// </summary>
         public double TotalSessionCostYuan => Volatile.Read(ref _totalSessionCostYuan);
+
+        /// <summary>
+        /// 累计费用（美元，国际价目）。与人民币双轨累计，显示时按账户币种取用。
+        /// </summary>
+        public double TotalSessionCostUsd => Volatile.Read(ref _totalSessionCostUsd);
+
+        /// <summary>
+        /// 账户币种（"CNY" 国内 / "USD" 国际），由余额 API 自动捕获，首次查询前默认 "CNY"。
+        /// </summary>
+        public string AccountCurrency => _accountCurrency;
 
         // ── FIM（代码补全）独立统计，不与聊天 Token 混合 ──
         private long _totalFimPromptTokens;
@@ -95,20 +112,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// DeepSeek V4 官方定价（¥/百万 tokens），按模型（Flash/Pro）× 时段（高峰/空闲）四档：
-        ///   输入（缓存命中）:   空闲 Flash ¥0.05 / Pro ¥0.15 ；高峰 Flash ¥0.10 / Pro ¥0.30
-        ///   输入（缓存未命中）: 空闲 Flash ¥1.5  / Pro ¥4.5  ；高峰 Flash ¥3.0  / Pro ¥9.0
-        ///   输出:               空闲 Flash ¥4.5  / Pro ¥13.5 ；高峰 Flash ¥9.0  / Pro ¥27.0
+        /// DeepSeek V4 官方定价，按"国内/国际（币种）× 模型（Flash/Pro）× 时段（高峰/空闲）"分档。
+        /// 高峰时段两个平台一致（北京时间 9:00-12:00、14:00-18:00）。
+        ///   国内（¥/百万 tokens）：
+        ///     输入（缓存命中）:   空闲 Flash ¥0.05 / Pro ¥0.15 ；高峰 Flash ¥0.10 / Pro ¥0.30
+        ///     输入（缓存未命中）: 空闲 Flash ¥1.5  / Pro ¥4.5  ；高峰 Flash ¥3.0  / Pro ¥9.0
+        ///     输出:               空闲 Flash ¥4.5  / Pro ¥13.5 ；高峰 Flash ¥9.0  / Pro ¥27.0
+        ///   国际（$/百万 tokens）：
+        ///     输入（缓存命中）:   空闲 Flash $0.007 / Pro $0.022 ；高峰 Flash $0.014 / Pro $0.044
+        ///     输入（缓存未命中）: 空闲 Flash $0.22  / Pro $0.66  ；高峰 Flash $0.44  / Pro $1.32
+        ///     输出:               空闲 Flash $0.66  / Pro $1.98  ；高峰 Flash $1.32  / Pro $3.96
         /// </summary>
+        /// <param name="isFlash">是否 Flash 模型（否则 Pro）</param>
+        /// <param name="isPeak">是否高峰时段</param>
+        /// <param name="currency">币种："USD" 国际价目，其余（含默认）按国内 CNY 价目</param>
         /// <returns>(缓存未命中单价, 缓存命中单价, 输出单价)</returns>
-        public static (double CacheMiss, double CacheHit, double Output) GetPricing(bool isFlash, bool isPeak)
-            => isFlash
-                ? (CacheMiss: isPeak ? 3.0 : 1.5,
-                   CacheHit:  isPeak ? 0.10 : 0.05,
-                   Output:    isPeak ? 9.0 : 4.5)
-                : (CacheMiss: isPeak ? 9.0 : 4.5,
-                   CacheHit:  isPeak ? 0.30 : 0.15,
-                   Output:    isPeak ? 27.0 : 13.5);
+        public static (double CacheMiss, double CacheHit, double Output) GetPricing(bool isFlash, bool isPeak, string currency = "CNY")
+        {
+            bool usd = (currency ?? "").Equals("USD", StringComparison.OrdinalIgnoreCase);
+            return isFlash
+                ? (CacheMiss: isPeak ? (usd ? 0.44 : 3.0) : (usd ? 0.22 : 1.5),
+                   CacheHit:  isPeak ? (usd ? 0.014 : 0.10) : (usd ? 0.007 : 0.05),
+                   Output:    isPeak ? (usd ? 1.32 : 9.0) : (usd ? 0.66 : 4.5))
+                : (CacheMiss: isPeak ? (usd ? 1.32 : 9.0) : (usd ? 0.66 : 4.5),
+                   CacheHit:  isPeak ? (usd ? 0.044 : 0.30) : (usd ? 0.022 : 0.15),
+                   Output:    isPeak ? (usd ? 3.96 : 27.0) : (usd ? 1.98 : 13.5));
+        }
 
         /// <summary>
         /// 判断当前是否处于北京高峰时段（9:00-12:00、14:00-18:00，其余为空闲时段）。
@@ -122,6 +151,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 重置累计 Chat 统计（新会话开始时调用）。
+        /// 账户币种为账户级属性，不随会话重置。
         /// </summary>
         public void ResetAccumulatedStats()
         {
@@ -130,18 +160,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Interlocked.Exchange(ref _totalPromptTokens, 0);
             Interlocked.Exchange(ref _totalCompletionTokens, 0);
             Interlocked.Exchange(ref _totalSessionCostYuan, 0.0);
+            Interlocked.Exchange(ref _totalSessionCostUsd, 0.0);
         }
 
         /// <summary>
         /// 从持久化数据恢复累计 Chat 统计（重启后调用）。
         /// </summary>
-        public void RestoreAccumulatedStats(long hitTokens, long missTokens, long promptTokens, long completionTokens, double costYuan)
+        public void RestoreAccumulatedStats(long hitTokens, long missTokens, long promptTokens, long completionTokens, double costYuan, double costUsd)
         {
             Interlocked.Exchange(ref _totalCacheHitTokens, hitTokens);
             Interlocked.Exchange(ref _totalCacheMissTokens, missTokens);
             Interlocked.Exchange(ref _totalPromptTokens, promptTokens);
             Interlocked.Exchange(ref _totalCompletionTokens, completionTokens);
             Interlocked.Exchange(ref _totalSessionCostYuan, costYuan);
+            Interlocked.Exchange(ref _totalSessionCostUsd, costUsd);
         }
 
         // ── 单轮统计快照（用于显示"本次问答"的 Cache 命中率，而非整个 Session 累计值）──
@@ -183,8 +215,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 线程安全地累加一次 API 调用的 Usage 统计到累计值（Chat API）。
-        /// 同时按"本次调用的实际模型 × 调用结束时点的时段"单价累计费用（元），
-        /// 跨高峰/空闲边界的会话自动分档计价。
+        /// 同时按"本次调用的实际模型 × 调用结束时点的时段"单价，以国内（¥）和国际（$）
+        /// 两套价目双轨累计费用；显示时按账户币种（余额 API 自动捕获）取用，
+        /// 避免首次余额查询前或账户类型判定前后出现混币种累加。
         /// </summary>
         /// <param name="usage">本次调用的 usage</param>
         /// <param name="effectiveModel">本次调用实际使用的模型（null 时取实例默认模型，如标题生成的 flash 覆盖）</param>
@@ -195,28 +228,40 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Interlocked.Add(ref _totalPromptTokens, usage.PromptTokens);
             Interlocked.Add(ref _totalCompletionTokens, usage.CompletionTokens);
 
-            // ── 费用累计：按调用时点的模型 × 高峰/空闲单价计价 ──
+            // ── 费用累计：按调用时点的模型 × 高峰/空闲单价，双币种同时计价 ──
             string model = effectiveModel ?? _model ?? string.Empty;
             bool isFlash = model.Contains("flash", StringComparison.OrdinalIgnoreCase);
-            var (missPrice, hitPrice, outputPrice) = GetPricing(isFlash, IsBeijingPeakTime());
-            double cost = usage.PromptCacheMissTokens / 1_000_000.0 * missPrice
-                        + usage.PromptCacheHitTokens / 1_000_000.0 * hitPrice
-                        + usage.CompletionTokens / 1_000_000.0 * outputPrice;
-            AddAccumulatedCost(cost);
+            bool isPeak = IsBeijingPeakTime();
+            var (missCny, hitCny, outputCny) = GetPricing(isFlash, isPeak, "CNY");
+            var (missUsd, hitUsd, outputUsd) = GetPricing(isFlash, isPeak, "USD");
+            AddAccumulatedCost(
+                usage.PromptCacheMissTokens / 1_000_000.0 * missCny
+                + usage.PromptCacheHitTokens / 1_000_000.0 * hitCny
+                + usage.CompletionTokens / 1_000_000.0 * outputCny,
+                usage.PromptCacheMissTokens / 1_000_000.0 * missUsd
+                + usage.PromptCacheHitTokens / 1_000_000.0 * hitUsd
+                + usage.CompletionTokens / 1_000_000.0 * outputUsd);
         }
 
         /// <summary>
         /// 线程安全地累加费用（double 无 Interlocked.Add 重载，使用 CAS 循环）。
         /// </summary>
-        private void AddAccumulatedCost(double cost)
+        private void AddAccumulatedCost(double costYuan, double costUsd)
+        {
+            AddAccumulatedCost(ref _totalSessionCostYuan, costYuan);
+            AddAccumulatedCost(ref _totalSessionCostUsd, costUsd);
+        }
+
+        /// <summary>CAS 循环累加单个 double 字段。</summary>
+        private static void AddAccumulatedCost(ref double field, double cost)
         {
             if (cost <= 0) return;
             double initial, updated;
             do
             {
-                initial = Volatile.Read(ref _totalSessionCostYuan);
+                initial = Volatile.Read(ref field);
                 updated = initial + cost;
-            } while (Interlocked.CompareExchange(ref _totalSessionCostYuan, updated, initial) != initial);
+            } while (Interlocked.CompareExchange(ref field, updated, initial) != initial);
         }
 
         /// <summary>
@@ -1284,6 +1329,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 var responseJson = await response.Content.ReadAsStringAsync();
                 var result = JsonSerializer.Deserialize<BalanceResponse>(responseJson);
+
+                // ── 捕获账户币种（CNY 国内 / USD 国际），供计价价目与显示符号选择 ──
+                var currency = result?.BalanceInfos?.FirstOrDefault()?.Currency;
+                if (!string.IsNullOrWhiteSpace(currency))
+                    _accountCurrency = currency.ToUpperInvariant();
+
                 return result;
             }
             catch (Exception ex)
