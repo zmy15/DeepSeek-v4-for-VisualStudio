@@ -61,15 +61,45 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             try
             {
                 base.LoadSettingsFromStorage();
+                ApiKey = ApiKeyProtection.Unprotect(ApiKey);
+                BaiduApiKey = ApiKeyProtection.Unprotect(BaiduApiKey);
+                BingApiKey = ApiKeyProtection.Unprotect(BingApiKey);
             }
             catch (InvalidCastException ex)
             {
                 Logger.Warn($"[Settings] LoadSettingsFromStorage 失败（VS 版本兼容性）: {ex.Message}");
             }
         }
+
+        /// <summary>
+        /// 在写入设置存储前对 API Key 字段做 DPAPI 加密；写入后恢复内存中的明文，
+        /// 保证运行时读取逻辑和属性网格中的用户编辑值不受影响。
+        /// </summary>
+        public override void SaveSettingsToStorage()
+        {
+            string apiKey = ApiKey;
+            string baiduApiKey = BaiduApiKey;
+            string bingApiKey = BingApiKey;
+
+            try
+            {
+                ApiKey = ApiKeyProtection.Protect(apiKey);
+                BaiduApiKey = ApiKeyProtection.Protect(baiduApiKey);
+                BingApiKey = ApiKeyProtection.Protect(bingApiKey);
+                base.SaveSettingsToStorage();
+            }
+            finally
+            {
+                ApiKey = apiKey;
+                BaiduApiKey = baiduApiKey;
+                BingApiKey = bingApiKey;
+            }
+        }
+
         [LocalizedCategory("settings.category.api")]
         [LocalizedDisplayName("settings.apiKey.displayName")]
         [LocalizedDescription("settings.apiKey.description")]
+        [PasswordPropertyText(true)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
         public string ApiKey { get; set; } = string.Empty;
 
@@ -140,12 +170,14 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [LocalizedCategory("settings.category.webSearch")]
         [LocalizedDisplayName("settings.baiduApiKey.displayName")]
         [LocalizedDescription("settings.baiduApiKey.description")]
+        [PasswordPropertyText(true)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public string BaiduApiKey { get; set; } = string.Empty;
 
         [LocalizedCategory("settings.category.webSearch")]
         [LocalizedDisplayName("settings.bingApiKey.displayName")]
         [LocalizedDescription("settings.bingApiKey.description")]
+        [PasswordPropertyText(true)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public string BingApiKey { get; set; } = string.Empty;
 
