@@ -570,19 +570,92 @@ window._showCopyFeedback=function(msgIndex){
 })();";
         }
 
+        private static System.Text.Json.JsonSerializerOptions? _jsEscapeOptions;
+        private static readonly object JsEscapeOptionsLock = new();
+
         /// <summary>
         /// 转义字符串用于嵌入 JS 字符串字面量。
         /// 使用 UnsafeRelaxedJsonEscaping 保留中文等非 ASCII 字符，避免输出 \uXXXX 编码。
         /// </summary>
-        private static readonly System.Text.Json.JsonSerializerOptions _jsEscapeOptions = new()
+        private static System.Text.Json.JsonSerializerOptions? JsEscapeOptions
         {
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
+            get
+            {
+                lock (JsEscapeOptionsLock)
+                {
+                    if (_jsEscapeOptions != null)
+                        return _jsEscapeOptions;
+
+                    try
+                    {
+                        _jsEscapeOptions = new System.Text.Json.JsonSerializerOptions
+                        {
+                            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        // System.Text.Json 依赖链异常时，后续 EscapeJsString 会走纯托管降级路径。
+                        System.Diagnostics.Debug.WriteLine($"[ChatHtml] JS escape options init failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+
+                    return _jsEscapeOptions;
+                }
+            }
+        }
 
         private static string EscapeJsString(string s)
         {
             if (string.IsNullOrEmpty(s)) return "\"\"";
-            return System.Text.Json.JsonSerializer.Serialize(s, _jsEscapeOptions);
+
+            try
+            {
+                if (TrySerializeJsString(s, out var json))
+                    return json;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ChatHtml] JSON JS escape failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            return EscapeJsStringFallback(s);
+        }
+
+        private static bool TrySerializeJsString(string s, out string json)
+        {
+            json = string.Empty;
+            var options = JsEscapeOptions;
+            if (options == null)
+                return false;
+
+            json = System.Text.Json.JsonSerializer.Serialize(s, options);
+            return true;
+        }
+
+        private static string EscapeJsStringFallback(string s)
+        {
+            var sb = new System.Text.StringBuilder(s.Length + 2).Append('"');
+            foreach (var c in s)
+            {
+                switch (c)
+                {
+                    case '\\': sb.Append("\\\\"); break;
+                    case '"': sb.Append("\\\""); break;
+                    case '\b': sb.Append("\\b"); break;
+                    case '\f': sb.Append("\\f"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    default:
+                        if (char.IsControl(c))
+                            sb.Append("\\u").Append(((int)c).ToString("x4"));
+                        else
+                            sb.Append(c);
+                        break;
+                }
+            }
+
+            return sb.Append('"').ToString();
         }
 
         #endregion

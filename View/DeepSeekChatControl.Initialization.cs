@@ -957,6 +957,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private async Task<bool> InitializeWebViewAsync()
         {
+            if (ChatWebView?.CoreWebView2 != null)
+            {
+                Logger.Info("[Render] CoreWebView2 已初始化，跳过重复初始化");
+                return true;
+            }
+
             string userDataFolder = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "DeepSeekVS", "WebView2");
@@ -975,6 +981,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Warn($"[Render] WebView2 初始化尝试1失败: {ex.GetType().Name}: {ex.Message}");
                 Logger.Warn($"[Render] 堆栈: {ex.StackTrace}");
 
+                // 并发初始化时，EnsureCoreWebView2Async 可能已经完成但抛出环境不一致异常。
+                if (ChatWebView?.CoreWebView2 != null)
+                {
+                    Logger.Info("[Render] CoreWebView2 已在尝试1中初始化，按成功处理");
+                    return true;
+                }
+
                 // ── 尝试2：使用默认用户数据文件夹 + 默认运行时发现 ──
                 try
                 {
@@ -988,15 +1001,57 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 catch (Exception ex2)
                 {
                     Logger.Error($"[Render] WebView2 初始化尝试2也失败: {ex2.GetType().Name}: {ex2.Message}");
+
+                    if (ChatWebView?.CoreWebView2 != null)
+                    {
+                        Logger.Info("[Render] CoreWebView2 已在尝试2中初始化，按成功处理");
+                        return true;
+                    }
+
+                    ShowWebView2InitializationError(ex2);
                 }
             }
 
-            // ── 所有尝试都失败 ──
-            var i18nMsg = LocalizationService.Instance["status.webView2Failed"];
-            if (i18nMsg.StartsWith("[")) // key not found, use hardcoded fallback
-                i18nMsg = "WebView2 initialization failed. Please verify the Evergreen WebView2 Runtime is installed.";
-            StatusLabel.Text = i18nMsg;
             return false;
+        }
+
+        private static string? TryGetWebView2RuntimeVersion()
+        {
+            try
+            {
+                var version = CoreWebView2Environment.GetAvailableBrowserVersionString(null);
+                return string.IsNullOrWhiteSpace(version) ? null : version;
+            }
+            catch (WebView2RuntimeNotFoundException)
+            {
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Render] 探测 WebView2 Runtime 失败: {ex.GetType().Name}: {ex.Message}");
+                return null;
+            }
+        }
+
+        private void ShowWebView2InitializationError(Exception error)
+        {
+            var runtimeVersion = TryGetWebView2RuntimeVersion();
+            if (runtimeVersion == null)
+            {
+                var architecture = Environment.Is64BitProcess ? "x64" : "x86";
+                var missingTemplate = LocalizationService.Instance["status.webView2RuntimeMissing"];
+                if (missingTemplate.StartsWith("["))
+                    missingTemplate = "WebView2 Runtime {0} not detected. Please install the Evergreen {0} runtime.";
+
+                StatusLabel.Text = string.Format(missingTemplate, architecture);
+                return;
+            }
+
+            var failedTemplate = LocalizationService.Instance["status.webView2InitializationFailed"];
+            if (failedTemplate.StartsWith("["))
+                failedTemplate = "WebView2 Runtime {1} detected, but initialization failed: {0}";
+
+            StatusLabel.Text = string.Format(failedTemplate, error.Message, runtimeVersion);
         }
 
         #endregion

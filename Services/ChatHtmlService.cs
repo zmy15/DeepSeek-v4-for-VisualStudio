@@ -25,13 +25,38 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         private static LocalizationService L => LocalizationService.Instance;
 
+        private static MarkdownPipeline? _markdownPipeline;
+        private static readonly object MarkdownPipelineLock = new();
+
         /// <summary>
         /// Markdig 解析管道：启用高级扩展，禁用原生 HTML（防 XSS）。
+        /// 懒加载，避免 Markdig/桥接程序集加载失败时触发 TypeInitializationException。
         /// </summary>
-        private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
-            .UseAdvancedExtensions()
-            .DisableHtml()
-            .Build();
+        private static MarkdownPipeline? MarkdownPipeline
+        {
+            get
+            {
+                lock (MarkdownPipelineLock)
+                {
+                    if (_markdownPipeline != null)
+                        return _markdownPipeline;
+
+                    try
+                    {
+                        _markdownPipeline = new MarkdownPipelineBuilder()
+                            .UseAdvancedExtensions()
+                            .DisableHtml()
+                            .Build();
+                    }
+                    catch (Exception ex)
+                    {
+                        DiagnosticLog.Write($"[ChatHtml] Markdig pipeline init failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+
+                    return _markdownPipeline;
+                }
+            }
+        }
 
         /// <summary>
         /// XSS 纵深防护正则（Markdig DisableHtml() 之外的额外防线）。
@@ -764,23 +789,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 processedMarkdown = Regex.Replace(processedMarkdown,
                     @"\\\[(.+?)\\\]", @"$$$$$1$$$$", RegexOptions.Singleline);
 
-                // ── 处理 <think>...</think> 思考块 ──
-                Match thinkMatch = Regex.Match(processedMarkdown,
-                    @"^<think>(?<content>.*)</think>(?<answer>.*)$",
-                    RegexOptions.Singleline | RegexOptions.IgnoreCase);
-
-                if (!thinkMatch.Success)
-                {
-                    htmlContent = Markdown.ToHtml(processedMarkdown, MarkdownPipeline);
-                }
-                else
-                {
-                    string thinkBody = Markdown.ToHtml(thinkMatch.Groups["content"].Value, MarkdownPipeline);
-                    string thinkBlock =
-                        $"<details class='reasoning-panel' open='true'><summary>{L["chat.html.thinkingTitle"]}</summary><div class='reasoning-content'>{thinkBody}</div></details>";
-                    string answerHtml = Markdown.ToHtml(thinkMatch.Groups["answer"].Value, MarkdownPipeline);
-                    htmlContent = $"{thinkBlock}\n{answerHtml}";
-                }
+                htmlContent = RenderMarkdownCore(processedMarkdown);
+                if (htmlContent == null)
+                    return "<pre>" + System.Net.WebUtility.HtmlEncode(markdown) + "</pre>";
 
                 // ── Mermaid 代码块后处理 ──
                 htmlContent = Regex.Replace(htmlContent,
@@ -816,6 +827,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // ── 降级：保留原始 Markdown 原文，方便用户复制后重试 ──
                 return "<pre>" + System.Net.WebUtility.HtmlEncode(markdown ?? string.Empty) + "</pre>";
             }
+        }
+
+        private static string? RenderMarkdownCore(string markdown)
+        {
+            var pipeline = MarkdownPipeline;
+            if (pipeline == null)
+                return null;
+
+            Match thinkMatch = Regex.Match(markdown,
+                @"^<think>(?<content>.*)</think>(?<answer>.*)$",
+                RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+            if (!thinkMatch.Success)
+                return Markdown.ToHtml(markdown, pipeline);
+
+            string thinkBody = Markdown.ToHtml(thinkMatch.Groups["content"].Value, pipeline);
+            string thinkBlock =
+                $"<details class='reasoning-panel' open='true'><summary>{L["chat.html.thinkingTitle"]}</summary><div class='reasoning-content'>{thinkBody}</div></details>";
+            string answerHtml = Markdown.ToHtml(thinkMatch.Groups["answer"].Value, pipeline);
+            return $"{thinkBlock}\n{answerHtml}";
         }
 
         private static string WrapMermaidCodeBlock(string inner)

@@ -401,6 +401,8 @@
     "status.apiDisconnected":  "⚠️ API not connected",
     "status.ready":  "Ready",
     "status.webView2Failed":  "⚠️ WebView2 initialization failed. Please verify the Evergreen WebView2 Runtime is installed.",
+    "status.webView2RuntimeMissing":  "⚠️ WebView2 Runtime {0} not detected. Please install the Evergreen {0} runtime.",
+    "status.webView2InitializationFailed":  "⚠️ WebView2 Runtime {1} detected, but initialization failed: {0}",
     "status.error":  "Error: {0}",
     "status.apiKeyMissing":  "⚠️ Please configure API key (Tools → Options → DeepSeek Chat)",
     "status.parsingFile":  "Parsing file…",
