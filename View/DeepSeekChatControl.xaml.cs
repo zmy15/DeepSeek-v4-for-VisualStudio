@@ -537,6 +537,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _package = package;
             _options = package.Options;
 
+            ApplyBottomAreaScale();
+
             // ── 从设置恢复审批模式 ──
             RefreshApprovalModeFromSettings();
 

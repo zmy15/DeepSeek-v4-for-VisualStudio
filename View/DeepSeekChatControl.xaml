@@ -274,10 +274,10 @@
 
         <!-- ═══ 状态行 ═══ -->
         <Border Grid.Row="3"
+                x:Name="StatusAreaBorder"
                 Background="#2D2D2D"
                 BorderBrush="#3F3F46" BorderThickness="0,1,0,1"
-                Padding="12,4"
-                MaxHeight="32">
+                Padding="12,4">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -289,8 +289,7 @@
                            Foreground="#888888"
                            VerticalAlignment="Center"
                            TextWrapping="Wrap"
-                           TextTrimming="CharacterEllipsis"
-                           MaxHeight="24" />
+                           TextTrimming="CharacterEllipsis" />
                 <Border x:Name="AgentModeBadge"
                         Grid.Column="1"
                         HorizontalAlignment="Right"
@@ -315,6 +314,7 @@
 
         <!-- ═══ 输入区 ═══ -->
         <Border Grid.Row="4"
+                x:Name="InputAreaBorder"
                 Background="#2D2D2D"
                 BorderBrush="#3F3F46" BorderThickness="0,1,0,0"
                 Padding="0">
@@ -387,7 +387,8 @@
                          x:Name="InputTextBox"
                          AcceptsReturn="True"
                          TextWrapping="Wrap"
-                         MinHeight="50" MaxHeight="140"
+                         Height="50"
+                         FontSize="12"
                          Background="Transparent"
                          BorderThickness="0"
                          Foreground="#D4D4D4"
@@ -733,6 +734,7 @@
 
         <!-- ═══ 审批控制栏 ═══ -->
         <Border Grid.Row="5"
+                x:Name="ApprovalAreaBorder"
                 Background="#2D2D2D"
                 BorderBrush="#3F3F46" BorderThickness="0,1,0,0"
                 Padding="12,2">

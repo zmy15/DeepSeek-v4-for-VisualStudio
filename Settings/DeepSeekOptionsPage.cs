@@ -14,6 +14,13 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     /// </summary>
     public class DeepSeekOptionsPage : DialogPage
     {
+        internal const int MinInputBoxHeight = 50;
+        internal const int MaxInputBoxHeight = 500;
+        internal const int DefaultInputBoxHeight = 50;
+        internal const int MinBottomAreaScalePercent = 50;
+        internal const int MaxBottomAreaScalePercent = 300;
+        internal const int DefaultBottomAreaScalePercent = 100;
+
         /// <summary>
         /// 静态构造：订阅语言变更，刷新属性描述符缓存。
         /// 注意：VS 选项对话框的分类标题在对话框打开期间无法热更新
@@ -332,6 +339,46 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
                     _ => ThemeMode.Auto
                 };
             }
+        }
+
+        private int _inputBoxHeight = DefaultInputBoxHeight;
+
+        [LocalizedCategory("settings.category.appearance")]
+        [LocalizedDisplayName("settings.inputBoxHeight.displayName")]
+        [LocalizedDescription("settings.inputBoxHeight.description")]
+        [DefaultValue(DefaultInputBoxHeight)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public int InputBoxHeight
+        {
+            get => _inputBoxHeight;
+            set => _inputBoxHeight = NormalizeInputBoxHeight(value);
+        }
+
+        internal static int NormalizeInputBoxHeight(int value)
+        {
+            if (value < MinInputBoxHeight) return MinInputBoxHeight;
+            if (value > MaxInputBoxHeight) return MaxInputBoxHeight;
+            return value;
+        }
+
+        private int _bottomAreaScalePercent = DefaultBottomAreaScalePercent;
+
+        [LocalizedCategory("settings.category.appearance")]
+        [LocalizedDisplayName("settings.bottomAreaScale.displayName")]
+        [LocalizedDescription("settings.bottomAreaScale.description")]
+        [DefaultValue(DefaultBottomAreaScalePercent)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public int BottomAreaScalePercent
+        {
+            get => _bottomAreaScalePercent;
+            set => _bottomAreaScalePercent = NormalizeBottomAreaScalePercent(value);
+        }
+
+        internal static int NormalizeBottomAreaScalePercent(int value)
+        {
+            if (value < MinBottomAreaScalePercent) return MinBottomAreaScalePercent;
+            if (value > MaxBottomAreaScalePercent) return MaxBottomAreaScalePercent;
+            return value;
         }
 
         private ThemeMode _themeMode = ThemeMode.Auto;

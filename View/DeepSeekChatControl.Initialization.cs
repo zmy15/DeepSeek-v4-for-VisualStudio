@@ -21,6 +21,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace DeepSeek_v4_for_VisualStudio.View
 {
@@ -247,6 +248,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (_package != null)
                     _options = _package.Options;
 
+                ApplyBottomAreaScale();
+
                 // ── OCR 热重载 ──
                 OcrService.ResetAllEngines();
                 InitializeOcrService();
@@ -300,6 +303,32 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 Logger.Error($"[Settings] 设置热切换失败: {ex.Message}", ex);
             }
+        }
+
+        /// <summary>
+        /// 按百分比缩放 WebView2 下方区域，并应用输入框高度。
+        /// </summary>
+        private void ApplyBottomAreaScale()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(() => ApplyBottomAreaScale());
+                return;
+            }
+
+            double scale = DeepSeekOptionsPage.NormalizeBottomAreaScalePercent(
+                _options?.BottomAreaScalePercent ?? DeepSeekOptionsPage.DefaultBottomAreaScalePercent) / 100.0;
+            double boxHeight = DeepSeekOptionsPage.NormalizeInputBoxHeight(
+                _options?.InputBoxHeight ?? DeepSeekOptionsPage.DefaultInputBoxHeight);
+
+            var transform = scale == 1.0 ? null : new ScaleTransform(scale, scale);
+            DiffGlobalBar.LayoutTransform = transform;
+            StatusAreaBorder.LayoutTransform = transform;
+            InputAreaBorder.LayoutTransform = transform;
+            ApprovalAreaBorder.LayoutTransform = transform;
+
+            // Height is divided by scale so the setting remains the on-screen height.
+            InputTextBox.Height = boxHeight / scale;
         }
 
         /// <summary>
