@@ -177,6 +177,16 @@ window.__scrollToBottom=function(behavior){
     window.scrollTo({top:document.body.scrollHeight,behavior:behavior||'smooth'});
 };
 
+// 思考面板自身也有滚动条，需要独立跟随最新内容
+window.__isReasoningAtBottom=function(el){
+    if(!el)return false;
+    return el.scrollHeight-el.scrollTop-el.clientHeight<=32;
+};
+window.__scrollReasoningToBottom=function(el){
+    if(!el)return;
+    el.scrollTop=el.scrollHeight;
+};
+
 // 检测用户手动滚动
 window.addEventListener('scroll',function(){
     var atBottom=(window.innerHeight+window.scrollY+SCROLL_THRESHOLD)>=document.body.scrollHeight;
@@ -419,7 +429,9 @@ window._showCopyFeedback=function(msgIndex){
                                     var rb=document.getElementById('reasoning-body-'+msg.i);
                                     if(rp&&rb){
                                         rp.style.display='block';
+                                        var reasoningAtBottom=window.__isReasoningAtBottom(rb);
                                         rb.innerHTML=msg.reasoningHtml;
+                                        if(reasoningAtBottom)window.__scrollReasoningToBottom(rb);
                                     }
                                 }
                                 // 高亮代码块
@@ -528,7 +540,9 @@ window._showCopyFeedback=function(msgIndex){
             if(reasoningPanel&&reasoningBody&&msg.r!==undefined){
                 if(msg.r.length>0){
                     reasoningPanel.style.display='block';
+                    var reasoningAtBottom=window.__isReasoningAtBottom(reasoningBody);
                     reasoningBody.textContent=msg.r;
+                    if(reasoningAtBottom)window.__scrollReasoningToBottom(reasoningBody);
                 }else{
                     reasoningPanel.style.display='none';
                 }
