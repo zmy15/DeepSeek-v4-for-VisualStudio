@@ -537,12 +537,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         ///   messages[1] = fixedPrompt（会话级上下文，session 内不变）
         ///   messages[2] = dynamicBlock（压缩摘要 + 搜索 + RAG + 记忆）
         ///   messages[3..N] = 对话历史（来自 ContextManager，起始位置固定）
-        ///   messages[N+1] = Agent 专属行为指令（末尾，每次注入位置随历史长度变化）
-        ///   messages[N+2] = 当前用户消息
+        ///   messages[N+1] = 当前用户消息
+        ///   messages[N+2] = Agent 专属行为指令（固定在最后）
         /// 
-        /// 设计决策：Agent 提示词放在历史之后、用户消息之前。虽然位置随历史增长
-        /// 而漂移（自身每次 miss），但历史 [3..] 起始位置固定，重叠部分始终命中。
-        /// Handoff 时 ForwardedMessages 原封不动复用整个前缀，新 Agent 仅追加。
+        /// 设计决策：Agent 提示词固定在列表最后，用户消息放在它之前。这样工具循环
+        /// 新增的 assistant/tool 消息都在用户消息前向上漂移，Agent 提示词位置不再
+        /// 随轮次漂移；历史 [3..] 起始位置固定的前缀缓存命中范围更大。
+        /// Handoff 时同样复用旧前缀，追加新用户消息和新 Agent 提示词。
         /// </summary>
         /// <param name="systemPrompt">Agent 专属行为指令（不含共享前缀）</param>
         /// <param name="userPrompt">当前的用户消息/步骤描述</param>
@@ -560,22 +561,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 Context!.ForwardedMessages = null; // 消费后清空，防止下次误用
                 var result = new List<ChatApiMessage>(forwarded);
 
-                // ── 🔑 v1.1.11：替换末尾旧 Agent 提示词 + 用户消息，而非追加 ──
-                // 工具循环 Insert 模式保证 forwarded 末尾始终是 [agent] + [user]，
-                // 新 Agent 直接替换这两个位置，避免出现两条提示词。
+                // ── 新结构：旧前缀 + [当前用户] + [当前 Agent 提示词] ──
+                // 仅移除源 Agent 末尾提示词，旧用户消息和历史保留，目标 Agent 提示词追加到最后。
                 int count = result.Count;
-                if (count >= 2)
+                if (count >= 1 && result[count - 1].Role == "system")
                 {
-                    result[count - 2] = new ChatApiMessage { Role = "system", Content = systemPrompt ?? string.Empty };
-                    result[count - 1] = new ChatApiMessage { Role = "user", Content = userPrompt };
+                    result.RemoveAt(count - 1);
                 }
-                else
+                else if (count >= 2 && result[count - 2].Role == "system" && result[count - 1].Role == "user")
                 {
-                    // 异常短列表，回退到追加模式
-                    if (!string.IsNullOrWhiteSpace(systemPrompt))
-                        result.Add(new ChatApiMessage { Role = "system", Content = systemPrompt });
-                    result.Add(new ChatApiMessage { Role = "user", Content = userPrompt });
+                    // 兼容旧结构：尾部 [agent] + [user] 一并移除
+                    result.RemoveRange(count - 2, 2);
                 }
+                result.Add(new ChatApiMessage { Role = "user", Content = userPrompt });
+                if (!string.IsNullOrWhiteSpace(systemPrompt))
+                    result.Add(new ChatApiMessage { Role = "system", Content = systemPrompt });
                 return result;
             }
 
@@ -601,13 +601,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
             }
 
-            // ── 第4层：Agent 专属行为指令（历史之后、用户消息之前）──
-            //     位置随历史长度变化，自身每次 miss，但历史 [3..] 起始位置固定，
-            //     跨轮次重叠部分始终命中。Handoff 时 ForwardedMessages 走独立路径。
-            if (!string.IsNullOrWhiteSpace(systemPrompt))
-                messages.Add(new ChatApiMessage { Role = "system", Content = systemPrompt });
-
-            // ── 第4.5层：易变上下文（Working Set + RAG，放在 Agent 指令之后）──
+            // ── 第4层：易变上下文（Working Set + RAG，放在用户消息之前）──
             //     这些内容每轮都可能变（读不同文件、不同 query 的 RAG 结果），
             //     放在消息末尾以最大化前面前缀缓存的命中范围。
             if (ctxManager != null)
@@ -617,8 +611,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     messages.Add(new ChatApiMessage { Role = "system", Content = volatileBlock });
             }
 
-            // ── 第5层：当前用户消息（变化最大，放在最后）──
+            // ── 第5层：当前用户消息 ──
             messages.Add(new ChatApiMessage { Role = "user", Content = userPrompt });
+
+            // ── 第6层：Agent 专属行为指令（固定在最后）──
+            if (!string.IsNullOrWhiteSpace(systemPrompt))
+                messages.Add(new ChatApiMessage { Role = "system", Content = systemPrompt });
 
             return messages;
         }
@@ -626,7 +624,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 构建上下文感知的消息列表（支持注入额外的系统级上下文）。
         /// 
-        /// extraSystemMessages 插入在用户消息之前（Agent 提示词之后）。
+        /// extraSystemMessages 插入在用户消息之前，Agent 提示词仍固定在最后。
         /// 前缀结构 [0..2] 与主重载一致，确保 DeepSeek Prefix Cache 跨路径共享。
         /// </summary>
         protected List<ChatApiMessage> BuildContextAwareMessages(
@@ -638,8 +636,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var messages = BuildContextAwareMessages(systemPrompt, userPrompt, maxRecentTurns);
 
             // ── 在用户消息之前注入额外的 system 消息 ──
-            // 用户消息始终是最后一条，insertPos = Count-1 即插入在用户消息之前
-            int insertPos = messages.Count - 1; // 用户消息之前
+            // 结构为 [prefix][volatile][user][agent]，用户消息在倒数第二位。
+            int insertPos = Math.Max(0, messages.Count - 2);
             if (extraSystemMessages != null && extraSystemMessages.Count > 0)
             {
                 messages.InsertRange(insertPos, extraSystemMessages);
@@ -696,9 +694,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             int round = BuiltInTools?.CurrentRound ?? 0;
 
             // ── 🔑 v1.1.11：固定后缀插入点 ──
-            // 消息结构：[0..3]prefix + [4..]历史 + [tool_calls...] + [agent] + [user]
-            // 工具循环中新增消息插入到 [agent] 之前，保持 [agent]+[user] 始终在末尾。
-            // ForwardedMessages 捕获此结构后，新 Agent 可直接替换末尾 [agent]+[user]。
+            // 消息结构：[0..3]prefix + [4..]历史 + [volatile] + [tool_calls...] + [user] + [agent]
+            // 工具循环中新增消息插入到 [user] 之前，保持 [user]+[agent] 始终在末尾。
+            // ForwardedMessages 捕获此结构后，新 Agent 可直接复用旧前缀并追加新的 [user]+[agent]。
             int toolInsertPos = Math.Max(0, messages.Count - 2);
             while (!loopDetected)
             {
@@ -1081,7 +1079,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
 
                     // ── 添加 assistant 消息（含工具调用）──
-                    // 🔑 v1.1.11：插入到 [agent] 之前，保持末尾固定
+                    // 🔑 v1.1.11：插入到 [user] 之前，保持 [user]+[agent] 固定在末尾
                     messages.Insert(toolInsertPos, new ChatApiMessage
                     {
                         Role = "assistant",
@@ -1164,7 +1162,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         // ── 裁剪工具结果以保护上下文（与 ContextManager.AddToolResult 保持一致）──
                         string contextResult = CompactToolResultForAgent(tc.Function.Name, toolResult);
 
-                        // ── 🔑 runSubagent 结果放到末尾（[agent] 之后、[user] 之前），
+                        // ── 🔑 runSubagent 结果放到 [user] 之后、[agent] 之前，
                         //     保持前缀不被破坏，确保 DeepSeek Prefix Cache 跨轮次命中。──
                         if (tc.Function.Name == "runSubagent")
                         {
@@ -1208,6 +1206,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (rejectedToolRounds >= maxConsecutiveWhitelistRejections && PendingHandoffRequest == null)
                     {
                         loopDetected = true;
+                        PendingHandoffRequest = null;
                         var distinctRejectedTools = string.Join(", ", rejectedToolNames.Distinct(StringComparer.OrdinalIgnoreCase));
                         Logger.Warn($"[Agent:{Definition.Name}] 🚫 连续 {rejectedToolRounds} 轮白名单拒绝，终止工具循环: {distinctRejectedTools}");
 
@@ -1224,7 +1223,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     //     重建时前缀结构完全一致。
                     //     Explore 执行期间通过 AddAssistantMessage/AddToolResult 写入
                     //     ContextManager 的消息，在此刻读出。
-                    //     🔑 v1.1.12：注入到 messages 末尾（[agent] 之后、[user] 之前），
+                    //     🔑 v1.1.12：注入到 [user] 之后、[agent] 之前，
                     //     与 runSubagent 工具结果同位置，保持前缀不被破坏以最大化缓存命中。──
                     if (toolCalls.Any(tc => tc.Function.Name == "runSubagent")
                         && Context?.ContextManager != null)
@@ -1306,6 +1305,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             {
                                 // 结果相同 → 真正的死循环，终止
                                 loopDetected = true;
+                                PendingHandoffRequest = null;
                                 Logger.Warn($"[Agent:{Definition.Name}] 🔄 检测到循环调用: {toolName} 已重复 {repeatCount} 次且每次返回相同结果");
 
                                 var terminatedBuilder = new StringBuilder();
@@ -1365,7 +1365,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // 检测连续错误：检查本轮 tool 消息是否全部以 ❌ 开头
                     if (!loopDetected)
                     {
-                        // toolInsertPos 在插入 assistant + N 条 tool 后指向 agent 消息，
+                        // toolInsertPos 在插入 assistant + N 条 tool 后指向 user 消息，
                         // 故第一个 tool 消息位于 toolInsertPos - toolCalls.Count
                         int toolMsgStart = toolInsertPos - toolCalls.Count;
                         bool allErrors = toolCalls.Count > 0;
@@ -1383,6 +1383,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         if (consecutiveErrorRounds >= maxConsecutiveErrors)
                         {
                             loopDetected = true;
+                            PendingHandoffRequest = null;
                             Logger.Warn($"[Agent:{Definition.Name}] 🔄 连续 {consecutiveErrorRounds} 轮工具调用全部返回错误，强制结束");
 
                             // ── 附加上次 AI 的上下文总结和最后一次工具调用结果摘要 ──
