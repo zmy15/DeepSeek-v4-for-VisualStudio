@@ -83,6 +83,29 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>要插入的行列表</summary>
         public List<string> InsLines { get; set; } = new();
+
+        /// <summary>
+        /// 同一 hunk 内的多个独立编辑段。
+        /// 当 hunk 中存在多个被上下文隔开的 +/- 块时，必须保留这些段的位置，
+        /// 不能像旧实现那样压成一个连续删除区间。
+        /// </summary>
+        public List<FileChunkSegment> Segments { get; set; } = new();
+    }
+
+    /// <summary>
+    /// 文件重建块中的一个局部编辑段。
+    /// Offset 是相对 FileChunk.OrigIndex 的原始文件行偏移（0-based）。
+    /// </summary>
+    public class FileChunkSegment
+    {
+        /// <summary>相对 chunk 起始位置的原始文件行偏移（0-based）</summary>
+        public int Offset { get; set; }
+
+        /// <summary>该段要删除的行</summary>
+        public List<string> DelLines { get; set; } = new();
+
+        /// <summary>该段要插入的行</summary>
+        public List<string> InsLines { get; set; } = new();
     }
 
     /// <summary>

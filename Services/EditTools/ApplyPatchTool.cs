@@ -450,15 +450,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
 
                 // ── 匹配后验证：检查 DelLines 是否与匹配位置的实际内容一致 ──
                 // 防御模糊匹配误匹配到错误位置（如匹配到方法签名而非实际调用点）
-                if (!VerifyDeletionLinesMatch(chunk, fileLines, matchedLine, contextLines))
+                if (!VerifyDeletionLinesMatchForSegments(chunk, fileLines, matchedLine, contextLines))
                 {
                     failedHunks.Add(patch.Hunks[ci]);
                     continue;
                 }
 
                 // ── 纯插入验证：无删除行时，验证插入位置的前后上下文与文件一致 ──
-                if (chunk.DelLines.Count == 0 && chunk.InsLines.Count > 0 && !VerifyInsertContext(
-                    fileLines, matchedLine, chunk.OrigIndex, contextLines))
+                if (!VerifyInsertContextForSegments(chunk, fileLines, matchedLine, contextLines))
                 {
                     failedHunks.Add(patch.Hunks[ci]);
                     continue;
@@ -476,7 +475,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 // 包含了 } ) ] 等闭合符号，而原始文件中同样的闭合符号也被保留，
                 // 就会产生 } } 重复。此处在匹配完成后，对比 InsLines 尾部的闭合
                 // 符号与原始文件将被保留的行，移除重复部分。
-                TrimTrailingDuplicateClosingTokens(chunk, fileLines);
+                foreach (var segment in chunk.Segments)
+                    TrimTrailingDuplicateClosingTokens(segment, chunk.OrigIndex + segment.Offset, fileLines);
             }
 
             if (failedHunks.Count > 0)
@@ -487,26 +487,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 return result;
             }
 
-            // ── 填充 AppliedEdits（每个成功匹配的 chunk 计为 1 个编辑点）──
-            // 之前 ApplySinglePatch 从未填充此列表，导致日志中始终显示 "0 个编辑点"
+            // ── 填充 AppliedEdits（每个独立编辑段计为 1 个编辑点）──
             foreach (var (chunk, contextLines) in chunks)
             {
-                result.AppliedEdits.Add(new TextEditOperation
+                foreach (var segment in chunk.Segments)
                 {
-                    StartLine = chunk.OrigIndex,
-                    StartColumn = 0,
-                    EndLine = chunk.OrigIndex + chunk.DelLines.Count,
-                    EndColumn = 0,
-                    NewText = string.Join("\n", chunk.InsLines),
-                    MatchedText = contextLines.Length > 0
-                        ? string.Join("\n", contextLines.Take(3)) + (contextLines.Length > 3 ? "..." : "")
-                        : string.Empty,
-                    MatchLevelUsed = MatchLevel.Exact,
-                });
+                    int absoluteStart = chunk.OrigIndex + segment.Offset;
+                    result.AppliedEdits.Add(new TextEditOperation
+                    {
+                        StartLine = absoluteStart,
+                        StartColumn = 0,
+                        EndLine = absoluteStart + segment.DelLines.Count,
+                        EndColumn = 0,
+                        NewText = string.Join("\n", segment.InsLines),
+                        MatchedText = contextLines.Length > 0
+                            ? string.Join("\n", contextLines.Take(3)) + (contextLines.Length > 3 ? "..." : "")
+                            : string.Empty,
+                        MatchLevelUsed = MatchLevel.Exact,
+                    });
+                }
             }
 
             // ── 阶段 3：文件重建 ──
-            string reconstructed = ReconstructFile(fileLines, chunks.Select(c => c.chunk).ToList());
+            string reconstructed = ReconstructFile(
+                fileLines,
+                BuildReconstructionChunks(chunks));
             result.FinalContent = EditStringMatcher.NormalizeToCrLf(reconstructed);
 
             // ── v1.1.11: 移除此处重复的结构完整性校验。
@@ -538,72 +543,68 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         internal static (FileChunk? chunk, string[] contextLines) HunkToChunk(PatchHunk hunk)
         {
             var contextLines = new List<string>();
-            var delLines = new List<string>();
-            var insLines = new List<string>();
-            int origIndex = 0;
-            int delOffset = -1; // 第一个 - 行在上下文中的偏移（-1 表示纯插入无删除）
+            var allDelLines = new List<string>();
+            var allInsLines = new List<string>();
+            var segments = new List<FileChunkSegment>();
+            int originalLineOffset = 0;
+            int currentSegmentOffset = -1;
+            var currentDelLines = new List<string>();
+            var currentInsLines = new List<string>();
             bool hasChanges = false;
-            int ctxLineIdx = 0; // 当前上下文行索引
+
+            void FlushSegment()
+            {
+                if (currentSegmentOffset < 0) return;
+                if (currentDelLines.Count == 0 && currentInsLines.Count == 0) return;
+
+                segments.Add(new FileChunkSegment
+                {
+                    Offset = currentSegmentOffset,
+                    DelLines = new List<string>(currentDelLines),
+                    InsLines = new List<string>(currentInsLines),
+                });
+                allDelLines.AddRange(currentDelLines);
+                allInsLines.AddRange(currentInsLines);
+                currentSegmentOffset = -1;
+                currentDelLines.Clear();
+                currentInsLines.Clear();
+            }
 
             foreach (var line in hunk.Lines)
             {
                 switch (line.Type)
                 {
                     case ' ':
-                        if (hasChanges)
-                        {
-                            contextLines.Add(line.Text);
-                            ctxLineIdx++;
-                        }
-                        else
-                        {
-                            contextLines.Add(line.Text);
-                            origIndex++;
-                            ctxLineIdx++;
-                        }
+                        FlushSegment();
+                        contextLines.Add(line.Text);
+                        originalLineOffset++;
                         break;
                     case '-':
                         hasChanges = true;
-                        if (delOffset < 0) delOffset = ctxLineIdx;
-                        delLines.Add(line.Text);
+                        if (currentSegmentOffset < 0) currentSegmentOffset = originalLineOffset;
+                        currentDelLines.Add(line.Text);
                         contextLines.Add(line.Text);
-                        ctxLineIdx++;
+                        originalLineOffset++;
                         break;
                     case '+':
                         hasChanges = true;
-                        insLines.Add(line.Text);
+                        if (currentSegmentOffset < 0) currentSegmentOffset = originalLineOffset;
+                        currentInsLines.Add(line.Text);
                         break;
                 }
             }
+            FlushSegment();
 
             if (!hasChanges)
                 return (null, Array.Empty<string>());
 
-            // ── 修正 origIndex：当有删除行时，origIndex 应指向第一个 - 行位置（而非第一个 + 行）
-            //    防止 InsertLines 在 - 行之前时，删除位置偏移导致删错代码
-            if (delOffset >= 0 && delLines.Count > 0)
-            {
-                origIndex = delOffset;
-            }
-
-            // ── 防御：检测尾部重复闭合符号 ──
-            if (insLines.Count > 0 && contextLines.Count > 0)
-            {
-                string lastIns = insLines[insLines.Count - 1];
-                string lastCtx = contextLines[contextLines.Count - 1];
-
-                if (IsClosingToken(lastIns) &&
-                    string.Equals(lastIns.Trim(), lastCtx.Trim(), StringComparison.Ordinal))
-                {
-                    insLines.RemoveAt(insLines.Count - 1);
-                }
-            }
-
+            // 保留旧字段供兼容和诊断使用。实际重建使用 Segments。
             var chunk = new FileChunk
             {
-                OrigIndex = origIndex,
-                DelLines = delLines,
-                InsLines = insLines,
+                OrigIndex = 0,
+                DelLines = allDelLines,
+                InsLines = allInsLines,
+                Segments = segments,
             };
 
             return (chunk, contextLines.ToArray());
@@ -620,23 +621,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         /// 从 InsLines 尾部向前扫描闭合符号行（跳过空行/空白行），
         /// 与原始文件将被保留的后置上下文逐行对比，移除匹配的重复项。
         /// </summary>
-        /// <param name="chunk">已匹配定位的 FileChunk</param>
+        /// <param name="segment">已匹配定位的独立编辑段</param>
+        /// <param name="baseIndex">编辑段在原始文件中的绝对起始位置</param>
         /// <param name="fileLines">原始文件行数组</param>
-        internal static void TrimTrailingDuplicateClosingTokens(FileChunk chunk, string[] fileLines)
+        internal static void TrimTrailingDuplicateClosingTokens(
+            FileChunkSegment segment, int baseIndex, string[] fileLines)
         {
-            if (chunk.InsLines.Count == 0)
+            if (segment.InsLines.Count == 0)
                 return;
 
-            int postChangeStart = chunk.OrigIndex + chunk.DelLines.Count;
+            int postChangeStart = baseIndex + segment.DelLines.Count;
             if (postChangeStart >= fileLines.Length)
                 return;
 
             // ── 从 InsLines 尾部向前收集闭合符号行（跳过空行/空白行）──
             // 构建 (insIndex, closingLine) 列表，按 insIndex 升序（从尾到头收集后反转）
             var closingEntries = new List<(int insIndex, string closingLine)>();
-            for (int i = chunk.InsLines.Count - 1; i >= 0; i--)
+            for (int i = segment.InsLines.Count - 1; i >= 0; i--)
             {
-                string line = chunk.InsLines[i];
+                string line = segment.InsLines[i];
                 if (string.IsNullOrWhiteSpace(line))
                     continue; // 跳过空行/空白行，继续向上扫描
                 if (IsClosingToken(line))
@@ -672,10 +675,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     indicesToRemove.Add(closingEntries[j].insIndex);
 
                 // 从后向前移除，避免索引偏移
-                for (int i = chunk.InsLines.Count - 1; i >= 0; i--)
+                for (int i = segment.InsLines.Count - 1; i >= 0; i--)
                 {
                     if (indicesToRemove.Contains(i))
-                        chunk.InsLines.RemoveAt(i);
+                        segment.InsLines.RemoveAt(i);
                 }
             }
         }
@@ -812,6 +815,98 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             }
 
             return passed;
+        }
+
+        /// <summary>
+        /// 基于 Segment 的删除行验证。旧版 Method 只支持单个连续删除块，
+        /// 现在对每个编辑段单独验证，避免同一 Hunk 内多个 - 块时误判位置。
+        /// </summary>
+        internal static bool VerifyDeletionLinesMatchForSegments(
+            FileChunk chunk, string[] fileLines, int matchedLine, string[] contextLines)
+        {
+            if (chunk.Segments == null || chunk.Segments.Count == 0)
+                return VerifyDeletionLinesMatch(chunk, fileLines, matchedLine, contextLines);
+
+            foreach (var segment in chunk.Segments)
+            {
+                if (segment.DelLines.Count == 0)
+                    continue;
+
+                int fileDelStart = matchedLine + segment.Offset;
+                if (!VerifyDeletionBlock(
+                        segment.DelLines, fileLines, fileDelStart))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool VerifyDeletionBlock(
+            List<string> delLines, string[] fileLines, int fileDelStart)
+        {
+            int matchCount = 0;
+            int nonEmptyCount = 0;
+
+            for (int j = 0; j < delLines.Count; j++)
+            {
+                int fileLineIdx = fileDelStart + j;
+                if (fileLineIdx >= fileLines.Length) break;
+
+                string delLine = delLines[j];
+                string fileLine = fileLines[fileLineIdx];
+
+                if (string.IsNullOrWhiteSpace(delLine) && string.IsNullOrWhiteSpace(fileLine))
+                {
+                    matchCount++;
+                    continue;
+                }
+                if (string.IsNullOrWhiteSpace(delLine)) continue;
+
+                nonEmptyCount++;
+                string delTrimmed = EditStringMatcher.NormalizeUnicode(delLine).Trim();
+                string fileTrimmed = EditStringMatcher.NormalizeUnicode(fileLine).Trim();
+
+                if (string.Equals(delTrimmed, fileTrimmed, StringComparison.Ordinal))
+                {
+                    matchCount++;
+                }
+                else
+                {
+                    int dist = LevenshteinDistanceExtensions.LevenshteinDistance(delTrimmed, fileTrimmed);
+                    double similarity = 1.0 - (double)dist / Math.Max(delTrimmed.Length, fileTrimmed.Length);
+                    if (similarity >= 0.85 && delTrimmed.Length >= 10)
+                        matchCount++;
+                }
+            }
+
+            return nonEmptyCount == 0
+                || matchCount >= Math.Max(1, (int)Math.Ceiling(nonEmptyCount * 0.75));
+        }
+
+        /// <summary>
+        /// 对每个无删除的 Segment 验证插入位置上下文。
+        /// </summary>
+        private static bool VerifyInsertContextForSegments(
+            FileChunk chunk, string[] fileLines, int matchedLine, string[] contextLines)
+        {
+            if (chunk.Segments == null || chunk.Segments.Count == 0)
+                return true;
+
+            foreach (var segment in chunk.Segments)
+            {
+                if (segment.DelLines.Count > 0 || segment.InsLines.Count == 0)
+                    continue;
+
+                if (!VerifyInsertContext(
+                        fileLines, matchedLine, segment.Offset, contextLines))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -1029,6 +1124,38 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         private static int CountTrailingEmptyLines(string[] lines) => CountTrailingEmptyLines((IList<string>)lines);
 
         /// <summary>
+        /// 将包含多个 Segment 的原始 Chunk 展开为独立的重建 Chunk。
+        /// 旧版重建器只接收单个 OrigIndex/DelLines/InsLines，因此这里保留旧接口，
+        /// 但每个 Segment 都获得自己在原始文件中的精确位置。
+        /// </summary>
+        private static List<FileChunk> BuildReconstructionChunks(
+            List<(FileChunk chunk, string[] contextLines)> chunks)
+        {
+            var reconstructionChunks = new List<FileChunk>();
+
+            foreach (var (chunk, _) in chunks)
+            {
+                if (chunk.Segments == null || chunk.Segments.Count == 0)
+                {
+                    reconstructionChunks.Add(chunk);
+                    continue;
+                }
+
+                foreach (var segment in chunk.Segments)
+                {
+                    reconstructionChunks.Add(new FileChunk
+                    {
+                        OrigIndex = chunk.OrigIndex + segment.Offset,
+                        DelLines = segment.DelLines,
+                        InsLines = segment.InsLines,
+                    });
+                }
+            }
+
+            return reconstructionChunks;
+        }
+
+        /// <summary>
         /// 缩进适配：将 AI 输出的缩进调整为与目标文件一致。
         /// 参考: parser.ts computeIndentLevel2 + transformIndentation + additionalIndentation
         ///
@@ -1038,7 +1165,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         internal static void AdaptChunkIndentation(
             FileChunk chunk, string[] contextLines, string[] fileLines, int matchedLine)
         {
-            if (chunk.InsLines.Count == 0 || contextLines.Length == 0 || matchedLine >= fileLines.Length)
+            if (chunk.Segments.Count == 0 || contextLines.Length == 0 || matchedLine >= fileLines.Length)
                 return;
 
             // ── 检测目标文件的缩进风格 ──
@@ -1060,10 +1187,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             // ── 使用目标文件的缩进单位构建附加缩进 ──
             string additionalIndent = new string(indentUnit[0], indentDelta);
 
-            for (int i = 0; i < chunk.InsLines.Count; i++)
+            foreach (var segment in chunk.Segments)
             {
-                if (!string.IsNullOrWhiteSpace(chunk.InsLines[i]))
-                    chunk.InsLines[i] = additionalIndent + chunk.InsLines[i];
+                for (int i = 0; i < segment.InsLines.Count; i++)
+                {
+                    if (!string.IsNullOrWhiteSpace(segment.InsLines[i]))
+                        segment.InsLines[i] = additionalIndent + segment.InsLines[i];
+                }
             }
         }
 
@@ -1414,7 +1544,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 int beforeStart = Math.Max(0, minLine - contextBefore);
                 int beforeEnd = Math.Min(beforeLines.Length - 1, maxLine + contextAfter);
                 int afterStart = Math.Max(0, minLine - contextBefore);
-                int afterEnd = Math.Min(afterLines.Length - 1, maxLine + contextAfter);
+                int insertedLines = appliedEdits.Sum(e =>
+                    string.IsNullOrEmpty(e.NewText)
+                        ? 0
+                        : e.NewText.Split('\n').Length);
+                int deletedLines = appliedEdits.Sum(e =>
+                    Math.Max(0, e.EndLine - e.StartLine));
+                int afterExtra = Math.Max(0, insertedLines - deletedLines);
+                int afterEnd = Math.Min(afterLines.Length - 1, beforeEnd + afterExtra);
 
                 var sb = new StringBuilder();
                 sb.AppendLine($"[ApplyPatch] 📄 {Path.GetFileName(filePath)} 修改区域 (编辑点={appliedEdits.Count}, 行 {minLine + 1}-{maxLine + 1}):");
@@ -1431,8 +1568,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 sb.AppendLine($"  ── 修改后 (行 {afterStart + 1}-{afterEnd + 1}/{afterLines.Length}) ──");
                 for (int i = afterStart; i <= afterEnd && i < afterLines.Length; i++)
                 {
-                    string marker = (i >= minLine && i <= maxLine) ? "◀" : " ";
-                    sb.AppendLine($"  {marker} {i + 1,5}: {afterLines[i]}");
+                    sb.AppendLine($"    {i + 1,5}: {afterLines[i]}");
                 }
 
                 Logger.LogToFile("applypatch", sb.ToString());
