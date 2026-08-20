@@ -1031,6 +1031,7 @@
     "tool.memory.strReplaceMissingOld":  "❌ memory str_replace: 缺少 old_str 参数",
     "tool.memory.strReplaceMissingNew":  "❌ memory str_replace: 缺少 new_str 参数",
     "tool.memory.strReplaceFileNotFound":  "❌ memory str_replace: 记忆文件不存在: {1} (作用域: {0})。请先 view 确认路径；若要新建文件，请使用 create 命令。",
+    "tool.memory.strReplaceMismatch":  "❌ memory str_replace: old_str 与文件内容不匹配（或不唯一）。请先对该文件执行 view 获取当前精确文本，再使用完全一致的 old_str 重试。",
     "tool.memory.insertMissingPath":  "❌ memory insert: 缺少 path 参数",
     "tool.memory.insertMissingText":  "❌ memory insert: 缺少 insert_text 参数",
     "tool.memory.deleteMissingPath":  "❌ memory delete: 缺少 path 参数",

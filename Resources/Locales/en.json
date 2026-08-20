@@ -1032,6 +1032,7 @@
     "tool.memory.strReplaceMissingOld":  "❌ memory str_replace: missing old_str parameter",
     "tool.memory.strReplaceMissingNew":  "❌ memory str_replace: missing new_str parameter",
     "tool.memory.strReplaceFileNotFound":  "❌ memory str_replace: memory file not found: {1} (scope: {0}). Use view to confirm the path, or create to create a new file.",
+    "tool.memory.strReplaceMismatch":  "❌ memory str_replace: old_str does not match the current file content (or is not unique). Run view on the file to read the exact text, then retry with an exact old_str match.",
     "tool.memory.insertMissingPath":  "❌ memory insert: missing path parameter",
     "tool.memory.insertMissingText":  "❌ memory insert: missing insert_text parameter",
     "tool.memory.deleteMissingPath":  "❌ memory delete: missing path parameter",

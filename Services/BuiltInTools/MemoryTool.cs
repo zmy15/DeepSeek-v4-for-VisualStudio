@@ -226,6 +226,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 Logger.Warn($"[MemoryTool] str_replace 目标不存在: {scope}/{path}");
                 return LocalizationService.Instance.Format("tool.memory.strReplaceFileNotFound", scope, path);
             }
+            catch (InvalidOperationException)
+            {
+                // oldStr 未找到或不唯一属于可恢复场景，返回指引让模型先 view 当前内容再重试。
+                Logger.Warn($"[MemoryTool] str_replace 未找到或不唯一: {scope}/{path}");
+                return LocalizationService.Instance["tool.memory.strReplaceMismatch"];
+            }
         }
 
         private async Task<string> ExecuteInsertAsync(Dictionary<string, JsonElement> args, string? solutionPath)

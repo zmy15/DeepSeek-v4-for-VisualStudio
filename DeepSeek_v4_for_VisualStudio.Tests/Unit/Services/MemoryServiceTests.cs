@@ -117,30 +117,50 @@ public class MemoryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task StrReplace_NotFound_ThrowsInvalidOperationException()
+    public async Task StrReplace_CrlfFile_LfOldStr_ReplacesSuccessfully()
     {
-        string path = $"test-replace-nf-{Guid.NewGuid():N}.md";
-        await _service.CreateAsync(MemoryScope.User, path, "some content");
+        string path = $"test-replace-crlf-{Guid.NewGuid():N}.md";
+        string content = "Line1\r\nLine2\r\nLine3";
+        await _service.CreateAsync(MemoryScope.User, path, content);
 
-        var act = () => _service.StrReplaceAsync(MemoryScope.User, path, "notfound", "replacement");
+        // view 返回的内容统一用 \n，替换也应按统一换行符匹配 CRLF 文件。
+        await _service.StrReplaceAsync(MemoryScope.User, path, "Line1\nLine2", "Line1\nLine2-new");
+        var result = await _service.ViewAsync(MemoryScope.User, path);
 
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*未找到*");
+        result.Content.Should().Be("Line1\nLine2-new\nLine3");
 
         await _service.DeleteAsync(MemoryScope.User, path);
     }
 
     [Fact]
-    public async Task StrReplace_NonUnique_ThrowsInvalidOperationException()
+    public async Task StrReplace_NotFound_ReturnsErrorAndKeepsContent()
+    {
+        string path = $"test-replace-nf-{Guid.NewGuid():N}.md";
+        await _service.CreateAsync(MemoryScope.User, path, "some content");
+
+        var result = await _service.StrReplaceAsync(MemoryScope.User, path, "notfound", "replacement");
+        var view = await _service.ViewAsync(MemoryScope.User, path);
+
+        result.Should().StartWith("❌");
+        result.Should().Contain("未找到");
+        view.Content.Should().Be("some content");
+
+        await _service.DeleteAsync(MemoryScope.User, path);
+    }
+
+    [Fact]
+    public async Task StrReplace_NonUnique_ReturnsErrorAndKeepsContent()
     {
         string path = $"test-replace-multi-{Guid.NewGuid():N}.md";
         string content = "Line with foo\nAnother line with foo";
         await _service.CreateAsync(MemoryScope.User, path, content);
 
-        var act = () => _service.StrReplaceAsync(MemoryScope.User, path, "foo", "bar");
+        var result = await _service.StrReplaceAsync(MemoryScope.User, path, "foo", "bar");
+        var view = await _service.ViewAsync(MemoryScope.User, path);
 
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*2*不唯一*"); // appeared 2 times
+        result.Should().StartWith("❌");
+        result.Should().Contain("不唯一");
+        view.Content.Should().Be(content);
 
         await _service.DeleteAsync(MemoryScope.User, path);
     }

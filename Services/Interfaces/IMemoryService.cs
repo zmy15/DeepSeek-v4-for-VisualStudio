@@ -40,6 +40,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 精确替换文件中的字符串。oldStr 必须在文件中恰好出现一次。
+        /// 未找到或不唯一时返回以 ❌ 开头的错误文本，不抛可恢复异常。
         /// </summary>
         Task<string> StrReplaceAsync(
             MemoryScope scope,

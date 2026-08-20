@@ -181,16 +181,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     var content = File.ReadAllText(resolved, Encoding.UTF8);
 
-                    var count = CountOccurrences(content, oldStr);
-                    if (count == 0)
-                        throw new InvalidOperationException(
-                            $"oldStr 在文件中未找到，无法替换。文件: {scope}/{path}");
-                    if (count > 1)
-                        throw new InvalidOperationException(
-                            $"oldStr 在文件中出现了 {count} 次，不唯一无法精确替换。请提供更多上下文使匹配唯一。文件: {scope}/{path}");
+                    // view 返回的文本统一使用 \n；匹配前也统一换行符，避免 CRLF/LF 差异导致误判为未找到。
+                    bool useCrlf = content.Contains("\r\n");
+                    var normalizedContent = NormalizeLineEndings(content);
+                    var normalizedOld = NormalizeLineEndings(oldStr);
 
-                    var newContent = content.Replace(oldStr, newStr);
-                    File.WriteAllText(resolved, newContent, Encoding.UTF8);
+                    var count = CountOccurrences(normalizedContent, normalizedOld);
+                    if (count == 0)
+                        return $"❌ 替换失败: oldStr 在文件中未找到，无法替换。请先 view 该文件获取当前精确内容。文件: {scope}/{path}";
+                    if (count > 1)
+                        return $"❌ 替换失败: oldStr 在文件中出现了 {count} 次，不唯一无法精确替换。请提供更多上下文使匹配唯一。文件: {scope}/{path}";
+
+                    var newContent = NormalizeLineEndings(newStr);
+                    var replaced = normalizedContent.Replace(normalizedOld, newContent);
+                    if (useCrlf)
+                        replaced = replaced.Replace("\n", "\r\n");
+                    File.WriteAllText(resolved, replaced, Encoding.UTF8);
                 }
                 Logger.Info($"[Memory] 替换: {scope}/{path}");
                 return $"记忆文件已更新: {scope}/{path}";
@@ -458,6 +464,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 idx += oldStr.Length;
             }
             return count;
+        }
+
+        /// <summary>统一换行符为 \n，便于跨 CRLF/LF 文件的精确匹配。</summary>
+        private static string NormalizeLineEndings(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            return text.Replace("\r\n", "\n").Replace("\r", "\n");
         }
 
         private static string GetScopeLabel(MemoryScope scope) => scope switch

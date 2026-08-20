@@ -164,6 +164,28 @@ public class MemoryToolTests
         result.Should().Contain("create");
     }
 
+    [Fact]
+    public async Task Execute_StrReplace_Mismatch_ReturnsRecoveryHint()
+    {
+        string path = $"mismatch-{Guid.NewGuid():N}.md";
+        await _memoryService.CreateAsync(MemoryScope.User, path, "实际内容");
+
+        var args = new Dictionary<string, JsonElement>
+        {
+            ["command"] = JsonSerializer.SerializeToElement("str_replace"),
+            ["path"] = JsonSerializer.SerializeToElement($"/memories/{path}"),
+            ["old_str"] = JsonSerializer.SerializeToElement("不存在的文本"),
+            ["new_str"] = JsonSerializer.SerializeToElement("新文本"),
+        };
+
+        var result = await _tool.ExecuteAsync(args, null);
+
+        result.Should().StartWith("❌");
+        result.Should().Contain("view");
+
+        await _memoryService.DeleteAsync(MemoryScope.User, path);
+    }
+
     #endregion
 
     #region Execute — Session Scope
