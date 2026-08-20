@@ -145,7 +145,7 @@ public class EditAgentTests
     }
 
     [Fact]
-    public void CodeStepTools_ExcludesBuildAndHandoffTools()
+    public void CodeStepTools_AllowsTerminalAndExplorationButExcludesBuildAndHandoffTools()
     {
         var field = typeof(EditAgent).GetField(
             "CodeStepTools",
@@ -153,10 +153,59 @@ public class EditAgentTests
 
         var tools = (string[])field!.GetValue(null)!;
 
+        tools.Should().Contain("file_search");
+        tools.Should().Contain("grep_search");
+        tools.Should().Contain("symbol_search");
+        tools.Should().Contain("list_dir");
+        tools.Should().Contain("run_in_terminal");
+        tools.Should().Contain("VisualStudio_askQuestions");
         tools.Should().NotContain("build_solution");
-        tools.Should().NotContain("run_in_terminal");
         tools.Should().NotContain("request_handoff");
         tools.Should().NotContain("edit_notebook_file");
+    }
+
+    [Fact]
+    public void VerifyPhaseTools_ContainsBatchEditAndMemoryTools()
+    {
+        var field = typeof(EditAgent).GetField(
+            "VerifyPhaseTools",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        var tools = (string[])field!.GetValue(null)!;
+
+        tools.Should().Contain("build_solution");
+        tools.Should().Contain("apply_patch");
+        tools.Should().Contain("delete_file");
+        tools.Should().Contain("create_directory");
+        tools.Should().Contain("memory");
+        tools.Should().Contain("replace_string_in_file");
+        tools.Should().Contain("multi_replace_string_in_file");
+        tools.Should().Contain("create_file");
+        tools.Should().Contain("run_in_terminal");
+        tools.Should().Contain("get_terminal_output");
+        tools.Should().Contain("git");
+        tools.Should().NotContain("runSubagent");
+        tools.Should().NotContain("request_handoff");
+    }
+
+    [Fact]
+    public void ReadOnlyExecutionTools_ExcludeAllFileWriteTools()
+    {
+        var field = typeof(EditAgent).GetField(
+            "ReadOnlyExecutionTools",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        var tools = (string[])field!.GetValue(null)!;
+
+        tools.Should().Contain("read_file");
+        tools.Should().Contain("run_in_terminal");
+        tools.Should().NotContain("create_file");
+        tools.Should().NotContain("replace_string_in_file");
+        tools.Should().NotContain("multi_replace_string_in_file");
+        tools.Should().NotContain("apply_patch");
+        tools.Should().NotContain("delete_file");
+        tools.Should().NotContain("create_directory");
+        tools.Should().NotContain("build_solution");
     }
 
     [Fact]
@@ -326,6 +375,72 @@ public class EditAgentTests
 
         // Description stores the full user message
         plan.Steps[0].Description.Should().Be(longMessage);
+    }
+
+    [Fact]
+    public void CreateSingleStepPlan_ReadsAndOutputsContent_UsesReadOnlyExecution()
+    {
+        const string userMessage = "运行一段python代码读取磁盘文件的代码备份文件并输出";
+
+        var plan = CreateSingleStepPlanPublic(userMessage);
+
+        plan.Intent.Should().Be(AgentIntent.QandA);
+        plan.Steps.Should().HaveCount(1);
+        plan.Steps[0].Title.Should().Be(
+            LocalizationService.Instance["agent.step.executeReadOnlyCommand"]);
+        plan.ChangedFiles.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CreateSingleStepPlan_ModificationRequest_KeepsCodeChangeIntent()
+    {
+        var plan = CreateSingleStepPlanPublic("修改 app.ts 中的配置");
+
+        plan.Intent.Should().Be(AgentIntent.CodeChange);
+        plan.Steps[0].Title.Should().Be(
+            LocalizationService.Instance["agent.step.analyzeAndModify"]);
+    }
+
+    [Theory]
+    [InlineData("运行一段python代码读取磁盘文件的代码备份文件并输出", true)]
+    [InlineData("运行脚本并输出文件内容", true)]
+    [InlineData("执行命令查看配置内容", true)]
+    [InlineData("修改 app.ts 中的配置", false)]
+    [InlineData("创建一个备份文件", false)]
+    [InlineData("运行脚本并保存输出到文件", false)]
+    public void IsReadOnlyExecutionRequest_ClassifiesExecutionIntent(string message, bool expected)
+    {
+        var method = typeof(EditAgent).GetMethod(
+            "IsReadOnlyExecutionRequest",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        var result = (bool)method!.Invoke(null, new object[] { message })!;
+
+        result.Should().Be(expected);
+    }
+
+    [Fact]
+    public void BuildReadOnlyExecutionContent_AppendsMissingRawOutput()
+    {
+        const string aiSummary = "已读取文件，以下是说明。";
+        const string rawOutput = "📟 终端输出 (退出码: 0):\n#include <iostream>\nint main() {}";
+
+        var result = BuildReadOnlyExecutionContentPublic(aiSummary, rawOutput);
+
+        result.Should().Contain(aiSummary);
+        result.Should().Contain("--- 完整终端输出 ---");
+        result.Should().Contain("#include <iostream>");
+        result.Should().Contain("--- 完整终端输出结束 ---");
+    }
+
+    [Fact]
+    public void BuildReadOnlyExecutionContent_DoesNotDuplicateCompleteOutput()
+    {
+        const string rawOutput = "📟 终端输出 (退出码: 0):\n#include <iostream>\nint main() {}";
+
+        var result = BuildReadOnlyExecutionContentPublic(rawOutput, rawOutput);
+
+        result.Should().Be(rawOutput);
     }
 
     #endregion
@@ -582,6 +697,14 @@ public class EditAgentTests
         var method = typeof(EditAgent).GetMethod("CreateSingleStepPlan",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         return (AgentTaskPlan)method!.Invoke(null, new object[] { userMessage })!;
+    }
+
+    private static string BuildReadOnlyExecutionContentPublic(string aiResult, string rawToolOutput)
+    {
+        var method = typeof(EditAgent).GetMethod(
+            "BuildReadOnlyExecutionContent",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        return (string)method!.Invoke(null, new object[] { aiResult, rawToolOutput })!;
     }
 
     private static void RaiseLogEntryAddedPublic(ExploreAgent agent, AgentLogEntry entry)
