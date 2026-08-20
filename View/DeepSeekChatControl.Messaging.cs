@@ -174,6 +174,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
 
             // 构建用户消息内容
+            string analyzeFilesPrompt = "请分析以上文件内容。";
             string userDisplayContent = userText ?? string.Empty;
             if (string.IsNullOrEmpty(userDisplayContent) && attachedFileNames.Count > 0)
                 userDisplayContent = $"[已上传 {attachedFileNames.Count} 个文件]";
@@ -182,7 +183,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (!string.IsNullOrEmpty(fileContext) && !string.IsNullOrEmpty(effectiveUserText))
                 fullUserContent = fileContext + "\n" + effectiveUserText;
             else if (!string.IsNullOrEmpty(fileContext))
-                fullUserContent = fileContext + "\n请分析以上文件内容。";
+                fullUserContent = fileContext + "\n" + analyzeFilesPrompt;
             else
                 fullUserContent = effectiveUserText ?? string.Empty;
 
@@ -256,8 +257,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         + (agentSkillInstructions != null ? " [含Skill指令]" : ""));
                 }
 
-                // 所有非斜杠命令消息统一走 Agent 工作流（从 AskAgent 起始）
-                if (_activeAgent != null && _agentFactory != null && !string.IsNullOrEmpty(effectiveUserText) && !effectiveUserText.StartsWith("/"))
+                // 所有非斜杠命令消息统一走 Agent 工作流（从 AskAgent 起始）。
+                // 仅粘贴图片/文件、不输入文字时也要进入 Agent，否则 _isGenerating 不会复位，界面会卡死。
+                bool hasAgentInput = !string.IsNullOrEmpty(effectiveUserText) || hasAttachments;
+                if (_activeAgent != null && _agentFactory != null && hasAgentInput && !effectiveUserText.StartsWith("/"))
                 {
                     // ── 确保系统提示词已初始化（新会话时 _fixedSystemPrompt 为 null，
                     //     BuildRequestMessagesAsync 在上方未被调用，需在此处补做初始化）──
@@ -296,7 +299,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         }
                         int capturedUserMsgIndex = _messages.Count - 1;
 
-                        var capturedUserText = agentRoutedUserText;
+                        var capturedUserText = !string.IsNullOrEmpty(agentRoutedUserText)
+                            ? agentRoutedUserText
+                            : analyzeFilesPrompt;
                         var capturedFileContext = fileContext;
                         var capturedRoute = routing;
                         var capturedMsgIdx = capturedUserMsgIndex;
@@ -326,6 +331,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         return;
                 }
 
+                // 兜底：未进入 Agent 工作流时复位生成状态，避免界面卡在“生成中”。
+                lock (_lock) { _isGenerating = false; }
+                UpdateButtonsState();
+                StatusLabel.Text = LocalizationService.Instance["status.ready"];
         }
 #pragma warning restore VSTHRD100
         private string? BuildRoutingContext(string userText, string? fileContext, List<FileParseResult>? parseResults)
