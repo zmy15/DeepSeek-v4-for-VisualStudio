@@ -144,7 +144,7 @@ public class EditAgentTests
     }
 
     [Fact]
-    public void CodeStepTools_DoesNotContainBuildButAllowsHandoff()
+    public void CodeStepTools_ExcludesBuildAndHandoffTools()
     {
         var field = typeof(EditAgent).GetField(
             "CodeStepTools",
@@ -153,7 +153,78 @@ public class EditAgentTests
         var tools = (string[])field!.GetValue(null)!;
 
         tools.Should().NotContain("build_solution");
-        tools.Should().Contain("request_handoff");
+        tools.Should().NotContain("run_in_terminal");
+        tools.Should().NotContain("request_handoff");
+    }
+
+    [Fact]
+    public void EditAgent_DoesNotDefineUnusedExplorationTools()
+    {
+        var field = typeof(EditAgent).GetField(
+            "ExplorationTools",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        field.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("构建项目", true)]
+    [InlineData("编译验证", true)]
+    [InlineData("运行测试", true)]
+    [InlineData("分析代码", false)]
+    [InlineData("修改代码", false)]
+    public void IsBuildVerificationStep_ClassifiesDirectBuildSteps(string title, bool expected)
+    {
+        var method = typeof(EditAgent).GetMethod(
+            "IsBuildVerificationStep",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        var result = (bool)method!.Invoke(null, new object[] { title })!;
+
+        result.Should().Be(expected);
+    }
+
+    [Fact]
+    public void BuildStepPrompt_ForCodeStep_ExplainsStageToolsAndAutomaticVerification()
+    {
+        var agent = new EditAgent(_apiService);
+        var plan = new AgentTaskPlan
+        {
+            Title = "Implement feature",
+            Steps =
+            {
+                new AgentStep
+                {
+                    Index = 1,
+                    Title = "Modify code",
+                    Description = "Update the implementation."
+                }
+            }
+        };
+        var method = typeof(EditAgent).GetMethod(
+            "BuildStepPrompt",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        var prompt = (string)method!.Invoke(agent, new object[]
+        {
+            plan.Steps[0], plan, new AgentContext(), true
+        })!;
+
+        var codeStepTools = typeof(EditAgent).GetField(
+            "CodeStepTools",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .GetValue(null) as string[];
+        var expectedToolList = string.Join(", ", codeStepTools!);
+
+        prompt.Should().Contain(expectedToolList);
+        prompt.Should().Contain("build_solution");
+        prompt.Should().Contain("run_in_terminal");
+        prompt.Should().Contain("request_handoff");
+        prompt.Should().Contain(
+            LocalizationService.Instance.CurrentLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase)
+                ? "自动"
+                : "automatic",
+            AtLeast.Once());
     }
 
     #endregion

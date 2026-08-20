@@ -682,6 +682,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var callSignatureHistory = new List<string>();
             var toolCallHistory = new List<(int Round, string Summary)>();
             var lastResultBySignature = new Dictionary<string, string>();  // 跟踪每次调用的结果
+            var rejectedToolNames = new List<string>();
             int consecutiveErrorRounds = 0;
             int maxRepeatedSameCall = Settings.DeepSeekOptionsPage.Instance?.MaxRepeatedSameCall ?? 5;
             if (maxRepeatedSameCall < 1) maxRepeatedSameCall = 5;
@@ -990,9 +991,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // ── 🔑 客户端白名单拦截：标记不在 effectiveWhitelist 中的工具调用 ──
                 //    因为 API 请求始终发送完整工具集（Prefix Cache 优化），
                 //    AI 可能调用不在当前 Agent/阶段白名单中的工具。
-                //    标记后统一在执行阶段返回拒绝消息，让 AI 重试正确工具。
+                //    标记后统一在执行阶段返回拒绝消息，并终止本轮工具循环。
                 HashSet<int>? blockedToolIndices = null;
-                if (toolCalls.Count > 0 && effectiveWhitelist != null && effectiveWhitelist.Count > 0)
+                if (toolCalls.Count > 0 && effectiveWhitelist != null)
                 {
                     var whitelistSet = new HashSet<string>(effectiveWhitelist, StringComparer.OrdinalIgnoreCase);
                     blockedToolIndices = new HashSet<int>();
@@ -1006,6 +1007,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (blockedToolIndices.Count > 0)
                     {
                         var blockedNames = string.Join(", ", blockedToolIndices.Select(i => toolCalls[i].Function.Name));
+                        rejectedToolNames.AddRange(toolCalls
+                            .Where((tc, i) => blockedToolIndices.Contains(i))
+                            .Select(tc => tc.Function.Name));
                         Logger.Warn($"[Agent:{Definition.Name}] 🚫 白名单拦截 {blockedToolIndices.Count} 个工具: {blockedNames}（白名单: {string.Join(", ", effectiveWhitelist)}）");
                     }
                 }
@@ -1100,10 +1104,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                 ? string.Join(", ", effectiveWhitelist)
                                 : "无";
                             return Task.FromResult(
-                                $"🚫 工具 '{tc.Function.Name}' 在当前 Agent/阶段不可用。\n" +
+                                $"❌ 工具 '{tc.Function.Name}' 在当前 Agent/阶段不可用。\n" +
                                 $"原因：该工具不在当前白名单中。\n" +
                                 $"当前可用工具: {allowedList}\n" +
-                                $"请使用可用工具重试，或考虑将任务移交给合适的 Agent。");
+                                $"这是确定性错误，重试同一工具不会改变结果。本轮工具循环将终止。");
                         }
                         var timeout = GetToolTimeout(tc.Function.Name);
                         return ExecuteToolWithTimeoutAsync(tc, workspaceRoot, ct, timeout);
@@ -1174,6 +1178,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         }
 
                         Logger.Info($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 返回: {(toolResult.Length > 200 ? toolResult.Substring(0, 200) + "..." : toolResult)}");
+                    }
+
+                    // ── 白名单拒绝是确定性错误：不允许依赖重复调用检测兜底 ──
+                    if (rejectedToolNames.Count > 0)
+                    {
+                        loopDetected = true;
+                        var distinctRejectedTools = string.Join(", ", rejectedToolNames.Distinct(StringComparer.OrdinalIgnoreCase));
+                        Logger.Warn($"[Agent:{Definition.Name}] 🚫 白名单拒绝视为确定性错误，终止工具循环: {distinctRejectedTools}");
+
+                        var terminatedBuilder = new StringBuilder().Append(contentBuilder);
+                        terminatedBuilder.Append($"\n\n> ⚠️ 检测到白名单外工具调用: {distinctRejectedTools}。");
+                        terminatedBuilder.Append("\n> 该错误不可通过重试解决，已终止工具循环。请检查阶段工具配置后重新发起任务。");
+                        contentBuilder.Clear();
+                        contentBuilder.Append(terminatedBuilder.ToString());
+                        break;
                     }
 
                     // ── 🔑 Explore 子代理消息注入（v1.1.11）：将 Explore 内部工具循环消息

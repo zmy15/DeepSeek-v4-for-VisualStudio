@@ -252,6 +252,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         public static string EditStepPromptPrefix => L["system.editStepPromptPrefix"];
 
+        /// <summary>
+        /// Edit Agent 代码步骤的工具与验证约定。
+        /// {0} = 当前阶段可用工具列表
+        /// </summary>
+        public static string EditCodeStepToolGuidance => L["system.editCodeStepToolGuidance"];
+
         #endregion
 
         #region Handoff & Context Prompts
