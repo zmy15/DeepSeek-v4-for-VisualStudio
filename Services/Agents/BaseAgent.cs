@@ -38,8 +38,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "fetch_webpage", "build_solution", "replace_string_in_file", "multi_replace_string_in_file",
             "create_file", "delete_file", "apply_patch", "create_directory", "run_in_terminal",
             "get_terminal_output", "VisualStudio_askQuestions", "runSubagent", "request_handoff",
-            "git", "memory", "search", "get_changed_files", "github_repo", "manage_todo_list",
-            "create_and_run_task", "edit_notebook_file"
+            "git", "memory"
         };
 
         /// <summary>读类 MCP 工具名前缀/关键词（分配给 ExploreAgent）</summary>
@@ -736,8 +735,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         var modifyingTools = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                         {
-                            "replace_string_in_file", "create_file", "create_directory", 
-                            "edit_notebook_file", "delete_file", "apply_patch", 
+                            "replace_string_in_file", "create_file", "create_directory",
+                            "delete_file", "apply_patch",
                             "run_in_terminal", "write_file", "edit_file"
                         };
                         effectiveWhitelist = effectiveWhitelist.Where(t => !modifyingTools.Contains(t)).ToList();
@@ -2395,9 +2394,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 "VisualStudio_askQuestions", "runSubagent", "tool_result",
                 "file_search", "grep_search", "list_dir", "read_file",
                 "semantic_search", "fetch_webpage", "run_in_terminal",
-                "create_file", "replace_string_in_file", "edit_notebook_file",
-                "create_directory", "run_notebook_cell", "install_python_packages",
-                "runSubagent", "runTests", "mcp_\\w+", "github_\\w+",
+                "create_file", "replace_string_in_file",
+                "create_directory", "runSubagent", "mcp_\\w+", "github_\\w+",
                 // DeepSeek V4 DSML wrapper tags
                 "response", "result", "output", "answer"
             };
@@ -2701,7 +2699,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 or "create_file"
                 or "apply_patch"
                 or "build_solution"          // 构建时间不可预测，由 BuildService 内部控制超时
-                or "create_and_run_task"     // 自定义任务同理
                 or "read_file"               // 可能触发项目外路径权限弹窗
                 or "list_dir"                // 同上
                 or "create_directory"        // 同上
@@ -2802,8 +2799,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 "write_file" => true,
                 "create_file" => true,
-                "replace_in_file" => true,
-                "multi_replace_in_file" => true,
+                "replace_string_in_file" => true,
+                "multi_replace_string_in_file" => true,
                 "delete_file" => true,
                 "apply_patch" => true,
                 "create_directory" => true,
@@ -2916,7 +2913,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
 
                 // ── 编辑类工具的 special 字段 ──
-                // replace_in_file: oldFilePath → 返回 filePath（主文件）
+                // replace_string_in_file: oldFilePath → 返回 filePath（主文件）
                 // apply_patch: filePath 已被覆盖
                 // create_directory: dirPath 已被覆盖
             }

@@ -121,14 +121,15 @@ public class EditAgentTests
     }
 
     [Fact]
-    public void EditTools_ContainsTerminalBuildAndTaskTools()
+    public void EditTools_ContainsTerminalBuildAndMemoryTools()
     {
         EditAgent.EditTools.Should().Contain("run_in_terminal");
         EditAgent.EditTools.Should().Contain("get_terminal_output");
-        EditAgent.EditTools.Should().Contain("create_and_run_task");
         EditAgent.EditTools.Should().Contain("build_solution");
-        EditAgent.EditTools.Should().Contain("manage_todo_list");
         EditAgent.EditTools.Should().Contain("memory");
+        EditAgent.EditTools.Should().NotContain("create_and_run_task");
+        EditAgent.EditTools.Should().NotContain("manage_todo_list");
+        EditAgent.EditTools.Should().NotContain("edit_notebook_file");
     }
 
     [Fact]
@@ -155,6 +156,7 @@ public class EditAgentTests
         tools.Should().NotContain("build_solution");
         tools.Should().NotContain("run_in_terminal");
         tools.Should().NotContain("request_handoff");
+        tools.Should().NotContain("edit_notebook_file");
     }
 
     [Fact]

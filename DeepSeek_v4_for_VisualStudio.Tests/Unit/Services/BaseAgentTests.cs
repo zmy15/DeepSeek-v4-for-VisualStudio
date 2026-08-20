@@ -231,6 +231,40 @@ public class BaseAgentTests
         result.Should().Be(expected);
     }
 
+    [Fact]
+    public void KnownBuiltInToolNames_DoesNotContainLegacyToolNames()
+    {
+        var field = typeof(BaseAgent).GetField(
+            "KnownBuiltInToolNames",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        var names = (HashSet<string>)field!.GetValue(null)!;
+
+        var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "list_dir", "read_file", "file_search", "grep_search", "symbol_search", "get_errors",
+            "fetch_webpage", "build_solution", "replace_string_in_file", "multi_replace_string_in_file",
+            "create_file", "delete_file", "apply_patch", "create_directory", "run_in_terminal",
+            "get_terminal_output", "VisualStudio_askQuestions", "runSubagent", "request_handoff",
+            "git", "memory"
+        };
+
+        names.Should().BeEquivalentTo(expected);
+    }
+
+    [Theory]
+    [InlineData("replace_string_in_file", true)]
+    [InlineData("multi_replace_string_in_file", true)]
+    [InlineData("replace_in_file", false)]
+    [InlineData("multi_replace_in_file", false)]
+    [InlineData("edit_notebook_file", false)]
+    public void IsWriteTool_RecognizesImplementedEditToolsOnly(string toolName, bool expected)
+    {
+        var result = IsWriteToolPublic(toolName);
+
+        result.Should().Be(expected);
+    }
+
     #endregion
 
     #region ExtractFilePathFromToolArgs
@@ -302,6 +336,14 @@ public class BaseAgentTests
     private static bool IsFileModifyingToolPublic(string toolName)
     {
         var method = typeof(BaseAgent).GetMethod("IsFileModifyingTool",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        return (bool)method!.Invoke(null, new object[] { toolName })!;
+    }
+
+    private static bool IsWriteToolPublic(string toolName)
+    {
+        var method = typeof(BaseAgent).GetMethod(
+            "IsWriteTool",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         return (bool)method!.Invoke(null, new object[] { toolName })!;
     }

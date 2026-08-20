@@ -128,16 +128,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         public static readonly string[] DefaultReadTools = new[]
         {
-            "search",           // 语义搜索
             "file_search",      // glob 文件搜索
             "grep_search",      // 文本/正则搜索
             "symbol_search",    // 符号搜索（类/方法/接口/属性）
             "read_file",        // 读取文件内容
             "list_dir",         // 列出目录内容
             "get_errors",       // 获取编译错误
-            "get_changed_files",// 获取变更文件
             "fetch_webpage",    // 获取网页内容
-            "github_repo",      // GitHub 仓库搜索
             "memory",           // 记忆管理
             "git",              // Git 版本控制（仅 status/diff/log 只读操作）
         };

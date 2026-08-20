@@ -11,7 +11,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>绝对文件路径</summary>
         public string FilePath { get; set; } = string.Empty;
 
-        /// <summary>最后访问该文件的工具名（read_file / write_file / replace_in_file 等）</summary>
+        /// <summary>最后访问该文件的工具名（read_file / create_file / replace_string_in_file 等）</summary>
         public string ToolName { get; set; } = string.Empty;
 
         /// <summary>最后访问时的对话轮次号（1-based）</summary>

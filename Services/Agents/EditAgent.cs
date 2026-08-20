@@ -101,15 +101,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 终端与构建
             "run_in_terminal",
             "get_terminal_output",
-            "create_and_run_task",
             "build_solution",
             // Git 版本控制
             "git",
             // 子代理委派与移交
             "runSubagent",
             "request_handoff",
-            // 任务与记忆
-            "manage_todo_list",
+            // 记忆
             "memory",
             // 用户交互
             "VisualStudio_askQuestions",  // 向用户提问澄清
@@ -136,7 +134,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "delete_file",
             "apply_patch",
             "create_directory",
-            "edit_notebook_file",
             // 记忆工具 — 允许步骤内读写持久记忆
             "memory",
         };
@@ -1942,15 +1939,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     string name = tc.Function?.Name ?? "";
                     if (name == "git" || name == "run_in_terminal" ||
-                        name == "get_terminal_output" || name == "build_solution" ||
-                        name == "create_and_run_task")
+                        name == "get_terminal_output" || name == "build_solution")
                     {
                         hasGitOrTerminal = true;
                     }
                     else if (name == "read_file" || name == "replace_string_in_file" ||
                              name == "create_file" || name == "delete_file" ||
-                             name == "multi_replace_string_in_file" || name == "apply_patch" ||
-                             name == "insert_edit_into_file" || name == "edit_notebook_file")
+                             name == "multi_replace_string_in_file" || name == "apply_patch")
                     {
                         hasCodeTool = true;
                     }
@@ -2010,8 +2005,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         name == "create_file" ||
                         name == "delete_file" ||
                         name == "apply_patch" ||
-                        name == "create_directory" ||
-                        name == "edit_notebook_file")
+                        name == "create_directory")
                     {
                         return true;
                     }

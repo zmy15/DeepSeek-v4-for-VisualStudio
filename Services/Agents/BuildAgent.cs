@@ -56,8 +56,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // 终端
             "run_in_terminal",
             "get_terminal_output",
-            // 任务管理
-            "manage_todo_list",
             // 用户交互
             "VisualStudio_askQuestions",  // 向用户提问澄清（如构建配置确认）
             // Git 版本控制

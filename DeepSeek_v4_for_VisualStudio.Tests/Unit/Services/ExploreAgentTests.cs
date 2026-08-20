@@ -115,7 +115,9 @@ public class ExploreAgentTests
         ExploreAgent.DefaultReadTools.Should().Contain("grep_search");
         ExploreAgent.DefaultReadTools.Should().Contain("read_file");
         ExploreAgent.DefaultReadTools.Should().Contain("symbol_search");
-        ExploreAgent.DefaultReadTools.Should().Contain("search"); // semantic_search alias
+        ExploreAgent.DefaultReadTools.Should().NotContain("search");
+        ExploreAgent.DefaultReadTools.Should().NotContain("get_changed_files");
+        ExploreAgent.DefaultReadTools.Should().NotContain("github_repo");
     }
 
     [Fact]
