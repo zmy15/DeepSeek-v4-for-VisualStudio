@@ -38,7 +38,7 @@
 | 📝 **代码编辑** | replace / apply_patch / create_file 等 5 种编辑工具，Levenshtein 四级匹配 + Healing 修复，Diff 预览，Ghost Text 行内补全 |
 | 📚 **1M 上下文** | 900K Token 预算，使用率达 85% 自动 LLM 摘要压缩，文件不截断 |
 | 🌐 **联网搜索** | 百度千帆 + DuckDuckGo 双引擎，额度耗尽自动切换 |
-| 🖼️ **图像 OCR** | PaddleOCR-Sharp 本地 / Windows 内置 / MCP 远程三引擎 |
+| 🖼️ **图像 OCR** | Windows 内置 / MCP 远程双引擎 |
 | 📄 **文件解析** | 拖拽或粘贴 50+ 格式（代码/文档/PDF/Office/图片），基于 NPOI + PdfPig |
 | 🛡️ **终端审批** | 命令执行前弹窗确认（BlockAll / AllowAll / SmartBlock 三模式） |
 | 🧠 **AI 记忆系统** | 三层持久化记忆（用户/会话/仓库），AI 自主管理笔记，新对话自动注入 |
@@ -81,7 +81,7 @@ git clone https://github.com/zmy15/DeepSeek-v4-for-VisualStudio.git
 | 模型 | `deepseek-v4-pro` | 旗舰模型，推理能力最强 |
 | 深度思考 | 开启，Reasoning Effort = `max` | 复杂任务效果更佳 |
 | 联网搜索 | 百度千帆 | 每月 1500 次免费额度 |
-| OCR 引擎 | PaddleOCR-Sharp | 本地离线识别，无网络依赖 |
+| OCR 引擎 | Windows 内置 | 系统自带，零依赖 |
 | Token Budget | 900000 | 充分利用 1M 上下文窗口 |
 
 ---
@@ -227,11 +227,10 @@ AI 通过 `memory` 工具管理三层持久化记忆：
 | 百度千帆 | Baidu | 1500 次/月 | 中文搜索质量高 |
 | DuckDuckGo | 免费 | 无限制 | 隐私友好 |
 
-### OCR 三引擎
+### OCR 双引擎
 
 | 引擎 | 实现 | 依赖 |
 |------|------|------|
-| PaddleOCR-Sharp | 本地离线 | Sdcb.PaddleOCR + OpenCvSharp |
 | Windows 内置 | 系统 API | Windows 10/11 |
 | MCP 远程 | MCP 协议 | 外部 OCR 服务 |
 
