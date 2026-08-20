@@ -229,7 +229,30 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 绑定活跃 Agent 的事件到 UI 处理器。
+        /// Reset the active agent back to Ask for a new conversation.
+        /// </summary>
+        private void ResetActiveAgentToAsk()
+        {
+            if (_agentFactory == null) return;
+
+            if (_activeAgent != null && _activeAgent.Definition.Type == AgentType.Ask)
+            {
+                UpdateAgentModeBadge();
+                return;
+            }
+
+            if (_activeAgent != null)
+                UnbindAgentEvents(_activeAgent);
+
+            _activeAgent = _agentFactory.AskAgent;
+            _activeAgent.PermissionRequested += OnAgentPermissionRequested;
+            _activeAgent.QuestionsRequested += OnAgentQuestionsRequested;
+            UpdateAgentModeBadge();
+            Logger.Info("[Session] active agent reset to AskAgent");
+        }
+
+        /// <summary>
+        /// Bind the active agent's events to the UI handlers.
         /// </summary>
         private void BindAgentEvents(BaseAgent agent)
         {
@@ -284,6 +307,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
             try
             {
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                // Start each ordinary user turn back at Ask instead of keeping the
+                // Plan/Edit agent left over from the previous turn's workflow.
+                if (routing == null || (!routing.IsExplicit && routing.TargetAgent == AgentType.Ask))
+                {
+                    ResetActiveAgentToAsk();
+                }
+
                 StatusLabel.Text = LocalizationService.Instance["agent.status.analyzing"];
 
                 // ── 清理上一轮 Agent 执行的追踪状态 ──
@@ -1612,6 +1642,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         private void OnAgentPermissionRequested(AgentPermissionRequest request)
         {
+            // ── 后台线程快速路径：全部放行不需要等 UI 线程，避免 UI 繁忙时审批卡住 ──
+            if (_cachedApprovalMode == Models.ApprovalMode.AllowAll)
+            {
+                Logger.Info($"[Agent] 审批模式=全部放行（后台快速批准）: {request.Title}");
+                var permAgent = _agentFactory?.FindAgentWithPendingPermission(request.RequestId) ?? _activeAgent;
+                permAgent?.RespondToPermission(request.RequestId, true);
+                return;
+            }
+
             _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
             {
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();

@@ -1046,7 +1046,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // ── 刷新 diff 栏（如果当前可见，更新文本为当前语言）──
                 RefreshDiffGlobalBar();
 
-                // ── 刷新审批模式下拉框（语言切换时更新显示）──
+                // ── 审批控制栏：I18n 扩展不会自动跟随语言切换，需手动刷新标签与下拉框 ──
+                if (ApprovalModeLabel != null)
+                    ApprovalModeLabel.Text = L["chat.approvalModeLabel"];
                 RefreshApprovalModeComboBox();
             }
             catch (Exception ex)
@@ -1095,6 +1097,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // 确保默认选中
             if (ApprovalModeComboBox.SelectedIndex < 0)
                 ApprovalModeComboBox.SelectedValue = Models.ApprovalMode.SmartBlock;
+
+            // 同步缓存，供后台线程快速判断审批模式
+            _cachedApprovalMode = ApprovalModeComboBox.SelectedValue is Models.ApprovalMode initMode
+                ? initMode
+                : Models.ApprovalMode.SmartBlock;
         }
 
         /// <summary>
@@ -1112,6 +1119,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
             };
             if (ApprovalModeComboBox.SelectedIndex < 0)
                 ApprovalModeComboBox.SelectedValue = Models.ApprovalMode.SmartBlock;
+
+            // 同步缓存，供后台线程快速判断审批模式
+            _cachedApprovalMode = ApprovalModeComboBox.SelectedValue is Models.ApprovalMode settingsMode
+                ? settingsMode
+                : Models.ApprovalMode.SmartBlock;
         }
 
         /// <summary>
@@ -1172,6 +1184,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 ApprovalModeComboBox.ItemsSource = null;
                 ApprovalModeComboBox.ItemsSource = options;
                 ApprovalModeComboBox.SelectedValue = selectedValue;
+
+                // 同步缓存，供后台线程快速判断审批模式
+                _cachedApprovalMode = ApprovalModeComboBox.SelectedValue is Models.ApprovalMode refreshedMode
+                    ? refreshedMode
+                    : Models.ApprovalMode.SmartBlock;
             }
         }
 
@@ -1184,6 +1201,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return mode;
             return Models.ApprovalMode.SmartBlock;
         }
+
+        private volatile Models.ApprovalMode _cachedApprovalMode = Models.ApprovalMode.SmartBlock;
 
         /// <summary>
         /// 检测命令是否危险（用于智能拦截模式）。

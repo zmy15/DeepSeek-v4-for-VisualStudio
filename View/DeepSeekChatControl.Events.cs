@@ -1332,6 +1332,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (ApprovalModeComboBox.SelectedValue is Models.ApprovalMode mode)
             {
+                // 同步缓存，供后台线程快速判断审批模式
+                _cachedApprovalMode = mode;
+
                 // 持久化到设置
                 if (_options != null)
                 {

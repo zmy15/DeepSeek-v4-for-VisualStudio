@@ -24,6 +24,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private ChatSession CreateNewSessionInternal()
         {
+            ResetActiveAgentToAsk();
+
             // ── 初始化新树 ──
             _tree = new ConversationTree();
             Logger.Info("[Tree] 新会话 → ConversationTree 已初始化");
@@ -240,6 +242,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // 切换到新会话
                     _activeSession = session;
                     _activeSession.LastActiveAt = DateTime.Now;
+
+                    ResetActiveAgentToAsk();
 
                     // ── 同步当前会话 ID 到内置工具服务（MemoryTool 需要）──
                     if (_builtInToolService != null)
@@ -499,6 +503,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _activeSession = _sessionsContainer.Sessions.FirstOrDefault();
                 _sessionsContainer.ActiveSessionId = _activeSession?.Id;
 
+                ResetActiveAgentToAsk();
+
                 lock (_lock)
                 {
                     // 加载新会话消息
@@ -591,6 +597,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 // ── 重置累计 Token / 费用计数器 ──
                 _apiService?.ResetAccumulatedStats();
+
+                ResetActiveAgentToAsk();
 
                 // ── 重置树 ──
                 _tree = new ConversationTree();
