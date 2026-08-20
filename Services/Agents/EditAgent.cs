@@ -224,6 +224,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             return LocalizationService.Instance["system.agent.editPromptFragment"]
                 + LocalizationService.Instance["agent.edit.mcpSystemPrompt"]
+                + LocalizationService.Instance["system.agent.editBuildTrustRule"]
                 + LocalizationService.Instance["system.agent.editPhaseToolOverride"];
         }
 
@@ -492,6 +493,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                 context.SolutionPath,
                                 _agentCts?.Token ?? context.CancellationToken);
                             LogDirectBuildResult(finalBuildResult);
+
+                            // ── 最终构建通过后回写步骤状态，避免旧编译失败污染总结 ──
+                            if (!HasBuildFailure(finalBuildResult))
+                            {
+                                int reconciled = PlanBuildOutcomeReconciler.ReconcileAfterBuildSuccess(
+                                    plan,
+                                    finalBuildResult,
+                                    LocalizationService.Instance["agent.log.buildReconciledStepResult"]);
+                                if (reconciled > 0)
+                                {
+                                    AddLog("INFO", string.Format(
+                                        LocalizationService.Instance["agent.log.buildReconciledSteps"],
+                                        reconciled));
+                                }
+
+                                // 状态回写后计划可能恢复为已完成，刷新最终摘要记忆
+                                if (plan.IsCompleted && !plan.IsCancelled)
+                                    await SaveFinalPlanSummaryToMemoryAsync(plan, context);
+                            }
                         }
                         catch (Exception ex)
                         {

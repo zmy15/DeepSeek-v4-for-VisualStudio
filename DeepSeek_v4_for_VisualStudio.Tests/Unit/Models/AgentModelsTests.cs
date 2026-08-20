@@ -112,6 +112,8 @@ public class AgentModelsTests
         plan.ChangedFiles.Should().BeEmpty();
         plan.CurrentStepIndex.Should().Be(0);
         plan.IsCompleted.Should().BeFalse();
+        plan.FinalBuildSucceeded.Should().BeFalse();
+        plan.FinalBuildResult.Should().BeNull();
         plan.IsCancelled.Should().BeFalse();
         plan.PlanFilePath.Should().BeNull();
         plan.Source.Should().Be(PlanSource.None);

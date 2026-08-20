@@ -98,6 +98,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static string BuildSystemPrompt()
         {
             return LocalizationService.Instance["system.agent.buildPromptFragment"]
+                + LocalizationService.Instance["system.agent.buildTrustRule"]
                 + AiPrompts.BuildAgentMcpFragment;
         }
 
@@ -172,11 +173,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (HasBuildFailure(aiResponse))
                 {
                     AddLog("WARN", L["agent.log.buildStillHasErrors"]);
+                    PlanBuildOutcomeReconciler.MarkBuildFailed(context.ActivePlan, aiResponse);
                     result.Content += "\n\n⚠️ " + L["agent.log.buildStillHasErrors"];
                 }
                 else
                 {
                     AddLog("INFO", L["agent.log.buildPassed"]);
+                    if (context.ActivePlan != null)
+                    {
+                        int reconciled = PlanBuildOutcomeReconciler.ReconcileAfterBuildSuccess(
+                            context.ActivePlan,
+                            aiResponse,
+                            L["agent.log.buildReconciledStepResult"]);
+                        if (reconciled > 0)
+                        {
+                            AddLog("INFO", string.Format(L["agent.log.buildReconciledSteps"], reconciled));
+                            await ClearStalePlanSummaryMemoryAsync(context);
+                        }
+                    }
                 }
 
                 // ── AI 通过 request_handoff 工具主动请求移交（优先于程序化移交）──
@@ -353,10 +367,51 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine();
             }
 
+            // ── 最终构建通过结论（权威覆盖，防止 AI 引用早期 ❌ 步骤状态）──
+            if (plan.FinalBuildSucceeded)
+            {
+                sb.AppendLine(L["agent.build.handoffFinalPassed"]);
+                sb.AppendLine();
+            }
+
             // ── 注明构建已完成 ──
             sb.AppendLine("✅ 构建验证已完成，请生成最终变更总结。");
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 最终构建通过后清理旧的计划摘要记忆，
+        /// 让 Ask Agent 基于已被回写成功状态的计划生成总结，而不是旧 ❌ 状态。
+        /// </summary>
+        private async Task ClearStalePlanSummaryMemoryAsync(AgentContext context)
+        {
+            if (MemoryService == null || BuiltInTools == null) return;
+
+            try
+            {
+                string? sessionId = BuiltInTools.CurrentSessionId;
+                var fileNames = new List<string> { "plan-final-summary.md" };
+                for (int i = 1; i <= 50; i++)
+                    fileNames.Add($"step-{i:D2}-summary.md");
+
+                foreach (var fileName in fileNames)
+                {
+                    try
+                    {
+                        await MemoryService.DeleteAsync(
+                            MemoryScope.Session, fileName, sessionId, context.SolutionPath);
+                    }
+                    catch (FileNotFoundException) { /* 不存在，无需清理 */ }
+                    catch { /* 单文件清理失败不影响整体 */ }
+                }
+
+                AddLog("INFO", "[Memory] 已清理旧计划摘要，最终总结将使用最新构建结果");
+            }
+            catch (Exception ex)
+            {
+                AddLog("WARN", $"[Memory] 清理计划摘要失败: {ex.Message}");
+            }
         }
         #endregion
     }

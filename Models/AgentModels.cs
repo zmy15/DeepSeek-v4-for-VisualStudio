@@ -155,6 +155,12 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>是否所有步骤已完成</summary>
         public bool IsCompleted { get; set; }
 
+        /// <summary>最终构建验证是否通过（Build Agent 成功修复后置为 true）</summary>
+        public bool FinalBuildSucceeded { get; set; }
+
+        /// <summary>最终构建结果摘要（成功时保存，供最终总结使用）</summary>
+        public string? FinalBuildResult { get; set; }
+
         /// <summary>任务是否被用户取消</summary>
         public bool IsCancelled { get; set; }
 

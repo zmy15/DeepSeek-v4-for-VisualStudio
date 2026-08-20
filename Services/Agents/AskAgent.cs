@@ -355,6 +355,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine($"**{L["edit.summary.taskLabel"]}**: {plan.Title}");
             if (plan.ChangedFiles.Count > 0)
                 sb.AppendLine($"**{L["edit.summary.fileCount"]}**: {plan.ChangedFiles.Count}");
+            if (plan.FinalBuildSucceeded)
+                sb.AppendLine(L["edit.summary.finalBuildPassed"]);
 
             // ── 步骤执行情况 ──
             int completed = plan.Steps.Count(s => s.Status == AgentStepStatus.Completed);
@@ -574,12 +576,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // AI 已产出总结时直接使用，不再套固定 Markdown 模板。
             // 图表、表格、标题等组织方式由 AI 根据变更内容自行决定。
             if (!string.IsNullOrWhiteSpace(aiSummary))
+            {
+                if (plan.FinalBuildSucceeded)
+                    return L["edit.summary.finalBuildPassed"] + "\n\n" + aiSummary.Trim();
                 return aiSummary.Trim();
+            }
 
             var sb = new StringBuilder();
             sb.AppendLine(L["edit.summary.complete"]);
             sb.AppendLine();
             sb.AppendLine($"**{L["edit.summary.taskLabel"]}**: {plan.Title}");
+            if (plan.FinalBuildSucceeded)
+            {
+                sb.AppendLine();
+                sb.AppendLine(L["edit.summary.finalBuildPassed"]);
+            }
             sb.AppendLine();
 
             // ── AI 生成的文字总结（功能性摘要，放在最前面）──
@@ -694,6 +705,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 summaryPrompt.AppendLine();
                 summaryPrompt.AppendLine(L.Format("edit.summary.taskHeader", plan.Title));
                 summaryPrompt.AppendLine(L.Format("edit.summary.stepCount", plan.Steps.Count, plan.Steps.Count(s => s.Status == AgentStepStatus.Completed)));
+                if (plan.FinalBuildSucceeded)
+                    summaryPrompt.AppendLine(L["edit.summary.finalBuildPassed"]);
                 summaryPrompt.AppendLine();
 
                 // ── 合并相同文件 ──
