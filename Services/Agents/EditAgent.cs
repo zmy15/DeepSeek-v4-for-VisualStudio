@@ -153,6 +153,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             "edit_notebook_file",
             // 记忆工具 — 允许步骤内读写持久记忆
             "memory",
+            // 移交工具 — 代码步骤内无法编译时，可显式移交给 Build Agent 编译验证
+            "request_handoff",
         };
 
         protected override AgentDefinition CreateDefinition(AgentType agentType)

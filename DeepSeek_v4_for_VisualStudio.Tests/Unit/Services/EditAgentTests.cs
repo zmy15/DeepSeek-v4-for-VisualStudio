@@ -144,7 +144,7 @@ public class EditAgentTests
     }
 
     [Fact]
-    public void CodeStepTools_DoesNotContainBuildToAvoidDuplicateBuilds()
+    public void CodeStepTools_DoesNotContainBuildButAllowsHandoff()
     {
         var field = typeof(EditAgent).GetField(
             "CodeStepTools",
@@ -153,6 +153,7 @@ public class EditAgentTests
         var tools = (string[])field!.GetValue(null)!;
 
         tools.Should().NotContain("build_solution");
+        tools.Should().Contain("request_handoff");
     }
 
     #endregion
