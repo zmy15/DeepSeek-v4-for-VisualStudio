@@ -488,13 +488,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     polishInstructions,
                     maxRecentTurns: 0);
 
-                // 使用无工具调用的简单 API 调用
-                string result = await CallAiWithToolLoopAsync(
+                // 使用无工具调用的简单 API 调用。
+                // 走 toolChoice:"none" 的标准无工具路径，而不是"空白名单 + 完整工具集"：
+                // 后者仍会把 read_file 等定义暴露给模型，模型一旦调用就会被白名单拦截，
+                // 拦截警告会替代润色摘要成为最终内容。
+                string result = await CallAiWithMessagesAsync(
                     messages,
-                    GetWorkspaceRoot(context),
                     ct,
                     maxTokens: 1024,
-                    toolWhitelist: new List<string>()); // 空白名单 = 不允许任何工具
+                    toolChoice: "none");
 
                 result = StripToolCallMarkers(result);
                 return result?.Trim() ?? string.Empty;

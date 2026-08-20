@@ -682,11 +682,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var toolCallHistory = new List<(int Round, string Summary)>();
             var lastResultBySignature = new Dictionary<string, string>();  // 跟踪每次调用的结果
             var rejectedToolNames = new List<string>();
+            int rejectedToolRounds = 0;
             int consecutiveErrorRounds = 0;
             int maxRepeatedSameCall = Settings.DeepSeekOptionsPage.Instance?.MaxRepeatedSameCall ?? 5;
             if (maxRepeatedSameCall < 1) maxRepeatedSameCall = 5;
             int maxConsecutiveErrors = Settings.DeepSeekOptionsPage.Instance?.MaxConsecutiveErrors ?? 5;
             if (maxConsecutiveErrors < 1) maxConsecutiveErrors = 5;
+            int maxConsecutiveWhitelistRejections = Math.Max(5, maxConsecutiveErrors);
             int safetyLimit = Settings.DeepSeekOptionsPage.Instance?.MaxToolCallRounds ?? 200;
             if (safetyLimit < 1) safetyLimit = 200;
             bool loopDetected = false;
@@ -721,8 +723,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // 🔑 Prefix Cache 优化：始终发送完整工具集（所有内置 + MCP 工具），
                 //    保持 tools JSON 跨 Agent/阶段不变，最大化 DeepSeek Prefix Cache 命中率。
                 //    工具调用由客户端按白名单拦截（见下方拦截逻辑）。
+                //    白名单为空表示明确"不允许任何工具"：此时显式传 tool_choice:"none"，
+                //    避免模型看到 read_file 等定义后误调用，被拦截后污染最终输出。
                 List<ToolDefinition>? toolDefs = null;
                 List<string>? effectiveWhitelist = null;
+                string? toolChoice = null;
                 if (BuiltInTools != null || McpManager != null)
                 {
                     // ── 始终发送完整工具集（不对 tools JSON 做白名单过滤）──
@@ -753,8 +758,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         }
                     }
 
+                    if (effectiveWhitelist != null && effectiveWhitelist.Count == 0)
+                    {
+                        toolChoice = "none";
+                    }
+
                     Logger.Info($"[Agent:{Definition.Name}] 本轮携带 {toolDefs.Count} 个工具定义(完整集)" +
-                        (toolWhitelist != null ? $", 白名单={effectiveWhitelist?.Count ?? 0}个" : ""));
+                        (toolWhitelist != null ? $", 白名单={effectiveWhitelist?.Count ?? 0}个" : "") +
+                        (toolChoice == "none" ? ", toolChoice=none" : ""));
                 }
 
                 // ── 流式调用 AI（带断点续传重试）──
@@ -795,14 +806,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             Logger.Info($"[Agent:{Definition.Name}] 流断点续传：第 {streamAttempt + 1}/{maxStreamAttempts} 次，已注入 {savedPartialContent.Length} 字符部分内容");
 
                             // 使用 resume 消息而不是原始消息
-                            await foreach (var chunk in _apiService.ChatStreamAsync(resumeMessages, toolDefs, ct))
+                            await foreach (var chunk in _apiService.ChatStreamAsync(resumeMessages, toolDefs, ct, toolChoice: toolChoice))
                             {
                                 ProcessStreamChunk(chunk, reasoningBuilder, contentBuilder, toolCallAccumulator, onThinking, onContent);
                             }
                         }
                         else
                         {
-                            await foreach (var chunk in _apiService.ChatStreamAsync(messages, toolDefs, ct))
+                            await foreach (var chunk in _apiService.ChatStreamAsync(messages, toolDefs, ct, toolChoice: toolChoice))
                             {
                                 ProcessStreamChunk(chunk, reasoningBuilder, contentBuilder, toolCallAccumulator, onThinking, onContent);
                             }
@@ -992,6 +1003,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 //    AI 可能调用不在当前 Agent/阶段白名单中的工具。
                 //    标记后统一在执行阶段返回拒绝消息，并终止本轮工具循环。
                 HashSet<int>? blockedToolIndices = null;
+                bool rejectedToolThisRound = false;
                 if (toolCalls.Count > 0 && effectiveWhitelist != null)
                 {
                     var whitelistSet = new HashSet<string>(effectiveWhitelist, StringComparer.OrdinalIgnoreCase);
@@ -1009,6 +1021,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         rejectedToolNames.AddRange(toolCalls
                             .Where((tc, i) => blockedToolIndices.Contains(i))
                             .Select(tc => tc.Function.Name));
+                        rejectedToolRounds++;
+                        rejectedToolThisRound = true;
                         Logger.Warn($"[Agent:{Definition.Name}] 🚫 白名单拦截 {blockedToolIndices.Count} 个工具: {blockedNames}（白名单: {string.Join(", ", effectiveWhitelist)}）");
                     }
                 }
@@ -1106,7 +1120,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                 $"❌ 工具 '{tc.Function.Name}' 在当前 Agent/阶段不可用。\n" +
                                 $"原因：该工具不在当前白名单中。\n" +
                                 $"当前可用工具: {allowedList}\n" +
-                                $"这是确定性错误，重试同一工具不会改变结果。本轮工具循环将终止。");
+                                "这是确定性配置错误，不要重复调用该工具。\n" +
+                                "请改用当前可用工具继续；如果任务无法在当前 Agent 完成，" +
+                                (effectiveWhitelist.Contains("request_handoff", StringComparer.OrdinalIgnoreCase)
+                                    ? "请立即调用 request_handoff 移交给合适的 Agent。"
+                                    : "请直接说明无法完成的原因。") +
+                                "\n再次发生白名单外工具调用将终止本轮工具循环。");
                         }
                         var timeout = GetToolTimeout(tc.Function.Name);
                         return ExecuteToolWithTimeoutAsync(tc, workspaceRoot, ct, timeout);
@@ -1179,16 +1198,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         Logger.Info($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 返回: {(toolResult.Length > 200 ? toolResult.Substring(0, 200) + "..." : toolResult)}");
                     }
 
-                    // ── 白名单拒绝是确定性错误：不允许依赖重复调用检测兜底 ──
-                    if (rejectedToolNames.Count > 0)
+                    // 合法工具轮次说明模型已纠正，重置连续白名单拒绝计数。
+                    if (!rejectedToolThisRound)
+                    {
+                        rejectedToolRounds = 0;
+                    }
+
+                    // ── 连续多轮白名单拒绝才终止，避免大型任务偶发误调用被过早中断 ──
+                    if (rejectedToolRounds >= maxConsecutiveWhitelistRejections && PendingHandoffRequest == null)
                     {
                         loopDetected = true;
                         var distinctRejectedTools = string.Join(", ", rejectedToolNames.Distinct(StringComparer.OrdinalIgnoreCase));
-                        Logger.Warn($"[Agent:{Definition.Name}] 🚫 白名单拒绝视为确定性错误，终止工具循环: {distinctRejectedTools}");
+                        Logger.Warn($"[Agent:{Definition.Name}] 🚫 连续 {rejectedToolRounds} 轮白名单拒绝，终止工具循环: {distinctRejectedTools}");
 
                         var terminatedBuilder = new StringBuilder().Append(contentBuilder);
-                        terminatedBuilder.Append($"\n\n> ⚠️ 检测到白名单外工具调用: {distinctRejectedTools}。");
-                        terminatedBuilder.Append("\n> 该错误不可通过重试解决，已终止工具循环。请检查阶段工具配置后重新发起任务。");
+                        terminatedBuilder.Append($"\n\n> ⚠️ 连续 {rejectedToolRounds} 轮调用白名单外工具: {distinctRejectedTools}。");
+                        terminatedBuilder.Append("\n> 已终止工具循环。请检查阶段工具配置后重新发起任务。");
                         contentBuilder.Clear();
                         contentBuilder.Append(terminatedBuilder.ToString());
                         break;
@@ -1236,8 +1261,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         {
                             Context.ForwardedMessages = new List<ChatApiMessage>(messages);
                         }
-                        if (contentBuilder.Length > 0)
-                            contentBuilder.Append("\n\n> 🔄 任务已移交给 " + PendingHandoffRequest.TargetAgent + " Agent...");
+                        contentBuilder.Append("\n\n> 🔄 任务已移交给 " + PendingHandoffRequest.TargetAgent + " Agent...");
                         break;
                     }
 
