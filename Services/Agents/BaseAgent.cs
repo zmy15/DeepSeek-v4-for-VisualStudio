@@ -694,10 +694,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             int round = BuiltInTools?.CurrentRound ?? 0;
 
             // ── 🔑 v1.1.11：固定后缀插入点 ──
-            // 消息结构：[0..3]prefix + [4..]历史 + [volatile] + [tool_calls...] + [user] + [agent]
-            // 工具循环中新增消息插入到 [user] 之前，保持 [user]+[agent] 始终在末尾。
-            // ForwardedMessages 捕获此结构后，新 Agent 可直接复用旧前缀并追加新的 [user]+[agent]。
-            int toolInsertPos = Math.Max(0, messages.Count - 2);
+            // 消息结构：[0..3]prefix + [4..]历史 + [volatile] + [user] + [tool_calls...] + [agent]
+            // 工具循环中新增 assistant/tool 插入到 user 之后、agent 之前，
+            // 保持 agent 固定在最后，user 留在工具结果之前。
+            int toolInsertPos = Math.Max(0, messages.Count - 1);
             while (!loopDetected)
             {
                 round++;
@@ -1079,7 +1079,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     }
 
                     // ── 添加 assistant 消息（含工具调用）──
-                    // 🔑 v1.1.11：插入到 [user] 之前，保持 [user]+[agent] 固定在末尾
+                    // 🔑 v1.1.11：插入到 user 之后、agent 之前
                     messages.Insert(toolInsertPos, new ChatApiMessage
                     {
                         Role = "assistant",
@@ -1365,7 +1365,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // 检测连续错误：检查本轮 tool 消息是否全部以 ❌ 开头
                     if (!loopDetected)
                     {
-                        // toolInsertPos 在插入 assistant + N 条 tool 后指向 user 消息，
+                        // toolInsertPos 在插入 assistant + N 条 tool 后指向 agent 消息，
                         // 故第一个 tool 消息位于 toolInsertPos - toolCalls.Count
                         int toolMsgStart = toolInsertPos - toolCalls.Count;
                         bool allErrors = toolCalls.Count > 0;
