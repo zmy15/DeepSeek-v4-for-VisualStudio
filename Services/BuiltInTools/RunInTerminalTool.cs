@@ -14,6 +14,23 @@ using System.Threading.Tasks;
 namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 {
     /// <summary>
+    /// Dangerous command kind, used by run_in_terminal interception.
+    /// </summary>
+    public enum DangerousCommandKind
+    {
+        None = 0,
+        SystemDestruction,
+        Shutdown,
+        CriticalDelete,
+        AccountTampering,
+        CredentialTheft,
+        RemoteCodeExecution,
+        DisableSecurity,
+        RegistryTampering,
+        PythonInlineDanger,
+    }
+
+    /// <summary>
     /// run_in_terminal 工具 — 在终端中运行命令。
     /// ⚠️ 编译/构建命令会被拦截，提示使用 build_solution 工具。
     /// </summary>
@@ -21,6 +38,337 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     {
         /// <summary>同步模式最大等待时间（防止进程僵死导致 Agent 永久卡住）</summary>
         private static readonly TimeSpan SyncTimeout = TimeSpan.FromMinutes(10);
+
+        /// <summary>检测到的 Python 运行环境信息。</summary>
+        internal sealed class PythonEnvironment
+        {
+            public string Executable { get; set; } = "";
+            public string Version { get; set; } = "";
+        }
+
+        /// <summary>Python 运行环境缓存（只探测一次，避免每次命令都启动子进程）。</summary>
+        private static readonly Lazy<PythonEnvironment?> PythonEnvironmentLazy =
+            new(DetectPythonEnvironment, LazyThreadSafetyMode.ExecutionAndPublication);
+
+        /// <summary>
+        /// 拼接敏感词片段，避免编译产物中出现可直接被杀软识别的静态特征签名。
+        /// </summary>
+        private static string JoinParts(params string[] parts) => string.Concat(parts);
+
+        private static readonly string CredentialToolPattern =
+            @"\b(?:" + JoinParts("mimi", "katz") + @"|" + JoinParts("secret", "s", "dump") + @"|"
+            + JoinParts("crack", "mapex", "ec") + @"|" + JoinParts("pw", "dump") + @"|"
+            + JoinParts("kerb", "eroast") + @"|" + JoinParts("hash", "cat") + @"|"
+            + JoinParts("ch", "ntpw") + @")\b";
+
+        private static readonly string CredentialDumpPattern =
+            @"\b" + JoinParts("pro", "cdump") + @"\b[^\r\n;|]{0,80}\b" + JoinParts("lsa", "ss") + @"\b|"
+            + JoinParts("com", "svcs.dll");
+
+        /// <summary>
+        /// 危险命令拦截规则（有序，先匹配的分类优先生效）。
+        /// </summary>
+        private static readonly (System.Text.RegularExpressions.Regex Pattern, DangerousCommandKind Kind)[] DangerousCommandPatterns =
+        {
+            // ── 关机 / 重启 / 注销 ──
+            (new System.Text.RegularExpressions.Regex(
+                @"\bshutdown\b(?=[^\r\n;|]{0,80}(?:/s|/r|/p|/sg|/rs|-s|-r|-p)\b)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.Shutdown),
+            (new System.Text.RegularExpressions.Regex(
+                @"\b(?:stop-computer|restart-computer|logoff)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.Shutdown),
+
+            // ── 磁盘 / 引导区破坏 ──
+            (new System.Text.RegularExpressions.Regex(
+                @"\b(?:format|format\.com)\b[^\r\n;|]{0,80}[A-Za-z]:",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.SystemDestruction),
+            (new System.Text.RegularExpressions.Regex(
+                @"\b(?:diskpart|bcdedit|bootrec|sdelete)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.SystemDestruction),
+
+            // ── 删除系统 / 关键目录 ──
+            (new System.Text.RegularExpressions.Regex(
+                @"(?<![\w\\/])(?:remove-item|erase|rmdir|rd|rm|del(?:\.exe)?)\b[^\r\n;|]{0,200}\b(?:C:\\windows(?:\\(?:system32|syswow64))?|C:\\users\b|C:\\program\s+files\b|C:\\programdata\b|C:\\windows\.old\b|C:\\\$recycle\.bin\b|%systemroot%\b|%windir%\b|\$env:systemroot\b|\$env:windir\b|C:\\pagefile\.sys\b|C:\\hiberfil\.sys\b)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.CriticalDelete),
+            (new System.Text.RegularExpressions.Regex(
+                @"(?<![\w\\/])(?:remove-item|rmdir|rd|rm)\b[^\r\n;|]{0,120}(?:-recurse|-force|/s|/q)\b[^\r\n;|]{0,160}\b[A-Za-z]:\s*(?:\\?|;|$)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.CriticalDelete),
+            (new System.Text.RegularExpressions.Regex(
+                @"\brm\b[^\r\n;|]{0,80}-rf\b[^\r\n;|]{0,120}(?:\s|['""])?/",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.CriticalDelete),
+
+            // ── 账户 / 系统服务 ──
+            (new System.Text.RegularExpressions.Regex(
+                @"(?<![\w\\/])net\b\s+(?:user|localgroup)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.AccountTampering),
+            (new System.Text.RegularExpressions.Regex(
+                @"(?<![\w\\/])sc\b\s+delete\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.AccountTampering),
+
+            // ── 凭据窃取 ──
+            (new System.Text.RegularExpressions.Regex(
+                CredentialToolPattern,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.CredentialTheft),
+            (new System.Text.RegularExpressions.Regex(
+                CredentialDumpPattern,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.CredentialTheft),
+            (new System.Text.RegularExpressions.Regex(
+                @"\breg\b\s+(?:save|restore)\b[^\r\n;|]{0,120}\bHKLM\\(?:SAM|SYSTEM|SECURITY)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.CredentialTheft),
+
+            // ── 下载并执行远程代码 / 混淆执行 ──
+            (new System.Text.RegularExpressions.Regex(
+                @"\b(?:iex|invoke-expression)\b(?=[^\r\n;|]{0,200}\b(?:downloadstring|downloadfile|net\.webclient|http|https|certutil|bitsadmin|start-bits)\b)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+            (new System.Text.RegularExpressions.Regex(
+                @"\b(?:iwr|invoke-webrequest|curl|wget|invoke-restmethod)\b[^\r\n;|]{0,200}\|\s*(?:iex|invoke-expression|powershell|pwsh|python|py)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+            (new System.Text.RegularExpressions.Regex(
+                @"\bcertutil\b[^\r\n;|]{0,60}-urlcache\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+            (new System.Text.RegularExpressions.Regex(
+                @"\b(?:bitsadmin|start-bitstransfer)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+            (new System.Text.RegularExpressions.Regex(
+                @"\bmshta\b[^\r\n;|]{0,120}(?:http|javascript)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+            (new System.Text.RegularExpressions.Regex(
+                @"\bregsvr32\b[^\r\n;|]{0,120}(?:http|https|scrobj|fromscript)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+            (new System.Text.RegularExpressions.Regex(
+                @"\brun dll32\b[^\r\n;|]{0,120}(?:javascript|http|https)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+            (new System.Text.RegularExpressions.Regex(
+                @"\b(?:cscript|wscript)\b[^\r\n;|]{0,120}(?:\.sct\b|http|https)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+            (new System.Text.RegularExpressions.Regex(
+                @"\bwmic\b[^\r\n;|]{0,120}\bprocess\b[^\r\n;|]{0,60}\bcall\b[^\r\n;|]{0,60}\bcreate\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+            (new System.Text.RegularExpressions.Regex(
+                @"\b(?:invoke-wmimethod|invoke-cimethod)\b[^\r\n;|]{0,120}\bwin32_process\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+            (new System.Text.RegularExpressions.Regex(
+                @"(?<!\w)-(?:enc|encodedcommand)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+            (new System.Text.RegularExpressions.Regex(
+                @"\bschtasks\b[^\r\n;|]{0,160}\b(?:/create|/change)\b[^\r\n;|]{0,300}(?:https?://|/ru\s+system|/RL\s+high)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RemoteCodeExecution),
+
+            // ── 关闭安全防护 ──
+            (new System.Text.RegularExpressions.Regex(
+                @"\bset-mppreference\b(?=[^\r\n;|]{0,200}(?:disablerealtimemonitoring|disableioavprotection|disablescriptscanning|disablebehaviormonitoring|disableservice))",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.DisableSecurity),
+            (new System.Text.RegularExpressions.Regex(
+                @"\b(?:set-netfirewallprofile|netsh\s+advfirewall\s+set)\b(?=[^\r\n;|]{0,200}\b(?:state\s+off|enabled\s+false)\b)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.DisableSecurity),
+            (new System.Text.RegularExpressions.Regex(
+                @"\bnetsh\b[^\r\n;|]{0,100}\bfirewall\b[^\r\n;|]{0,100}\bopmode\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.DisableSecurity),
+            (new System.Text.RegularExpressions.Regex(
+                @"\b(?:stop-service|sc\s+stop)\b[^\r\n;|]{0,100}\b(?:windefend|wscsvc|mpssvc|wuauserv|securityhealthservice|securitycenter)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.DisableSecurity),
+            (new System.Text.RegularExpressions.Regex(
+                @"\bset-executionpolicy\b(?=[^\r\n;|]{0,200}\blocalmachine\b)[^\r\n;|]{0,200}\b(?:bypass|unrestricted)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.DisableSecurity),
+
+            // ── 注册表篡改 ──
+            (new System.Text.RegularExpressions.Regex(
+                @"(?<![\w\\/])reg\b\s+delete\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RegistryTampering),
+            (new System.Text.RegularExpressions.Regex(
+                @"(?<![\w\\/])reg\b\s+(?:add|import|load|restore)\b[^\r\n;|]{0,80}\bHKLM\\",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RegistryTampering),
+            (new System.Text.RegularExpressions.Regex(
+                @"\bregedit\b[^\r\n;|]{0,40}/s\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                DangerousCommandKind.RegistryTampering),
+        };
+
+        /// <summary>
+        /// 探测本机可用的 Python 解释器（python / python3 / py 启动器）。
+        /// </summary>
+        internal static PythonEnvironment? DetectPythonEnvironment()
+        {
+            foreach (string candidate in new[] { "python", "python3", "py" })
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = candidate,
+                        Arguments = "-V",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                    };
+                    using var process = Process.Start(psi);
+                    if (process == null) continue;
+
+                    var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                    var stderrTask = process.StandardError.ReadToEndAsync();
+                    if (!process.WaitForExit(5000))
+                    {
+                        try { process.Kill(); } catch { }
+                        try { Task.WaitAll(stdoutTask, stderrTask); } catch { }
+                        continue;
+                    }
+
+                    string version =
+                        (stdoutTask.IsCompleted ? stdoutTask.Result : string.Empty) +
+                        (stderrTask.IsCompleted ? stderrTask.Result : string.Empty);
+                    version = version.Trim();
+                    if (version.StartsWith("Python ", StringComparison.OrdinalIgnoreCase) && version.Length > 7)
+                        return new PythonEnvironment { Executable = candidate, Version = version };
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 判断命令是否为 Python 相关命令（python / python3 / pythonw / py / pip）。
+        /// 避免把 pytest 等相似前缀误判为 Python。
+        /// </summary>
+        internal static bool IsPythonCommand(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command)) return false;
+
+            string trimmed = command.Trim().TrimStart('&', ' ', '\t');
+            foreach (string exe in new[] { "python3", "pythonw3", "pythonw", "python", "pip3", "pip", "py" })
+            {
+                if (!trimmed.StartsWith(exe, StringComparison.OrdinalIgnoreCase)) continue;
+                if (trimmed.Length == exe.Length) return true;
+
+                char next = trimmed[exe.Length];
+                if (next != ' ' && next != '\t' && next != '.') continue;
+                if (next != '.') return true;
+
+                // 仅当后缀是 .exe 且后面是空白/结束时才认为是 python.exe
+                string rest = trimmed.Substring(exe.Length + 1);
+                if (!rest.StartsWith("exe", StringComparison.OrdinalIgnoreCase)) continue;
+                if (rest.Length == 3 || rest[3] == ' ' || rest[3] == '\t') return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 拦截危险命令，返回其危险分类；安全命令返回 None。
+        /// </summary>
+        internal static DangerousCommandKind DetectDangerousCommand(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command)) return DangerousCommandKind.None;
+
+            var inlineDanger = DetectPythonInlineDanger(command);
+            if (inlineDanger != DangerousCommandKind.None) return inlineDanger;
+
+            foreach (var (pattern, kind) in DangerousCommandPatterns)
+            {
+                if (pattern.IsMatch(command)) return kind;
+            }
+            return DangerousCommandKind.None;
+        }
+
+        /// <summary>
+        /// 检测 python -c / py -c 等内联代码中的危险调用（os.system、shutil.rmtree、subprocess 等）。
+        /// </summary>
+        private static DangerousCommandKind DetectPythonInlineDanger(string command)
+        {
+            if (!IsPythonCommand(command)) return DangerousCommandKind.None;
+
+            var quoted = System.Text.RegularExpressions.Regex.Match(
+                command, @"-c\s+([""'])(?<code>.*?)\1",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+            string code = quoted.Success ? quoted.Groups["code"].Value : string.Empty;
+            if (string.IsNullOrEmpty(code))
+            {
+                var unquoted = System.Text.RegularExpressions.Regex.Match(
+                    command, @"-\s?c\s+(?<code>[^\r\n;|]+)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                code = unquoted.Success ? unquoted.Groups["code"].Value : string.Empty;
+            }
+            if (string.IsNullOrWhiteSpace(code)) return DangerousCommandKind.None;
+
+            string[] dangerousPythonPatterns =
+            {
+                @"\bos\.(?:system|popen|remove|unlink|removedirs|rmdir|execl|execv|spawn|kill)\b",
+                @"\bfrom\s+os\s+import\s+(?:system|popen|remove|unlink|removedirs|rmdir)\b",
+                @"\bshutil\.rmtree\b",
+                @"\bfrom\s+shutil\s+import\s+rmtree\b",
+                @"\bsubprocess\b",
+                @"\bctypes\b",
+                @"\bwinreg\b[^\r\n;]{0,80}\b(?:Delete|Save)\w*\b",
+                @"\bsocket\b",
+                @"\b(?:paramiko|impacket|scapy|pymetasploit|pwn)\b",
+                @"\b\.unlink\s*\(|\b\.rmdir\s*\(",
+                @"(?:urlretrieve|requests\s*\.\s*get|urllib)[^\r\n;]{0,160}(?:exec|eval|os\.system|subprocess)",
+                @"\b(?:base64|zlib)\b[^\r\n;]{0,200}\bexec\s*\(",
+            };
+
+            foreach (string pattern in dangerousPythonPatterns)
+            {
+                if (System.Text.RegularExpressions.Regex.IsMatch(code, pattern,
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline))
+                {
+                    return DangerousCommandKind.PythonInlineDanger;
+                }
+            }
+            return DangerousCommandKind.None;
+        }
+
+        /// <summary>
+        /// 生成危险命令拦截结果文本。
+        /// </summary>
+        private static string FormatDangerBlocked(string command, DangerousCommandKind kind)
+        {
+            string reasonKey = kind switch
+            {
+                DangerousCommandKind.SystemDestruction => "tool.runTerminal.danger.systemDestruction",
+                DangerousCommandKind.Shutdown => "tool.runTerminal.danger.shutdown",
+                DangerousCommandKind.CriticalDelete => "tool.runTerminal.danger.criticalDelete",
+                DangerousCommandKind.AccountTampering => "tool.runTerminal.danger.accountTampering",
+                DangerousCommandKind.CredentialTheft => "tool.runTerminal.danger.credentialTheft",
+                DangerousCommandKind.RemoteCodeExecution => "tool.runTerminal.danger.remoteCodeExecution",
+                DangerousCommandKind.DisableSecurity => "tool.runTerminal.danger.disableSecurity",
+                DangerousCommandKind.RegistryTampering => "tool.runTerminal.danger.registryTampering",
+                DangerousCommandKind.PythonInlineDanger => "tool.runTerminal.danger.pythonInlineDanger",
+                _ => "tool.runTerminal.danger.generic",
+            };
+            return LocalizationService.Instance.Format(
+                "tool.runTerminal.dangerBlocked", command, LocalizationService.Instance[reasonKey]);
+        }
+
         public override string Name => "run_in_terminal";
 
         public override ToolDefinition GetDefinition()
@@ -87,6 +435,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     LocalizationService.Instance.Format("tool.runInTerminal.buildBlockedExtra", command);
             }
 
+            // ── 危险命令拦截（原始命令，覆盖 PowerShell/CMD 与 python -c 内联代码）──
+            var rawDangerKind = DetectDangerousCommand(command);
+            if (rawDangerKind != DangerousCommandKind.None)
+            {
+                Logger.Warn($"[RunInTerminal] ⛔ 危险命令被拦截 ({rawDangerKind}): {command.Truncate(150)}");
+                return FormatDangerBlocked(command, rawDangerKind);
+            }
+
             // ── Unix 风格命令检测与修正（安全网：即使 AI prompt 已要求 PowerShell，仍有概率输出 Unix 命令）──
             string? unixWarning = DetectUnixStyleCommand(command);
 
@@ -120,12 +476,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             command = NormalizeUnixToPowerShell(command);
 
+            // ── 危险命令二次检查（修正后的命令，覆盖 && / curl 等被转换后的形态）──
+            var normalizedDangerKind = DetectDangerousCommand(command);
+            if (normalizedDangerKind != DangerousCommandKind.None)
+            {
+                Logger.Warn($"[RunInTerminal] ⛔ 危险命令被拦截（修正后） ({normalizedDangerKind}): {command.Truncate(150)}");
+                return FormatDangerBlocked(command, normalizedDangerKind);
+            }
+
+            // ── Python 环境提示（python / py / pip 命令附加可用性信息）──
+            string? pythonHint = null;
+            bool useUtf8Output = false;
+            if (IsPythonCommand(command))
+            {
+                useUtf8Output = true;
+                var pythonEnv = PythonEnvironmentLazy.Value;
+                if (pythonEnv != null)
+                    pythonHint = LocalizationService.Instance.Format(
+                        "tool.runTerminal.pythonDetected", pythonEnv.Executable, pythonEnv.Version);
+                else
+                    pythonHint = LocalizationService.Instance["tool.runTerminal.pythonNotFound"];
+            }
+
             // 如果命令被修正过，构建警告前缀（附加到输出开头提醒 AI 下次注意）
             string warningPrefix = "";
             if (unixWarning != null)
                 warningPrefix = unixWarning + "\n修正后的命令: " + command + "\n\n";
             if (vcvarsWarning != null)
                 warningPrefix += vcvarsWarning;
+            if (pythonHint != null)
+                warningPrefix += pythonHint + "\n\n";
 
             bool isAsync = string.Equals(mode, "async", StringComparison.OrdinalIgnoreCase);
 
@@ -144,6 +524,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         Arguments = cmdArgs,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
+                        StandardOutputEncoding = useUtf8Output ? Encoding.UTF8 : null,
+                        StandardErrorEncoding = useUtf8Output ? Encoding.UTF8 : null,
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         WorkingDirectory = workspaceRoot ?? Directory.GetCurrentDirectory(),
@@ -161,6 +543,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         Arguments = cmdArgs,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
+                        StandardOutputEncoding = useUtf8Output ? Encoding.UTF8 : null,
+                        StandardErrorEncoding = useUtf8Output ? Encoding.UTF8 : null,
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         WorkingDirectory = workspaceRoot ?? Directory.GetCurrentDirectory(),
@@ -177,6 +561,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         Arguments = $"-NoProfile -Command \"{escapedCommand}\"",
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
+                        StandardOutputEncoding = useUtf8Output ? Encoding.UTF8 : null,
+                        StandardErrorEncoding = useUtf8Output ? Encoding.UTF8 : null,
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         WorkingDirectory = Directory.GetCurrentDirectory(),
