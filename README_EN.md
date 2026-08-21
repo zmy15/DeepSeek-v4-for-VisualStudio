@@ -38,7 +38,7 @@
 | 📝 **Code Editing** | 5 edit tools (replace, apply_patch, create_file, etc.), Levenshtein 4-tier matching + Healing, Diff preview, Ghost Text inline completion |
 | 📚 **1M Context** | 900K token budget, auto LLM-summary compression at 85% usage, files never truncated |
 | 🌐 **Web Search** | Baidu Qianfan + DuckDuckGo dual engines, automatic fallback on quota exhaustion |
-| 🖼️ **Image OCR** | PaddleOCR-Sharp local / Windows built-in / MCP remote triple engines |
+| 🖼️ **Image OCR** | Windows built-in / MCP remote dual engines |
 | 📄 **File Parsing** | Drag-drop or paste 50+ formats (code/docs/PDF/Office/images), powered by NPOI + PdfPig |
 | 🛡️ **Terminal Approval** | Pre-execution confirmation dialog (BlockAll / AllowAll / SmartBlock modes) |
 | 🧠 **AI Memory System** | Three-tier persistent memory (user/session/repo), AI-managed notes, auto-injected on new conversations |
@@ -81,7 +81,7 @@ git clone https://github.com/zmy15/DeepSeek-v4-for-VisualStudio.git
 | Model | `deepseek-v4-pro` | Flagship model, strongest reasoning |
 | Deep Reasoning | On, Reasoning Effort = `max` | Better results for complex tasks |
 | Web Search | Baidu Qianfan | 1,500 free calls/month |
-| OCR Engine | PaddleOCR-Sharp | Local offline recognition, no network needed |
+| OCR Engine | Windows Built-in | System built-in, zero dependency |
 | Token Budget | 900000 | Fully utilize the 1M context window |
 
 ---
@@ -227,11 +227,10 @@ Powered by DeepSeek FIM API (`api.deepseek.com/beta/completions`):
 | Baidu Qianfan | Baidu | 1,500/month | High Chinese search quality |
 | DuckDuckGo | Free | Unlimited | Privacy-friendly |
 
-### OCR Triple Engines
+### OCR Dual Engines
 
 | Engine | Implementation | Dependency |
 |--------|---------------|------------|
-| PaddleOCR-Sharp | Local offline | Sdcb.PaddleOCR + OpenCvSharp |
 | Windows Built-in | System API | Windows 10/11 |
 | MCP Remote | MCP Protocol | External OCR service |
 

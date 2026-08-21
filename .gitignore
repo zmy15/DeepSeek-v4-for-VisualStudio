@@ -362,6 +362,3 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
-
-# Maintenance scripts (local use only)
-scripts/
