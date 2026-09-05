@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Services;
+using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio;
@@ -188,7 +188,7 @@ namespace DeepSeek_v4_for_VisualStudio.ToolWindows
                         // 触发编辑器内 diff 预览
                         TryBeginDiffPreview(oldContent, newContent, filePath);
 
-                        Logger.Info($"[WriteCode] ✅ 通过 ITextBuffer 写入已打开文件: {Path.GetFileName(filePath)}");
+                        Logger.Info($"[WriteCode]  通过 ITextBuffer 写入已打开文件: {Path.GetFileName(filePath)}");
                         return null;
                     }
                 }
@@ -236,7 +236,7 @@ namespace DeepSeek_v4_for_VisualStudio.ToolWindows
                                 // 文件未在编辑器中打开，注册待处理 diff
                                 TryRegisterPendingDiff(oldContent, newContent, filePath);
 
-                                Logger.Info($"[WriteCode] ✅ 通过 IVsInvisibleEditor+ITextBuffer 写入: {Path.GetFileName(filePath)}");
+                                Logger.Info($"[WriteCode]  通过 IVsInvisibleEditor+ITextBuffer 写入: {Path.GetFileName(filePath)}");
                                 return null;
                             }
                         }
@@ -274,7 +274,7 @@ namespace DeepSeek_v4_for_VisualStudio.ToolWindows
                                     out int saveCanceled);
                             }
 
-                            Logger.Info($"[WriteCode] ✅ 通过 IVsInvisibleEditor+IVsTextLines 写入: {Path.GetFileName(filePath)}");
+                            Logger.Info($"[WriteCode]  通过 IVsInvisibleEditor+IVsTextLines 写入: {Path.GetFileName(filePath)}");
                             return null;
                         }
                     }

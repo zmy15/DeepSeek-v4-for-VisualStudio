@@ -169,7 +169,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 AgentType = AgentType.Edit,
                 Success = true,
-                Content = $"⚠️ 此任务规模较大（\"{userMessage.Truncate(80)}\"），需要先制定详细计划。正在转交 Plan Agent...",
+                Content = $"此任务规模较大（\"{userMessage.Truncate(80)}\"），需要先制定详细计划。正在转交 Plan Agent...",
                 Plan = null,
                 Handoff = new AgentHandoff
                 {
@@ -209,7 +209,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             try
             {
-                // ── 🔑 缓存保护：任务拆分是一次轻量预分析，不应消费 Handoff 传入的
+                // ──  缓存保护：任务拆分是一次轻量预分析，不应消费 Handoff 传入的
                 //     ForwardedMessages。改用最小上下文直接调用，保留 ForwardedMessages
                 //     给真正的首个执行步骤复用上一次 API 缓存前缀。
                 var messages = new List<ChatApiMessage>

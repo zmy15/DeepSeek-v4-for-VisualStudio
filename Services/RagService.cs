@@ -141,7 +141,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 double similarity = ComputeQuerySimilarity(_lastQuery, query);
                 if (similarity >= CacheSimilarityThreshold)
                 {
-                    Logger.Info($"[RagService] 🔄 复用缓存 (相似度: {similarity:F2} >= {CacheSimilarityThreshold}): \"{TruncateQuery(query)}\"");
+                    Logger.Info($"[RagService]  复用缓存 (相似度: {similarity:F2} >= {CacheSimilarityThreshold}): \"{TruncateQuery(query)}\"");
                     return _lastContext;
                 }
             }
@@ -182,7 +182,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             if (_lastQuery != null)
             {
-                Logger.Info("[RagService] 🗑️ RAG 缓存已清除");
+                Logger.Info("[RagService]  RAG 缓存已清除");
                 _lastQuery = null;
                 _lastContext = null;
             }

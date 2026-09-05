@@ -130,7 +130,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     "insert" => await ExecuteInsertAsync(args, resolvedSolutionPath),
                     "delete" => await ExecuteDeleteAsync(args, resolvedSolutionPath),
                     "rename" => await ExecuteRenameAsync(args, resolvedSolutionPath),
-                    _ => $"❌ memory: 未知命令 '{command}'。可用命令: view, create, str_replace, insert, delete, rename"
+                    _ => $"Error: memory: 未知命令 '{command}'。可用命令: view, create, str_replace, insert, delete, rename"
                 };
             }
             catch (Exception ex)
@@ -170,9 +170,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 foreach (var entry in result.Entries)
                 {
                     if (entry.IsDirectory)
-                        sb.AppendLine($"  📁 {entry.Name}");
+                        sb.AppendLine($"{entry.Name}");
                     else
-                        sb.AppendLine($"  📄 {entry.Name} ({FormatSize(entry.SizeBytes)}, {entry.LastModified:yyyy-MM-dd HH:mm})");
+                        sb.AppendLine($"{entry.Name} ({FormatSize(entry.SizeBytes)}, {entry.LastModified:yyyy-MM-dd HH:mm})");
                 }
                 if (result.Entries.Count == 0)
                     sb.AppendLine("  （空目录）");
@@ -305,7 +305,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌")) return toolResult;
+            if (toolResult.StartsWith("Error: ")) return toolResult;
             // 截取结果的前80字符作为摘要
             return toolResult.Length > 80
                 ? toolResult.Substring(0, 80) + "..."

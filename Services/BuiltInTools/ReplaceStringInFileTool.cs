@@ -66,8 +66,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌")) return toolResult;
-            if (toolResult.StartsWith("✅") || toolResult.Contains("成功") || toolResult.Contains("success"))
+            if (toolResult.StartsWith("Error: ")) return toolResult;
+            if (toolResult.Contains("成功") || toolResult.Contains("success"))
                 return LocalizationService.Instance["tool.replaceString.editComplete"];
             return LocalizationService.Instance["tool.replaceString.editDone"];
         }

@@ -1,0 +1,57 @@
+{
+  "_comment": "VS-Agent Benchmark v0 任务清单样例（完整 24 任务按此 schema 扩充）。冻结字段见 README §环境冻结。",
+  "benchmark_version": "v0",
+  "environment": {
+    "repository_commit": "<fixture repo commit>",
+    "vs_version": "17.14",
+    "extension_version": "1.2.0",
+    "model": "deepseek-v4-pro",
+    "model_parameters": { "thinking": true, "reasoning_effort": "max", "temperature": null },
+    "prompt_version": "2026-08-22",
+    "task_schema_version": 1
+  },
+  "tasks": [
+    {
+      "id": "cf-001",
+      "category": "compile_fix",
+      "setup": { "fixture_repo": "bench-fixture-a", "commit": "<sha>", "inject": "revert src/Parser.cs to broken state" },
+      "prompt": "修复当前编译错误",
+      "expected": { "build_succeeds": true, "files_changed_max": 2 }
+    },
+    {
+      "id": "cf-002",
+      "category": "compile_fix",
+      "setup": { "fixture_repo": "bench-fixture-b", "commit": "<sha>", "inject": "delete using directive in Services/Store.cs" },
+      "prompt": "让项目重新编译通过",
+      "expected": { "build_succeeds": true }
+    },
+    {
+      "id": "ie-001",
+      "category": "inline_edit",
+      "setup": { "fixture_repo": "bench-fixture-a", "commit": "<sha>", "selection": "src/Renderer.cpp:381-397" },
+      "prompt": "减少这个函数里不必要的内存分配",
+      "expected": { "preview_shown": true, "accept_by_human": "judge" }
+    },
+    {
+      "id": "ie-002",
+      "category": "inline_edit",
+      "setup": { "fixture_repo": "bench-fixture-b", "commit": "<sha>", "selection": "Utils/StringExt.cs:12-30" },
+      "prompt": "给这段代码加上 XML 文档注释",
+      "expected": { "preview_shown": true }
+    },
+    {
+      "id": "xf-001",
+      "category": "cross_file",
+      "setup": { "fixture_repo": "bench-fixture-c", "commit": "<sha>" },
+      "prompt": "把 Player.Update 中的魔法数字 0.35 提取为常量并更新所有引用处",
+      "expected": { "build_succeeds": true, "min_files_changed": 2 }
+    },
+    {
+      "id": "xf-002",
+      "category": "cross_file",
+      "setup": { "fixture_repo": "bench-fixture-c", "commit": "<sha>" },
+      "prompt": "把 Logger.Warn 重命名为 LogWarning 并修复所有调用点",
+      "expected": { "build_succeeds": true }
+    }
+  ]
+}

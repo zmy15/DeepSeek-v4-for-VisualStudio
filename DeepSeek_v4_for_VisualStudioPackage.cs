@@ -24,7 +24,11 @@ namespace DeepSeek_v4_for_VisualStudio
     [Guid(DeepSeek_v4_for_VisualStudioPackage.PackageGuidString)]
     [ProvideMenuResource("Menus.ctmenu", 1)]
     [ProvideToolWindow(typeof(DeepSeekChatWindowPane), Style = VsDockStyle.Tabbed)]
+    // The legacy page remains the secure editor for API keys. Keys live in Visual Studio
+    // Credential Storage and intentionally do not enter Unified Settings.
     [ProvideOptionPage(typeof(DeepSeekOptionsPage), "DeepSeek Chat", "General", 0, 0, true)]
+    [ProvideProfile(typeof(DeepSeekOptionsPage), "DeepSeek Chat", "General",
+        16001, 16002, isToolsOptionPage: true, DescriptionResourceID = 16003)]
     public sealed class DeepSeek_v4_for_VisualStudioPackage : AsyncPackage
     {
         /// <summary>
@@ -235,12 +239,85 @@ namespace DeepSeek_v4_for_VisualStudio
                 await KnownUIContexts.ShellInitializedContext;
                 await JoinableTaskFactory.SwitchToMainThreadAsync(DisposalToken);
 
+                var swTotal = System.Diagnostics.Stopwatch.StartNew();
                 DiagnosticLog.Write("[DeepSeek Init] Loading persisted options after package initialization...");
+
+                // Initialize the official VS keychain before DialogPage loads settings. This lets
+                // API keys move out of the ro/exportable settings store without losing legacy values.
+                Settings.VisualStudioApiKeyStore.Current =
+                    await Settings.VisualStudioApiKeyStore.CreateAsync(this);
+
+                // ── GetDialogPage：唯一必须留在 UI 线程的重步骤（VS 服务调用）──
+                var swDialogPage = System.Diagnostics.Stopwatch.StartNew();
                 var persistedOptions = (DeepSeekOptionsPage)GetDialogPage(typeof(DeepSeekOptionsPage));
                 DeepSeekOptionsPage.Instance = persistedOptions;
+                DiagnosticLog.Write($"[DeepSeek Init] GetDialogPage OK in {swDialogPage.ElapsedMilliseconds}ms");
+
+                // ── 跨实例设置迁移（问题 2）：仅在未迁移过时执行一次，防止覆盖用户在新版本中的修改 ──
+                // 两阶段拆分：RegLoadAppKey 挂载探测（慢 IO）放后台线程；
+                // DialogPage 属性回填 + SaveSettingsToStorage 留在主线程（线程亲和性要求）。
+                if (!persistedOptions.LegacySettingsMigrated)
+                {
+                    // P1-5a：一次性迁移标志只在"迁移成功"或"确无来源"时固化，
+                    // 避免首启瞬时失败（hive 被锁/超时）烧掉标志导致旧设置永不再迁移。
+                    try
+                    {
+                        var swMigrate = System.Diagnostics.Stopwatch.StartNew();
+                        bool migrated = false;
+                        bool definitivelyNothing = false;
+
+                        if (string.IsNullOrWhiteSpace(persistedOptions.ApiKey))
+                        {
+                            var probed = await Settings.SettingsMigration.ProbeBestSourceAsync(TryGetOwnHiveName());
+                            if (probed != null)
+                            {
+                                migrated = Settings.SettingsMigration.ApplyProbedValues(persistedOptions, probed);
+                            }
+                            else
+                            {
+                                definitivelyNothing = Settings.SettingsMigration.HasNoCandidateSource(TryGetOwnHiveName());
+                            }
+                        }
+                        else
+                        {
+                            definitivelyNothing = true; // 已有 ApiKey，无需迁移
+                        }
+
+                        if (migrated || definitivelyNothing)
+                        {
+                            persistedOptions.LegacySettingsMigrated = true;
+                            persistedOptions.SaveSettingsToStorage();
+                            DiagnosticLog.Write($"[DeepSeek Init] settings migration stage done in {swMigrate.ElapsedMilliseconds}ms (migrated={migrated}, definitive={definitivelyNothing})");
+                        }
+                        else
+                        {
+                            DiagnosticLog.Write("[DeepSeek Init] settings migration deferred: transient failure, will retry next start");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DiagnosticLog.Write($"[DeepSeek Init] settings migration stage failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
+
                 InitializeLocalization();
                 ThemeService.Instance.UserThemeMode = persistedOptions.ThemeMode;
-                DiagnosticLog.Write("[DeepSeek Init] Persisted options loaded OK");
+                DiagnosticLog.Write($"[DeepSeek Init] Persisted options loaded OK in {swTotal.ElapsedMilliseconds}ms");
+
+                // ── Unified Settings 双向同步桥（新版设置 UI ↔ Instance）──
+                // fire-and-forget：桥内含宿主激活与注册可见性等待（最长 120s），
+                // 不得阻塞持久化装载完成与窗口显示。
+                Settings.UnifiedSettingsSync.Host = this;
+                _ = Settings.UnifiedSettingsSync.InitializeAsync(this, this);
+
+                // ── 生效配置快照（脱敏）：用于核对"选项页所见 = 运行时所用" ──
+                {
+                    bool deepSeekKeyConfigured = !string.IsNullOrWhiteSpace(persistedOptions.ApiKey);
+                    DiagnosticLog.Write($"[Settings] effective: model={persistedOptions.SelectedModel}, " +
+                        $"deepSeekKeyConfigured={deepSeekKeyConfigured}, " +
+                        $"credentialStore={Settings.VisualStudioApiKeyStore.IsAvailable}, " +
+                        $"migrated={persistedOptions.LegacySettingsMigrated}");
+                }
                 return persistedOptions;
             }
             catch (OperationCanceledException)
@@ -418,6 +495,7 @@ namespace DeepSeek_v4_for_VisualStudio
                             0,
                             create: true,
                             cancellationToken: DisposalToken);
+                        MarkChatWindowOpened(); // 用户显式打开，允许后续会话自动弹出
                         DiagnosticLog.Write("[DeepSeek Init] Toast 点击：工具窗口已打开");
                     }
                     catch (Exception ex)
@@ -440,32 +518,128 @@ namespace DeepSeek_v4_for_VisualStudio
                 throw;
             }
 
-            DiagnosticLog.Write("[DeepSeek Init] All 9 steps completed successfully");
-
-            // 延迟显示工具窗口，避免在包初始化期间调用 ShowToolWindowAsync
-            // 导致 COMException (0x80049283): LoadPackageWithContext 冲突
-            _ = JoinableTaskFactory.RunAsync(async () =>
+            // ═══ 步骤 9/9：注册菜单命令 ═══
+            // 性能优化：InlineAiEditCommand 惰性注册（Ctrl+I 首次触发才初始化），
+            // ShowChatWindowCommand 保持立即注册（菜单项需在启动时可见）。
+            _ = Task.Run(async () =>
             {
-                // 等待初始化完成后再切换到主线程
-                await Task.Delay(200, DisposalToken);
-                await JoinableTaskFactory.SwitchToMainThreadAsync(DisposalToken);
-
                 try
                 {
-                    DiagnosticLog.Write("[DeepSeek Init] Auto-show: loading persisted options...");
-                    await LoadPersistedOptionsAsync();
-                    DiagnosticLog.Write("[DeepSeek Init] Auto-show: calling ShowToolWindowAsync...");
-                    await ShowToolWindowAsync(typeof(DeepSeekChatWindowPane), 0, create: true, cancellationToken: DisposalToken);
-                    DiagnosticLog.Write("[DeepSeek Init] Auto-show: tool window shown OK");
+                    await JoinableTaskFactory.SwitchToMainThreadAsync();
+                    await Commands.InlineAiEditCommand.InitializeAsync(this);
+                    DiagnosticLog.Write("[DeepSeek Init] Step 10 (deferred): InlineAiEditCommand registered OK");
                 }
                 catch (Exception ex)
                 {
-                    DiagnosticLog.Write($"[DeepSeek Init] Auto-show FAILED: {ex.GetType().Name}: {ex.Message}");
-                    DiagnosticLog.Write($"[DeepSeek Init] Auto-show stack: {ex.StackTrace}");
-                    if (ex.InnerException != null)
-                        DiagnosticLog.Write($"[DeepSeek Init] Auto-show inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                    DiagnosticLog.Write($"[DeepSeek Init] WARN deferred InlineAiEditCommand failed: {ex.GetType().Name}: {ex.Message}");
                 }
             });
+
+            DiagnosticLog.Write("[DeepSeek Init] All steps completed successfully");
+
+            // ── 备份保留期清扫（后台、非 UI 线程）──
+            // 清理超过 14 天的历史备份会话目录，防止失败残留长期累积（对齐 DiagnosticLog 14 天惯例）。
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    var removed = Services.BackupService.CleanupExpiredSessions();
+                    if (removed > 0)
+                        DiagnosticLog.Write($"[Backup] startup sweep removed {removed} expired session dir(s)");
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticLog.Write($"[Backup] startup sweep failed: {ex.Message}");
+                }
+            });
+
+            // ── 自动恢复聊天窗口（标记门控）──
+            // 仅当用户此前显式打开过聊天窗口（存在标记文件）时才随启动自动弹出；
+            // 空白实例 / 从未使用过的实例不再强制走"加载持久化配置 + 创建窗口"链路。
+            // 历史事故（2026-08-24 卡死分析）：无条件自动弹窗使冷启动必然进入
+            // UI 线程阻塞链，叠加当时同步运行的全域反射探针 → 启动即卡死。
+            // 显式打开后写入标记（见 MarkChatWindowOpened），后续会话恢复弹出行为；
+            // 未使用过的实例则保持安静，由用户主动触发（工具栏 / 菜单 / Ctrl+Shift+D）。
+            _ = JoinableTaskFactory.RunAsync(async () =>
+            {
+                try
+                {
+                    await Task.Delay(200, DisposalToken);
+                    if (!File.Exists(AutoShowMarkerPath)) return;
+
+                    await JoinableTaskFactory.SwitchToMainThreadAsync(DisposalToken);
+                    DiagnosticLog.Write("[DeepSeek Init] Auto-show (marker present): loading persisted options...");
+                    await LoadPersistedOptionsAsync();
+                    await ShowToolWindowAsync(typeof(DeepSeekChatWindowPane), 0, create: true, cancellationToken: DisposalToken);
+                    DiagnosticLog.Write("[DeepSeek Init] Auto-show: tool window shown OK");
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    DiagnosticLog.Write($"[DeepSeek Init] Auto-show FAILED: {ex.GetType().Name}: {ex.Message}");
+                }
+            });
+        }
+
+        #endregion
+
+        #region Auto-Show Marker & Hive Helpers
+
+        /// <summary>
+        /// "用户显式打开过聊天窗口"的持久化标记文件路径。
+        /// 存在时启动阶段允许自动弹出工具窗口；空白实例无此文件，保持安静。
+        /// </summary>
+        internal static readonly string AutoShowMarkerPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "DeepSeekVS", "chat-window-opened.flag");
+
+        /// <summary>用户显式打开聊天窗口成功后调用：写入自动弹出标记。</summary>
+        internal static void MarkChatWindowOpened()
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(AutoShowMarkerPath);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(AutoShowMarkerPath, DateTime.Now.ToString("O"));
+            }
+            catch
+            {
+                // 标记写入失败不影响功能，仅失去下次启动自动弹窗
+            }
+        }
+
+        /// <summary>
+        /// 解析当前实例自身的 hive 目录名（如 "18.0_ba3bb658Exp"），
+        /// 用于设置迁移探测时自排除本实例的活动 privateregistry.bin。解析失败返回 null。
+        /// 扩展部署路径形如 %LOCALAPPDATA%\Microsoft\VisualStudio\&lt;hive&gt;\Extensions\...，
+        /// 取 VisualStudio 目录的直接子目录名即为当前 hive。
+        /// </summary>
+        private static string? TryGetOwnHiveName()
+        {
+            try
+            {
+                var asmPath = Assembly.GetExecutingAssembly().Location;
+                if (string.IsNullOrEmpty(asmPath)) return null;
+
+                var vsRoot = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Microsoft", "VisualStudio");
+
+                var dir = Path.GetDirectoryName(asmPath);
+                while (!string.IsNullOrEmpty(dir))
+                {
+                    var parent = Path.GetDirectoryName(dir);
+                    if (parent != null && string.Equals(parent, vsRoot, StringComparison.OrdinalIgnoreCase))
+                        return Path.GetFileName(dir);
+                    dir = parent;
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Write($"[DeepSeek Init] resolve own hive failed: {ex.Message}");
+                return null;
+            }
         }
 
         #endregion
@@ -512,6 +686,6 @@ namespace DeepSeek_v4_for_VisualStudio
     {
         public const string Name = "DeepSeek Chat for Visual Studio";
         public const string Description = "DeepSeek AI chat integration for Visual Studio 2022.";
-        public const string Version = "1.1.15";
+        public const string Version = "1.2.2";
     }
 }

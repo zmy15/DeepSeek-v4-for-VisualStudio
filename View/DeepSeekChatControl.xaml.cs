@@ -128,6 +128,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private ContextCompressorService? _compressorService;
         private MemoryService? _memoryService;
         private bool _isGenerating;
+
+        /// <summary>程序化填充会话下拉时抑制 SelectionChanged（P2 交互修复）。</summary>
+        private bool _suppressSessionSelection;
         private string _webSearchEngine = "Off"; // "Off" | "Baidu" | "DuckDuckGo"
 
         // ── 文件上传 ──
@@ -265,6 +268,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         // ── 防止重复释放 ──
         private bool _disposed;
 
+        // ── 防止 VS 恢复布局与命令入口并发调用时重复初始化 ──
+        private bool _isControlStarted;
+
         // ── 余额查询定时器 ──
         private System.Windows.Threading.DispatcherTimer? _balanceTimer;
         private BalanceResponse? _lastBalance;
@@ -277,6 +283,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>页面 DOM + JS 完全就绪后才为 true</summary>
         private bool _pageReady;
         private bool _webViewInitialized;
+        private Task<bool>? _webViewInitializationTask;
+        private Microsoft.Web.WebView2.Core.CoreWebView2Environment? _webView2Environment;
+        private Task _loadAndShowTask = Task.CompletedTask;
         /// <summary>
         /// WebView2 控件（程序化创建，替代 XAML 中的 wv2:WebView2）。
         /// 不在 XAML 中声明以避免 ReSharper 等第三方扩展预加载不同版本的
@@ -430,9 +439,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // 联网搜索: 默认关闭
             var L = LocalizationService.Instance;
             WebSearchEngineComboBox.ItemsSource = new[] {
-                "🔍 " + L["websearch.searchEngine.baidu"],
-                "🌐 " + L["websearch.searchEngine.bing"],
-                "🦆 " + L["websearch.searchEngine.duckduckgo"]
+ " " + L["websearch.searchEngine.baidu"],
+ " " + L["websearch.searchEngine.bing"],
+ " " + L["websearch.searchEngine.duckduckgo"]
             };
             WebSearchEngineComboBox.SelectedIndex = 0; // 默认百度
 
@@ -440,7 +449,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             UpdateWebSearchToggleAppearance();
 
             // ── 状态信息直接显示在输入区顶部状态行 ──
-            StatusLabel.Text = "正在初始化…";
+            StatusLabel.Text = LocalizationService.Instance["status.initializing"];
 
             // ── 订阅主题变更事件 ──
             _themeService.ThemeChanged += OnThemeChanged;
@@ -535,56 +544,77 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         public void StartControl(DeepSeek_v4_for_VisualStudioPackage package)
         {
+            if (_isControlStarted) return;
             _package = package;
-            _options = package.Options;
+            _isControlStarted = true;
 
-            ApplyBottomAreaScale();
-
-            // ── 从设置恢复审批模式 ──
-            RefreshApprovalModeFromSettings();
-
-            // ── 从设置恢复模型选择 ──
-            RefreshModelFromSettings();
-
-            // ── 从设置恢复推理强度 ──
-            RefreshReasoningEffortFromSettings();
-
-            InitializeWebSearchService();
-            InitializeApiService();
-            InitializeOcrService();
-            InitializeMcp(); // MCP 后台初始化，不阻塞 UI
-            InitializeSkills(); // Skill 后台发现，不阻塞 UI
-
-            // ── 链式初始化：先解析项目路径 → 再加载会话 ──
-            // 之前两者各自 fire-and-forget，导致首条消息发送时 _solutionPath 可能仍为 null。
-            // 现在确保 ResolveSolutionPathAsync 完成后再执行 LoadAndShowAsync。
-            _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
-            {
-                await ResolveSolutionPathAsync();
-                LoadInputHistory();  // 加载该项目的历史输入（路径依赖 _solutionPath）
-                await LoadAndShowAsync();
-            });
-
-            // ── 后台异步校验 API Key 有效性 ──
-            _ = ValidateAllApiKeysAsync();
-
-            // ── 订阅设置变更事件，支持热切换配置 ──
+            // Subscribe first so user edits are not lost while persisted options are loading.
             DeepSeekOptionsPage.SettingsChanged += OnOcrSettingsChanged;
+            DeepSeekOptionsPage.SettingsChanged += OnCoreSettingsChanged;
 
             // ── 订阅 diff 预览状态事件，刷新全局控制栏 ──
             EditorDiffMarkerService.Instance.PendingDiffCountChanged += RefreshDiffGlobalBar;
 
-            // ── 订阅解决方案事件，切换解决方案时自动重载对话 ──
-            _ = WireSolutionEventsAsync();
-
-            // ── 初始应用当前主题（浅色/深色）──
-            // 必须在 UI 线程上执行，且 WebView2 就绪后再应用
-            _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            // VS 可以在布局恢复时创建工具窗格。此时不能使用 package.Options 的内存默认值，
+            // 否则空 API Key / 默认缩放会一直留在已创建的聊天控件里。
+            // 这里显式等待持久化 DialogPage 加载完成，再初始化依赖设置的服务。
+            _ = _package.JoinableTaskFactory.RunAsync(async () =>
             {
-                await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                // 等待 WebView2 初始化完成后再应用主题
-                await Task.Delay(500); // 给 WebView2 初始化留出时间
-                ApplyInitialTheme();
+                try
+                {
+                    var persistedOptions = await _package.LoadPersistedOptionsAsync();
+                    await _package.JoinableTaskFactory.SwitchToMainThreadAsync(_package.DisposalToken);
+                    if (_disposed) return;
+
+                    _options = persistedOptions;
+
+                    ApplyBottomAreaScale();
+
+                    // ── 从设置恢复审批模式 / 模型 / 思考模式 / 推理强度 ──
+                    RefreshCoreControlsFromSettings();
+
+                    InitializeWebSearchService();
+                    InitializeApiService();
+                    InitializeOcrService();
+                    InitializeMcp(); // MCP 后台初始化，不阻塞 UI
+                    InitializeSkills(); // Skill 后台发现，不阻塞 UI
+
+                    // ── 链式初始化：先解析项目路径 → 再加载会话 ──
+                    // 之前两者各自 fire-and-forget，导致首条消息发送时 _solutionPath 可能仍为 null。
+                    // 现在确保 ResolveSolutionPathAsync 完成后再执行 LoadAndShowAsync。
+                    _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+                    {
+                        await ResolveSolutionPathAsync();
+                        LoadInputHistory();  // 加载该项目的历史输入（路径依赖 _solutionPath）
+                        await LoadAndShowAsync();
+                    });
+
+                    // ── 后台异步校验 API Key 有效性 ──
+                    _ = ValidateAllApiKeysAsync();
+
+                    // ── 订阅解决方案事件，切换解决方案时自动重载对话 ──
+                    _ = WireSolutionEventsAsync();
+
+                    // ── 初始应用当前主题（浅色/深色）──
+                    // 必须在 UI 线程上执行，且 WebView2 就绪后再应用
+                    _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+                    {
+                        await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                        // 等待 WebView2 初始化完成后再应用主题
+                        await Task.Delay(500); // 给 WebView2 初始化留出时间
+                        ApplyInitialTheme();
+                    });
+                }
+                catch (OperationCanceledException)
+                {
+                    // Package 正在关闭时取消初始化属正常路径。
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"[Startup] 聊天控件初始化失败: {ex.GetType().Name}: {ex.Message}", ex);
+                    await Dispatcher.InvokeAsync(() =>
+                        StatusLabel.Text = $"Chat initialization failed: {ex.Message}");
+                }
             });
         }
 
@@ -794,7 +824,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     string ctxLabel = LocalizationService.Instance["agent.panel.contextLabel"];
                     string warnIcon = usagePercent > 90 ? " ⚠️" : usagePercent > 70 ? " ℹ️" : "";
-                    ctxPart = $"📐 {ctxLabel}: {FormatTokens(estimatedTokens)}/{FormatTokens(tokenBudget)} ({usagePercent:F0}%){warnIcon}";
+                    ctxPart = $" {ctxLabel}: {FormatTokens(estimatedTokens)}/{FormatTokens(tokenBudget)} ({usagePercent:F0}%){warnIcon}";
                 }
             }
 
@@ -891,6 +921,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _disposed = true;
 
             DeepSeekOptionsPage.SettingsChanged -= OnOcrSettingsChanged;
+            DeepSeekOptionsPage.SettingsChanged -= OnCoreSettingsChanged;
 
             // ── 取消主题事件订阅 ──
             _themeService.ThemeChanged -= OnThemeChanged;
@@ -989,7 +1020,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 NewChatButton.ToolTip = L["input.newChat"];
                 NewChatButton.Content = L["input.newChat"];
                 ClearButton.Content = L["input.clearChat"];
+                ClearButton.ToolTip = L["input.clearChatConfirmTip"];
                 McpConfigButton.ToolTip = L["input.mcpConfig"];
+
+                // ── 历史浮层 / 发送区（此前 XAML 硬编码中文，英文界面下泄漏）──
+                if (HistoryToggleButton != null)
+                    HistoryToggleButton.ToolTip = L["input.historyToggleTip"];
+                if (StopButton != null)
+                    StopButton.ToolTip = L["input.stopGenerationTip"];
+                if (SendButton != null)
+                    SendButton.ToolTip = L["input.sendMessageTip"];
 
                 // 添加上下文菜单项
                 AddActiveDocMenuItem.Header = L["input.attachActiveDocument"];
@@ -1002,6 +1042,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 AddSelectionMenuItem.ToolTip = L["input.attachSelectionTip"];
                 AddDebugMenuItem.Header = L["input.attachDebug"];
                 AddDebugMenuItem.ToolTip = L["input.attachDebugTip"];
+
+                // 模型选择 tooltip
+                if (ModelComboBox != null)
+                    ModelComboBox.ToolTip = L["input.modelTip"];
 
                 // 搜索引擎 tooltip
                 if (WebSearchEngineComboBox != null)
@@ -1159,6 +1203,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 bool enabled = ThinkingCheckBox.IsChecked == true;
                 _apiService.ConfigureThinking(enabled, savedEffort);
             }
+        }
+
+        /// <summary>
+        /// Refreshes the model, thinking, and reasoning controls from the options store.
+        /// </summary>
+        private void RefreshCoreControlsFromSettings()
+        {
+            if (_options == null) return;
+
+            RefreshApprovalModeFromSettings();
+            RefreshModelFromSettings();
+            if (ThinkingCheckBox != null)
+                ThinkingCheckBox.IsChecked = _options.IsThinkingEnabled;
+            RefreshReasoningEffortFromSettings();
         }
 
         /// <summary>
@@ -1508,4 +1566,3 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
     }
 }
-

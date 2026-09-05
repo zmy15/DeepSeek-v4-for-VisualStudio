@@ -212,7 +212,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public string? CodeMemory { get; set; }
 
         /// <summary>
-        /// 🔑 Handoff 时源 Agent 的最终工具循环消息列表（v1.1.10 缓存优化）。
+        ///  Handoff 时源 Agent 的最终工具循环消息列表（v1.1.10 缓存优化）。
         /// 设置后，目标 Agent 的 BuildContextAwareMessages 将复用此列表作为前缀，
         /// 而非从 ContextManager 重建，确保 Handoff 前后消息结构一致，
         /// DeepSeek Prefix Cache 可直接命中。
@@ -220,6 +220,29 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// </summary>
         [JsonIgnore]
         public List<ChatApiMessage>? ForwardedMessages { get; set; }
+
+        /// <summary>
+        /// UI 层已写入 ContextManager 的当前轮原始 user 内容。
+        /// Agent 构建请求时用它确认当前 user 已在标准多轮历史中，避免重复包装。
+        /// </summary>
+        [JsonIgnore]
+        public string? CurrentUserContent { get; set; }
+
+        /// <summary>
+        /// 当前请求中工具历史的安全插入点：位于当前 user 之后、Agent 提示词之前。
+        /// BuildContextAwareMessages 写入，工具循环消费；保证 assistant/tool
+        /// 与触发它的当前 user 保持标准多轮顺序。
+        /// </summary>
+        [JsonIgnore]
+        public int? ToolHistoryInsertIndex { get; set; }
+
+        /// <summary>
+        /// Handoff 可复用前缀的边界：位于源 Agent 稳定历史之后，
+        /// 身份边界/volatile/当前 user/Agent 提示词之前。
+        /// 与 ToolHistoryInsertIndex 分离，避免目标 Agent 新增工具历史污染旧前缀。
+        /// </summary>
+        [JsonIgnore]
+        public int? HandoffPrefixLength { get; set; }
 
         /// <summary>
         /// 实时推理流回调。Agent 内部每收到一个 thinking chunk 时调用，
@@ -234,6 +257,14 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// </summary>
         [JsonIgnore]
         public Action<string>? OnContentChunk { get; set; }
+
+        /// <summary>
+        /// 会话级指标采集器（P0 可观测性）。
+        /// View 层在创建 AgentContext 时注入，BaseAgent 工具循环通过 Context?.Metrics 写入
+        /// 逐轮 TTFT/耗时/token/工具调用数据；完成后由 View 导出 JSON。
+        /// </summary>
+        [JsonIgnore]
+        public Services.Telemetry.AgentMetricsCollector? Metrics { get; set; }
     }
 
     /// <summary>

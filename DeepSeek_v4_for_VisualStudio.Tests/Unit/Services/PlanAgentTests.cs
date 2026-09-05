@@ -163,7 +163,7 @@ public class PlanAgentTests
     public void BuildUnifiedDiscoveryPrompt_WithStructureCache_IncludesCacheContent()
     {
         var context = new AgentContext();
-        var structureCache = "## 项目结构 (来自缓存)\n\n- 📁 src/ (15 个文件)";
+        var structureCache = "## 项目结构 (来自缓存)\n\n-  src/ (15 个文件)";
         var userMessage = "添加日志功能";
 
         var result = BuildUnifiedDiscoveryPromptPublic(userMessage, context, structureCache);

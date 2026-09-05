@@ -40,11 +40,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
         public Func<string, string, bool>? OpenDocumentWriter { get; set; }
 
         /// <summary>
-        /// 已打开文档冲刷器（可选注入，推荐 EditBufferApplier.TrySaveOpenDocument）。
-        /// 在首次接触某文件、登记 Baseline 之前调用：若该文件在编辑器中打开且有未保存修改，
-        /// 先通过编辑器 Save 落盘，保证 Baseline 捕获用户最新内容（撤销时不丢失用户编辑）。
+        /// 已打开文档内容读取器（可选注入，推荐 EditBufferApplier.TryGetOpenDocumentContent）。
+        /// 首次接触文件时读取当前编辑器 buffer 内容作为 Baseline；不做预保存。
+        /// 这样既能保留用户未保存修改用于撤销，又避免在工具执行关键路径中等待 VS 的保存对话框。
         /// </summary>
-        public Func<string, bool>? OpenDocumentFlusher { get; set; }
+        public Func<string, string?>? OpenDocumentContentProvider { get; set; }
 
         /// <summary>当前追踪（有改动）的文件数</summary>
         public int StagedCount
@@ -64,6 +64,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
         public string ReadFile(string filePath)
         {
             var normalizedPath = NormalizePath(filePath);
+            if (OpenDocumentContentProvider != null)
+            {
+                try
+                {
+                    var bufferContent = OpenDocumentContentProvider(normalizedPath);
+                    if (bufferContent != null)
+                        return bufferContent;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[StagedWorkspace] 读取打开文档失败，回退磁盘: {Path.GetFileName(normalizedPath)} — {ex.Message}");
+                }
+            }
+
             return File.Exists(normalizedPath) ? File.ReadAllText(normalizedPath) : string.Empty;
         }
 
@@ -84,22 +98,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
             var normalizedPath = NormalizePath(filePath);
             string content = newContent ?? string.Empty;
 
-            // ── 首次接触 + 注入冲刷器：先把已打开文档的用户未保存内容落盘 ──
-            // （在读取 Baseline 之前执行，保证 Baseline 包含用户的未保存编辑；锁外执行防死锁）
-            bool shouldFlush;
-            lock (_lock)
+            // 首次接触时直接读取当前 buffer 作为 Baseline。这里只读不保存，
+            // 避免把可能阻塞的 VS Save 调用插进工具执行关键路径。
+            string? openBufferContent = null;
+            if (OpenDocumentContentProvider != null && File.Exists(normalizedPath))
             {
-                shouldFlush = OpenDocumentFlusher != null
-                    && !_trackedFiles.ContainsKey(normalizedPath)
-                    && File.Exists(normalizedPath);
-            }
-
-            if (shouldFlush)
-            {
-                try { OpenDocumentFlusher!.Invoke(normalizedPath); }
+                try { openBufferContent = OpenDocumentContentProvider(normalizedPath); }
                 catch (Exception ex)
                 {
-                    Logger.Warn($"[StagedWorkspace] 冲刷已打开文档失败: {Path.GetFileName(normalizedPath)} — {ex.Message}");
+                    Logger.Warn($"[StagedWorkspace] 读取打开文档失败，Baseline 回退磁盘: {Path.GetFileName(normalizedPath)} — {ex.Message}");
                 }
             }
 
@@ -115,7 +122,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
                 // 首次接触 → 登记 Baseline（用于撤销恢复）
                 if (!_trackedFiles.ContainsKey(normalizedPath))
                 {
-                    string baselineContent = isNewFile ? string.Empty : File.ReadAllText(normalizedPath);
+                    string baselineContent = isNewFile
+                        ? string.Empty
+                        : (openBufferContent ?? File.ReadAllText(normalizedPath));
                     _trackedFiles[normalizedPath] = new StagedFile
                     {
                         FilePath = normalizedPath,
@@ -123,6 +132,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
                         BaselineHash = !string.IsNullOrEmpty(baselineContent) ? ComputeSha256(baselineContent) : string.Empty,
                         BaselineLastWriteTimeUtc = isNewFile ? (DateTime?)null : File.GetLastWriteTimeUtc(normalizedPath),
                         Operation = isNewFile ? ProposedFileOperation.Add : ProposedFileOperation.Modify,
+                        // P0-1：非新建文件首次接触时落一份磁盘备份（崩溃/OOM 后仍可恢复），
+                        // 与 BackupService 的"磁盘可恢复"边界保持一致。
+                        DiskBackupPath = isNewFile ? null : BackupService.CreateBackup(normalizedPath),
                     };
                 }
 
@@ -173,7 +185,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
             {
                 if (!_trackedFiles.ContainsKey(normalizedPath) && File.Exists(normalizedPath))
                 {
-                    // 首次接触 → 登记 Baseline
+                    // 首次接触 → 登记 Baseline，并落一份磁盘备份（用于删除操作崩溃后的恢复）
                     _trackedFiles[normalizedPath] = new StagedFile
                     {
                         FilePath = normalizedPath,
@@ -181,6 +193,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
                         BaselineHash = ComputeSha256(File.ReadAllText(normalizedPath)),
                         BaselineLastWriteTimeUtc = File.GetLastWriteTimeUtc(normalizedPath),
                         Operation = ProposedFileOperation.Delete,
+                        DiskBackupPath = BackupService.CreateBackup(normalizedPath),
                     };
                 }
                 else if (_trackedFiles.TryGetValue(normalizedPath, out var existing))
@@ -261,16 +274,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
                                 File.Delete(file.FilePath);
                             break;
                         case ProposedFileOperation.Delete:
-                            // 删除的文件 → 恢复
-                            if (!string.IsNullOrEmpty(file.BaselineContent))
+                            // 删除的文件 → 优先磁盘备份恢复（崩溃可恢复），无备份时回退内存 Baseline
+                            if (file.DiskBackupPath != null && File.Exists(file.DiskBackupPath))
+                            {
+                                BackupService.RestoreFromBackup(file.FilePath, file.DiskBackupPath);
+                            }
+                            else if (!string.IsNullOrEmpty(file.BaselineContent))
                             {
                                 EnsureDirectoryExists(file.FilePath);
                                 WriteViaOpenDocumentOrDisk(file.FilePath, file.BaselineContent);
                             }
                             break;
                         default:
-                            // 修改 → 恢复原文
-                            WriteViaOpenDocumentOrDisk(file.FilePath, file.BaselineContent);
+                            // 修改 → 优先磁盘备份恢复（崩溃可恢复），无备份时回退内存 Baseline
+                            if (file.DiskBackupPath != null && File.Exists(file.DiskBackupPath))
+                            {
+                                BackupService.RestoreFromBackup(file.FilePath, file.DiskBackupPath);
+                            }
+                            else
+                            {
+                                WriteViaOpenDocumentOrDisk(file.FilePath, file.BaselineContent);
+                            }
                             break;
                     }
                 }
@@ -296,12 +320,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
 
         /// <summary>
         /// 确认所有变更（保留已落盘内容），清除撤销追踪。
+        /// 同时清理本工作区在首次接触时创建的磁盘备份（内容已被保留，备份不再需要）。
         /// </summary>
         public void ConfirmAll()
         {
+            List<string?> backups;
             lock (_lock)
             {
+                backups = _trackedFiles.Values.Select(f => f.DiskBackupPath).ToList();
                 _trackedFiles.Clear();
+            }
+            foreach (var b in backups)
+            {
+                if (string.IsNullOrEmpty(b)) continue;
+                try { BackupService.CleanupBackup(b); }
+                catch (Exception ex) { Logger.Warn($"[StagedWorkspace] 清理确认后的磁盘备份失败: {b} — {ex.Message}"); }
             }
             Logger.Info("[StagedWorkspace] 已确认所有改动（清除撤销追踪）");
         }
@@ -312,6 +345,33 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
         public void Discard()
         {
             ConfirmAll();
+        }
+
+        /// <summary>
+        /// 释放单个文件的撤销追踪（不修改磁盘 —— 落盘内容保持不变）。
+        /// 用于会话刷新时把该文件的撤销权移交给新 Workspace，
+        /// 避免旧 Workspace 的 RestoreToBaseline 覆盖新内容。
+        /// </summary>
+        public void DiscardFile(string filePath)
+        {
+            var normalizedPath = NormalizePath(filePath);
+            string? backupPath = null;
+
+            lock (_lock)
+            {
+                if (_trackedFiles.TryGetValue(normalizedPath, out var file))
+                {
+                    backupPath = file.DiskBackupPath;
+                    _trackedFiles.Remove(normalizedPath);
+                }
+            }
+
+            if (string.IsNullOrEmpty(backupPath)) return;
+            try { BackupService.CleanupBackup(backupPath); }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[StagedWorkspace] 清理刷新前的磁盘备份失败: {backupPath} — {ex.Message}");
+            }
         }
 
         private static string NormalizePath(string path)
@@ -633,6 +693,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
             public string BaselineHash { get; set; } = string.Empty;
             public DateTime? BaselineLastWriteTimeUtc { get; set; }
             public ProposedFileOperation Operation { get; set; } = ProposedFileOperation.Modify;
+
+            /// <summary>磁盘备份路径（BackupService）。进程崩溃/OOM 后仍可通过它恢复撤销。</summary>
+            public string? DiskBackupPath { get; set; }
 
             /// <summary>差异块列表（Baseline vs 当前，逐块撤销用）</summary>
             public List<DiffHunkInfo> Hunks { get; set; } = new();

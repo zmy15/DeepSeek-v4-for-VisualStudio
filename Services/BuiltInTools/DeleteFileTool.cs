@@ -56,7 +56,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌")) return toolResult;
+            if (toolResult.StartsWith("Error: ") || toolResult.StartsWith("Timeout: ")) return toolResult;
             return LocalizationService.Instance["tool.deleteFile.deleted"];
         }
 
@@ -81,8 +81,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     return LocalizationService.Instance.Format("tool.deleteFile.stagedDelete", Path.GetFileName(filePath));
                 }
 
+                // ── 直接删除前先备份（与 DeleteFileCommitTarget 的"先备份后删除"对齐）──
+                // 审批已通过，但删除失败/误删时磁盘上必须留有可恢复副本。
+                string? backupPath = BackupService.CreateBackup(filePath);
+                if (backupPath == null)
+                {
+                    return LocalizationService.Instance.Format("tool.deleteFile.failed", "无法创建备份文件，已取消删除");
+                }
+
                 string fileName = Path.GetFileName(filePath);
                 await Task.Run(() => File.Delete(filePath));
+
+                // ── 删除成功 → 清理备份 ──
+                BackupService.CleanupBackup(backupPath);
 
                 return LocalizationService.Instance.Format("tool.deleteFile.deletedFile", fileName);
             }

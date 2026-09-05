@@ -2,6 +2,7 @@
 using Microsoft.VisualStudio.Shell;
 using System;
 using System.ComponentModel.Design;
+using System.IO;
 
 namespace DeepSeek_v4_for_VisualStudio.Commands
 {
@@ -104,6 +105,8 @@ namespace DeepSeek_v4_for_VisualStudio.Commands
                         0,
                         create: true,
                         cancellationToken: _package.DisposalToken);
+                    // 用户显式打开成功：写入标记，允许后续会话启动时自动弹出
+                    DeepSeek_v4_for_VisualStudioPackage.MarkChatWindowOpened();
                     DiagnosticLog.Write("[DeepSeek Cmd] Execute: ShowToolWindowAsync completed OK");
                 }
                 catch (Exception ex)

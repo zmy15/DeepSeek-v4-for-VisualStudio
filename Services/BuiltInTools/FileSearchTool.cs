@@ -59,14 +59,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌")) return toolResult;
+            if (toolResult.StartsWith("Error: ")) return toolResult;
 
             var fsFirstLine = toolResult.Split('\n')[0];
             var fsMatch = System.Text.RegularExpressions.Regex.Match(
                 fsFirstLine, @"(?:找到|Found|found)\s*(\d+|>\d+)\s*个?\s*(?:文件|files?)",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (fsMatch.Success)
-                return $"✅ {fsMatch.Value.Trim()}";
+                return $" {fsMatch.Value.Trim()}";
             var fsLines = toolResult.Split('\n');
             int fsCount = fsLines.Count(l => l.TrimStart().StartsWith("- `"));
             return LocalizationService.Instance.Format("tool.fileSearch.foundFiles", fsCount);
@@ -133,15 +133,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 var sb = new StringBuilder();
                 string countInfo = totalFound > maxFilesToEnumerate
-                    ? $"找到 >{maxFilesToEnumerate} 个文件（已截断）"
-                    : $"找到 {totalFound} 个文件";
+                    ? LocalizationService.Instance.Format("tool.fileSearch.foundTruncated", maxFilesToEnumerate)
+                    : LocalizationService.Instance.Format("tool.fileSearch.found", totalFound);
                 sb.AppendLine(LocalizationService.Instance.Format("tool.fileSearch.resultHeader", query, countInfo + (results.Count < totalFound ? ", showing first " + results.Count : "")));
                 sb.AppendLine();
                 foreach (var r in results)
                     sb.AppendLine($"- `{r}`");
 
                 if (totalFound > maxFilesToEnumerate)
-                    sb.AppendLine($"> ⚠️ 匹配文件过多（>{maxFilesToEnumerate}），仅枚举了前 {maxFilesToEnumerate} 个。请使用更精确的搜索模式。");
+                    sb.AppendLine(LocalizationService.Instance.Format("tool.fileSearch.tooManyMatches", maxFilesToEnumerate));
 
                 return Task.FromResult(sb.ToString().TrimEnd());
             }

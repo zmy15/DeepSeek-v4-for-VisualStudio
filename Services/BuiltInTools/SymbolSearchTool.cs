@@ -147,14 +147,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌")) return toolResult;
+            if (toolResult.StartsWith("Error: ")) return toolResult;
 
             var ssFirstLine = toolResult.Split('\n')[0];
             var ssMatch = System.Text.RegularExpressions.Regex.Match(
                 ssFirstLine, @"(?:找到|Found|found)\s*(\d+)\s*个?\s*(?:符号|symbols?)",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (ssMatch.Success)
-                return $"✅ {ssMatch.Value.Trim()}";
+                return $" {ssMatch.Value.Trim()}";
 
             var ssLines = toolResult.Split('\n');
             int ssCount = ssLines.Length;

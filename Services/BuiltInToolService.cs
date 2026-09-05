@@ -193,6 +193,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public IToolResultCompactor? ToolResultCompactor { get; set; }
 
         /// <summary>
+        /// 按当前模型过滤模型不可用的内置工具。
+        /// ApiService 未注入时不过滤，便于静态注册与单元测试。
+        /// </summary>
+        private bool IsToolAvailableForCurrentModel(string toolName)
+        {
+            if (!string.Equals(toolName, "capture_window", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return _apiService == null ||
+                DeepSeekModelCatalog.IsVisionModel(_apiService.CurrentModel);
+        }
+
+        /// <summary>
         /// 更新 MCP 管理器引用（MCP 后台初始化完成后调用）。
         /// 由于 MCP 初始化在 BuiltInToolService 构造之后异步完成，
         /// 需要此方法更新引用，确保 GetFullToolDefinitions() 能获取到 MCP 工具。
@@ -405,7 +418,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             // ── 2. 添加内置工具（按白名单过滤，排除与 MCP 同名的）──
             var mcpNames = new HashSet<string>(mcpDefs.Select(d => d.Function.Name), StringComparer.OrdinalIgnoreCase);
-            var builtInDefs = _tools.Values.Select(t => t.GetDefinition()).ToList();
+            var builtInDefs = _tools.Values
+                .Where(t => IsToolAvailableForCurrentModel(t.Name))
+                .Select(t => t.GetDefinition())
+                .ToList();
             if (allowedTools != null && allowedTools.Count > 0)
             {
                 var whitelist = new HashSet<string>(allowedTools, StringComparer.OrdinalIgnoreCase);
@@ -448,6 +464,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 2. 添加所有内置工具（排除与 MCP 同名的）──
             var mcpNames = new HashSet<string>(mcpDefs.Select(d => d.Function.Name), StringComparer.OrdinalIgnoreCase);
             var builtInDefs = _tools.Values
+                .Where(t => IsToolAvailableForCurrentModel(t.Name))
                 .Select(t => t.GetDefinition())
                 .Where(d => !mcpNames.Contains(d.Function.Name))
                 .ToList();
@@ -478,6 +495,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 var args = JsonSerializer
                     .Deserialize<Dictionary<string, JsonElement>>(argumentsJson)
                     ?? new Dictionary<string, JsonElement>();
+
+                if (!IsToolAvailableForCurrentModel(tool.Name))
+                    return LocalizationService.Instance["tool.captureWindow.visionModelOnly"];
 
                 tool.CancellationToken = cancellationToken;
                 return await tool.ExecuteAsync(args, workspaceRoot);
@@ -541,7 +561,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (string.IsNullOrEmpty(toolResult))
                 return LocalizationService.Instance["tool.service.noResult"];
 
-            if (toolResult.StartsWith("❌") || toolResult.StartsWith("⛔"))
+            if (toolResult.StartsWith("Error: ") || toolResult.StartsWith("Timeout: ")
+                || toolResult.StartsWith("[BLOCKED] "))
                 return toolResult;
 
             try
@@ -575,7 +596,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 为 MCP 外部工具生成显示文本。
-        /// 所有 MCP 工具统一加 🔌 MCP 前缀以区分内置工具。
+        /// 所有 MCP 工具统一加  MCP 前缀以区分内置工具。
         /// OCR 工具额外提示参数格式。
         /// </summary>
         private static string GetMcpToolCallDisplayText(string toolName, Dictionary<string, JsonElement> args)
@@ -612,8 +633,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             else
                 result = LocalizationService.Instance.Format("tool.service.callingToolGeneric", toolName, ocrHint);
 
-            // ── MCP 标注：将内置工具的 🔧 替换为 🔌 MCP ──
-            return result.Replace("🔧", "🔌 MCP");
+            return result;
         }
 
         #endregion

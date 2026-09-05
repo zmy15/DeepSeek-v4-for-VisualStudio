@@ -811,7 +811,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             if (!passed)
             {
                 // Logger.LogToFile("applypatch",
-                //     $"[ApplyPatch] ⚠️ 删除行验证失败: {matchCount}/{nonEmptyCount} 行匹配 (阈值=75%)，匹配位置行={fileDelStart + 1}");
+                //     $"[ApplyPatch]  删除行验证失败: {matchCount}/{nonEmptyCount} 行匹配 (阈值=75%)，匹配位置行={fileDelStart + 1}");
             }
 
             return passed;
@@ -983,7 +983,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             if (!prePassed || !postPassed)
             {
                 // Logger.LogToFile("applypatch",
-                //     $"[ApplyPatch] ⚠️ 插入位置验证失败: 前置={matchCount}/{checkCount}, 后置={postMatchCount}/{postCheckCount} (阈值=75%)");
+                //     $"[ApplyPatch]  插入位置验证失败: 前置={matchCount}/{checkCount}, 后置={postMatchCount}/{postCheckCount} (阈值=75%)");
             }
 
             return prePassed && postPassed;
@@ -1270,7 +1270,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             result.Success = true;
 
             // ── 日志：记录新建文件的内容 ──
-            // Logger.LogToFile("applypatch", $"[ApplyPatch] ✨ 新建文件: {filePath}\n内容 ({result.FinalContent.Length} 字符):\n{GetTruncatedContent(result.FinalContent, 20)}");
+            // Logger.LogToFile("applypatch", $"[ApplyPatch]  新建文件: {filePath}\n内容 ({result.FinalContent.Length} 字符):\n{GetTruncatedContent(result.FinalContent, 20)}");
 
             return result;
         }
@@ -1291,7 +1291,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     try
                     {
                         string beforeContent = File.ReadAllText(filePath);
-                        // Logger.LogToFile("applypatch", $"[ApplyPatch] 🗑️ 删除文件: {filePath}\n删除前内容（前20行）:\n{GetTruncatedContent(beforeContent, 20)}");
+                        // Logger.LogToFile("applypatch", $"[ApplyPatch]  删除文件: {filePath}\n删除前内容（前20行）:\n{GetTruncatedContent(beforeContent, 20)}");
                     }
                     catch { /* 读取失败不影响主流程 */ }
 
@@ -1341,7 +1341,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 result.Success = true;
 
                 // ── 日志：记录移动操作 ──
-                Logger.LogToFile("applypatch", $"[ApplyPatch] 📁 移动文件: {sourcePath} → {destPath}");
+                Logger.LogToFile("applypatch", $"[ApplyPatch]  移动文件: {sourcePath} → {destPath}");
             }
             catch (Exception ex)
             {
@@ -1456,13 +1456,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     if (validationErrors == null)
                     {
                         result.PostWriteValidationPassed = true;
-                        Logger.Info($"[Validate] ✅ 校验通过: {Path.GetFileName(resolvedPath)}");
+                        Logger.Info($"[Validate]  校验通过: {Path.GetFileName(resolvedPath)}");
                         return result;
                     }
 
                     result.PostWriteValidationPassed = false;
                     result.ValidationErrors = validationErrors;
-                    Logger.Warn($"[Validate] ❌ 校验失败 (attempt {attempt + 1}): {Path.GetFileName(resolvedPath)}\n  " +
+                    Logger.Warn($"[Validate] Error: 校验失败 (attempt {attempt + 1}): {Path.GetFileName(resolvedPath)}\n " +
                         string.Join("\n  ", validationErrors));
 
                     if (attempt < maxRetries - 1)
@@ -1522,7 +1522,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             {
                 if (appliedEdits == null || appliedEdits.Count == 0)
                 {
-                    Logger.LogToFile("applypatch", $"[ApplyPatch] ✅ 已应用补丁: {Path.GetFileName(filePath)}（无编辑点详情）");
+                    Logger.LogToFile("applypatch", $"[ApplyPatch]  已应用补丁: {Path.GetFileName(filePath)}（无编辑点详情）");
                     return;
                 }
 
@@ -1554,13 +1554,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                 int afterEnd = Math.Min(afterLines.Length - 1, beforeEnd + afterExtra);
 
                 var sb = new StringBuilder();
-                sb.AppendLine($"[ApplyPatch] 📄 {Path.GetFileName(filePath)} 修改区域 (编辑点={appliedEdits.Count}, 行 {minLine + 1}-{maxLine + 1}):");
+                sb.AppendLine($"[ApplyPatch]  {Path.GetFileName(filePath)} 修改区域 (编辑点={appliedEdits.Count}, 行 {minLine + 1}-{maxLine + 1}):");
 
                 // ── 修改前 ──
                 sb.AppendLine($"  ── 修改前 (行 {beforeStart + 1}-{beforeEnd + 1}/{beforeLines.Length}) ──");
                 for (int i = beforeStart; i <= beforeEnd && i < beforeLines.Length; i++)
                 {
-                    string marker = (i >= minLine && i <= maxLine) ? "◀" : " ";
+                    string marker = (i >= minLine && i <= maxLine) ? "" : " ";
                     sb.AppendLine($"  {marker} {i + 1,5}: {beforeLines[i]}");
                 }
 
@@ -1589,7 +1589,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             try
             {
                 var sb = new StringBuilder();
-                sb.AppendLine($"[ApplyPatch] 📝 {Path.GetFileName(filePath)} — Patch 详情 ({patch.Hunks.Count} hunks)");
+                sb.AppendLine($"[ApplyPatch]  {Path.GetFileName(filePath)} — Patch 详情 ({patch.Hunks.Count} hunks)");
 
                 // ── 1. 原始 Patch 内容 ──
                 sb.AppendLine($"  ── 原始 Patch ({patch.RawText?.Length ?? 0} 字符) ──");
@@ -1603,7 +1603,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     int ctxCount = hunk.Lines.Count(l => l.Type == ' ');
                     int delCount = hunk.Lines.Count(l => l.Type == '-');
                     int insCount = hunk.Lines.Count(l => l.Type == '+');
-                    sb.AppendLine($"    Hunk[{hi}]: 上下文={ctxCount}, 删除={delCount}, 插入={insCount}");
+                    sb.AppendLine($"Hunk[{hi}]: 上下文={ctxCount}, 删除={delCount}, 插入={insCount}");
                     if (hunk.ContextMarkers != null && hunk.ContextMarkers.Count > 0)
                         sb.AppendLine($"      @@: {string.Join(" | ", hunk.ContextMarkers)}");
                     sb.AppendLine(hunk.RawText ?? string.Empty);

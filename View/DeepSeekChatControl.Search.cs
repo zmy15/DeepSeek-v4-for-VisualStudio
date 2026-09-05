@@ -253,30 +253,30 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (results == null || results.Count == 0) return string.Empty;
 
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine("## 联网搜索结果");
-            sb.AppendLine($"以下是通过联网搜索获取的最新信息（共 {results.Count} 条）：");
+            var L = LocalizationService.Instance;
+            sb.AppendLine(L["search.webResultsHeader"]);
+            sb.AppendLine(string.Format(L["chat.html.webSearchSummary"] ?? "({0})", results.Count));
             sb.AppendLine();
 
             for (int i = 0; i < results.Count; i++)
             {
                 var r = results[i];
-                sb.AppendLine($"### 结果 {i + 1}: {r.Title}");
+                sb.AppendLine($"### {i + 1}: {r.Title}");
                 if (!string.IsNullOrWhiteSpace(r.Url))
-                    sb.AppendLine($"来源: {r.Url}");
+                    sb.AppendLine($"{r.Url}");
                 if (!string.IsNullOrWhiteSpace(r.Snippet))
                 {
-                    // 截断过长摘要以保护上下文
                     string snippet = r.Snippet.Length > 2000
                         ? r.Snippet.Substring(0, 2000) + "..."
                         : r.Snippet;
                     sb.AppendLine(snippet);
                 }
                 if (!string.IsNullOrWhiteSpace(r.Date))
-                    sb.AppendLine($"日期: {r.Date}");
+                    sb.AppendLine($"{r.Date}");
                 sb.AppendLine();
             }
 
-            sb.AppendLine("请基于以上搜索结果回答用户问题，并在回答中引用相关来源。");
+            sb.AppendLine(L["search.webSearchGuidance"]);
             return sb.ToString();
         }
 

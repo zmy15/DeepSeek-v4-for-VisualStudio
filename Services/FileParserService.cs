@@ -245,16 +245,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 if (!r.Success)
                 {
-                    sb.AppendLine($"📄 {r.FileName} - ❌ 解析失败: {r.Error}");
+                    sb.AppendLine($" {r.FileName} - Error: 解析失败: {r.Error}");
                     sb.AppendLine();
                     continue;
                 }
 
                 string lang = GetLanguageFromExtension(r.FileExtension);
-                sb.AppendLine($"📄 {r.FileName}");
+                sb.AppendLine($" {r.FileName}");
                 if (!string.IsNullOrEmpty(r.FilePath))
                 {
-                    sb.AppendLine($"📍 路径: {r.FilePath}");
+                    sb.AppendLine($"路径: {r.FilePath}");
                 }
 
                 if (r.Truncated && !string.IsNullOrEmpty(r.TruncationNote))
@@ -347,9 +347,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                                         if (!string.IsNullOrWhiteSpace(ocrResult))
                                         {
                                             paraSb.AppendLine();
-                                            paraSb.AppendLine("[📷 图片OCR内容]");
+                                            paraSb.AppendLine("[ 图片OCR内容]");
                                             paraSb.AppendLine(ocrResult);
-                                            paraSb.AppendLine("[/📷 图片OCR内容]");
+                                            paraSb.AppendLine("[/ 图片OCR内容]");
                                             paraSb.AppendLine();
                                         }
                                     }
@@ -427,18 +427,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 if (!string.IsNullOrWhiteSpace(ocrText))
                 {
-                    Logger.Info($"[Docx-OCR] ✅ 成功: {ocrText!.Length} 字符");
+                    Logger.Info($"[Docx-OCR]  成功: {ocrText!.Length} 字符");
                     return ocrText;
                 }
                 else
                 {
-                    Logger.Info("[Docx-OCR] ⚠️ 未提取到文字");
+                    Logger.Info("[Docx-OCR]  未提取到文字");
                     return null;
                 }
             }
             catch (Exception ex)
             {
-                Logger.Info($"[Docx-OCR] ❌ 图片 OCR 失败: {ex.Message}");
+                Logger.Info($"[Docx-OCR] Error: 图片 OCR 失败: {ex.Message}");
                 return null;
             }
         }

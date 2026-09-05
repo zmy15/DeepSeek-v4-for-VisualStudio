@@ -16,6 +16,7 @@ public class ContextModelsTests
         stats.TokenBudget.Should().Be(900_000);
         stats.MessageCount.Should().Be(0);
         stats.TurnCount.Should().Be(0);
+        stats.ToolCallCount.Should().Be(0);
         stats.CompressedTurns.Should().Be(0);
         stats.SystemPromptTokens.Should().Be(0);
         stats.ToolResultTokens.Should().Be(0);
@@ -67,6 +68,7 @@ public class ContextModelsTests
             TokenBudget = 10000,
             MessageCount = 10,
             TurnCount = 5,
+            ToolCallCount = 3,
             CompressedTurns = 2,
         };
 
@@ -77,6 +79,7 @@ public class ContextModelsTests
         report.Should().Contain("50.0%");
         report.Should().Contain("10");
         report.Should().Contain("5");
+        report.Should().Contain("3");
         report.Should().Contain("2");
     }
 

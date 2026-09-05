@@ -66,7 +66,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌") || toolResult.StartsWith("⚠️")) return toolResult;
+            if (toolResult.StartsWith("Error: ") || toolResult.StartsWith("Timeout: ")) return toolResult;
             return LocalizationService.Instance["tool.applyPatch.complete"];
         }
 
@@ -124,7 +124,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         }
                         else
                         {
-                            string errorMsg = result.ErrorMessage ?? LocalizationService.Instance["tool.applyPatch.hunkFail"];
+                            string errorMsg = result.ErrorMessage ?? "Error: " + LocalizationService.Instance["tool.applyPatch.hunkFail"];
                             results.Add(errorMsg);
                         }
                     }
@@ -139,6 +139,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     var results = new List<string>();
                     var backups = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
                     bool anyFailed = false;
+
+                    // ── 记录操作前已存在的文件（用于区分"新建"与"修改"，回滚时新建文件应删除而非恢复）──
+                    // Move 目的文件同样记录：已存在的目的文件在回滚时不应当被误删。
+                    var existedBefore = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var p in patches)
+                    {
+                        foreach (var fp in EnumerateRollbackPaths(p, workspaceRoot))
+                        {
+                            if (File.Exists(fp)) existedBefore.Add(fp);
+                        }
+                    }
 
                     try
                     {
@@ -193,7 +204,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             }
                             else
                             {
-                                string errorMsg = result.ErrorMessage ?? LocalizationService.Instance["tool.applyPatch.hunkFail"];
+                                string errorMsg = result.ErrorMessage ?? "Error: " + LocalizationService.Instance["tool.applyPatch.hunkFail"];
                                 results.Add(errorMsg);
                                 anyFailed = true;
                             }
@@ -202,8 +213,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         // ── 失败回滚（仅直接写盘模式）──
                         if (Workspace == null && anyFailed)
                         {
-                            foreach (var kv in backups)
-                                BackupService.RestoreFromBackup(kv.Key, kv.Value);
+                            RollbackStaticPath(patches, workspaceRoot, backups, existedBefore);
                             Logger.Warn("[Backup] 静态降级路径：部分 patch 失败，已回滚所有文件");
                         }
                         else if (Workspace == null)
@@ -219,9 +229,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     }
                     catch
                     {
-                        // ── 异常回滚 ──
-                        foreach (var kv in backups)
-                            BackupService.RestoreFromBackup(kv.Key, kv.Value);
+                        // ── 异常回滚：与 anyFailed 分支同一实现（P1-2：此前不删新建文件，残留 AI 半成品）──
+                        RollbackStaticPath(patches, workspaceRoot, backups, existedBefore);
                         throw;
                     }
                 }
@@ -232,6 +241,48 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             }
         }
 
+        /// <summary>
+        /// 静态降级路径的统一回滚：恢复所有备份 + 删除操作前不存在的新建文件（含 Move 目的文件）。
+        /// anyFailed 分支与异常分支共用，保证 all-or-nothing 语义一致。
+        /// </summary>
+        private static void RollbackStaticPath(
+            List<PatchOperation> patches, string? workspaceRoot,
+            Dictionary<string, string?> backups, HashSet<string> existedBefore)
+        {
+            foreach (var kv in backups)
+                BackupService.RestoreFromBackup(kv.Key, kv.Value);
+
+            // 新建文件：操作前不存在 → 回滚时应删除（Move 目的文件同样纳入）
+            foreach (var p in patches)
+            {
+                foreach (var fp in EnumerateRollbackPaths(p, workspaceRoot))
+                {
+                    if (!existedBefore.Contains(fp) && File.Exists(fp))
+                    {
+                        try
+                        {
+                            File.Delete(fp);
+                            Logger.Info($"[Backup] 已回滚新建文件: {fp}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Warn($"[Backup] 回滚新建文件失败: {fp} — {ex.Message}");
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 枚举一个 patch 操作在回滚时需要检查的路径：源文件 + Move 目的文件（若声明）。
+        /// </summary>
+        private static IEnumerable<string> EnumerateRollbackPaths(PatchOperation p, string? workspaceRoot)
+        {
+            yield return ResolvePath(p.FilePath, workspaceRoot);
+            if (!string.IsNullOrEmpty(p.MoveToPath))
+                yield return ResolvePath(p.MoveToPath, workspaceRoot);
+        }
+
         #region ApplyPatch 日志
 
         /// <summary>
@@ -239,7 +290,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         /// </summary>
         private static void LogRawPatchContent(string patchText)
         {
-            Logger.LogToFile("applypatch", $"[ApplyPatch] 📝 原始补丁内容 ({patchText.Length} 字符):\n{patchText}");
+            Logger.LogToFile("applypatch", $"[ApplyPatch]  原始补丁内容 ({patchText.Length} 字符):\n{patchText}");
         }
 
         /// <summary>
@@ -249,11 +300,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             if (patches.Count == 0)
             {
-                Logger.LogToFile("applypatch", $"[ApplyPatch] ⚠️ 未能从补丁文本中解析出任何 Patch 操作。原始文本长度: {rawPatchText.Length}");
+                Logger.LogToFile("applypatch", $"[ApplyPatch]  未能从补丁文本中解析出任何 Patch 操作。原始文本长度: {rawPatchText.Length}");
                 return;
             }
 
-            Logger.LogToFile("applypatch", $"[ApplyPatch] 📋 解析出 {patches.Count} 个 Patch 操作:");
+            Logger.LogToFile("applypatch", $"[ApplyPatch]  解析出 {patches.Count} 个 Patch 操作:");
             for (int i = 0; i < patches.Count; i++)
             {
                 var p = patches[i];

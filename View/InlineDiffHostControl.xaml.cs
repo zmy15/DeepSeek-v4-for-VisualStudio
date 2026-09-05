@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Shell;
@@ -7,10 +7,15 @@ using Microsoft.VisualStudio.Text.Differencing;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Text.Formatting;
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using System.Resources;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Markup;
 
 namespace DeepSeek_v4_for_VisualStudio.View
 {
@@ -72,8 +77,79 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         public InlineDiffHostControl()
         {
-            InitializeComponent();
+            try
+            {
+                InitializeComponent();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[DiffHost] InitializeComponent 失败，尝试嵌入式 BAML 回退: {ex.GetType().Name}: {ex.Message}");
+                var assembly = typeof(InlineDiffHostControl).Assembly;
+                if (!TryLoadEmbeddedBaml(assembly, this))
+                {
+                    var manifestResources = string.Join(", ", assembly.GetManifestResourceNames());
+                    Logger.Error(
+                        $"[DiffHost] Inline diff XAML load failed. Assembly={assembly.Location}; Resources=[{manifestResources}]",
+                        ex);
+                    throw new InvalidOperationException(
+                        $"Failed to load {nameof(InlineDiffHostControl)} from {assembly.Location}. Resources=[{manifestResources}].",
+                        ex);
+                }
+            }
+
             Unloaded += (_, __) => DetachZoomSource();
+        }
+
+        private static bool TryLoadEmbeddedBaml(Assembly assembly, InlineDiffHostControl control)
+        {
+            // g.resources 的资源名 = 程序集名 + ".g.resources"；BAML 键 = 小写的
+            // "命名空间（去掉程序集名段）/文件名.baml"。两者与 x:Class 强绑定，
+            // 程序集或命名空间重命名时必须同步更新。
+            string manifestResourceName = $"{assembly.GetName().Name}.g.resources";
+            const string BamlResourceName = "view/inlinediffhostcontrol.baml";
+
+            try
+            {
+                using var resourceStream = assembly.GetManifestResourceStream(manifestResourceName);
+                if (resourceStream == null)
+                    return false;
+
+                using var reader = new ResourceReader(resourceStream);
+                foreach (DictionaryEntry entry in reader)
+                {
+                    if (!string.Equals(entry.Key as string, BamlResourceName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (entry.Value is not Stream bamlStream)
+                        return false;
+
+                    var loadBaml = typeof(XamlReader).GetMethod(
+                        "LoadBaml",
+                        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                        binder: null,
+                        types: new[] { typeof(Stream), typeof(ParserContext), typeof(object), typeof(bool) },
+                        modifiers: null);
+                    if (loadBaml == null)
+                        return false;
+
+                    var parserContext = new ParserContext
+                    {
+                        BaseUri = new Uri(
+                            $"pack://application:,,,/{assembly.GetName().Name};component/view/{Path.GetFileNameWithoutExtension(BamlResourceName)}.xaml",
+                            UriKind.Absolute),
+                    };
+
+                    loadBaml.Invoke(null, new object?[] { bamlStream, parserContext, control, false });
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("[DiffHost] Embedded diff XAML fallback failed.", ex);
+                return false;
+            }
         }
 
         #endregion

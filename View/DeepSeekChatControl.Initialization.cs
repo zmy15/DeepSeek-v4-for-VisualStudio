@@ -34,7 +34,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         private void InitializeApiService()
         {
-            if (_options == null || string.IsNullOrEmpty(_options.ApiKey))
+            // DialogPage 保存流程可能留下 DPAPI 备份格式。这里是最后一道运行时防线：
+            // 禁止把 "dpapi1:..." 密文作为 Bearer Token 发给 DeepSeek API。
+            var runtimeApiKey = _options == null ? string.Empty : ApiKeyProtection.Unprotect(_options.ApiKey);
+            if (string.IsNullOrEmpty(runtimeApiKey))
             {
                 // ── 无 Key：释放旧服务，避免残留旧 Key 继续发送请求 ──
                 _apiService?.Dispose();
@@ -43,7 +46,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
 
             _apiService?.Dispose();
-            _apiService = new DeepSeekApiService(_options.ApiKey, _options.SelectedModel);
+            _apiService = new DeepSeekApiService(runtimeApiKey, _options.SelectedModel);
             _apiService.ConfigureThinking(_options.IsThinkingEnabled, _options.ReasoningEffort);
 
             // ── 注入前缀缓存管理器（修复：直接 new 的 ApiService 缺少 DI 注入的 PrefixCache）──
@@ -181,30 +184,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             _webSearchService?.Dispose();
             _webSearchService = new WebSearchService();
 
-            // 从选项页读取默认搜索引擎，同步到 ComboBox
-            string optionsProvider = _options?.SearchProvider ?? "DuckDuckGo";
-            string resolvedEngine = optionsProvider switch
-            {
-                "Baidu" => "Baidu",
-                "Bing" => "Bing",
-                _ => "DuckDuckGo"
-            };
-
-            // 同步 ComboBox 选中项
-            int idx = resolvedEngine switch
-            {
-                "Baidu" => 0,
-                "Bing" => 1,
-                "DuckDuckGo" => 2,
-                _ => 2
-            };
-            WebSearchEngineComboBox.SelectedIndex = idx;
-
-            // 注意：_webSearchEngine 仍为 "Off"，用户需要点击 🌐 按钮开启
-            // 但搜索引擎已预选为选项页中配置的值
-
-            ApplyWebSearchConfig();
-            Logger.Info($"联网搜索服务初始化成功 (默认引擎: {resolvedEngine})");
+            RefreshWebSearchFromSettings();
+            Logger.Info($"联网搜索服务初始化成功 (默认引擎: {ResolveWebSearchEngineFromOptions()})");
         }
 
         /// <summary>
@@ -223,8 +204,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 Logger.Info($"[OCR] 开始初始化，用户选择引擎: {_options.OcrEngine}");
 
-                // 设置 OCR 引擎类型（PaddleOCR-Sharp 已移除）
-                OcrService.CurrentEngine = OcrEngineType.WindowsBuiltIn;
+                OcrService.CurrentEngine = _options.OcrEngine switch
+                {
+                    "PaddleOCR-Sharp" => OcrEngineType.PaddleOCR,
+                    _ => OcrEngineType.WindowsBuiltIn,
+                };
                 Logger.Info($"[OCR] 引擎类型已设置: {OcrService.CurrentEngine}");
 
                 // 检查引擎状态
@@ -234,8 +218,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
             catch (Exception ex)
             {
-                // ⚠️ 关键：OCR 初始化失败绝不能影响聊天核心功能
-                Logger.Error($"[OCR] ❌ 初始化失败（已降级，不影响聊天）: {ex.GetType().Name} - {ex.Message}", ex);
+                //  关键：OCR 初始化失败绝不能影响聊天核心功能
+                Logger.Error($"[OCR] Error: 初始化失败（已降级，不影响聊天）: {ex.GetType().Name} - {ex.Message}", ex);
                 OcrService.CurrentEngine = OcrEngineType.WindowsBuiltIn;
             }
         }
@@ -243,10 +227,39 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 设置变更事件回调（用户点击 Options 对话框的"确定"/"应用"时触发）。
         /// 热重载 OCR、Web 搜索、模型等配置，无需重启聊天窗口。
+        /// <summary>
+        /// 选项页保存后即时应用核心设置（P1：ApiKey/模型/思考模式热更新）。
         /// </summary>
+        private void OnCoreSettingsChanged()
+        {
+            try
+            {
+                if (_apiService == null || _options == null) return;
+
+                var runtimeApiKey = ApiKeyProtection.Unprotect(_options.ApiKey);
+                if (!string.IsNullOrWhiteSpace(runtimeApiKey))
+                    _apiService.UpdateApiKey(runtimeApiKey);
+
+                // Settings events are authoritative. Reading UI controls here caused
+                // Unified Settings changes to be overwritten with stale chat-window state.
+                var model = _options.SelectedModel;
+                if (!string.IsNullOrWhiteSpace(model))
+                    _apiService.UpdateModel(model);
+
+                var thinking = _options.IsThinkingEnabled;
+                var effort = _options.ReasoningEffort ?? "high";
+                _apiService.ConfigureThinking(thinking, effort);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Settings] 核心设置热更新失败: {ex.Message}");
+            }
+        }
+
         private void OnOcrSettingsChanged()
         {
-            Logger.Info("[Settings] 检测到设置变更，热重载配置...");
+            Logger.Info("[Settings] 检测到设置变更，正在刷新...");
+            OnCoreSettingsChanged();
             try
             {
                 // ── 记录变更前的 API 配置，判断是否需要重建 API 服务 ──
@@ -257,7 +270,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 // 刷新 _options 引用（DialogPage 属性已由 VS 自动更新）
                 if (_package != null)
-                    _options = _package.Options;
+                    _options = DeepSeekOptionsPage.Instance ?? _package.Options;
+
+                RefreshCoreControlsFromSettings();
 
                 // ── API Key / 模型 / 思考配置变更时，立即重建 API 服务（无需重启）──
                 // 修复：旧实现只刷新 _options 引用，却不重建 _apiService，
@@ -284,48 +299,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Info($"[Settings] OCR 热切换完成 → {OcrService.CurrentEngine}");
 
                 // ── Web 搜索热重载 ──
-                string optionsProvider = _options?.SearchProvider ?? "DuckDuckGo";
-                string resolvedEngine = optionsProvider switch
-                {
-                    "Baidu" => "Baidu",
-                    "Bing" => "Bing",
-                    _ => "DuckDuckGo"
-                };
-
-                int idx = resolvedEngine switch
-                {
-                    "Baidu" => 0,
-                    "Bing" => 1,
-                    "DuckDuckGo" => 2,
-                    _ => 2
-                };
-                WebSearchEngineComboBox.SelectedIndex = idx;
-
-                // 如果联网搜索当前是开启状态，同步引擎并应用配置
-                if (_webSearchEngine != "Off")
-                {
-                    if (_webSearchEngine != resolvedEngine)
-                    {
-                        _webSearchEngine = resolvedEngine;
-                        Logger.Info($"[Settings] 搜索引擎热切换为: {_webSearchEngine}");
-                    }
-
-                    ApplyWebSearchConfig();
-                    UpdateWebSearchToggleAppearance();
-
-                    if (_webSearchEngine == "Baidu" && (_options == null || string.IsNullOrWhiteSpace(_options.BaiduApiKey)))
-                    {
-                        StatusLabel.Text = LocalizationService.Instance["status.search.baiduKeyRequired"];
-                    }
-                    else
-                    {
-                        StatusLabel.Text = string.Format(LocalizationService.Instance["status.settings.updated"], _webSearchEngine);
-                    }
-                }
-                else
-                {
-                    StatusLabel.Text = string.Format(LocalizationService.Instance["status.settings.updated.default"], resolvedEngine);
-                }
+                RefreshWebSearchFromSettings();
+                string resolvedEngine = ResolveWebSearchEngineFromOptions();
+                StatusLabel.Text = _webSearchEngine == "Off"
+                    ? string.Format(LocalizationService.Instance["status.settings.updated.default"], resolvedEngine)
+                    : string.Format(LocalizationService.Instance["status.settings.updated"], _webSearchEngine);
             }
             catch (Exception ex)
             {
@@ -374,7 +352,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 if (enabledConfigs.Count == 0)
                 {
-                    Logger.Info("[MCP] 没有启用的 MCP 服务器，跳过初始化。点击 🔌 按钮配置。");
+                    Logger.Info("[MCP] 没有启用的 MCP 服务器，跳过初始化。点击  按钮配置。");
                     return;
                 }
 
@@ -460,6 +438,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// 同时遵循用户在 ComboBox 中选择的搜索引擎偏好。
         /// 用于支持用户在 工具→选项 中修改 API Key 后无需重启即可生效。
         /// </summary>
+        private string ResolveWebSearchEngineFromOptions()
+        {
+            return (_options?.SearchProvider ?? "DuckDuckGo") switch
+            {
+                "Baidu" => "Baidu",
+                "Bing" => "Bing",
+                _ => "DuckDuckGo",
+            };
+        }
+
+        private void RefreshWebSearchFromSettings()
+        {
+            string resolvedEngine = ResolveWebSearchEngineFromOptions();
+            WebSearchEngineComboBox.SelectedIndex = resolvedEngine switch
+            {
+                "Baidu" => 0,
+                "Bing" => 1,
+                _ => 2,
+            };
+
+            _webSearchEngine = _options?.EnableWebSearch == true ? resolvedEngine : "Off";
+            ApplyWebSearchConfig();
+            UpdateWebSearchToggleAppearance();
+        }
+
         private void ApplyWebSearchConfig()
         {
             if (_webSearchService == null) return;
@@ -538,13 +541,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
             }
 
-            // ── 校验 OCR 引擎状态（PaddleOCR 已移除，仅检查 Windows 内置 OCR）──
+            // ── 校验 OCR 引擎状态 ──
             {
                 bool ocrReady = OcrService.IsEngineReady();
                 string ocrStatus = OcrService.GetEngineStatus();
                 Logger.Info($"OCR 引擎状态: {ocrStatus}");
 
-                if (!ocrReady)
+                if (!ocrReady && _options?.OcrEngine == "PaddleOCR-Sharp")
+                {
+                    await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    StatusLabel.Text = string.Format(
+                        LocalizationService.Instance["status.ocrEngineUnavailable"],
+                        _options.OcrEngine);
+                }
+                else if (!ocrReady)
                 {
                     await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                     StatusLabel.Text = LocalizationService.Instance["status.ocrUnavailable"];
@@ -600,7 +610,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
         ///   - 对文件夹项目 (Open Folder/CMake)，file 为空，dir 为工作区根目录
         /// 
         /// 参考: https://learn.microsoft.com/zh-cn/dotnet/api/microsoft.visualstudio.shell.interop.ivssolution.getsolutioninfo
-        /// </summary>
         /// <summary>
         /// 通过 IVsSolution.GetSolutionInfo 获取项目路径。
         /// - .sln 项目：返回 .sln 文件路径
@@ -627,7 +636,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // .sln 项目优先返回 .sln 文件路径
                 if (!string.IsNullOrWhiteSpace(solutionFile))
                 {
-                    Logger.Info($"[Workspace] ✅ IVsSolution → .sln 项目: {solutionFile}");
+                    Logger.Info($"[Workspace]  IVsSolution → .sln 项目: {solutionFile}");
                     return solutionFile;
                 }
 
@@ -635,7 +644,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (!string.IsNullOrWhiteSpace(solutionDir))
                 {
                     string dir = solutionDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    Logger.Info($"[Workspace] ✅ IVsSolution → Open Folder 项目: {dir}");
+                    Logger.Info($"[Workspace]  IVsSolution → Open Folder 项目: {dir}");
                     return dir;
                 }
 
@@ -769,6 +778,35 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 try
                 {
+                    // 启动页可能长时间停留。API 服务不能继续依赖启动早期加载的配置快照，
+                    // 打开解决方案时重新同步一次持久化设置，确保最新 API Key 生效。
+                    if (_package != null)
+                    {
+                        var persistedOptions = await _package.LoadPersistedOptionsAsync();
+                        await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                        string? oldApiKey = _options?.ApiKey;
+                        string? oldModel = _options?.SelectedModel;
+                        bool oldThinking = _options?.IsThinkingEnabled ?? true;
+                        string? oldEffort = _options?.ReasoningEffort;
+
+                        _options = persistedOptions;
+                        RefreshCoreControlsFromSettings();
+
+                        bool apiConfigChanged =
+                            _apiService == null ||
+                            !string.Equals(oldApiKey, _options.ApiKey, StringComparison.Ordinal) ||
+                            !string.Equals(oldModel, _options.SelectedModel, StringComparison.Ordinal) ||
+                            oldThinking != _options.IsThinkingEnabled ||
+                            !string.Equals(oldEffort, _options.ReasoningEffort, StringComparison.Ordinal);
+
+                        if (apiConfigChanged)
+                        {
+                            Logger.Info("[Settings] 解决方案打开后同步 API 配置，重建 API 服务");
+                            InitializeApiService();
+                        }
+                    }
+
                     // 先保存当前对话
                     SaveCurrentSession();
 
@@ -823,7 +861,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 触发代码索引：在后台线程执行，不阻塞 UI。
-        private async Task LoadAndShowAsync()
+        private Task LoadAndShowAsync()
+        {
+            // 启动加载、解决方案切换和会话切换可能几乎同时触发。
+            // WebView2 环境只允许初始化一次，先串行化，避免两个调用用不同 Environment 竞争。
+            if (_loadAndShowTask?.IsCompleted == false)
+            {
+                return _loadAndShowTask;
+            }
+
+            _loadAndShowTask = LoadAndShowCoreAsync();
+            return _loadAndShowTask;
+        }
+
+        private async Task LoadAndShowCoreAsync()
         {
             _messagesHtml.Clear();
             _lastRenderedMessagesLength = 0;
@@ -995,56 +1046,76 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return true;
             }
 
+            // 同一控件生命周期内，EnsureCoreWebView2Async 只能用一个 Environment。
+            // 启动加载和解决方案切换可能并发到达，这里把初始化收敛为单个 Task。
+            var initializationTask = _webViewInitializationTask;
+            if (initializationTask == null)
+            {
+                initializationTask = InitializeWebViewCoreAsync();
+                _webViewInitializationTask = initializationTask;
+            }
+
+            bool success = await initializationTask;
+            if (!success && ReferenceEquals(initializationTask, _webViewInitializationTask))
+            {
+                _webViewInitializationTask = null;
+            }
+
+            return success;
+        }
+
+        private async Task<bool> InitializeWebViewCoreAsync()
+        {
+            if (ChatWebView?.CoreWebView2 != null)
+            {
+                return true;
+            }
+
             string userDataFolder = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "DeepSeekVS", "WebView2");
 
-            // ── 尝试1：使用自定义用户数据文件夹 ──
+            Microsoft.Web.WebView2.Core.CoreWebView2Environment environment;
             try
             {
                 Logger.Info($"[Render] 开始初始化 WebView2 CoreWebView2 环境 (userDataFolder={userDataFolder})");
-                var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
-                await ChatWebView.EnsureCoreWebView2Async(env);
-                Logger.Info("[Render] CoreWebView2 环境初始化成功");
-                return true;
+                environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[Render] WebView2 初始化尝试1失败: {ex.GetType().Name}: {ex.Message}");
-                Logger.Warn($"[Render] 堆栈: {ex.StackTrace}");
-
-                // 并发初始化时，EnsureCoreWebView2Async 可能已经完成但抛出环境不一致异常。
-                if (ChatWebView?.CoreWebView2 != null)
-                {
-                    Logger.Info("[Render] CoreWebView2 已在尝试1中初始化，按成功处理");
-                    return true;
-                }
-
-                // ── 尝试2：使用默认用户数据文件夹 + 默认运行时发现 ──
+                Logger.Warn($"[Render] 创建 WebView2 环境失败: {ex.GetType().Name}: {ex.Message}");
                 try
                 {
-                    Logger.Info("[Render] 重试 WebView2 初始化 (尝试2, 默认参数)...");
-                    // 传入空字符串等效于默认临时文件夹
-                    var env = await CoreWebView2Environment.CreateAsync();
-                    await ChatWebView.EnsureCoreWebView2Async(env);
-                    Logger.Info("[Render] CoreWebView2 环境初始化成功 (尝试2)");
-                    return true;
+                    Logger.Info("[Render] 回退使用默认 WebView2 环境参数...");
+                    environment = await CoreWebView2Environment.CreateAsync();
                 }
                 catch (Exception ex2)
                 {
-                    Logger.Error($"[Render] WebView2 初始化尝试2也失败: {ex2.GetType().Name}: {ex2.Message}");
-
-                    if (ChatWebView?.CoreWebView2 != null)
-                    {
-                        Logger.Info("[Render] CoreWebView2 已在尝试2中初始化，按成功处理");
-                        return true;
-                    }
-
+                    Logger.Error($"[Render] WebView2 环境创建失败: {ex2.GetType().Name}: {ex2.Message}");
                     ShowWebView2InitializationError(ex2);
+                    return false;
                 }
             }
 
-            return false;
+            try
+            {
+                _webView2Environment ??= environment;
+                await ChatWebView.EnsureCoreWebView2Async(_webView2Environment);
+                Logger.Info("[Render] CoreWebView2 环境初始化成功");
+                return ChatWebView.CoreWebView2 != null;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[Render] WebView2 初始化失败: {ex.GetType().Name}: {ex.Message}");
+                if (ChatWebView?.CoreWebView2 != null)
+                {
+                    Logger.Info("[Render] CoreWebView2 已在初始化过程中完成，按成功处理");
+                    return true;
+                }
+
+                ShowWebView2InitializationError(ex);
+                return false;
+            }
         }
 
         private static string? TryGetWebView2RuntimeVersion()

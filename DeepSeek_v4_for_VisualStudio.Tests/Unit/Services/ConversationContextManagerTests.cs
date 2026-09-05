@@ -62,17 +62,14 @@ public class ConversationContextManagerTests
 
         var messages = _manager.BuildApiMessages();
 
-        // v1.1.11: 消息结构固定为 [sharedPrefix, fixedPrompt, dynamicBlock, ...history]
-        // system prompt 固定在 messages[1]，不再放在末尾
-        messages.Should().HaveCount(4);
+        // 稳定系统提示词合并为一条；空动态块不再注入。
+        messages.Should().HaveCount(2);
         messages[0].Role.Should().Be("system");
-        messages[0].Content.Should().Contain("你是 DeepSeek v4 for Visual Studio");
-        messages[1].Role.Should().Be("system");
-        messages[1].Content.Should().Be("You are helpful.");
-        messages[2].Role.Should().Be("system");
-        messages[2].Content.Should().BeEmpty();
-        messages[3].Role.Should().Be("user");
-        messages[3].Content.Should().Be("Hi");
+        messages[0].Content.Should().StartWith("You are helpful.");
+        messages[0].Content.Should().Contain("You are helpful.");
+        messages[0].Content.Should().Contain("文件读取规则");
+        messages[1].Role.Should().Be("user");
+        messages[1].Content.Should().Be("Hi");
     }
 
     [Fact]

@@ -32,7 +32,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
     /// <summary>
     /// run_in_terminal 工具 — 在终端中运行命令。
-    /// ⚠️ 编译/构建命令会被拦截，提示使用 build_solution 工具。
+    ///  编译/构建命令会被拦截，提示使用 build_solution 工具。
     /// </summary>
     public class RunInTerminalTool : BuiltInToolBase
     {
@@ -42,8 +42,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         /// <summary>
         /// 当前调用 Agent 类型（由 BaseAgent 在执行前设置，用于运行时权限校验）。
         /// AskAgent / ExploreAgent 只能执行不修改文件的终端命令。
+        /// P1-7：用 AsyncLocal 隔离并发 Agent，避免"类级静态可写"被同时运行的
+        /// 其他 Agent 覆盖，导致只读判定被静默绕过或反向误拦。
         /// </summary>
-        public static AgentType? CurrentAgentType { get; set; }
+        private static readonly System.Threading.AsyncLocal<AgentType?> CurrentAgentTypeAsyncLocal = new();
+        public static AgentType? CurrentAgentType
+        {
+            get => CurrentAgentTypeAsyncLocal.Value;
+            set => CurrentAgentTypeAsyncLocal.Value = value;
+        }
 
         /// <summary>是否为只读 Agent（Ask/Explore）——禁止终端修改文件。</summary>
         private static bool IsReadOnlyAgent => CurrentAgentType is AgentType.Ask or AgentType.Explore;
@@ -482,7 +489,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌") || toolResult.StartsWith("⛔")) return toolResult;
+            if (toolResult.StartsWith("Error: ") || toolResult.StartsWith("[BLOCKED] ")) return toolResult;
             if (toolResult.Contains("exit code: 0") || toolResult.Contains("ExitCode: 0"))
                 return LocalizationService.Instance["tool.runTerminal.success"];
             return LocalizationService.Instance["tool.runTerminal.executed"];
@@ -506,14 +513,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             var rawDangerKind = DetectDangerousCommand(command);
             if (rawDangerKind != DangerousCommandKind.None)
             {
-                Logger.Warn($"[RunInTerminal] ⛔ 危险命令被拦截 ({rawDangerKind}): {command.Truncate(150)}");
+                Logger.Warn($"[RunInTerminal] [BLOCKED] 危险命令被拦截 ({rawDangerKind}): {command.Truncate(150)}");
                 return FormatDangerBlocked(command, rawDangerKind);
             }
 
             // ── 只读 Agent 限制：Ask/Explore 不得通过终端修改文件（原始命令）──
             if (IsReadOnlyAgent && DetectFileEditingCommand(command))
             {
-                Logger.Warn($"[RunInTerminal] ⛔ 只读 Agent 的文件修改命令被拦截 ({CurrentAgentType}): {command.Truncate(150)}");
+                Logger.Warn($"[RunInTerminal] [BLOCKED] 只读 Agent 的文件修改命令被拦截 ({CurrentAgentType}): {command.Truncate(150)}");
                 return FormatFileEditBlocked(command);
             }
 
@@ -554,14 +561,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             var normalizedDangerKind = DetectDangerousCommand(command);
             if (normalizedDangerKind != DangerousCommandKind.None)
             {
-                Logger.Warn($"[RunInTerminal] ⛔ 危险命令被拦截（修正后） ({normalizedDangerKind}): {command.Truncate(150)}");
+                Logger.Warn($"[RunInTerminal] [BLOCKED] 危险命令被拦截（修正后） ({normalizedDangerKind}): {command.Truncate(150)}");
                 return FormatDangerBlocked(command, normalizedDangerKind);
             }
 
             // ── 只读 Agent 限制（修正后的命令，覆盖 cmd /c 剥离与 Unix→PowerShell 转换结果）──
             if (IsReadOnlyAgent && DetectFileEditingCommand(command))
             {
-                Logger.Warn($"[RunInTerminal] ⛔ 只读 Agent 的文件修改命令被拦截（修正后）({CurrentAgentType}): {command.Truncate(150)}");
+                Logger.Warn($"[RunInTerminal] [BLOCKED] 只读 Agent 的文件修改命令被拦截（修正后）({CurrentAgentType}): {command.Truncate(150)}");
                 return FormatFileEditBlocked(command);
             }
 
@@ -657,6 +664,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 if (isAsync)
                 {
                     string pid = process.Id.ToString();
+                    // ── P2：异步模式必须排空输出管道，否则子进程悬挂 ──
+                    // RedirectStandardOutput/Error = true 但无人读取时，子进程输出超过
+                    // OS 管道缓冲（~4KB）即阻塞在 write 上、永不退出 →
+                    // WaitForExit 悬挂 + 进程泄漏。BeginOutputReadLine/BeginErrorReadLine
+                    // 持续排空管道（回调丢弃输出），保证子进程能自然退出。
+                    // 注：async 输出的获取入口是 get_terminal_output 工具（当前为占位提示），
+                    // 此处仅做排水，不缓冲内容。
+                    process.OutputDataReceived += (_, _) => { };
+                    process.ErrorDataReceived += (_, _) => { };
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
+
                     // 不等待进程退出，直接返回。进程由 OS 管理，VS 退出时自动清理。
                     // 注意：不能 using/dispose process，因为 fire-and-forget 任务还需要它。
                     _ = Task.Run(() =>
@@ -715,7 +734,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     var sb = new StringBuilder();
                     if (!string.IsNullOrEmpty(warningPrefix))
                         sb.Append(warningPrefix);
-                    sb.AppendLine($"📟 终端输出 (退出码: {exitCode}):");
+                    sb.AppendLine($"终端输出 (退出码: {exitCode}):");
                     if (!string.IsNullOrWhiteSpace(stdout))
                         sb.AppendLine(stdout);
                     if (!string.IsNullOrWhiteSpace(stderr))
@@ -767,7 +786,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 normalized.Contains(" g++ ", StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            // ⚠️ cmake --build 不拦截：build_solution 对 CMake 项目底层用的就是 cmake --build，
+            //  cmake --build 不拦截：build_solution 对 CMake 项目底层用的就是 cmake --build，
             // 且 build_solution 不支持 --target 参数，拦截会导致 AI 无法构建测试目标等非默认 target。
             // 其余原生构建工具（make/ninja）仍拦截，引导使用 build_solution。
             if (normalized.StartsWith("make ", StringComparison.OrdinalIgnoreCase) ||
@@ -905,7 +924,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             // 匹配类似 ./path/to/file 或 /absolute/path 的模式
             result = System.Text.RegularExpressions.Regex.Replace(
                 result, @"(?<![a-zA-Z])(\./)([^\s;|]+)", @".\$2");
-            // ⚠️ 至少匹配 2 层路径（如 /usr/bin），避免误改 cmd /c、cmd /k 等 Windows 开关
+            //  至少匹配 2 层路径（如 /usr/bin），避免误改 cmd /c、cmd /k 等 Windows 开关
             result = System.Text.RegularExpressions.Regex.Replace(
                 result, @"(?<![a-zA-Z:\)\(])(/[a-zA-Z0-9_\-\.]+){2,}", m =>
                     m.Value.Replace('/', '\\'));

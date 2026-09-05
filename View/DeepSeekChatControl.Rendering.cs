@@ -133,6 +133,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (e.IsSuccess)
             {
                 Logger.Info("[Render] CoreWebView2InitializationCompleted: 成功");
+                _webViewInitialized = true;
                 ChatWebView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
                 ChatWebView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
                 ChatWebView.CoreWebView2.NavigationStarting += CoreWebView2_NavigationStarting;
@@ -192,7 +193,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _ = Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
                     {
                         await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                        StatusLabel.Text = $"WebView2 初始化失败: {e.InitializationException?.Message}";
+                        StatusLabel.Text = LocalizationService.Instance.Format("status.webviewInitFailed", e.InitializationException?.Message);
                     });
                 }
                 else
@@ -204,28 +205,42 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 根据 _messages 列表重建 _messagesHtml。
+        private int _renderWindowStart;
+        private const int RenderWindowBatchSize = 40;
+
+        /// <summary>
+        /// 根据 _messages 列表重建 _messagesHtml。
+        /// P1 性能：仅渲染最近 RenderWindowBatchSize 条（窗口化），
+        /// 更早的历史通过「加载更早的消息」按批前插，避免长会话全量重建压力。
         /// </summary>
         private void RebuildMessagesHtml()
         {
             _messagesHtml.Clear();
-            for (int i = 0; i < _messages.Count; i++)
+            _renderWindowStart = Math.Max(0, _messages.Count - RenderWindowBatchSize);
+            if (_renderWindowStart > 0)
+                _messagesHtml.Append(ChatHtmlService.BuildLoadEarlierButtonHtml(_renderWindowStart));
+            AppendMessageRange(_messagesHtml, _renderWindowStart, _messages.Count);
+            _lastRenderedMessagesLength = 0;
+        }
+
+        /// <summary>构建 [from, to) 区间消息 HTML（含分支导航）。</summary>
+        private void AppendMessageRange(System.Text.StringBuilder sb, int from, int toExclusive)
+        {
+            for (int i = from; i < toExclusive; i++)
             {
                 var msg = _messages[i];
                 if (msg.Role == "user")
                 {
-                    _messagesHtml.Append(ChatHtmlService.BuildUserMessageHtml(
+                    sb.Append(ChatHtmlService.BuildUserMessageHtml(
                         msg.Content ?? string.Empty,
                         msg.AttachedFiles.Count > 0 ? msg.AttachedFiles : null,
                         i,
                         msg.AttachedImageDataUris.Count > 0 ? msg.AttachedImageDataUris : null,
                         msg.AttachedImageFileNames.Count > 0 ? msg.AttachedImageFileNames : null,
                         msg.AttachedImagePaths.Count > 0 ? msg.AttachedImagePaths : null));
-                    // ── 分支导航（始终在用户气泡正下方）──
-                    // 场景1：编辑用户消息产生分支 → 用户消息的 SiblingCount > 1
-                    // 场景2：重试助手回复产生分支 → 下一个助手消息的 SiblingCount > 1
                     if (msg.SiblingCount > 1)
                     {
-                        _messagesHtml.Append(ChatHtmlService.BuildBranchNavHtml(msg, i));
+                        sb.Append(ChatHtmlService.BuildBranchNavHtml(msg, i));
                     }
                     else
                     {
@@ -234,16 +249,42 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         {
                             var nextMsg = _messages[nextIdx];
                             if (nextMsg.Role == "assistant" && nextMsg.SiblingCount > 1)
-                                _messagesHtml.Append(ChatHtmlService.BuildBranchNavHtml(nextMsg, nextIdx));
+                                sb.Append(ChatHtmlService.BuildBranchNavHtml(nextMsg, nextIdx));
                         }
                     }
                 }
                 else
                 {
-                    _messagesHtml.Append(ChatHtmlService.BuildAssistantMessageHtml(msg, i));
+                    sb.Append(ChatHtmlService.BuildAssistantMessageHtml(msg, i));
                 }
             }
-            _lastRenderedMessagesLength = 0;
+        }
+
+        /// <summary>
+        /// 「加载更早的消息」：把上一批历史前插到 DOM 顶部（不影响流式增量管线）。
+        /// </summary>
+        private async System.Threading.Tasks.Task LoadEarlierMessagesAsync()
+        {
+            try
+            {
+                await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                if (ChatWebView.CoreWebView2 == null || _renderWindowStart <= 0) return;
+
+                int newStart = Math.Max(0, _renderWindowStart - RenderWindowBatchSize);
+                var sb = new System.Text.StringBuilder();
+                if (_renderWindowStart > newStart)
+                {
+                    sb.Append(ChatHtmlService.BuildLoadEarlierButtonHtml(newStart));
+                    AppendMessageRange(sb, newStart, _renderWindowStart);
+                }
+                string json = ChatHtmlService.BuildPrependOlderJson(sb.ToString(), newStart > 0, _renderWindowStart - newStart);
+                ChatWebView.CoreWebView2.PostWebMessageAsString(json);
+                _renderWindowStart = newStart;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[History] 加载更早消息失败: {ex.Message}");
+            }
         }
 
         /// <summary>

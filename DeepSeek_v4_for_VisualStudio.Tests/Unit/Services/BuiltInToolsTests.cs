@@ -216,7 +216,7 @@ public class BuiltInToolsTests
         var tools = GetAllTools();
         foreach (var tool in tools)
         {
-            var summary = tool.GetResultSummary("✅ success");
+            var summary = tool.GetResultSummary(" success");
             summary.Should().NotBeNullOrEmpty($"{tool.Name} result summary should not be empty");
         }
     }
@@ -227,15 +227,15 @@ public class BuiltInToolsTests
         var tools = GetAllTools();
         foreach (var tool in tools)
         {
-            var summary = tool.GetResultSummary("❌ something went wrong");
-            summary.Should().Contain("❌", $"{tool.Name} should preserve error prefix");
+            var summary = tool.GetResultSummary("Error: something went wrong");
+            summary.Should().Contain("Error: ", $"{tool.Name} should preserve error prefix");
         }
     }
 
     [Fact]
     public void GetResultSummary_ListDir_CountsItems()
     {
-        var result = "📁 目录: C:\\test\n\n### 子目录\n- 📁 src/\n- 📁 lib/\n\n### 文件\n- 📄 Program.cs\n- 📄 README.md";
+        var result = "目录: C:\\test\n\n### 子目录\n- src/\n- lib/\n\n### 文件\n- Program.cs\n- README.md";
 
         var summary = new ListDirTool().GetResultSummary(result);
         summary.Should().Contain("2 个子目录");
@@ -245,7 +245,7 @@ public class BuiltInToolsTests
     [Fact]
     public void GetResultSummary_ReadFile_ShowsLineCount()
     {
-        var result = "📄 文件: test.cs (共 150 行，显示 1-150)\n\n1: using System;\n2: ...";
+        var result = " 文件: test.cs (共 150 行，显示 1-150)\n\n1: using System;\n2: ...";
 
         var summary = new ReadFileTool(new()).GetResultSummary(result);
         summary.Should().Contain("150");
@@ -255,7 +255,7 @@ public class BuiltInToolsTests
     [Fact]
     public void GetResultSummary_FileSearch_ShowsCount()
     {
-        var result = "🔍 文件搜索: \"*.cs\" (找到 42 个文件)\n\n- `src/a.cs`\n- `src/b.cs`";
+        var result = " 文件搜索: \"*.cs\" (找到 42 个文件)\n\n- `src/a.cs`\n- `src/b.cs`";
 
         var summary = new FileSearchTool().GetResultSummary(result);
         summary.Should().Contain("42");
@@ -265,7 +265,6 @@ public class BuiltInToolsTests
     public void GetResultSummary_GetErrors_NoErrors_ShowsSuccess()
     {
         var summary = new GetErrorsTool().GetResultSummary("0 个错误");
-        summary.Should().Contain("✅");
         summary.Should().Contain("无编译错误");
     }
 
@@ -273,21 +272,22 @@ public class BuiltInToolsTests
     public void GetResultSummary_BuildSolution_Success_ShowsSuccess()
     {
         var summary = new BuildSolutionTool().GetResultSummary("构建成功");
-        summary.Should().Be("✅ 构建成功");
+        summary.Should().Be("构建成功");
     }
 
     [Fact]
     public void GetResultSummary_BuildSolution_Failed_ShowsWarning()
     {
         var summary = new BuildSolutionTool().GetResultSummary("构建失败: 3 errors");
-        summary.Should().Be("⚠️ 构建失败");
+        summary.Should().Be("构建失败");
     }
 
     [Fact]
     public void GetResultSummary_RunInTerminal_ExitCode0_ShowsSuccess()
     {
         var summary = new RunInTerminalTool().GetResultSummary("exit code: 0");
-        summary.Should().Contain("✅");
+        summary.Should().NotBeNullOrEmpty();
+        summary.Should().NotContain("Error: ");
     }
 
     #endregion
@@ -297,9 +297,9 @@ public class BuiltInToolsTests
     [Fact]
     public void ParseImageBlock_NoBlock_ReturnsOriginalText()
     {
-        var (cleanText, uris) = CaptureWindowTool.ParseImageBlock("✅ no image here");
+        var (cleanText, uris) = CaptureWindowTool.ParseImageBlock(" no image here");
 
-        cleanText.Should().Be("✅ no image here");
+        cleanText.Should().Be(" no image here");
         uris.Should().BeEmpty();
     }
 
@@ -307,13 +307,13 @@ public class BuiltInToolsTests
     public void ParseImageBlock_WithInlineDataUri_ExtractsUriAndStripsBlock()
     {
         const string dataUri = "data:image/png;base64,AAAA";
-        string raw = "✅ captured\n\n[CAPTURE_IMAGE]\n" + dataUri + "\n[/CAPTURE_IMAGE]";
+        string raw = " captured\n\n[CAPTURE_IMAGE]\n" + dataUri + "\n[/CAPTURE_IMAGE]";
 
         var (cleanText, uris) = CaptureWindowTool.ParseImageBlock(raw);
 
         uris.Should().ContainSingle().Which.Should().Be(dataUri);
         cleanText.Should().NotContain("[CAPTURE_IMAGE]");
-        cleanText.Should().Contain("✅ captured");
+        cleanText.Should().Contain(" captured");
     }
 
     #endregion

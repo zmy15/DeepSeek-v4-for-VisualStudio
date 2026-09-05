@@ -6,8 +6,8 @@ using DeepSeek_v4_for_VisualStudio.Utils;
 namespace DeepSeek_v4_for_VisualStudio.Settings
 {
     /// <summary>
-    /// 使用 Windows DPAPI 对 API Key 做用户级加密，避免设置存储中直接出现明文。
-    /// 旧版本已保存的明文值会自动识别并兼容，等待下次保存时升级为密文。
+    /// 旧版 API Key 的 DPAPI 加密/解密逻辑。当前主路径是 Visual Studio 官方
+    /// Credential Storage；本类型用于读取旧值迁移，以及凭据服务不可用时的降级保存。
     /// </summary>
     internal static class ApiKeyProtection
     {

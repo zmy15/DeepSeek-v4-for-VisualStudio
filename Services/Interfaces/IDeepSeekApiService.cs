@@ -55,6 +55,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>配置思考模式</summary>
         void ConfigureThinking(bool enabled, string effort = "high");
 
+        /// <summary>运行时更新 API Key（选项页保存后即时生效，无需重启）</summary>
+        void UpdateApiKey(string apiKey);
+
         /// <summary>流式聊天调用</summary>
         /// <param name="toolChoice">工具调用策略: "auto"(默认), "none"(禁用), "required"(强制). null 表示仅在有 tools 时启用 auto</param>
         /// <param name="temperature">采样温度 (0.0 ~ 2.0)。null 表示不设置（使用 API 默认值）</param>

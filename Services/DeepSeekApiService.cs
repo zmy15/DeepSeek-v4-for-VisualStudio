@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
@@ -280,7 +280,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Interlocked.Add(ref _totalFimCompletionTokens, usage.CompletionTokens);
         }
 
-        public DeepSeekApiService(string apiKey, string model = "deepseek-v4-pro")
+        public DeepSeekApiService(string apiKey, string model = "deepseek-v4-pro", int? requestTimeoutSeconds = null)
         {
             _model = model;
 
@@ -296,10 +296,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 AllowAutoRedirect = true,
             };
 
+            // ── LLM 请求超时可配置（P2，序号 22）；默认保持原行为 5 分钟 ──
+            int timeoutSeconds = requestTimeoutSeconds ?? 300;
+            if (timeoutSeconds < 30) timeoutSeconds = 30;       // 下限：避免误配导致请求必失败
+            if (timeoutSeconds > 3600) timeoutSeconds = 3600;   // 上限：1 小时
+
             _httpClient = new HttpClient(handler)
             {
                 BaseAddress = new Uri(BaseUrl),
-                Timeout = TimeSpan.FromMinutes(5)
+                Timeout = TimeSpan.FromSeconds(timeoutSeconds)
             };
 
             _httpClient.DefaultRequestHeaders.Authorization =
@@ -365,6 +370,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         public void UpdateModel(string model) => _model = model;
 
+        /// <summary>运行时更新 API Key（P1：选项页保存后即时生效，无需重启）。</summary>
+        public void UpdateApiKey(string apiKey)
+        {
+            _httpClient.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey ?? string.Empty);
+        }
+
         /// <summary>当前使用的模型标识（用于视觉模型等能力分支判断）。</summary>
         public string CurrentModel => _model;
 
@@ -378,9 +390,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 连接复用诊断日志 — 记录 ServicePoint 当前连接状态。
         /// 
         /// 用途：监控 Agent 间是否复用同一 TCP 连接。
-        ///   - CurrentConnections 持续为 1 且无新建 → 连接被复用 ✅
-        ///   - CurrentConnections 频繁升降 → 连接在回收重建 ⚠️
-        ///   - 每次请求都是新 ServicePoint → 连接未曾复用 🔴
+        ///   - CurrentConnections 持续为 1 且无新建 → 连接被复用 
+        ///   - CurrentConnections 频繁升降 → 连接在回收重建 
+        ///   - 每次请求都是新 ServicePoint → 连接未曾复用 
         /// </summary>
         private void LogConnectionReuseDiagnostics()
         {
@@ -399,96 +411,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             catch (Exception ex)
             {
                 Logger.Warn($"[HTTP] 连接复用诊断失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>API 请求序号（用于转储文件命名）</summary>
-        private static int _requestSequence;
-
-        /// <summary>
-        /// 将完整 API 请求体 + 缓存命中统计写入磁盘，供离线分析。
-        /// 文件路径: %TEMP%\DeepSeekCacheDumps\req_{序号}_{时间戳}.json
-        /// </summary>
-        private static void DumpRequestToDisk(string requestJson, int requestBytes,
-            int hitTokens, int missTokens, int cacheableTokens, double hitRate,
-            int messageCount, int toolCount, string? errorMessage = null)
-        {
-            try
-            {
-                int seq = Interlocked.Increment(ref _requestSequence);
-                string dir = Path.Combine(Path.GetTempPath(), "DeepSeekCacheDumps");
-                Directory.CreateDirectory(dir);
-
-                string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
-                string fileName = $"req_{seq:D4}_{timestamp}.json";
-                string filePath = Path.Combine(dir, fileName);
-
-                // 解析 messages 做摘要（避免文件过大）
-                List<object> msgSummaries;
-                try
-                {
-                    using var doc = JsonDocument.Parse(requestJson);
-                    var msgs = doc.RootElement.GetProperty("messages");
-                    msgSummaries = new List<object>();
-                    foreach (var m in msgs.EnumerateArray())
-                    {
-                        string role = m.GetProperty("role").GetString() ?? "?";
-                        string? content = null;
-                        if (m.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String)
-                            content = c.GetString();
-                        bool hasToolCalls = m.TryGetProperty("tool_calls", out _);
-
-                        msgSummaries.Add(new
-                        {
-                            role,
-                            content_length = content?.Length ?? 0,
-                            content_preview = content?.Substring(0, Math.Min(content?.Length ?? 0, 200)),
-                            has_tool_calls = hasToolCalls
-                        });
-                    }
-                }
-                catch { msgSummaries = new List<object>(); }
-
-                // 解析 requestJson 为 JsonElement，使其在 dump 序列化时使用 relaxed encoder（可读中文）
-                using var fullReqDoc = JsonDocument.Parse(requestJson);
-
-                var dump = new
-                {
-                    sequence = seq,
-                    timestamp = DateTime.Now.ToString("O"),
-                    error = errorMessage,
-                    request = new
-                    {
-                        size_bytes = requestBytes,
-                        size_kb = requestBytes / 1024.0,
-                        message_count = messageCount,
-                        tool_count = toolCount,
-                        messages_summary = msgSummaries,
-                        full_request = fullReqDoc.RootElement
-                    },
-                    cache = errorMessage != null ? null : new
-                    {
-                        hit_tokens = hitTokens,
-                        miss_tokens = missTokens,
-                        cacheable_tokens = cacheableTokens,
-                        hit_rate = hitRate,
-                        hit_rate_pct = $"{hitRate * 100:F1}%"
-                    }
-                };
-
-                var opts = new JsonSerializerOptions
-                {
-                    WriteIndented = true,
-                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-                };
-                string dumpJson = JsonSerializer.Serialize(dump, opts);
-                File.WriteAllText(filePath, dumpJson, Encoding.UTF8);
-
-                Logger.Info($"[Dump] 请求已写入磁盘: {fileName} ({requestBytes / 1024}KB)");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn($"[Dump] 写入磁盘失败: {ex.Message}");
             }
         }
 
@@ -536,7 +458,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // 2. assistant 消息有 tool_calls 时可以没有 content，但不能既无 content 又无 tool_calls
             // 3. 不能有连续的相同 role 消息（user-user, assistant-assistant）→ 合并而非丢弃
             //
-            // 🔑 缓存关键（v1.1.10）：所有清理操作在 SHALLOW CLONE 上进行，
+            //  缓存关键（v1.1.10）：所有清理操作在 SHALLOW CLONE 上进行，
             //    不修改原始 ChatApiMessage 对象，确保下次请求的前缀不变，
             //    DeepSeek Prefix Cache 可持续命中。
             var cleanedMessages = new List<ChatApiMessage>();
@@ -567,17 +489,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     continue;
                 }
 
-                // ── 浅克隆：后续所有修改仅影响克隆对象，不污染调用方原始消息 ──
-                var clone = new ChatApiMessage
-                {
-                    Role = msg.Role,
-                    Content = msg.Content,
-                    MultimodalContent = msg.MultimodalContent,
-                    ReasoningContent = msg.ReasoningContent,
-                    ToolCalls = msg.ToolCalls,
-                    ToolCallId = msg.ToolCallId,
-                    Name = msg.Name,
-                };
+                // ── 深克隆：后续所有修改仅影响克隆对象，不污染调用方原始消息 ──
+                // 注意：ToolCalls 内的元素同样新建（Rule5 会写 m.ToolCalls / ReasoningContent，
+                // 且泛型阶段式修改不应改到调用方 ConversationContextManager 的对象）。
+                var clone = CloneMessage(msg);
 
                 // ── 规则 3：assistant 消息有 tool_calls 但缺少 reasoning_content → 补全 ──
                 if (clone.Role == "assistant" && clone.ToolCalls != null && clone.ToolCalls.Count > 0 && clone.ReasoningContent == null)
@@ -643,8 +558,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (removedCount > 0) parts.Add($"移除了 {removedCount} 条无效消息");
                 if (mergedCount > 0) parts.Add($"合并了 {mergedCount} 条连续消息 ({string.Join(", ", mergedPositions)})");
                 Logger.Warn($"[API] 消息清理完成：{string.Join("，", parts)}，剩余 {cleanedMessages.Count} 条");
-                request.Messages = cleanedMessages;
             }
+
+            // ── P1-3 修复：无条件使用已克隆的 cleanedMessages。──
+            // 即便没有移除/合并（最常见路径），也必须切换到克隆对象，
+            // 保证后续 Rule5/Rule6 对 m.ToolCalls / m.ReasoningContent 的就地修改
+            // 只作用在克隆上，绝不污染调用方（ConversationContextManager）的消息对象。
+            request.Messages = cleanedMessages;
 
             // ── 规则 5：孤立 assistant-with-tool_calls 检测 ──
             // 场景：ExploreAgent/PlanAgent 从 ContextManager 拿到父对话的 assistant(tool_calls)，
@@ -720,7 +640,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             }
 
-            // ── 🔍 诊断：遍历所有 tool 消息，记录哪些会被移除及原因 ──
+            // ──  诊断：遍历所有 tool 消息，记录哪些会被移除及原因 ──
             int totalToolMsgs = 0;
             var orphanDetails = new List<string>();
             for (int i = 0; i < request.Messages.Count; i++)
@@ -792,12 +712,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Logger.Info($"[API] 发送请求: {requestBodyBytes.Length / 1024}KB, 消息数={request.Messages.Count}, 工具数={tools?.Count ?? 0}, maxTokens={maxTokens}");
             Logger.Info($"[API] 消息结构(清洗后): system={diagSys}, user={diagUser}, assistant={diagAst}, tool={diagTool} (含工具调用={diagAstTc})");
 
-            // ── 发送前 dump 请求体，确保 HTTP 400 等错误也能捕获 ──
-            // DumpRequestToDisk(requestJson, requestBodyBytes.Length,
-            //     0, 0, 0, 0,
-            //     request.Messages.Count, tools?.Count ?? 0,
-            //     "(pre-send)");
-
             // ── messages 前缀分段诊断（DeepSeek 缓存仅匹配 messages 字段）──
             int msg0Length = 0;
             try
@@ -842,7 +756,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             //     在发送前对比 system prompt + tool catalog 的 SHA-256 指纹，
             //     检测前缀漂移并记录日志，保障 V4 自动前缀缓存命中率可观测。
             //     
-            //     🔑 v1.1.11：仅对使用标准 SharedImmutablePrefix 的调用执行检查。
+            //      v1.1.11：仅对使用标准 SharedImmutablePrefix 的调用执行检查。
             //     非标准调用（如代码变更总结、API Key 验证等）使用自定义短 prompt，
             //     不应污染 PrefixCache 的 pinned 基准，避免导致后续正常调用误判漂移。
             if (PrefixCache != null)
@@ -860,7 +774,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                     if (!driftInfo.IsInitialPin)
                     {
-                        string driftTag = driftInfo.HasDrift ? "⚠️ 漂移" : "✅ 稳定";
+                        string driftTag = driftInfo.HasDrift ? " 漂移" : " 稳定";
                         Logger.Info($"[Cache] 前缀指纹状态: {driftTag} | 稳定性={PrefixCache.StabilityRatio:P1} ({PrefixCache.StableChecks}/{PrefixCache.TotalChecks})");
                     }
                 }
@@ -877,9 +791,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 消息前缀哈希日志（v1.1.11）──
             //     计算 messages 在关键前缀边界 [0]、[0..1]、[0..2]、[0..all] 处的 SHA-256 哈希。
             //     跨调用对比哈希值可精确定位缓存断裂发生的位置：
-            //     - [0] 变化 → SharedImmutablePrefix 不一致（不应发生）
-            //     - [0..1] 变化 → Agent 切换或 fixedPrompt 更新
-            //     - [0..2] 变化 → 动态上下文（搜索/记忆/RAG）变化
+            //     - [0] 变化 → 稳定 system（共享前缀+fixedPrompt）不一致（不应发生）
+            //     - [0..1] 变化 → 动态上下文（搜索/记忆/RAG）变化
+            //     - [0..2] 变化 → 对话历史增长或压缩
             //     - [0..all] 变化 → 对话历史增长或压缩
             try
             {
@@ -943,11 +857,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         }
                         catch { }
                         Logger.Error($"[API] HTTP {statusCode} 是客户端错误，放弃重试。响应: {respSnippet}");
-                        // ── 即使 HTTP 400 也 dump 请求体，便于诊断请求结构问题 ──
-                        // DumpRequestToDisk(requestJson, requestBodyBytes.Length,
-                        //     0, 0, 0, 0,
-                        //     request.Messages.Count, tools?.Count ?? 0,
-                        //     $"HTTP {statusCode}: {respSnippet}");
                         throw;
                     }
 
@@ -968,6 +877,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     double backoff = Math.Pow(2, sendAttempt - 1);
                     Logger.Warn($"[API] HTTP {statusCode} 请求失败 (尝试 {sendAttempt + 1}/{maxSendAttempts})，{backoff}s 后重试…"
                         + (responseBody != null ? $"\n[API] 响应: {responseBody}" : ""));
+                    // ── 真正等待退避（与超时分支一致）；此前只打日志不等待，4 次请求零间隔连发 ──
+                    await Task.Delay(TimeSpan.FromSeconds(backoff), cancellationToken);
                 }
                 catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested && sendAttempt < maxSendAttempts - 1)
                 {
@@ -1003,7 +914,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     int cacheableTotal = hit + miss;
                     if (cacheableTotal <= 0)
                     {
-                        Logger.Info($"[Cache] ⚪ API调用完成: 无可缓存数据 (prompt {LastUsage.PromptTokens:N0} tokens)");
+                        Logger.Info($"[Cache]  API调用完成: 无可缓存数据 (prompt {LastUsage.PromptTokens:N0} tokens)");
                         return;
                     }
 
@@ -1014,18 +925,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     int msg0TokenEstimate = msg0Length / bytesPerToken;
                     string missBoundary;
                     if (msg0Length > 0 && hit >= msg0TokenEstimate * 0.8)
-                        missBoundary = $"✅ messages[0] 命中 → miss 在对话历史/动态块之后";
+                        missBoundary = $"messages[0] 命中 → miss 在对话历史/动态块之后";
                     else if (msg0Length > 0)
-                        missBoundary = $"🔴 messages[0] 未完全命中！命中={hit} tokens, messages[0]≈{msg0TokenEstimate} tokens → SharedImmutablePrefix 可能已变化";
+                        missBoundary = $"messages[0] 未完全命中！命中={hit} tokens, messages[0]≈{msg0TokenEstimate} tokens → SharedImmutablePrefix 可能已变化";
                     else
                         missBoundary = "（无分段数据）";
 
                     Logger.Info($"[Cache] {level} API调用完成: 命中率={rate * 100:F1}% (命中 {hit:N0} / 未命中 {miss:N0} / 可缓存 {cacheableTotal:N0} / prompt {LastUsage.PromptTokens:N0} tokens)\n" +
                         $"        ↳ 边界: {missBoundary}");
-
-                        // DumpRequestToDisk(requestJson, requestBodyBytes.Length,
-                        //     hit, miss, cacheableTotal, rate,
-                        //     request.Messages.Count, tools?.Count ?? 0);
                     }
                 catch (Exception ex)
                 {
@@ -1084,7 +991,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 try
                 {
                     var chunk = JsonSerializer.Deserialize<DeepSeekStreamChunk>(jsonData);
-                    var delta = chunk?.Choices?[0]?.Delta;
+                    // P3-7：空 choices 数组（如仅携带 usage 的尾包）会令索引器抛
+                    // ArgumentOutOfRangeException 且不在下方 catch 白名单内，直接击穿流迭代器。
+                    var delta = chunk?.Choices is { Count: > 0 } ? chunk.Choices[0]?.Delta : null;
                     if (delta != null)
                     {
                         reasoning = delta.ReasoningContent;
@@ -1240,6 +1149,32 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 深克隆一条消息（连同 ToolCalls / MultimodalContent 内元素一并新建）。
+        /// 用于保证 API 消息清理（Rule5/6、ReasoningContent 注入）只改动克隆对象，
+        /// 绝不污染调用方（ConversationContextManager）持有的消息实例。
+        /// </summary>
+        internal static ChatApiMessage CloneMessage(ChatApiMessage m)
+        {
+            return new ChatApiMessage
+            {
+                Role = m.Role,
+                Content = m.Content,
+                MultimodalContent = m.MultimodalContent == null ? null : new List<ChatContentPart>(m.MultimodalContent),
+                ReasoningContent = m.ReasoningContent,
+                ToolCalls = m.ToolCalls?.Select(tc => new ToolCall
+                {
+                    Id = tc.Id,
+                    Type = tc.Type,
+                    Function = tc.Function == null
+                        ? new ToolCallFunction()
+                        : new ToolCallFunction { Name = tc.Function.Name, Arguments = tc.Function.Arguments },
+                }).ToList(),
+                ToolCallId = m.ToolCallId,
+                Name = m.Name,
+            };
+        }
+
+        /// <summary>
         /// 非流式调用 API，用于搜索查询优化等需要快速完整响应的场景。
         /// </summary>
         /// <param name="messages">消息列表</param>
@@ -1254,7 +1189,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             var request = new DeepSeekChatRequest
             {
                 Model = _model,
-                Messages = new List<ChatApiMessage>(messages),
+                // P1-3 修复：非流式路径同样深克隆，避免对调用方消息对象就地修改（ReasoningContent 注入）
+                Messages = messages.Select(m => CloneMessage(m)).ToList(),
                 Stream = false,
                 Thinking = new ThinkingControl { Type = "disabled" },
                 ReasoningEffort = null,
@@ -1295,7 +1231,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 AccumulateStats(result.Usage);
             }
 
-            return result?.Choices?[0]?.Message?.Content ?? string.Empty;
+            // P3-7：空 choices 数组防索引越界（与流式路径同一守卫）
+            return result?.Choices is { Count: > 0 } ? result.Choices[0]?.Message?.Content ?? string.Empty : string.Empty;
         }
 
         /// <summary>
@@ -1347,7 +1284,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 AccumulateFimStats(result.Usage);
             }
 
-            return result?.Choices?[0]?.Text ?? string.Empty;
+            return result?.Choices is { Count: > 0 } ? result.Choices[0]?.Text ?? string.Empty : string.Empty;
         }
 
         /// <summary>

@@ -187,7 +187,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     var errorText = string.Join("\n", result.Content.Select(c => c.Text));
                     Logger.Error($"[MCP] 工具 '{toolName}' 返回错误: {errorText}");
-                    return $"❌ 工具调用错误: {errorText}";
+                    return $"Error: 工具调用错误: {errorText}";
                 }
 
                 // 提取文本内容
@@ -200,7 +200,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             catch (Exception ex)
             {
                 Logger.Error($"[MCP] 工具 '{toolName}' 调用异常: {ex.Message}", ex);
-                return $"❌ 工具调用异常: {ex.Message}";
+                return $"Error: 工具调用异常: {ex.Message}";
             }
         }
 

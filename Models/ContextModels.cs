@@ -27,6 +27,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>对话轮次数（user 消息数）</summary>
         public int TurnCount { get; set; }
 
+        /// <summary>当前上下文中 assistant 消息携带的工具调用次数</summary>
+        public int ToolCallCount { get; set; }
+
         /// <summary>已压缩的轮次数</summary>
         public int CompressedTurns { get; set; }
 
@@ -48,6 +51,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
             return $"=== 上下文统计 ===\n" +
                    $"Token: {EstimatedTokens:N0} / {TokenBudget:N0} ({UsagePercent:F1}%)\n" +
                    $"消息数: {MessageCount} | 轮次: {TurnCount} | 已压缩轮次: {CompressedTurns}\n" +
+                   $"工具调用次数: {ToolCallCount}\n" +
                    $"系统提示词: {SystemPromptTokens:N0} tokens\n" +
                    $"工具结果: {ToolResultTokens:N0} tokens\n" +
                    $"压缩摘要: {CompressedSummaryTokens:N0} tokens\n" +

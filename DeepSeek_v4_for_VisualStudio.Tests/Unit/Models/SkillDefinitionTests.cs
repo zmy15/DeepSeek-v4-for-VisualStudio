@@ -109,19 +109,19 @@ public class SkillDefinitionTests
     }
 
     [Fact]
-    public void SkillDefinition_GetCompactInstructions_WithEmojiAtCutPoint_NoLongerTruncates()
+    public void SkillDefinition_GetCompactInstructions_WithMultibyteCharAtCutPoint_NoLongerTruncates()
     {
         var skill = new SkillDefinition
         {
             Name = "test",
             Description = "Test",
-            Body = new string('A', 98) + "😀" + new string('B', 200),
+            Body = new string('A', 98) + "中文" + new string('B', 200),
         };
 
         var compact = skill.GetCompactInstructions(100);
 
-        // 不再截断，emoji 字符完整保留
-        compact.Should().Contain("😀");
+        // 不再截断，多字节字符完整保留
+        compact.Should().Contain("中文");
         compact.Should().NotContain("truncated");
     }
 
@@ -147,10 +147,10 @@ public class SkillDefinitionTests
         var item = new SkillSuggestionItem
         {
             Name = "code-review",
-            Source = "📁 项目",
+            Source = " 项目",
         };
 
-        item.DisplayText.Should().Be("/code-review  📁 项目");
+        item.DisplayText.Should().Be("/code-review   项目");
     }
 
     [Fact]

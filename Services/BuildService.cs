@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Utils;
+using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
@@ -195,7 +195,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     {
                         Logger.Warn($"[BuildService] 终止进程失败: {killEx.Message}");
                     }
-                    return LocalizationService.Instance["build.cancelled"];
+                    return "Timeout: " + LocalizationService.Instance["build.cancelled"];
                 }
             }
             catch (Exception ex)
@@ -270,7 +270,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             int lastBuildInfo = solutionBuild.LastBuildInfo;
             if (lastBuildInfo == 0)
             {
-                Logger.Info("[BuildService] ✅ 构建成功");
+                Logger.Info("[BuildService]  构建成功");
                 return LocalizationService.Instance["build.dteSuccess"];
             }
 
@@ -344,7 +344,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 if (!completed)
                 {
-                    Logger.Warn("[BuildService] ⚠️ 构建超时（5 分钟）");
+                    Logger.Warn("[BuildService]  构建超时（5 分钟）");
                     return LocalizationService.Instance["build.timeout"];
                 }
 
@@ -424,14 +424,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     dte, solutionBuild, needStart: true, ct, TimeSpan.FromMinutes(5));
                 if (!buildCompleted)
                 {
-                    Logger.Warn("[BuildService] ⚠️ DTE 构建等待超时");
+                    Logger.Warn("[BuildService]  DTE 构建等待超时");
                     return LocalizationService.Instance["build.timeout"];
                 }
                 bool buildSuccess = solutionBuild.LastBuildInfo == 0;
 
                 if (buildSuccess)
                 {
-                    Logger.Info("[BuildService] ✅ DTE 构建成功");
+                    Logger.Info("[BuildService]  DTE 构建成功");
                     return LocalizationService.Instance["build.dteSuccess"];
                 }
 
@@ -455,24 +455,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 0 个项目被构建：CMake / Open Folder 项目可能不被 IVsSolutionBuildManager 支持 ──
             if (succeeded == 0 && failed == 0 && cancelled == 0)
             {
-                Logger.Info("[BuildService] ⚠️ IVsSolutionBuildManager 未构建任何项目（可能是 CMake/Open Folder），回退到 DTE");
+                Logger.Info("[BuildService]  IVsSolutionBuildManager 未构建任何项目（可能是 CMake/Open Folder），回退到 DTE");
                 return null!; // 返回 null 触发回退到 DTE
             }
 
             if (failed == 0 && cancelled == 0)
             {
-                Logger.Info($"[BuildService] ✅ 构建成功 ({succeeded} 个项目)");
+                Logger.Info($"[BuildService]  构建成功 ({succeeded} 个项目)");
                 return string.Format(LocalizationService.Instance["build.projectsPassed"], succeeded);
             }
 
             if (cancelled != 0)
             {
-                Logger.Info("[BuildService] ⚠️ 构建已取消");
-                return LocalizationService.Instance["build.cancelled"];
+                Logger.Info("[BuildService]  构建已取消");
+                return "Timeout: " + LocalizationService.Instance["build.cancelled"];
             }
 
             var fullResult = new StringBuilder();
-            fullResult.AppendLine(string.Format(LocalizationService.Instance["build.projectsFailed"], failed));
+            fullResult.AppendLine("Error: " + string.Format(LocalizationService.Instance["build.projectsFailed"], failed));
             fullResult.Append(FormatBuildErrorResult());
             string resultStr = fullResult.ToString();
             Logger.Info($"[BuildService] MSBuild 构建失败, {failed} 个项目失败, 输出长度={resultStr.Length}");
@@ -766,6 +766,52 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             return results;
         }
+
+        /// <summary>
+        /// 读取 Error List 全部当前错误项（结构化，非选中集）。
+        /// SVsErrorList 服务对象同时实现 IVsTaskList —— 经 EnumTaskItems 枚举全部条目，
+        /// 复用选中项的结构化提取器；结果上限截断防刷屏。
+        /// </summary>
+        public async Task<List<ErrorListItem>> GetAllErrorsAsync(CancellationToken ct)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
+
+            var results = new List<ErrorListItem>();
+
+            try
+            {
+                var svc = ServiceProvider.GlobalProvider.GetService(typeof(SVsErrorList));
+                if (svc == null)
+                {
+                    Logger.Info("[BuildService] SVsErrorList 服务不可用，无法枚举全部错误项");
+                    return results;
+                }
+
+                if (svc is IVsTaskList classicTaskList)
+                {
+                    classicTaskList.EnumTaskItems(out IVsEnumTaskItems? enumAll);
+                    if (enumAll != null)
+                        results = CollectTaskItemsFromEnum(enumAll);
+                }
+                else
+                {
+                    Logger.Info("[BuildService] SVsErrorList 未实现 IVsTaskList，无法枚举全部错误项");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BuildService] 枚举全部错误项失败: {ex.Message}");
+            }
+
+            if (results.Count > MaxAllErrorsToReturn)
+            {
+                results = results.GetRange(0, MaxAllErrorsToReturn);
+            }
+            return results;
+        }
+
+        /// <summary>GetAllErrorsAsync 返回上限（防异常海量条目刷爆上下文）。</summary>
+        private const int MaxAllErrorsToReturn = 200;
 
         /// <summary>
         /// 从 IVsEnumTaskItems 枚举器中收集所有错误项的结构化信息。
@@ -1334,7 +1380,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 Logger.Info("[BuildService] DTE 回退：构建已被取消");
                 try { dte?.ExecuteCommand("Build.Cancel"); } catch { }
-                return LocalizationService.Instance["build.cancelled"];
+                return "Timeout: " + LocalizationService.Instance["build.cancelled"];
             }
             catch (Exception ex)
             {
@@ -1491,14 +1537,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             public int UpdateSolution_Begin(ref int pfCancelUpdate)
             {
-                Logger.Info($"[BuildEvents] 🔨 UpdateSolution_Begin (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                Logger.Info($"[BuildEvents]  UpdateSolution_Begin (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
                 pfCancelUpdate = 0;
                 return VSConstants.S_OK;
             }
 
             public int UpdateSolution_StartUpdate(ref int pfCancelUpdate)
             {
-                Logger.Info($"[BuildEvents] 🔨 UpdateSolution_StartUpdate (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                Logger.Info($"[BuildEvents]  UpdateSolution_StartUpdate (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
                 pfCancelUpdate = 0;
                 return VSConstants.S_OK;
             }
@@ -1506,7 +1552,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             public int UpdateSolution_Done(int fSucceeded, int fModified, int fCancelCommand)
             {
                 Volatile.Write(ref _completed, true);
-                Logger.Info($"[BuildEvents] 🏁 UpdateSolution_Done: Succeeded={fSucceeded}, Modified={fModified}, Cancelled={fCancelCommand}, Projects={_projectCount} (ok={_projectSucceeded}, fail={_projectFailed}), Elapsed={_sw.Elapsed.TotalSeconds:F1}s");
+                Logger.Info($"[BuildEvents]  UpdateSolution_Done: Succeeded={fSucceeded}, Modified={fModified}, Cancelled={fCancelCommand}, Projects={_projectCount} (ok={_projectSucceeded}, fail={_projectFailed}), Elapsed={_sw.Elapsed.TotalSeconds:F1}s");
                 if (fCancelCommand != 0) _cancelled = 1;
                 else if (fSucceeded != 0) _succeeded = 1;
                 else _failed = 1;
@@ -1519,13 +1565,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 IVsCfg pCfgSln, uint dwProjectCfgOfInterest, uint dwCopyFlags, int fCancel)
             {
                 Interlocked.Increment(ref _projectCount);
-                Logger.Info($"[BuildEvents] 📦 StartUpdateProjectCfg #{_projectCount} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                Logger.Info($"[BuildEvents]  StartUpdateProjectCfg #{_projectCount} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
                 return VSConstants.S_OK;
             }
 
             public int UpdateSolution_Cancel()
             {
-                Logger.Warn($"[BuildEvents] ⚠️ UpdateSolution_Cancel (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                Logger.Warn($"[BuildEvents]  UpdateSolution_Cancel (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
                 _cancelled = 1;
                 _tcs.TrySetResult(true);
                 return VSConstants.S_OK;
@@ -1533,7 +1579,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             public int OnActiveProjectCfgChange(IVsHierarchy pHierarchy)
             {
-                Logger.Info($"[BuildEvents] 🔄 OnActiveProjectCfgChange (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                Logger.Info($"[BuildEvents]  OnActiveProjectCfgChange (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
                 return VSConstants.S_OK;
             }
 
@@ -1543,21 +1589,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             public int UpdateSolution_Begin2(ref int pfCancelUpdate)
             {
-                Logger.Info($"[BuildEvents] 🔨 UpdateSolution_Begin2 (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                Logger.Info($"[BuildEvents]  UpdateSolution_Begin2 (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
                 pfCancelUpdate = 0;
                 return VSConstants.S_OK;
             }
 
             public int UpdateSolution_StartUpdate2(ref int pfCancelUpdate)
             {
-                Logger.Info($"[BuildEvents] 🔨 UpdateSolution_StartUpdate2 (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                Logger.Info($"[BuildEvents]  UpdateSolution_StartUpdate2 (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
                 pfCancelUpdate = 0;
                 return VSConstants.S_OK;
             }
 
             public int UpdateSolution_Done2(int fSucceeded, int fModified, int fCancelCommand, string? pszUpdatedProjects)
             {
-                Logger.Info($"[BuildEvents] 🏁 UpdateSolution_Done2: Succeeded={fSucceeded}, Modified={fModified}, Cancelled={fCancelCommand}, UpdatedProjects={pszUpdatedProjects ?? "(none)"}, Elapsed={_sw.Elapsed.TotalSeconds:F1}s");
+                Logger.Info($"[BuildEvents]  UpdateSolution_Done2: Succeeded={fSucceeded}, Modified={fModified}, Cancelled={fCancelCommand}, UpdatedProjects={pszUpdatedProjects ?? "(none)"}, Elapsed={_sw.Elapsed.TotalSeconds:F1}s");
                 // Done2 在 Done 之前触发，不重复设置 _tcs
                 return VSConstants.S_OK;
             }
@@ -1566,7 +1612,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 ref int pfCancel, IVsHierarchy pHierProj, IVsCfg pCfgProj,
                 IVsCfg pCfgSln, uint dwProjectCfgOfInterest, uint dwCopyFlags, int fCancel)
             {
-                Logger.Info($"[BuildEvents] 📦 StartUpdateProjectCfg2 #{_projectCount} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                Logger.Info($"[BuildEvents]  StartUpdateProjectCfg2 #{_projectCount} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
                 return VSConstants.S_OK;
             }
 
@@ -1577,13 +1623,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     Interlocked.Increment(ref _projectSucceeded);
                 else if (fCancelCommand == 0)
                     Interlocked.Increment(ref _projectFailed);
-                Logger.Info($"[BuildEvents] 📦 ProjectUpdateDone: Succeeded={fSucceeded}, Project={pszProject ?? "(unknown)"}, Accumulated(ok={_projectSucceeded}, fail={_projectFailed})");
+                Logger.Info($"[BuildEvents]  ProjectUpdateDone: Succeeded={fSucceeded}, Project={pszProject ?? "(unknown)"}, Accumulated(ok={_projectSucceeded}, fail={_projectFailed})");
                 return VSConstants.S_OK;
             }
 
             public int OnActiveProjectCfgChange2(IVsHierarchy pHierarchy, string? pszActiveConfig)
             {
-                Logger.Info($"[BuildEvents] 🔄 OnActiveProjectCfgChange2: Config={pszActiveConfig ?? "(none)"}");
+                Logger.Info($"[BuildEvents]  OnActiveProjectCfgChange2: Config={pszActiveConfig ?? "(none)"}");
                 return VSConstants.S_OK;
             }
 
@@ -1595,7 +1641,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 IVsHierarchy pHierProj, IVsCfg pCfgProj, IVsCfg pCfgSln,
                 uint dwAction, ref int pfCancel)
             {
-                Logger.Info($"[BuildEvents] 📦 UpdateProjectCfg_Begin: Action={dwAction} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                Logger.Info($"[BuildEvents]  UpdateProjectCfg_Begin: Action={dwAction} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
                 return VSConstants.S_OK;
             }
 
@@ -1603,7 +1649,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 IVsHierarchy pHierProj, IVsCfg pCfgProj, IVsCfg pCfgSln,
                 uint dwAction, int fSuccess, int fCancel)
             {
-                Logger.Info($"[BuildEvents] 📦 UpdateProjectCfg_Done: Action={dwAction}, Success={fSuccess}, Cancel={fCancel} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
+                Logger.Info($"[BuildEvents]  UpdateProjectCfg_Done: Action={dwAction}, Success={fSuccess}, Cancel={fCancel} (elapsed={_sw.Elapsed.TotalSeconds:F1}s)");
                 return VSConstants.S_OK;
             }
 

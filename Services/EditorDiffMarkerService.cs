@@ -193,6 +193,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 SaveBehavior = ProposalSaveBehavior.KeepDocumentDirty,
             };
 
+            // ── 同一文档已有活跃写穿会话（AI 在预览期间再次编辑同一文件）→ 原地刷新 ──
+            // 旧会话的 Baseline / Hunks 已过期，直接创建会被单文档单 Session 约束拒绝。
+            if (workspace != null &&
+                _sessionManager.TryGetSession(textView.TextBuffer, out var existingSession) &&
+                existingSession != null)
+            {
+                RefreshWriteThroughSession(existingSession, change, workspace, textView.TextBuffer);
+                Logger.Info($"[EditorDiff] Inline Diff Session 已刷新: {existingSession.SessionId.Substring(0, 8)} ({Path.GetFileName(filePath)})");
+                return existingSession;
+            }
+
             // 创建 Session
             var session = _sessionManager.CreateSession(textView, change);
 
@@ -238,6 +249,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Logger.Info($"[EditorDiff] Inline Diff Session 已创建: {session.SessionId.Substring(0, 8)} ({Path.GetFileName(filePath)})");
 
             return session;
+        }
+
+        /// <summary>
+        /// 原地刷新已有写穿会话：把撤销追踪移交新 Workspace、替换变更内容，
+        /// 并通过 EditorDiffHost 重建只读视图与 hunk 按钮。
+        /// </summary>
+        private void RefreshWriteThroughSession(
+            InlineDiffSession session,
+            PreparedChangeSet change,
+            Editing.StagedEditWorkspace workspace,
+            ITextBuffer buffer)
+        {
+            var oldWorkspace = session.Workspace;
+            if (oldWorkspace != null && !ReferenceEquals(oldWorkspace, workspace))
+                oldWorkspace.DiscardFile(change.FilePath);
+
+            session.ReplaceChange(change);
+            session.Workspace = workspace;
+
+            lock (_editorHostsLock)
+            {
+                if (_editorHosts.TryGetValue(buffer, out var editorHost))
+                    editorHost.RefreshSession(session);
+            }
         }
 
         /// <summary>

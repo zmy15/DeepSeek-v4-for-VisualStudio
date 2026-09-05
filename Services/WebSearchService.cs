@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Utils;
+using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -18,7 +18,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// 联网搜索服务。
     /// 搜索优先级：百度千帆 API（需 API Key）→ Bing API（需 Azure Key）→ DuckDuckGo（免费备用）。
     ///
-    /// ⚠️ 计费提醒：
+    ///  计费提醒：
     /// - 百度搜索：每月免费 1500 次（约每天 50 次），超出后按量后付费
     ///   详情: https://cloud.baidu.com/doc/qianfan/s/Mmh4sv6ec
     /// - Bing 搜索：每月免费 1000 次（S1 免费层），超出后按量付费
@@ -272,10 +272,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 var r = results[i];
                 sb.AppendLine($"[{i + 1}] {r.Title}");
-                sb.AppendLine($"    URL: {r.Url}");
-                sb.AppendLine($"    摘要: {r.Snippet}");
+                sb.AppendLine($"URL: {r.Url}");
+                sb.AppendLine($"摘要: {r.Snippet}");
                 if (!string.IsNullOrWhiteSpace(r.Date))
-                    sb.AppendLine($"    日期: {r.Date}");
+                    sb.AppendLine($"日期: {r.Date}");
                 sb.AppendLine();
             }
 

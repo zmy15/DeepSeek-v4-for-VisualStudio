@@ -583,5 +583,71 @@ public class BackupServiceTests : IDisposable
         backupFilename.Should().Be(originalFilename);
     }
 
+    // —— 保留期清扫（CleanupExpiredSessions）——
+
+    [Fact]
+    public void Cleanup_RemovesOnlyExpiredSessionDirectories()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"retention_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        var oldDir = Path.Combine(root, "20200101_000000");
+        var newDir = Path.Combine(root, "20990101_000000");
+        Directory.CreateDirectory(oldDir);
+        Directory.CreateDirectory(newDir);
+        File.WriteAllText(Path.Combine(oldDir, "keep.txt"), "x"); // 非空目录才会被清扫
+        Directory.SetLastWriteTimeUtc(oldDir, DateTime.UtcNow.AddDays(-30));
+
+        try
+        {
+            
+
+            var removed = BackupService.CleanupExpiredSessions(14, root);
+
+            removed.Should().Be(1);
+            Directory.Exists(oldDir).Should().BeFalse("过期会话应被清扫");
+            Directory.Exists(newDir).Should().BeTrue("未过期会话应保留");
+        }
+        finally
+        {
+            
+            if (Directory.Exists(newDir)) Directory.Delete(newDir, true);
+        }
+    }
+
+    [Fact]
+    public void Cleanup_ActiveSessionDirectory_IsNeverRemoved()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"retention_active_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var activeSession = Path.Combine(root, "20000101_000000");
+        Directory.CreateDirectory(activeSession);
+        File.WriteAllText(Path.Combine(activeSession, "f.txt"), "x");
+        Directory.SetLastWriteTimeUtc(activeSession, DateTime.UtcNow.AddDays(-30));
+
+        var prevSession = BackupService.CurrentSessionDir;
+        try
+        {
+            // 模拟"当前活跃会话"：即便时间戳极旧也不得清扫
+            typeof(BackupService)
+                .GetField("_currentSessionDir", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                .SetValue(null, activeSession);
+            
+
+            var removed = BackupService.CleanupExpiredSessions(14, root);
+
+            removed.Should().Be(0, "活跃会话目录不得被清扫");
+            Directory.Exists(activeSession).Should().BeTrue();
+        }
+        finally
+        {
+            
+            typeof(BackupService)
+                .GetField("_currentSessionDir", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                .SetValue(null, prevSession);
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     #endregion
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
 {
@@ -10,8 +10,107 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         #region JavaScript Builders
 
         /// <summary>
+        /// Exposes localized labels for the diagnostic Context panel without leaking
+        /// source-code literals into the WebView DOM.
+        /// </summary>
+        private static string BuildContextDebugLabelsJs()
+        {
+            return "window.__ctxDebugLabels={" +
+                "title:" + EscapeJsString(L["chat.html.context.title"]) + "," +
+                "tokens:" + EscapeJsString(L["chat.html.context.tokens"]) + "," +
+                "injected:" + EscapeJsString(L["chat.html.context.injected"]) + "," +
+                "characters:" + EscapeJsString(L["chat.html.context.characters"]) + "," +
+                "search:" + EscapeJsString(L["chat.html.context.search"]) + "," +
+                "file:" + EscapeJsString(L["chat.html.context.file"]) + "," +
+                "selection:" + EscapeJsString(L["chat.html.context.selection"]) + "," +
+                "cursor:" + EscapeJsString(L["chat.html.context.cursor"]) + "," +
+                "symbol:" + EscapeJsString(L["chat.html.context.symbol"]) + "," +
+                "diagnostics:" + EscapeJsString(L["chat.html.context.diagnostics"]) + "," +
+                "errors:" + EscapeJsString(L["chat.html.context.errors"]) + "," +
+                "warnings:" + EscapeJsString(L["chat.html.context.warnings"]) + "," +
+                "off:" + EscapeJsString(L["chat.html.context.off"]) + "," +
+                "turns:" + EscapeJsString(L["chat.html.context.turns"]) + "," +
+                "messages:" + EscapeJsString(L["chat.html.context.messages"]) +
+                "," +
+                "toolCalls:" + EscapeJsString(L["chat.html.context.toolCalls"]) +
+                "};";
+        }
+
+        /// <summary>
         /// 声明 decorateCodeBlocks 函数（语言标签 + highlight.js 语法高亮 + 复制/应用按钮）。
         /// </summary>
+        /// <summary>
+        /// 渲染层 Emoji→Fluent 字形替换（P1 收口）：数据层保持原样，仅 DOM 文本节点做视觉替换。
+        /// 命中映射表的转为 Fluent 图标；未映射的装饰性 emoji 移除。
+        /// 用户消息气泡跳过清理，用户输入的 emoji 必须原样显示。
+        /// MutationObserver 覆盖一切动态插入（工具行/任务面板/页脚等）。
+        /// </summary>
+        private static string BuildDetoxEmojisJs()
+        {
+            return @"
+(function(){
+    var MAP={'✅':'E73E','✔':'E73E','❌':'E711','⚠️':'E7BA','⚠':'E7BA','ℹ️':'E946',
+             '🔍':'E721','🔎':'E721','📝':'E70F','📋':'E8C8','💡':'EA80','📁':'E8B7',
+             '📂':'E8B7','📦':'E8B7','💻':'E756','🌐':'E774','🔄':'E72C','⏳':'E81C',
+             '⏱️':'E81C','🚀':'E945','🧠':'E81C','📄':'E8A5','📎':'E723','🗑️':'E74D',
+             '🎯':'E945','📊':'E9D2','🔧':'E90F','⚙️':'E713','🔌':'E713','💬':'E8BD',
+             '📷':'E722','🖼️':'E7C3','⚡':'E945'};
+    var RE=/[\uD83C-\uDBFF][\uDC00-\uDFFF]|[\u2139\u2300-\u23FF\u2460-\u24FF\u2600-\u27BF\u2B00-\u2BFF\u2900-\u297F]\uFE0F?|[\u2190-\u21FF\u25A0-\u25FF]\uFE0F/g;
+    function detoxText(node){
+        var text=node.nodeValue;
+        RE.lastIndex=0;
+        if(!RE.test(text))return;
+        var frag=document.createDocumentFragment();
+        var last=0,m;
+        RE.lastIndex=0;
+        while((m=RE.exec(text))!==null){
+            if(m.index>last)frag.appendChild(document.createTextNode(text.slice(last,m.index)));
+            var glyph=MAP[m[0]];
+            if(glyph){
+                var sp=document.createElement('span');
+                sp.className='icf';
+                sp.textContent=String.fromCodePoint(parseInt(glyph,16));
+                frag.appendChild(sp);
+            }
+            last=m.index+m[0].length;
+        }
+        if(last<text.length)frag.appendChild(document.createTextNode(text.slice(last)));
+        node.parentNode.replaceChild(frag,node);
+    }
+    function detox(root){
+        if(!root)return;
+        var w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null,false);
+        var targets=[];
+        while(w.nextNode()){
+            var p=w.currentNode.parentNode;
+            if(p&&p.closest&&p.closest('pre,code,.icf,.cache-stat-card,.msg-bubble.user'))continue;
+            targets.push(w.currentNode);
+        }
+        for(var i=0;i<targets.length;i++)detoxText(targets[i]);
+    }
+    function scheduleDetox(el){
+        if(!el)return;
+        if(el.__detoxPending)return;
+        el.__detoxPending=true;
+        requestAnimationFrame(function(){el.__detoxPending=false;detox(el);});
+    }
+    document.addEventListener('DOMContentLoaded',function(){
+        var cc=document.getElementById('chat-container');
+        scheduleDetox(cc);
+        if(cc&&window.MutationObserver){
+            new MutationObserver(function(muts){
+                for(var i=0;i<muts.length;i++){
+                    var added=muts[i].addedNodes;
+                    for(var j=0;j<added.length;j++)
+                        if(added[j].nodeType===1)scheduleDetox(added[j]);
+                }
+            }).observe(cc,{childList:true,subtree:true});
+        }
+    });
+})();
+";
+        }
+
         private static string BuildDecorateCodeBlocksJsFunction()
         {
             return @"
@@ -27,6 +126,7 @@ window.decorateCodeBlocks=function(container){
             var m=code.className.match(/language-(\w+)/);
             if(m)lang=m[1];
         }
+        if(lang==='mermaid')return;
         if(lang){
             var label=document.createElement('span');
             label.className='code-lang';
@@ -39,7 +139,7 @@ window.decorateCodeBlocks=function(container){
         // Copy button
         var copyBtn=document.createElement('button');
         copyBtn.className='copy-btn';
-        copyBtn.textContent='📋 Copy';
+        copyBtn.textContent='\uE8C8 Copy';copyBtn.style.fontFamily=""'Segoe Fluent Icons','Segoe MDL2 Assets'"";
         copyBtn.onclick=function(){
             var target=pre.querySelector('code')||pre;
             var text=target.innerText,ok=false;
@@ -52,8 +152,8 @@ window.decorateCodeBlocks=function(container){
                 try{document.execCommand('copy');ok=true;}catch(e){}
                 document.body.removeChild(ta);
             }
-            if(ok){copyBtn.textContent='✓ Copied';copyBtn.style.background='#1a3a1a';copyBtn.style.color='#6cd96c';}
-            setTimeout(function(){copyBtn.textContent='📋 Copy';copyBtn.style.background='';copyBtn.style.color='';},2000);
+            if(ok){copyBtn.textContent='Copied';copyBtn.style.background='#1a3a1a';copyBtn.style.color='#6cd96c';}
+            setTimeout(function(){copyBtn.textContent='\uE8C8 Copy';copyBtn.style.fontFamily=""'Segoe Fluent Icons','Segoe MDL2 Assets'"";copyBtn.style.background='';copyBtn.style.color='';},2000);
         };
         pre.appendChild(copyBtn);
     });
@@ -117,7 +217,15 @@ window.__renderMath=function(container){
         {
             return @"
 window.__renderMermaid=function(container){
-    if(!container||typeof mermaid==='undefined')return;
+    if(!container)return;
+    if(typeof mermaid==='undefined'){
+        if(!window.__mermaidRetryCount)window.__mermaidRetryCount=0;
+        if(window.__mermaidRetryCount<20){
+            window.__mermaidRetryCount++;
+            setTimeout(function(){window.__renderMermaid(container);},500);
+        }
+        return;
+    }
     try{
         var codes=container.querySelectorAll('code.language-mermaid');
         for(let i=0;i<codes.length;i++){
@@ -273,6 +381,9 @@ window.__editMessage=function(msgIndex){
 window.__editMessageConfirm=function(msgIndex,newText){
     window.__sendToHost({type:'editMessageConfirm',messageIndex:msgIndex,text:newText});
 };
+window.__loadEarlier=function(){
+    window.__sendToHost({type:'loadEarlier'});
+};
 window.__editMessageCancel=function(msgIndex){
     window.__sendToHost({type:'editMessageCancel',messageIndex:msgIndex});
 };
@@ -359,14 +470,17 @@ window.__copyMessage=function(msgIndex){
 window._showCopyFeedback=function(msgIndex){
     var btn=document.getElementById('copy-btn-'+msgIndex);
     if(!btn)return;
+    var copyLabel=btn.getAttribute('data-copy-label')||'Copy';
+    var copiedLabel=btn.getAttribute('data-copied-label')||'Copied';
     btn.classList.add('copied');
-    btn.textContent='✓';
+    btn.textContent=copiedLabel;
+    btn.style.fontFamily='';
     btn.style.position='';
     setTimeout(function(){
         btn.classList.remove('copied');
-        btn.textContent='📋';
+        btn.textContent=copyLabel;btn.style.fontFamily='';
         btn.style.position='';
-    },2000);
+    },1200);
 };
 
 // ═══════════════════════════════════════════════
@@ -380,11 +494,70 @@ window._showCopyFeedback=function(msgIndex){
     var _rafPending=false;      // 是否已有待处理的 rAF
     var _rafTimer=null;         // 兜底定时器（防止 rAF 不触发）
 
+    // ═══ Context Debugger 面板（P2，序号 20 渲染层）═══
+    // 懒创建：首条 contextDebug 消息到达时注入固定抽屉（右上角，默认折叠）
+    function _ensureCtxPanel(){
+        var p=document.getElementById('ctx-debug');
+        if(p)return p;
+        p=document.createElement('div');
+        p.id='ctx-debug';
+        p.style.cssText='position:fixed;top:8px;right:12px;z-index:9999;background:#252526ee;'
+            +'border:1px solid #007ACC;border-radius:8px;font:11px/1.55 Consolas,monospace;'
+            +'color:#d4d4d4;max-width:340px;display:none;box-shadow:0 4px 14px rgba(0,0,0,.4);';
+        var head=document.createElement('div');
+        head.id='ctx-debug-head';
+        head.textContent=(window.__ctxDebugLabels||{}).title||'Context';
+        head.style.cssText='padding:4px 10px;cursor:pointer;user-select:none;color:#9CDCFE;';
+        var body=document.createElement('div');
+        body.id='ctx-debug-body';
+        body.style.cssText='display:none;padding:6px 10px 8px;border-top:1px solid #3f3f46;white-space:pre-wrap;';
+        head.addEventListener('click',function(){
+            var open=body.style.display!=='none';
+            body.style.display=open?'none':'block';
+            head.textContent=(window.__ctxDebugLabels||{}).title||'Context';
+        });
+        p.appendChild(head);p.appendChild(body);
+        document.body.appendChild(p);
+        return p;
+    }
+    function _renderCtxDebug(d){
+        try{
+            var panel=_ensureCtxPanel();
+            panel.style.display='block';
+            var t=window.__ctxDebugLabels||{};
+            var rows=[];
+            var tk=d.tokens||{};
+            rows.push((t.tokens||'Tokens')+' : '+(tk.estimated||0).toLocaleString()+' / '+(tk.budget||0).toLocaleString()
+                +'  ('+(tk.percent!=null?tk.percent:0)+'%)');
+            var inj=d.injected||{};
+            rows.push((t.injected||'Injected')+' : IDE='+!!inj.ide+' ('+(inj.ideChars||0)+' '+(t.characters||'ch')+')'
+                +'  '+(t.search||'Search')+'='+!!inj.search+'  RAG='+!!inj.rag);
+            var ide=d.ideSnapshot;
+            if(ide){
+                rows.push((t.file||'File')+' : '+(ide.file||'-'));
+                if(ide.hasSelection)rows.push((t.selection||'Selection')+' : L'+ide.selectionStartLine+'-L'+ide.selectionEndLine);
+                rows.push((t.cursor||'Cursor')+' : L'+(ide.cursorLine||0)+(ide.symbol?('   '+(t.symbol||'Symbol')+': '+ide.symbol):''));
+                rows.push((t.diagnostics||'Diags')+' : '+(ide.errors||0)+' '+(t.errors||'err')+' / '+(ide.warnings||0)+' '+(t.warnings||'warn'));
+            }else{
+                rows.push('IDE : '+(t.off||'(off)'));
+            }
+            rows.push((t.turns||'Turns')+' : '+(d.turns||0)
+                +'    '+(t.messages||'Messages')+' : '+(d.messages||0)
+                +'    '+(t.toolCalls||'Tool Calls')+' : '+(d.toolCalls||0));
+            var body=document.getElementById('ctx-debug-body');
+            if(body)body.textContent=rows.join('\n');
+        }catch(err){ console.error('[DeepSeek] ctxDebug render:',err); }
+    }
+
     // 监听来自 C# 的流式更新消息
     if(window.chrome&&window.chrome.webview){
         window.chrome.webview.addEventListener('message',function(e){
             try{
                 var msg=typeof e.data==='string'?JSON.parse(e.data):e.data;
+                if(msg.type==='contextDebug'){
+                    _renderCtxDebug(msg.d||{});
+                    return;
+                }
                 if(msg.type==='stream'){
                     _streamBuf[msg.i]=msg;
                     if(!_rafPending){
@@ -397,7 +570,7 @@ window._showCopyFeedback=function(msgIndex){
                         },250);
                     }
                 }else if(msg.type==='streamEnd'){
-                    // ★ 先取消待处理的 rAF 和定时器，防止 _flushStreamBuf 覆盖已渲染的 Markdown
+                    // 先取消待处理的 rAF 和定时器，防止 _flushStreamBuf 覆盖已渲染的 Markdown
                     if(_rafTimer){clearTimeout(_rafTimer);_rafTimer=null;}
                     _rafPending=false;
                     delete _streamBuf[msg.i];  // 清除可能残留的流式缓冲，避免 textNode 覆盖 innerHTML
@@ -411,7 +584,7 @@ window._showCopyFeedback=function(msgIndex){
                         containerEl.style.whiteSpace = '';
                     }
 
-                    // ★ 渲染 Markdown（独立于 _flushStreamBuf，不受其异常影响）
+                    // 渲染 Markdown（独立于 _flushStreamBuf，不受其异常影响）
                     if (msg.html) {
                         try {
                             var container = containerEl;
@@ -450,7 +623,7 @@ window._showCopyFeedback=function(msgIndex){
                             // ── innerHTML 渲染失败时的降级：显示带样式的错误提示 ──
                             console.error('[DeepSeek] streamEnd render error:', renderErr);
                             if (containerEl) {
-                                containerEl.innerHTML = '<div style=\'padding:12px;border-left:3px solid #e07878;background:#2a1a1a;color:#e07878;font-size:12px\'>⚠️ Markdown 渲染失败，请刷新页面重试。原始内容已保留在下方。</div>' +
+                                containerEl.innerHTML = '<div style=\'padding:12px;border-left:3px solid #e07878;background:#2a1a1a;color:#e07878;font-size:12px\'>Markdown 渲染失败，请刷新页面重试。原始内容已保留在下方。</div>' +
                                     '<pre style=\'max-height:300px;overflow-y:auto;font-size:11px;margin-top:8px\'>' +
                                     (msg.rawContent||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') +
                                     '</pre>';
@@ -464,32 +637,44 @@ window._showCopyFeedback=function(msgIndex){
                             var retryBtn=document.createElement('button');
                             retryBtn.id='retry-btn-'+msg.i;
                             retryBtn.className='msg-action-btn retry-btn';
-                            retryBtn.textContent='↻';
+                            retryBtn.textContent=msg.retryLabel||'Retry';
                             retryBtn.title=msg.retryTitle||'Regenerate response';
                             retryBtn.onclick=function(){window.__retryMessage(msg.i);};
-                            var msgBody=document.getElementById('msg-body-'+msg.i);
-                            if(msgBody)msgBody.parentNode.insertBefore(retryBtn,msgBody.nextSibling);
+                            var row=document.querySelector('#msg-'+msg.i+' .msg-actions-row');
+                            if(!row){row=document.createElement('div');row.className='msg-actions-row';
+                                var bubble=msgDiv2.querySelector('.msg-bubble')||msgDiv2;
+                                bubble.appendChild(row);}
+                            row.insertBefore(retryBtn,row.firstChild);
                         }
                         if(msgDiv2&&!document.getElementById('copy-btn-'+msg.i)){
                             var copyBtn=document.createElement('button');
                             copyBtn.id='copy-btn-'+msg.i;
                             copyBtn.className='msg-action-btn copy-msg-btn';
-                            copyBtn.textContent='📋';
+                            copyBtn.textContent=msg.copyBtn||'Copy';
                             copyBtn.title=msg.copyLabel||'Copy this response';
+                            copyBtn.setAttribute('data-copy-label',msg.copyBtn||'Copy');
+                            copyBtn.setAttribute('data-copied-label',msg.copyFeedback||'Copied');
                             copyBtn.onclick=function(){window.__copyMessage(msg.i);};
-                            var msgBody2=document.getElementById('msg-body-'+msg.i);
-                            if(msgBody2)msgBody2.parentNode.insertBefore(copyBtn,msgBody2.nextSibling);
+                            var row2=document.querySelector('#msg-'+msg.i+' .msg-actions-row');
+                            if(row2)row2.appendChild(copyBtn);
+                            else{var mb=document.getElementById('msg-body-'+msg.i);
+                                if(mb)mb.parentNode.insertBefore(copyBtn,mb.nextSibling);}
                         }
                     } catch(btnErr) {
                         console.error('[DeepSeek] streamEnd button injection error:', btnErr);
                     }
-                    // ★ 清除状态栏文本
+                    // 清除状态栏文本
                     var st = document.getElementById('status-text');
                     if (st) st.textContent = '';
                 }else if(msg.type==='streamStatus'){
                     // 仅更新状态栏（避免额外通信）
                     var st=document.getElementById('status-text');
                     if(st&&msg.text)st.textContent=msg.text;
+                }else if(msg.type==='prependHtml'){
+                    var cc2=document.getElementById('chat-container');
+                    if(cc2){cc2.insertAdjacentHTML('afterbegin',msg.html);}
+                    var lb=document.getElementById('load-earlier-wrap');
+                    if(lb&&!msg.hasMore){lb.parentNode.removeChild(lb);}
                 }else if(msg.type==='appendHtml'){
                     // ── 增量追加 HTML（避免 NavigateToString 全量刷新导致滚动/闪烁）──
                     var temp=document.createElement('div');
@@ -526,7 +711,7 @@ window._showCopyFeedback=function(msgIndex){
 
             // 更新正文内容
             if(container&&msg.c!==undefined){
-                // ★ 防护：若 streamEnd 已将 _textNode 显式置为 null，说明已渲染完成，
+                // 防护：若 streamEnd 已将 _textNode 显式置为 null，说明已渲染完成，
                 //    此时不应再创建 textNode 覆盖 innerHTML（防止 late chunk 竞态）
                 if(container._textNode===null)continue;
                 var textNode=container._textNode;

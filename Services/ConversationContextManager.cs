@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
 {
@@ -44,6 +45,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>搜索结果上下文（独立存储，注入为 system 消息）</summary>
         private string? _searchContext;
+
+        /// <summary>IDE 实时态上下文（P1-A：活动文件/光标/选区/符号/诊断摘要，注入 volatile 块最前）</summary>
+        private string? _ideContext;
+
+        /// <summary>当前解决方案上下文（注入 volatile 块最前）</summary>
+        private string? _solutionContext;
 
         /// <summary>Skill 发现上下文（独立存储）</summary>
         private string? _skillContext;
@@ -125,7 +132,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         public double CompressionAggressiveness { get; set; } = 0.5;
 
-        // ── 🔑 缓存边界快照（v1.1.10）──
+        // ──  缓存边界快照（v1.1.10）──
         //     Agent Handoff 时，在注入过渡消息前保存 _entries 的快照索引，
         //     目标 Agent 可调用 BuildApiMessagesUpToSnapshot() 仅包含边界前的历史，
         //     使前缀缓存跨 Agent 切换时仍能命中。
@@ -135,7 +142,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private int? _cacheSnapshotEntryIndex;
 
         /// <summary>
-        /// 🔑 缓存边界快照时的 dynamicBlock 冻结副本（v1.1.10）。
+        ///  缓存边界快照时的 dynamicBlock 冻结副本（v1.1.10）。
         /// 快照活跃时，BuildApiMessages 使用此冻结版本替代实时 BuildDynamicContextBlock()，
         /// 防止压缩摘要/搜索/RAG/记忆等动态内容变化导致前缀缓存断裂。
         /// null = 无快照或快照时 dynamicBlock 为空。
@@ -151,7 +158,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             _cacheSnapshotEntryIndex = _entries.Count;
             _cachedDynamicBlock = BuildDynamicContextBlock();
-            Logger.Info($"[ContextManager] 🔑 缓存边界快照已保存: entryIndex={_cacheSnapshotEntryIndex}, dynamicBlock={(_cachedDynamicBlock?.Length ?? 0)}chars");
+            Logger.Info($"[ContextManager]  缓存边界快照已保存: entryIndex={_cacheSnapshotEntryIndex}, dynamicBlock={(_cachedDynamicBlock?.Length ?? 0)}chars");
         }
 
         /// <summary>获取当前对话轮次数（一个 user 消息 = 一轮）</summary>
@@ -159,6 +166,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>获取消息总条数</summary>
         public int MessageCount => _entries.Count;
+
+        /// <summary>获取当前上下文中 assistant 消息携带的工具调用总次数</summary>
+        public int ToolCallCount => _entries.Sum(e => e.ToolCalls?.Count ?? 0);
 
         /// <summary>
         /// 从指定起始索引开始，将 _entries 转换为 ChatApiMessage 列表（不含 SP/FP/DB 前缀）。
@@ -185,7 +195,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     MultimodalContent = CloneContentParts(entry.MultimodalContent),
                 };
 
-                // 🔑 序列化保真度：原样复制 ReasoningContent（null 保持 null），
+                //  序列化保真度：原样复制 ReasoningContent（null 保持 null），
                 //     不使用 ?? string.Empty 兜底。JsonIgnoreCondition.WhenWritingNull
                 //     会省略 null 但序列化 "" → JSON 字节不同 → 前缀缓存断裂。
                 if (entry.Role == "assistant" && entry.HasToolCalls)
@@ -253,6 +263,72 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public void SetSearchContext(string? searchContext)
         {
             _searchContext = searchContext;
+        }
+
+        /// <summary>
+        /// 设置 IDE 实时态上下文（P1-A）。
+        /// 由 View 在每次用户消息发送前捕获快照并格式化后传入；传 null 表示禁用或清空。
+        /// Token 记账与 RAG 上下文一致。
+        /// </summary>
+        public void SetIdeContext(string? ideContext)
+        {
+            if (!string.IsNullOrEmpty(_ideContext))
+                _estimatedTokens -= EstimateTokens(_ideContext);
+
+            _ideContext = ideContext;
+
+            if (!string.IsNullOrEmpty(_ideContext))
+                _estimatedTokens += EstimateTokens(_ideContext);
+        }
+
+        /// <summary>
+        /// 设置当前解决方案上下文。解决方案路径是会话元数据，
+        /// 与 IDE Context 一起进入 volatile 块，不包装进当前 user 轮次。
+        /// </summary>
+        public void SetSolutionPath(string? solutionPath)
+        {
+            string? formatted = string.IsNullOrWhiteSpace(solutionPath)
+                ? null
+                : LocalizationService.Instance.Format("system.contextSolutionLabel", solutionPath);
+
+            if (!string.IsNullOrEmpty(_solutionContext))
+                _estimatedTokens -= EstimateTokens(_solutionContext);
+
+            _solutionContext = formatted;
+
+            if (!string.IsNullOrEmpty(_solutionContext))
+                _estimatedTokens += EstimateTokens(_solutionContext);
+        }
+
+        // ── Context Debugger 只读探针（P2，序号 20 数据面）──
+
+        /// <summary>本轮是否注入了联网搜索上下文</summary>
+        [JsonIgnore]
+        public bool HasSearchContext => !string.IsNullOrEmpty(_searchContext);
+
+        /// <summary>本轮是否注入了 RAG 检索上下文</summary>
+        [JsonIgnore]
+        public bool HasRagContext => !string.IsNullOrEmpty(_ragContext);
+
+        /// <summary>IDE 实时态上下文字符数（0 = 未注入/已禁用）</summary>
+        [JsonIgnore]
+        public int IdeContextChars => _ideContext?.Length ?? 0;
+
+        /// <summary>Working Set 最近活跃文件 Top-N（P2 Context Debugger 数据面）。</summary>
+        public System.Collections.Generic.IReadOnlyList<string> GetWorkingSetTopPaths(int limit = 8)
+        {
+            try
+            {
+                var root = !string.IsNullOrWhiteSpace(_workspaceRoot)
+                    ? _workspaceRoot!
+                    : Environment.CurrentDirectory;
+                return _activeFileTracker?.GetTopPaths(root, limit)
+                       ?? (System.Collections.Generic.IReadOnlyList<string>)Array.Empty<string>();
+            }
+            catch
+            {
+                return Array.Empty<string>();
+            }
         }
 
         /// <summary>
@@ -377,10 +453,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (hasText)
                 content = StringExtensions.SanitizeUserInput(content);
 
-            // ── 🔑 缓存边界快照：新用户消息意味着新对话轮次，清除旧快照 ──
+            // ──  缓存边界快照：新用户消息意味着新对话轮次，清除旧快照 ──
             if (_cacheSnapshotEntryIndex.HasValue)
             {
-                Logger.Info($"[ContextManager] 🔑 新用户消息，清除缓存边界快照 (was at entry {_cacheSnapshotEntryIndex})");
+                Logger.Info($"[ContextManager]  新用户消息，清除缓存边界快照 (was at entry {_cacheSnapshotEntryIndex})");
                 _cacheSnapshotEntryIndex = null;
             }
 
@@ -391,6 +467,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 MultimodalContent = CloneContentParts(multimodalContent),
                 TurnIndex = TurnCount + 1, // 新轮次
             });
+
             _estimatedTokens += EstimateTokens(content);
             _estimatedTokens += EstimateMultimodalTokens(multimodalContent);
 
@@ -400,7 +477,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             else
                 AutoTrimIfNeeded();
 
-            // ── 🔑 v1.1.11：冻结动态上下文块，确保同轮次内后续API调用
+            // ──  v1.1.11：冻结动态上下文块，确保同轮次内后续API调用
             //     messages[2] 内容不变 → DeepSeek前缀缓存可持续命中。──
             _cachedDynamicBlock = BuildDynamicContextBlock();
         }
@@ -413,7 +490,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <param name="toolCalls">工具调用列表（可为 null）</param>
         public void AddAssistantMessage(string? content, string? reasoningContent = null, List<ToolCall>? toolCalls = null)
         {
-            // ── 🔑 前缀缓存优化：写时合并连续 assistant 消息 ──
+            // ──  前缀缓存优化：写时合并连续 assistant 消息 ──
             //     如果上一条也是 assistant，合并内容而非新增条目，
             //     避免 BuildApiMessages 产生连续 assistant 消息，进而触发 ChatStreamAsync
             //     的合并逻辑修改消息内容 → 破坏 DeepSeek Prefix Cache 前缀。
@@ -536,15 +613,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             var messages = new List<ChatApiMessage>();
 
-            // ── [0] 共享不可变前缀（跨 Agent 永远不变）──
+            // ── [0] 稳定系统提示词（共享前缀 + 固定提示词）──
             string sharedPrefix = AiPrompts.SharedImmutablePrefix;
-            if (!string.IsNullOrWhiteSpace(sharedPrefix))
-                messages.Add(new ChatApiMessage { Role = "system", Content = sharedPrefix });
-
-            // ── [1] Agent 专属系统提示词（固定位置）──
             string? fixedPrompt = _fixedSystemPrompt
                 ?? (string.IsNullOrWhiteSpace(_systemPrompt) && string.IsNullOrWhiteSpace(_skillContext) ? null : BuildFinalSystemPrompt());
-            messages.Add(new ChatApiMessage { Role = "system", Content = fixedPrompt ?? string.Empty });
+            // 用户/设置页身份提示词在前，共享工具规则在后，避免两段身份介绍抢占开头。
+            string stableSystemPrompt = CombineSystemParts(fixedPrompt, sharedPrefix);
+            if (!string.IsNullOrWhiteSpace(stableSystemPrompt))
+                messages.Add(new ChatApiMessage { Role = "system", Content = stableSystemPrompt });
 
             // ── 缓存窗口裁剪 ──
             //     快照冻结时跳过压缩（压缩会 MUTATE entries，破坏快照保护的前缀稳定性）。
@@ -573,9 +649,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             }
 
-            // ── [2] 动态上下文块（固定位置）──
+            // ── [1] 动态上下文块（仅在非空时注入；独立保留以保护稳定前缀缓存）──
             string? dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
-            messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock ?? string.Empty });
+            if (!string.IsNullOrWhiteSpace(dynamicBlock))
+                messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock });
 
             // ── [3..] 对话历史 ──
             int entryLimit = _cacheSnapshotEntryIndex ?? _entries.Count;
@@ -679,7 +756,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             // 即使用户记忆中没有中文，也始终确保英文回复（因为用户用英文提问）
             return memoryHasChinese
-                ? "⚠️ LANGUAGE OVERRIDE: The user is writing in English. Even though some context or memory content above is in Chinese, you MUST respond in English. The memory content is metadata — the user's actual communication language is English."
+                ? " LANGUAGE OVERRIDE: The user is writing in English. Even though some context or memory content above is in Chinese, you MUST respond in English. The memory content is metadata — the user's actual communication language is English."
                 : null;
         }
 
@@ -751,6 +828,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             var parts = new List<string>();
 
+            // ── 解决方案与 IDE 实时态快照（置于易变块最前，不进入 user 轮次）──
+            if (!string.IsNullOrWhiteSpace(_solutionContext))
+                parts.Add(_solutionContext!);
+
+            if (!string.IsNullOrWhiteSpace(_ideContext))
+                parts.Add(_ideContext!);
+
             // ── 活跃文件 Working Set ──
             if (_activeFileTracker != null)
             {
@@ -762,7 +846,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     parts.Add(activeFileSummary);
             }
 
-            // ── 联网搜索结果（与 RAG 一起放在 user 前，避免干扰 [0..2] 稳定前缀）──
+            // ── 联网搜索结果（与 RAG 一起放在 user 前，避免干扰 [0..1] 稳定前缀）──
             if (!string.IsNullOrWhiteSpace(_searchContext))
                 parts.Add(_searchContext!);
 
@@ -774,6 +858,50 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return null;
 
             return string.Join("\n\n", parts);
+        }
+
+        /// <summary>
+        /// 将当前 volatile 块固化到标准历史中当前 user 之前。
+        /// 下一轮请求会保留上一轮快照，避免 DeepSeek 前缀缓存在旧快照位置断裂。
+        /// </summary>
+        public bool PersistCurrentVolatileSnapshot()
+        {
+            string? snapshot = BuildVolatileContextBlock();
+            if (string.IsNullOrWhiteSpace(snapshot))
+                return false;
+
+            int lastUserIndex = -1;
+            for (int i = _entries.Count - 1; i >= 0; i--)
+            {
+                if (_entries[i].Role == "user")
+                {
+                    lastUserIndex = i;
+                    break;
+                }
+            }
+
+            if (lastUserIndex < 0)
+                return false;
+
+            int turnIndex = _entries[lastUserIndex].TurnIndex;
+            if (lastUserIndex > 0)
+            {
+                var previous = _entries[lastUserIndex - 1];
+                if (previous.IsVolatileSnapshot && previous.TurnIndex == turnIndex)
+                    return false;
+            }
+
+            var snapshotEntry = new ContextEntry
+            {
+                Role = "system",
+                Content = snapshot,
+                TurnIndex = turnIndex,
+                IsVolatileSnapshot = true,
+            };
+
+            _entries.Insert(lastUserIndex, snapshotEntry);
+            _estimatedTokens += EstimateTokens(snapshot);
+            return true;
         }
 
         /// <summary>
@@ -1402,6 +1530,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 TokenBudget = TokenBudget,
                 MessageCount = MessageCount,
                 TurnCount = TurnCount,
+                ToolCallCount = ToolCallCount,
                 SystemPromptTokens = EstimateTokens(_systemPrompt),
                 SearchContextTokens = EstimateTokens(_searchContext),
                 CompressedTurns = _compressor?.CompressedSummaries.Count ?? 0,
@@ -1549,6 +1678,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             _systemPrompt = null;
             _fixedSystemPrompt = null;
             _searchContext = null;
+            _ideContext = null;
+            _solutionContext = null;
             _skillContext = null;
             _alwaysInjectSkillsContext = null;
             _ragContext = null;
@@ -1611,6 +1742,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             return string.Join("\n\n", parts);
         }
 
+        private static string? CombineSystemParts(string? first, string? second)
+        {
+            if (string.IsNullOrWhiteSpace(first)) return second;
+            if (string.IsNullOrWhiteSpace(second)) return first;
+            return first + "\n\n" + second;
+        }
+
         #endregion
 
         #region Inner Types
@@ -1631,6 +1769,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             public string? Name { get; set; }
             /// <summary>所属轮次（1-based），-1 表示不属于任何轮次</summary>
             public int TurnIndex { get; set; } = -1;
+            /// <summary>是否为固化到历史中的 volatile 上下文快照</summary>
+            public bool IsVolatileSnapshot { get; set; }
         }
 
         #endregion

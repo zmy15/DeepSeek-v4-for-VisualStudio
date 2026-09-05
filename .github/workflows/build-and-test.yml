@@ -42,3 +42,6 @@ jobs:
       with:
         name: coverage-report
         path: DeepSeek_v4_for_VisualStudio.Tests\TestResults\coverage.cobertura.xml
+
+    - name: CJK String Literal Guard (report only)
+      run: powershell -File tools\check-cjk-strings.ps1

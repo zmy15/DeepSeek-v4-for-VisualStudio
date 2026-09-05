@@ -22,7 +22,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     /// - 被 Ask Agent / Plan Agent 作为子代理并行调用
     /// - 绝不修改工作区文件（可通过 memory 工具维护扩展自己的仓库记忆）
     /// 
-    /// ⚠️ 定位：深度检索引擎。简单的单文件查找应由调用方（Ask/Plan Agent）
+    ///  定位：深度检索引擎。简单的单文件查找应由调用方（Ask/Plan Agent）
     /// 直接使用内置工具完成，只有需要跨文件多步骤综合分析时才调用 Explore。
     /// 
     /// 参考: VS Code Copilot Chat Explore Agent
@@ -237,7 +237,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     },
                     onToolCall: (toolSummary) =>
                     {
-                        AddLog("INFO", $"{toolSummary}");
+                        AddLog("TOOL", $"{toolSummary}");
                         internalToolCalls.Add(toolSummary);
                     });
 
@@ -319,7 +319,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 else
                     sb.AppendLine($"项目类型: 文件夹项目（无 .sln 文件，如 CMake / Open Folder）");
                 sb.AppendLine();
-                sb.AppendLine("> ⚠️ 所有路径必须使用 Windows 绝对路径格式（如 `F:\\project\\src\\file.cs`）。");
+                sb.AppendLine(">  所有路径必须使用 Windows 绝对路径格式（如 `F:\\project\\src\\file.cs`）。");
                 sb.AppendLine("> 不要使用 Linux 风格路径（如 `/home/user/...`）。");
                 sb.AppendLine("> 使用 `list_dir` 从工作区根目录开始探索，用 `file_search` 和 `grep_search` 定位文件。");
                 sb.AppendLine();

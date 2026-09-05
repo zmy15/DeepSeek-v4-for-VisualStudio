@@ -301,7 +301,7 @@ public class BaseAgentTests
     {
         var prefix = GetCommonSystemPromptPrefixPublic();
         prefix.Should().NotBeNullOrEmpty();
-        prefix.Should().Contain("DeepSeek v4");
+        prefix.Should().Contain("文件读取规则");
     }
 
     #endregion

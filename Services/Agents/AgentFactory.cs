@@ -39,7 +39,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     _askAgent = new AskAgent(_apiService);
                     InjectServices(_askAgent);
                 }
-                // 🔑 确保 ExploreAgent 已注入（属性 getter 可能被 UI 初始化直接调用，绕过 GetAgent）
+                //  确保 ExploreAgent 已注入（属性 getter 可能被 UI 初始化直接调用，绕过 GetAgent）
                 WireExploreAgent(_askAgent);
                 return _askAgent;
             }
@@ -67,7 +67,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     _planAgent = new PlanAgent(_apiService);
                     InjectServices(_planAgent);
                 }
-                // 🔑 确保 ExploreAgent 与 AgentFactory 实例同步
+                //  确保 ExploreAgent 与 AgentFactory 实例同步
                 WireExploreAgent(_planAgent);
                 return _planAgent;
             }
@@ -82,7 +82,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     _editAgent = new EditAgent(_apiService);
                     InjectServices(_editAgent);
                 }
-                // 🔑 确保 ExploreAgent 与 AgentFactory 实例同步
+                //  确保 ExploreAgent 与 AgentFactory 实例同步
                 WireExploreAgent(_editAgent);
                 return _editAgent;
             }
@@ -97,7 +97,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     _buildAgent = new BuildAgent(_apiService);
                     InjectServices(_buildAgent);
                 }
-                // 🔑 确保 ExploreAgent 与 AgentFactory 实例同步
+                //  确保 ExploreAgent 与 AgentFactory 实例同步
                 WireExploreAgent(_buildAgent);
                 return _buildAgent;
             }
@@ -266,14 +266,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (item != null)
                     {
                         item.Delete();
-                        Logger.Info($"[AgentFactory] ✅ 已通过 EnvDTE 从项目中删除: {filePath}");
+                        Logger.Info($"[AgentFactory]  已通过 EnvDTE 从项目中删除: {filePath}");
                     }
                     else
                     {
                         if (System.IO.File.Exists(filePath))
                         {
                             System.IO.File.Delete(filePath);
-                            Logger.Info($"[AgentFactory] ✅ 已从磁盘删除: {filePath}");
+                            Logger.Info($"[AgentFactory]  已从磁盘删除: {filePath}");
                         }
                         else
                         {

@@ -54,8 +54,6 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     internal class LocalizedDisplayNameAttribute : DisplayNameAttribute
     {
         private readonly string _key;
-        private string? _cachedDisplayName;
-        private bool _subscribed;
 
         public LocalizedDisplayNameAttribute(string key)
         {
@@ -65,27 +63,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         /// <summary>
         /// 重写 DisplayName 以返回本地化后的显示名称。
         /// </summary>
-        public override string DisplayName
-        {
-            get
-            {
-                if (_cachedDisplayName == null)
-                {
-                    _cachedDisplayName = LocalizationService.Instance[_key];
-                    if (!_subscribed)
-                    {
-                        _subscribed = true;
-                        LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
-                    }
-                }
-                return _cachedDisplayName;
-            }
-        }
-
-        private void OnLanguageChanged(object? sender, EventArgs e)
-        {
-            _cachedDisplayName = null;
-        }
+        public override string DisplayName => LocalizationService.Instance[_key];
     }
 
     /// <summary>
@@ -96,8 +74,6 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     internal class LocalizedDescriptionAttribute : DescriptionAttribute
     {
         private readonly string _key;
-        private string? _cachedDescription;
-        private bool _subscribed;
 
         public LocalizedDescriptionAttribute(string key)
         {
@@ -107,26 +83,6 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         /// <summary>
         /// 重写 Description 以返回本地化后的描述文本。
         /// </summary>
-        public override string Description
-        {
-            get
-            {
-                if (_cachedDescription == null)
-                {
-                    _cachedDescription = LocalizationService.Instance[_key];
-                    if (!_subscribed)
-                    {
-                        _subscribed = true;
-                        LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
-                    }
-                }
-                return _cachedDescription;
-            }
-        }
-
-        private void OnLanguageChanged(object? sender, EventArgs e)
-        {
-            _cachedDescription = null;
-        }
+        public override string Description => LocalizationService.Instance[_key];
     }
 }

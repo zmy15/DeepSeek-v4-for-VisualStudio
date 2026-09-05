@@ -28,6 +28,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 如果没有选中任何项，返回空列表。
         /// </returns>
         Task<List<ErrorListItem>> GetSelectedErrorsAsync(CancellationToken ct);
+
+        /// <summary>
+        /// 读取 Error List 全部当前错误项（结构化，非选中集）。
+        /// 经 SVsErrorList → IVsTaskList.EnumTaskItems 枚举，上限截断防刷屏。
+        /// 必须在 UI 线程调用（实现内部切换）。
+        /// </summary>
+        /// <param name="ct">取消令牌</param>
+        Task<List<ErrorListItem>> GetAllErrorsAsync(CancellationToken ct);
     }
 
     /// <summary>

@@ -90,10 +90,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             bool chainBack = GetBoolArg(args, "chainBack", false);
 
             if (string.IsNullOrWhiteSpace(targetAgentStr))
-                return "❌ request_handoff: 缺少 targetAgent 参数。可选值: Edit, Ask, Plan, Build, Explore";
+                return "Error: request_handoff: 缺少 targetAgent 参数。可选值: Edit, Ask, Plan, Build, Explore";
 
             if (string.IsNullOrWhiteSpace(taskDescription))
-                return "❌ request_handoff: 缺少 taskDescription 参数。请描述目标 Agent 需要执行的任务。";
+                return "Error: request_handoff: 缺少 taskDescription 参数。请描述目标 Agent 需要执行的任务。";
 
             // 解析目标 Agent 类型
             AgentType targetAgent = targetAgentStr.ToLowerInvariant() switch
@@ -123,7 +123,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             // ── 如果 HandoffHandler 拒绝了移交（如显式路由模式），返回拒绝原因给 AI ──
             if (request.Rejected)
             {
-                return $"🚫 移交被拒绝: {request.RejectReason}";
+                return $"移交被拒绝: {request.RejectReason}";
             }
 
             return LocalizationService.Instance.Format("tool.requestHandoff.handoffRequested", targetAgentStr, reason);
@@ -139,7 +139,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return "移交完成";
-            if (toolResult.StartsWith("🔄 HANDOFF_REQUESTED")) return LocalizationService.Instance["tool.requestHandoff.completed"];
+            if (toolResult.StartsWith("HANDOFF_REQUESTED", StringComparison.Ordinal)) return LocalizationService.Instance["tool.requestHandoff.completed"];
             return toolResult.Truncate(80);
         }
     }

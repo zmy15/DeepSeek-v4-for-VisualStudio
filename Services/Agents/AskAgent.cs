@@ -143,11 +143,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 var ct = context.CancellationToken;
 
-                // ── 使用 BuildContextAwareMessages 构建消息（优先 ContextManager 实时历史）──
-                string contextualPrompt = BuildContextualPrompt(userMessage, context);
+                // ── 标准多轮对话：ContextManager 中已包含本次新增的原始 user；
+                //    不再移除/包装为尾部 [用户问题]，解决方案路径与文件上下文
+                //    由 volatile context 和原始 user 轮次承载。 ──
+                var contextManager = Context?.ContextManager;
+                bool useSessionHistory = contextManager != null && !contextManager.IsEmpty;
+                string contextualPrompt = useSessionHistory
+                    ? string.Empty
+                    : BuildContextualPrompt(userMessage, context);
                 var messages = BuildContextAwareMessages(
                     Definition.SystemPrompt,
-                    contextualPrompt);
+                    contextualPrompt,
+                    maxRecentTurns: int.MaxValue,
+                    deduplicateCurrentUser: useSessionHistory,
+                    persistVolatileToHistory: useSessionHistory);
 
                 // ── 使用工具调用循环（支持 runSubagent 委派探索任务 + request_handoff 移交）──
                 string workspaceRoot = GetWorkspaceRoot(context);
@@ -168,7 +177,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     },
                     onToolCall: (toolSummary) =>
                     {
-                        AddLog("INFO", toolSummary);
+                        AddLog("TOOL", toolSummary);
                     });
 
                 // ── 保存推理内容，供 UI 渲染思考面板 ──
@@ -180,7 +189,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     result.Handoff = ConvertHandoffRequestToHandoff(PendingHandoffRequest);
                     result.Content = aiResponse;
-                    AddLog("INFO", $"🔄 移交 → {PendingHandoffRequest.TargetAgent}");
+                    AddLog("INFO", $"移交 → {PendingHandoffRequest.TargetAgent}");
                 }
                 else
                 {
@@ -252,7 +261,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 string directSummary = BuildDirectSummaryMarkdown(plan, memorySummary);
 
                 // ── 第3层（可选）：用一次无工具 AI 调用润色自然语言部分 ──
-                // 🔑 v1.1.11：消费 ForwardedMessages（摘要生成是终端步骤，不需要完整对话历史），
+                //  v1.1.11：消费 ForwardedMessages（摘要生成是终端步骤，不需要完整对话历史），
                 // 避免 PolishSummaryWithAiAsync 通过 BuildContextAwareMessages 注入大量历史消息。
                 string aiSummary = string.Empty;
                 bool hasMeaningfulChanges = plan.ChangedFiles.Count > 0
@@ -389,10 +398,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     string icon = step.Status switch
                     {
-                        AgentStepStatus.Completed => "✅",
-                        AgentStepStatus.Failed => "❌",
-                        AgentStepStatus.Skipped => "⏭",
-                        _ => "⬜",
+                        AgentStepStatus.Completed => "",
+                        AgentStepStatus.Failed => "Error: ",
+                        AgentStepStatus.Skipped => "",
+                        _ => "",
                     };
                     string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
                         ? step.ResultSummary
@@ -459,7 +468,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// 用一次无工具 AI 调用对直接摘要进行自然语言润色。
         /// 仅在记忆摘要非空且存在文件变更时调用。
         /// 
-        /// 🔑 v1.1.11：通过 BuildContextAwareMessages + handoff 路径构建消息，
+        ///  v1.1.11：通过 BuildContextAwareMessages + handoff 路径构建消息，
         /// 而非手动拼接 raw messages。润色专用指令作为 AskAgent 的子任务 prompt
         /// 注入在 Agent 系统提示之后、用户消息之前。
         /// 
@@ -545,12 +554,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             var L = LocalizationService.Instance;
 
-            if (!string.IsNullOrEmpty(context.SolutionPath))
-            {
-                sb.AppendLine(string.Format(L["system.contextSolutionLabel"], context.SolutionPath));
-                sb.AppendLine();
-            }
-
             if (!string.IsNullOrEmpty(context.FileContext))
             {
                 sb.AppendLine(L["system.contextFileContent"]);
@@ -558,7 +561,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 sb.AppendLine();
             }
 
-            sb.AppendLine(L["system.contextUserQuestion"]);
             sb.AppendLine(userMessage);
 
             return sb.ToString();
@@ -618,7 +620,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     sb.AppendLine();
                     foreach (var step in completedSteps)
                     {
-                        sb.AppendLine($"- ✅ **{step.Title}**: {step.ResultSummary}");
+                        sb.AppendLine($"-  **{step.Title}**: {step.ResultSummary}");
                         // 当 ResultSummary 仅为机械统计时，补充 Description
                         if (!string.IsNullOrWhiteSpace(step.Description)
                             && (step.ResultSummary!.StartsWith("修改了 ") || step.ResultSummary.StartsWith("Modified ")))
@@ -644,10 +646,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     string icon = step.Status switch
                     {
-                        AgentStepStatus.Completed => "✅",
-                        AgentStepStatus.Failed => "❌",
-                        AgentStepStatus.Skipped => "⏭️",
-                        _ => "⬜",
+                        AgentStepStatus.Completed => "",
+                        AgentStepStatus.Failed => "Error: ",
+                        AgentStepStatus.Skipped => "",
+                        _ => "",
                     };
                     string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
                         ? step.ResultSummary
@@ -736,10 +738,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 {
                     string status = step.Status switch
                     {
-                        AgentStepStatus.Completed => "✅",
-                        AgentStepStatus.Failed => "❌",
-                        AgentStepStatus.Skipped => "⏭",
-                        _ => "⬜",
+                        AgentStepStatus.Completed => "",
+                        AgentStepStatus.Failed => "Error: ",
+                        AgentStepStatus.Skipped => "",
+                        _ => "",
                     };
                     string summary = !string.IsNullOrWhiteSpace(step.ResultSummary)
                         ? step.ResultSummary!

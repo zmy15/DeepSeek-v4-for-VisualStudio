@@ -402,7 +402,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 if (response.Id != expectedId && response.Id != 0)
                 {
-                    Logger.Info($"[MCP HTTP] ⚠ 响应 ID 不匹配: 期望 {expectedId}, 实际 {response.Id}");
+                    Logger.Info($"[MCP HTTP]  响应 ID 不匹配: 期望 {expectedId}, 实际 {response.Id}");
                 }
 
                 return response;
@@ -524,7 +524,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                             var response = JsonSerializer.Deserialize<JsonRpcResponse>(data, JsonOptions);
                             if (response != null && (response.Id == expectedId || response.Id == 0))
                             {
-                                Logger.Info($"[MCP HTTP] ✓ SSE message 事件匹配 #{expectedId}");
+                                Logger.Info($"[MCP HTTP]  SSE message 事件匹配 #{expectedId}");
                                 return response;
                             }
                             if (response != null)
@@ -818,12 +818,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                                 var method = methodProp.GetString();
                                 if (root.TryGetProperty("id", out _))
                                 {
-                                    Logger.Info($"[MCP HTTP] 🔔 服务器请求: {method}");
+                                    Logger.Info($"[MCP HTTP]  服务器请求: {method}");
                                     // TODO: 完整的服务器→客户端请求处理
                                 }
                                 else
                                 {
-                                    Logger.Info($"[MCP HTTP] 🔔 服务器通知: {method}");
+                                    Logger.Info($"[MCP HTTP]  服务器通知: {method}");
                                 }
                             }
                         }

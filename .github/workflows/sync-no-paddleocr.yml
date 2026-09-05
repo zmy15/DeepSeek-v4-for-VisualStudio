@@ -17,17 +17,19 @@ jobs:
         fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Sync no-local-paddleocr branch
+    - name: Sync no-local-paddleocr branch (inline removal)
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
 
-        git checkout no-local-paddleocr
+        git checkout no-local-paddleocr 2>/dev/null || git checkout -b no-local-paddleocr origin/master
         git reset --hard origin/master
 
-        # Apply PaddleOCR removal patch — fail loudly if patch is stale
-        git apply .github/workflows/paddleocr-remove.patch
+        # ── 程序化移除：包引用 + 引擎代码 + 注入 arm64（不再依赖静态补丁）──
+        python3 tools/remove-paddleocr.py
+
         git add -A
+        git diff --cached --quiet && echo "No changes needed" && exit 0
         git commit -m "chore: sync with master + remove PaddleOCR only [skip ci]"
 
         git push --force-with-lease origin no-local-paddleocr

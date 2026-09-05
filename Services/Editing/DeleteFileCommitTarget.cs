@@ -15,6 +15,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
     {
         private string? _backupPath;
 
+        /// <summary>
+        /// 被删除文件的原始路径。RollbackAsync 需要它把备份还原回原位置 ——
+        /// 此前直接传空串导致 File.Copy 抛异常被吞、删除无法撤销（P0 数据丢失缺陷）。
+        /// </summary>
+        private string? _originalPath;
+
         public Task<PreflightResult> PreflightAsync(
             PreparedChangeSet change, CancellationToken cancellationToken)
         {
@@ -51,6 +57,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
         {
             try
             {
+                _originalPath = change.FilePath;
+
                 // 1. 创建备份
                 _backupPath = BackupService.CreateBackup(change.FilePath);
                 if (_backupPath == null)
@@ -83,7 +91,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
         {
             if (_backupPath != null)
             {
-                BackupService.RestoreFromBackup("", _backupPath);
+                if (string.IsNullOrEmpty(_originalPath))
+                {
+                    Logger.Error("[DeleteFile] 回滚失败：缺少原始路径（未经过 Commit 阶段），备份保留: " + _backupPath);
+                }
+                else
+                {
+                    BackupService.RestoreFromBackup(_originalPath, _backupPath);
+                    Logger.Info("[DeleteFile] 已回滚删除: " + _originalPath);
+                }
                 _backupPath = null;
             }
 

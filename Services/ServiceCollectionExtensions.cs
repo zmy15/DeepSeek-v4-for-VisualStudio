@@ -20,7 +20,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 var options = Settings.DeepSeekOptionsPage.Instance;
                 var apiKey = options?.ApiKey ?? "";
                 var model = options?.SelectedModel ?? "deepseek-v4-pro";
-                var service = new DeepSeekApiService(apiKey, model);
+                var service = new DeepSeekApiService(apiKey, model,
+                    requestTimeoutSeconds: options?.LlmTimeoutSeconds);
 
                 // 配置思考模式
                 if (options != null)

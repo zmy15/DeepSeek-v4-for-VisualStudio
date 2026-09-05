@@ -155,21 +155,21 @@ public class GitToolTests
     public void GetResultSummary_Success_ReturnsSuccess()
     {
         var summary = new GitTool().GetResultSummary("exit code: 0");
-        summary.Should().Contain("✅");
+        summary.Should().NotBeNullOrEmpty();
     }
 
     [Fact]
     public void GetResultSummary_Error_PreservesError()
     {
-        var summary = new GitTool().GetResultSummary("❌ something failed");
-        summary.Should().Contain("❌");
+        var summary = new GitTool().GetResultSummary("Error: something failed");
+        summary.Should().Contain("Error: ");
     }
 
     [Fact]
     public void GetResultSummary_Blocked_PreservesBlocked()
     {
-        var summary = new GitTool().GetResultSummary("⛔ blocked operation");
-        summary.Should().Contain("⛔");
+        var summary = new GitTool().GetResultSummary("[BLOCKED] blocked operation");
+        summary.Should().Contain("[BLOCKED] ");
     }
 
     #endregion
@@ -181,7 +181,7 @@ public class GitToolTests
     {
         var args = ParseArgs("{}");
         var result = await new GitTool().ExecuteAsync(args, null);
-        result.Should().Contain("❌");
+        result.Should().Contain("Error: ");
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public class GitToolTests
     {
         var args = ParseArgs("{\"operation\": \"invalid_op\"}");
         var result = await new GitTool().ExecuteAsync(args, null);
-        result.Should().Contain("❌");
+        result.Should().Contain("Error: ");
         result.Should().Contain("invalid_op");
     }
 
@@ -198,7 +198,7 @@ public class GitToolTests
     {
         var args = ParseArgs("{\"operation\": \"\"}");
         var result = await new GitTool().ExecuteAsync(args, null);
-        result.Should().Contain("❌");
+        result.Should().Contain("Error: ");
     }
 
     [Fact]
@@ -211,7 +211,7 @@ public class GitToolTests
         var args = ParseArgs("{\"operation\": \"status\"}");
         var result = await new GitTool().ExecuteAsync(args, "Z:\\NonExistent\\Path");
         // Should fail with either no-repo or directory-not-found error
-        result.Should().ContainAny("❌", "git");
+        result.Should().ContainAny("Error: ", "git");
     }
 
     #endregion
@@ -226,7 +226,7 @@ public class GitToolTests
 
         var args = ParseArgs("{\"operation\": \"reset\", \"mode\": \"hard\"}");
         var result = await new GitTool().ExecuteAsync(args, root);
-        result.Should().Contain("⛔");
+        result.Should().Contain("[BLOCKED] ");
         result.Should().MatchRegex("(?i)reset.*hard|hard.*reset");
     }
 
@@ -238,7 +238,7 @@ public class GitToolTests
 
         var args = ParseArgs("{\"operation\": \"push\", \"branch\": \"main\", \"force\": true}");
         var result = await new GitTool().ExecuteAsync(args, root);
-        result.Should().Contain("⛔");
+        result.Should().Contain("[BLOCKED] ");
     }
 
     [Fact]
@@ -249,7 +249,7 @@ public class GitToolTests
 
         var args = ParseArgs("{\"operation\": \"push\", \"branch\": \"master\", \"force\": true}");
         var result = await new GitTool().ExecuteAsync(args, root);
-        result.Should().Contain("⛔");
+        result.Should().Contain("[BLOCKED] ");
     }
 
     [Fact]
@@ -261,7 +261,7 @@ public class GitToolTests
         // Any force push should be blocked
         var args = ParseArgs("{\"operation\": \"push\", \"branch\": \"feature/test\", \"force\": true}");
         var result = await new GitTool().ExecuteAsync(args, root);
-        result.Should().Contain("⛔");
+        result.Should().Contain("[BLOCKED] ");
     }
 
     [Fact]
@@ -272,7 +272,7 @@ public class GitToolTests
 
         var args = ParseArgs("{\"operation\": \"branch\", \"branch\": \"test\", \"delete\": true, \"force\": true}");
         var result = await new GitTool().ExecuteAsync(args, root);
-        result.Should().Contain("⛔");
+        result.Should().Contain("[BLOCKED] ");
     }
 
     [Fact]
@@ -283,7 +283,7 @@ public class GitToolTests
 
         var args = ParseArgs("{\"operation\": \"commit\"}");
         var result = await new GitTool().ExecuteAsync(args, root);
-        result.Should().Contain("⛔");
+        result.Should().Contain("[BLOCKED] ");
     }
 
     [Fact]
@@ -294,7 +294,7 @@ public class GitToolTests
 
         var args = ParseArgs("{\"operation\": \"checkout\"}");
         var result = await new GitTool().ExecuteAsync(args, root);
-        result.Should().Contain("⛔");
+        result.Should().Contain("[BLOCKED] ");
     }
 
     #endregion
@@ -314,7 +314,7 @@ public class GitToolTests
             var args = ParseArgs("{\"operation\": \"add\", \"files\": [\"test.cs\"]}");
             var result = await new GitTool().ExecuteAsync(args, root);
             // Explore agent should be blocked from write operations
-            result.Should().Contain("⛔");
+            result.Should().Contain("[BLOCKED] ");
             result.Should().MatchRegex("(?i)explore|不允许|not permitted|Agent");
         }
         finally
@@ -335,7 +335,7 @@ public class GitToolTests
             var args = ParseArgs("{\"operation\": \"add\", \"files\": [\"test.cs\"]}");
             var result = await new GitTool().ExecuteAsync(args, root);
 
-            result.Should().Contain("⛔");
+            result.Should().Contain("[BLOCKED] ");
             result.Should().Contain("Ask");
         }
         finally
@@ -374,7 +374,7 @@ public class GitToolTests
         // Use branch --list (safe read operation classified under "branch")
         var args = ParseArgs("{\"operation\": \"branch\"}");
         var result = await new GitTool().ExecuteAsync(args, root);
-        result.Should().NotContain("⛔");
+        result.Should().NotContain("[BLOCKED] ");
         result.Should().NotContain("Agent");
         result.Should().Contain("退出码: 0");
     }

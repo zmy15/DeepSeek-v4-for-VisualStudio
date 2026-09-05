@@ -174,9 +174,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
             for (int i = 0; i < results.Count; i++)
             {
                 var r = results[i];
-                sb.AppendLine($"📄 [{i + 1}] {r.Title} (相关度: {r.RelevanceScore:P0})");
+                sb.AppendLine($" [{i + 1}] {r.Title} (相关度: {r.RelevanceScore:P0})");
                 if (!string.IsNullOrEmpty(r.Source))
-                    sb.AppendLine($"   来源: {r.Source}");
+                    sb.AppendLine($"来源: {r.Source}");
                 sb.AppendLine($"   {r.Content}");
                 sb.AppendLine();
             }

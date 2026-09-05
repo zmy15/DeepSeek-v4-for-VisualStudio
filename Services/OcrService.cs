@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Utils;
+using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -177,7 +177,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 string? mcpResult = await TryMcpOcrAsync(imagePath);
                 if (!string.IsNullOrWhiteSpace(mcpResult))
                 {
-                    Logger.Info($"[OCR] ✅ MCP 服务器 OCR 成功: {mcpResult!.Length} 字符");
+                    Logger.Info($"[OCR]  MCP 服务器 OCR 成功: {mcpResult!.Length} 字符");
                     return mcpResult;
                 }
 
@@ -190,7 +190,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 if (!string.IsNullOrWhiteSpace(result))
                 {
-                    Logger.Info($"[OCR] ✅ 最终结果: {result!.Length} 字符 (引擎={CurrentEngine})");
+                    Logger.Info($"[OCR]  最终结果: {result!.Length} 字符 (引擎={CurrentEngine})");
                     return result;
                 }
 
@@ -203,7 +203,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         var fallbackResult = await WindowsEngineWrapper.ExtractTextAsync(imagePath);
                         if (!string.IsNullOrWhiteSpace(fallbackResult))
                         {
-                            Logger.Info($"[OCR] ✅ 回退成功: {fallbackResult!.Length} 字符 (Windows 内置)");
+                            Logger.Info($"[OCR]  回退成功: {fallbackResult!.Length} 字符 (Windows 内置)");
                             return fallbackResult;
                         }
                         Logger.Info("[OCR] 回退也未提取到文字");
@@ -214,12 +214,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     }
                 }
 
-                Logger.Info($"[OCR] ⚠️ 未提取到任何文字 (引擎={CurrentEngine})");
+                Logger.Info($"[OCR]  未提取到任何文字 (引擎={CurrentEngine})");
                 return null;
             }
             catch (Exception ex)
             {
-                Logger.Error($"[OCR] ❌ 识别异常 (引擎={CurrentEngine}): {ex.GetType().Name} - {ex.Message}", ex);
+                Logger.Error($"[OCR] Error: 识别异常 (引擎={CurrentEngine}): {ex.GetType().Name} - {ex.Message}", ex);
                 return null;
             }
         }
@@ -293,7 +293,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return null; // 静默回退到本地 OCR
                 }
 
-                if (result.StartsWith("❌") || result.StartsWith("错误"))
+                if (result.StartsWith("Error: ") || result.StartsWith("错误"))
                 {
                     Logger.Info($"[OCR-MCP] MCP OCR 返回错误: {TruncateForLog(result)}");
                     return null;
@@ -452,7 +452,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         private static class WindowsEngineWrapper
         {
-            public static string GetStatus() => "✅ Windows 内置 OCR 已就绪";
+            public static string GetStatus() => " Windows 内置 OCR 已就绪";
 
             public static bool IsAvailable()
             {
@@ -460,7 +460,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     var engine = OcrEngine.TryCreateFromUserProfileLanguages();
                     bool available = engine != null;
-                    Logger.Info($"[OCR-Windows] 可用性检查: {(available ? "✅ 可用" : "❌ 不可用（用户语言不支持 OCR）")}");
+                    Logger.Info($"[OCR-Windows] 可用性检查: {(available ? " 可用" : "Error: 不可用（用户语言不支持 OCR）")}");
                     return available;
                 }
                 catch (Exception ex)
@@ -489,7 +489,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     var ocrEngine = OcrEngine.TryCreateFromUserProfileLanguages();
                     if (ocrEngine == null)
                     {
-                        Logger.Info("[OCR-Windows] ❌ 无法创建 OcrEngine（用户语言配置可能不支持 OCR）");
+                        Logger.Info("[OCR-Windows] Error: 无法创建 OcrEngine（用户语言配置可能不支持 OCR）");
                         return null;
                     }
 
@@ -499,21 +499,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                     if (!string.IsNullOrWhiteSpace(text))
                     {
-                        Logger.Info($"[OCR-Windows] ✅ 成功: {text.Length} 字符 ← {Path.GetFileName(imagePath)}");
+                        Logger.Info($"[OCR-Windows]  成功: {text.Length} 字符 ← {Path.GetFileName(imagePath)}");
                         return text;
                     }
 
-                    Logger.Info($"[OCR-Windows] ⚠️ 未提取到文字 ← {Path.GetFileName(imagePath)}");
+                    Logger.Info($"[OCR-Windows]  未提取到文字 ← {Path.GetFileName(imagePath)}");
                     return null;
                 }
                 catch (TypeLoadException)
                 {
-                    Logger.Info("[OCR-Windows] ❌ WinRT 类型不可用（非 Windows 10+ 环境）");
+                    Logger.Info("[OCR-Windows] Error: WinRT 类型不可用（非 Windows 10+ 环境）");
                     return null;
                 }
                 catch (Exception ex)
                 {
-                    Logger.Info($"[OCR-Windows] ❌ 失败: {ex.GetType().Name} - {ex.Message}");
+                    Logger.Info($"[OCR-Windows] Error: 失败: {ex.GetType().Name} - {ex.Message}");
                     return null;
                 }
             }
@@ -586,13 +586,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                         Logger.Info("[OCR-Paddle] Sdcb.PaddleOCR + LocalFullModels 程序集已加载");
 
                         _available = true;
-                        _statusMessage = "✅ PaddleOCR 已就绪 (ChineseV5 本地模型, CPU/MKL)";
+                        _statusMessage = " PaddleOCR 已就绪 (ChineseV5 本地模型, CPU/MKL)";
                         Logger.Info($"[OCR-Paddle] {_statusMessage}");
                     }
                     catch (Exception ex)
                     {
                         _available = false;
-                        _statusMessage = $"❌ PaddleOCR 初始化失败: {ex.Message}";
+                        _statusMessage = $"Error: PaddleOCR 初始化失败: {ex.Message}";
                         Logger.Error($"[OCR-Paddle] 环境检查异常: {ex.GetType().Name} - {ex.Message}", ex);
                     }
                 }
@@ -636,7 +636,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                             using var src = OpenCvSharp.Cv2.ImRead(imagePath, OpenCvSharp.ImreadModes.Color);
                             if (src == null || src.Empty())
                             {
-                                Logger.Info($"[OCR-Paddle] ❌ 无法加载图像: {imagePath}");
+                                Logger.Info($"[OCR-Paddle] Error: 无法加载图像: {imagePath}");
                                 return null;
                             }
                             Logger.Info($"[OCR-Paddle] 图像: {src.Width}x{src.Height}");
@@ -652,11 +652,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                             if (!string.IsNullOrWhiteSpace(text))
                             {
                                 int regionCount = result?.Regions?.Count() ?? 0;
-                                Logger.Info($"[OCR-Paddle] ✅ 识别成功: {text.Length} 字符 ({regionCount} 区域), 耗时 {sw2.ElapsedMilliseconds}ms ← {Path.GetFileName(imagePath)}");
+                                Logger.Info($"[OCR-Paddle]  识别成功: {text.Length} 字符 ({regionCount} 区域), 耗时 {sw2.ElapsedMilliseconds}ms ← {Path.GetFileName(imagePath)}");
                                 return text;
                             }
 
-                            Logger.Info($"[OCR-Paddle] ⚠️ 识别完成但无文字，耗时 {sw2.ElapsedMilliseconds}ms ← {Path.GetFileName(imagePath)}");
+                            Logger.Info($"[OCR-Paddle]  识别完成但无文字，耗时 {sw2.ElapsedMilliseconds}ms ← {Path.GetFileName(imagePath)}");
                             return null;
                         }
                         catch (Exception ex)
@@ -664,7 +664,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                             string innerMsg = ex.InnerException != null
                                 ? $" | Inner: {ex.InnerException.GetType().Name} - {ex.InnerException.Message}"
                                 : "";
-                            Logger.Error($"[OCR-Paddle] ❌ 识别失败: {ex.GetType().Name} - {ex.Message}{innerMsg}", ex);
+                            Logger.Error($"[OCR-Paddle] Error: 识别失败: {ex.GetType().Name} - {ex.Message}{innerMsg}", ex);
                             // 引擎可能损坏，下次重新创建
                             _cachedEngine?.Dispose();
                             _cachedEngine = null;

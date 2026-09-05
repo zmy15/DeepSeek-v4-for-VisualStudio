@@ -1,6 +1,7 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Services.Agents;
+using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.ToolWindows;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using EnvDTE80;
@@ -193,6 +194,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         private void ClearButton_Click(object sender, RoutedEventArgs e)
         {
+            // 二次确认：清空不可恢复，防止误触丢失会话
+            var msg = LocalizationService.Instance["chat.clearConfirm"];
+            var title = LocalizationService.Instance["chat.clearConfirmTitle"];
+            if (System.Windows.MessageBox.Show(msg, title,
+                    MessageBoxButton.OKCancel, MessageBoxImage.Warning,
+                    MessageBoxResult.Cancel) != MessageBoxResult.OK)
+            {
+                return;
+            }
             ClearConversation();
         }
 
@@ -347,7 +357,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var doc = dte?.ActiveDocument;
                 if (doc == null)
                 {
-                    StatusLabel.Text = "⚠️ 没有打开的活动文档";
+                    StatusLabel.Text = LocalizationService.Instance["status.noActiveDocument"];
                     return;
                 }
 
@@ -429,8 +439,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
                 RefreshAttachedFilesUI();
                 StatusLabel.Text = addedCount > 0
-                    ? $"📁 已添加 {addedCount} 个文件到上下文"
-                    : "⚠️ 未添加新文件（已存在或格式不支持）";
+                    ? LocalizationService.Instance.Format("status.filesAddedToContext", addedCount)
+                    : LocalizationService.Instance["status.noFilesAdded"];
                 Logger.Info($"[AddContext] 项目文件已添加: {addedCount} 个");
             }
         }
@@ -482,8 +492,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 RefreshAttachedFilesUI();
                 StatusLabel.Text = addedCount > 0
-                    ? $"📦 已添加 {addedCount} 个项目文件到上下文" + (skippedCount > 0 ? $" (跳过 {skippedCount} 个)" : "")
-                    : "⚠️ 未找到可添加的源代码文件";
+                    ? LocalizationService.Instance.Format("status.projectFilesAdded", addedCount)
+                        + (skippedCount > 0 ? LocalizationService.Instance.Format("status.projectFilesSkippedSuffix", skippedCount) : "")
+                    : LocalizationService.Instance["status.noSourceFilesFound"];
                 Logger.Info($"[AddContext] 项目全部文件已添加: {addedCount} 个, 跳过: {skippedCount} 个");
             }
             catch (Exception ex)
@@ -649,8 +660,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 int referencedFileCount = await ExtractAndAddReferencedFilesAsync(debugOutput);
 
                 StatusLabel.Text = referencedFileCount > 0
-                    ? $"🐛 已添加调试输出 ({debugOutput.Length} 字符) + {referencedFileCount} 个关联文件"
-                    : $"🐛 已添加调试输出 ({debugOutput.Length} 字符)";
+                    ? $"已添加调试输出 ({debugOutput.Length} 字符) + {referencedFileCount} 个关联文件"
+                    : $"已添加调试输出 ({debugOutput.Length} 字符)";
                 Logger.Info($"[AddContext] 调试输出已添加: {tempPath}, 长度={debugOutput.Length}, 关联文件={referencedFileCount} 个");
             }
             catch (Exception ex)
@@ -970,14 +981,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     {
                         Name = s.Name,
                         Description = s.AlwaysInject
-                            ? $"🔄 {L["popup.skillDesc.alwaysInject"]} — {s.Description}"
+                            ? $"{L["popup.skillDesc.alwaysInject"]} - {s.Description}"
                             : s.Description,
                         Source = s.Source switch
                         {
                             SkillSource.Project => L["popup.skillSource.project"],
                             SkillSource.User => L["popup.skillSource.user"],
                             SkillSource.BuiltIn => L["popup.skillSource.package"],
-                            _ => "❓"
+                            _ => ""
                         },
                         IsMeta = false,
                         SkillDefinition = s,
@@ -1144,7 +1155,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     new AgentSuggestionItem
                     {
                         Name = "ask",
-                        Icon = "💬",
+                        Icon = "",
                         Description = L["popup.agentDesc.ask"],
                         ArgumentHint = L["popup.agentHint.ask"],
                         AgentType = AgentType.Ask,
@@ -1152,7 +1163,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     new AgentSuggestionItem
                     {
                         Name = "explore",
-                        Icon = "🔍",
+                        Icon = "",
                         Description = L["popup.agentDesc.explore"],
                         ArgumentHint = L["popup.agentHint.explore"],
                         AgentType = AgentType.Explore,
@@ -1160,7 +1171,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     new AgentSuggestionItem
                     {
                         Name = "plan",
-                        Icon = "📋",
+                        Icon = "",
                         Description = L["popup.agentDesc.plan"],
                         ArgumentHint = L["popup.agentHint.plan"],
                         AgentType = AgentType.Plan,
@@ -1168,7 +1179,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     new AgentSuggestionItem
                     {
                         Name = "edit",
-                        Icon = "🔨",
+                        Icon = "",
                         Description = L["popup.agentDesc.edit"],
                         ArgumentHint = L["popup.agentHint.edit"],
                         AgentType = AgentType.Edit,
@@ -1176,7 +1187,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     new AgentSuggestionItem
                     {
                         Name = "build",
-                        Icon = "🔧",
+                        Icon = "",
                         Description = L["popup.agentDesc.build"],
                         ArgumentHint = L["popup.agentHint.build"],
                         AgentType = AgentType.Build,
@@ -1343,6 +1354,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         private void SessionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_suppressSessionSelection) return; // 程序化填充期间忽略
             if (SessionComboBox.SelectedItem is ChatSession session && session != _activeSession)
             {
                 SwitchToSession(session);
@@ -1383,6 +1395,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     _options.SelectedModel = model;
                     try { _options.SaveSettingsToStorage(); } catch { /* 非关键路径 */ }
+                    UnifiedSettingsSync.PushFromPage(_options);
                 }
                 Logger.Info($"模型切换为: {model}");
             }
@@ -1396,16 +1409,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _cachedApprovalMode = mode;
 
                 // 持久化到设置
-                if (_options != null)
+                string modeValue = mode switch
                 {
-                    _options.ApprovalMode = mode switch
-                    {
-                        Models.ApprovalMode.BlockAll => "BlockAll",
-                        Models.ApprovalMode.AllowAll => "AllowAll",
-                        _ => "SmartBlock",
-                    };
+                    Models.ApprovalMode.BlockAll => "BlockAll",
+                    Models.ApprovalMode.AllowAll => "AllowAll",
+                    _ => "SmartBlock",
+                };
+                if (_options != null && _options.ApprovalMode != modeValue)
+                {
+                    _options.ApprovalMode = modeValue;
                     // 立即写入存储，确保重启 VS 后仍然生效
                     try { _options.SaveSettingsToStorage(); } catch { /* 非关键路径 */ }
+                    UnifiedSettingsSync.PushFromPage(_options);
                 }
                 Logger.Info($"审批模式切换为: {mode}");
             }
@@ -1418,6 +1433,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 bool enabled = ThinkingCheckBox.IsChecked == true;
                 string effort = EffortComboBox.SelectedItem as string ?? "high";
                 _apiService.ConfigureThinking(enabled, effort);
+                if (_options != null && _options.IsThinkingEnabled != enabled)
+                {
+                    _options.IsThinkingEnabled = enabled;
+                    try { _options.SaveSettingsToStorage(); } catch { /* 非关键路径 */ }
+                    UnifiedSettingsSync.PushFromPage(_options);
+                }
                 Logger.Info($"思考模式: {(enabled ? "启用" : "禁用")}, 强度: {effort}");
             }
         }
@@ -1440,11 +1461,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 bool enabled = ThinkingCheckBox.IsChecked == true;
                 _apiService.ConfigureThinking(enabled, effort);
                 // 持久化到设置
-                if (_options != null)
+                if (_options != null && _options.ReasoningEffort != effort)
                 {
                     _options.ReasoningEffort = effort;
                     // 立即写入存储，确保重启 VS 后仍然生效
                     try { _options.SaveSettingsToStorage(); } catch { /* 非关键路径 */ }
+                    UnifiedSettingsSync.PushFromPage(_options);
                 }
                 Logger.Info($"推理强度切换为: {effort}");
             }
@@ -1461,7 +1483,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             try
             {
-                // 切换状态
+                bool enable = _webSearchEngine == "Off";
                 if (_webSearchEngine == "Off")
                 {
                     // 使用 ComboBox 当前选择的搜索引擎，而非硬编码 DuckDuckGo
@@ -1469,7 +1491,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     string newEngine = selected switch
                     {
                         string s when s.Contains("百度") || s.Contains("Baidu") => "Baidu",
-                        string s when s.Contains("Bing") || s.Contains("🌐") => "Bing",
+                        string s when s.Contains("Bing") => "Bing",
                         _ => "DuckDuckGo"
                     };
                     _webSearchEngine = newEngine;
@@ -1488,13 +1510,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     _webSearchEngine = "Off";
                 }
 
+                if (_options != null && _options.EnableWebSearch != enable)
+                {
+                    _options.EnableWebSearch = enable;
+                    try { _options.SaveSettingsToStorage(); } catch { /* 非关键路径 */ }
+                    UnifiedSettingsSync.PushFromPage(_options);
+                }
+
+                ApplyWebSearchConfig();
                 Logger.Info($"联网搜索状态切换为: {_webSearchEngine}");
                 UpdateWebSearchToggleAppearance();
-
-                if (_webSearchEngine != "Off")
-                {
-                    ApplyWebSearchConfig();
-                }
 
                 // 提示百度/Bing 未配置 Key 的情况
                 if (_webSearchEngine == "Baidu" && (_options == null || string.IsNullOrWhiteSpace(_options.BaiduApiKey)))
@@ -1616,13 +1641,20 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string newEngine = selected switch
                 {
                     string s when s.Contains("百度") || s.Contains("Baidu") => "Baidu",
-                    string s when s.Contains("Bing") || s.Contains("🌐") => "Bing",
+                    string s when s.Contains("Bing") => "Bing",
                     _ => "DuckDuckGo"
                 };
 
                 if (_webSearchEngine == newEngine) return; // 避免循环触发
 
                 _webSearchEngine = newEngine;
+                if (_options != null && _options.SearchProvider != newEngine)
+                {
+                    _options.SearchProvider = newEngine;
+                    try { _options.SaveSettingsToStorage(); } catch { /* 非关键路径 */ }
+                    UnifiedSettingsSync.PushFromPage(_options);
+                }
+
                 Logger.Info($"联网搜索引擎切换为: {_webSearchEngine}");
                 UpdateWebSearchToggleAppearance();
                 ApplyWebSearchConfig();
@@ -2171,6 +2203,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         if (msgIndex >= 0 && !string.IsNullOrEmpty(newText))
                             _ = HandleEditConfirmAsync(msgIndex, newText);
                     }
+                    else if (type == "loadEarlier")
+                    {
+                        _ = LoadEarlierMessagesAsync();
+                    }
                     else if (type == "editMessageCancel")
                     {
                         int msgIndex = obj.TryGetProperty("messageIndex", out var editCancelIdxProp)
@@ -2337,8 +2373,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     await ChatWebView.CoreWebView2.ExecuteScriptAsync(
                                         "var p=document.getElementById('file-delete-confirm');if(p)p.remove();");
                                     StatusLabel.Text = confirmed
-                                        ? $"✅ 已删除 {filePaths.Count} 个文件"
-                                        : "❌ 已取消删除";
+                                        ? LocalizationService.Instance.Format("status.filesDeleted", filePaths.Count)
+                                        : LocalizationService.Instance["status.deleteCancelled"];
                                 }
                                 catch { }
                             }
@@ -2384,7 +2420,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (error != null)
                 {
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = $"⚠️ {error}";
+                    StatusLabel.Text = $" {error}";
                     Logger.Warn($"[ApplyCode] 写入失败: {error}");
                 }
             });

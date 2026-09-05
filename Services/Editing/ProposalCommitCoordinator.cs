@@ -169,6 +169,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Editing
             return change.Operation switch
             {
                 ProposedFileOperation.Add => new NewFileCommitTarget(),
+                ProposedFileOperation.Delete => new DeleteFileCommitTarget(),
                 _ => new FileCommitTarget(),
             };
         }

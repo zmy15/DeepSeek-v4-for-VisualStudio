@@ -351,7 +351,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
     public class AgentLogEntry
     {
         public DateTime Timestamp { get; set; } = DateTime.Now;
-        public string Level { get; set; } = "INFO"; // INFO, WARN, ERROR
+        public string Level { get; set; } = "INFO"; // INFO, WARN, ERROR, TOOL
         public string Message { get; set; } = string.Empty;
     }
 

@@ -40,7 +40,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             set
             {
                 RegisterExploreAgent(value, ref _exploreAgent);
-                base.ExploreAgent = value; // 🔑 同步到基类属性，确保 ExecuteToolAsync 可见
+                base.ExploreAgent = value; //  同步到基类属性，确保 ExecuteToolAsync 可见
             }
         }
 
@@ -48,7 +48,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         {
             var explore = new ExploreAgent(apiService);
             RegisterExploreAgent(explore, ref _exploreAgent);
-            base.ExploreAgent = _exploreAgent; // 🔑 同步到基类，确保 ExecuteToolAsync 可见
+            base.ExploreAgent = _exploreAgent; //  同步到基类，确保 ExecuteToolAsync 可见
         }
 
         #region Agent Definition
@@ -63,7 +63,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 ArgumentHint = LocalizationService.Instance["agent.plan.argumentHint"],
                 UserInvocable = true,
                 DisableModelInvocation = false,
-                // 🔑 Prefix Cache 优化：全会话统一工具集。所有阶段使用相同工具白名单。
+                //  Prefix Cache 优化：全会话统一工具集。所有阶段使用相同工具白名单。
                 // 深度探索通过 runSubagent 委派给 ExploreAgent；快速查阅允许直接使用只读工具。
                 AllowedTools = new List<string>
                 {
@@ -161,7 +161,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     // ── 将对齐阶段的规划概要前置到结果最前面 ──
                     if (!string.IsNullOrWhiteSpace(alignmentSummary))
                     {
-                        result.Content = "## 📋 规划概要\n\n" + alignmentSummary + "\n\n---\n\n" + result.Content;
+                        result.Content = "##  规划概要\n\n" + alignmentSummary + "\n\n---\n\n" + result.Content;
                     }
 
                     // ── 生成详细 plan.md 文件 ──
@@ -272,7 +272,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 运行发现阶段：通过 runSubagent 工具在 PlanAgent 对话内探索代码库。
         ///
-        /// 🔑 缓存关键：所有探索结果作为 tool 消息保留在 PlanAgent 的对话历史中，
+        ///  缓存关键：所有探索结果作为 tool 消息保留在 PlanAgent 的对话历史中，
         /// 使后续对齐和设计阶段可复用整个发现对话前缀，DeepSeek Prefix Cache 持续命中。
         /// AI 自主决定调用几次 runSubagent —— 先扫结构，再深入探索关键区域。
         /// </summary>
@@ -304,7 +304,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             try
             {
-                // 🔑 使用统一工具白名单（不再按阶段过滤 tools JSON，由客户端拦截保证安全）
+                //  使用统一工具白名单（不再按阶段过滤 tools JSON，由客户端拦截保证安全）
                 await CallAiWithToolLoopAsync(
                     messages,
                     workspaceRoot: context.SolutionPath,
@@ -389,7 +389,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine("- 如果文件已被之前子代理读取（cached=\"true\"），直接使用缓存内容，无需重复读取");
             sb.AppendLine("- 探索完成后汇总所有子代理的发现，形成完整的分析报告");
             sb.AppendLine();
-            sb.AppendLine("## ⚠️ 关键规则");
+            sb.AppendLine("##  关键规则");
             sb.AppendLine("- 如果用户消息 + 已有上下文已足够制定实现计划 → **直接回复 DONE，不调用任何工具**");
             sb.AppendLine("- 如果缺少关键信息（项目结构、相关代码等）→ 使用 runSubagent 探索后再回复 DONE");
             sb.AppendLine("- DONE 必须是纯文本，不要包裹在 markdown、代码块或 JSON 中");
@@ -487,7 +487,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     if (file.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                         count++;
                 }
-                sb.AppendLine($"- 📁 {d}/ ({count} 个文件)");
+                sb.AppendLine($"-  {d}/ ({count} 个文件)");
             }
 
             sb.AppendLine();
@@ -501,7 +501,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 运行对齐阶段：使用工具调用循环让 AI 通过 VisualStudio_askQuestions 向用户提问。
-        /// 🔑 缓存关键：在阶段 1 的对话历史上追加对齐指令，
+        ///  缓存关键：在阶段 1 的对话历史上追加对齐指令，
         /// DeepSeek Prefix Cache 可命中整个阶段 1 的对话前缀（~80-90% 命中率）。
         /// 返回对齐阶段的完整消息列表（含 tool call 历史），供设计阶段复用。
         /// </summary>
@@ -514,7 +514,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             try
             {
-                // 🔑 直接在阶段 1 的对话历史上追加对齐指令
+                //  直接在阶段 1 的对话历史上追加对齐指令
                 existingMessages.Add(new ChatApiMessage
                 {
                     Role = "user",
@@ -523,7 +523,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 // ── 使用 onContent 回调实时捕获 AI 生成的规划概要 ──
                 var alignmentContent = new StringBuilder();
-                // 🔑 使用统一工具白名单（不再按阶段过滤 tools JSON，由客户端拦截保证安全）
+                //  使用统一工具白名单（不再按阶段过滤 tools JSON，由客户端拦截保证安全）
                 string alignmentResult = await CallAiWithToolLoopAsync(
                     existingMessages,
                     context.SolutionPath,
@@ -568,7 +568,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
         /// <summary>
         /// 使用 AI 创建实现计划（JSON 格式）。
-        /// 🔑 缓存关键：如果传入了 alignmentMessages，则在对齐对话基础上继续（追加系统上下文 + 设计指令），
+        ///  缓存关键：如果传入了 alignmentMessages，则在对齐对话基础上继续（追加系统上下文 + 设计指令），
         /// DeepSeek Prefix Cache 可匹配整个对齐对话前缀，避免设计阶段冷启动（从 ~5% → ~60%+ 命中率）。
         /// 如果 alignmentMessages 为 null，则独立创建新对话（兼容旧调用路径）。
         /// </summary>
@@ -583,7 +583,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── 构建额外的 system 消息（发现上下文），放在历史之后、用户消息之前 ──
             // 这样 messages[0]（Agent System Prompt）保持稳定，可被 DeepSeek Prefix Cache 命中
             //
-            // 🔑 缓存关键：discoveryContext 的包装头必须与 GenerateDetailedPlanMarkdownAsync
+            //  缓存关键：discoveryContext 的包装头必须与 GenerateDetailedPlanMarkdownAsync
             // 使用完全相同的 i18n key（plan.md.codebaseFindings），确保两个 API 调用之间的
             // 发现上下文系统消息前缀完全一致，从而命中 DeepSeek Prefix Cache。
             var extraSystemMessages = new List<ChatApiMessage>();
@@ -613,7 +613,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             List<ChatApiMessage> messages;
             if (alignmentMessages != null && alignmentMessages.Count > 0)
             {
-                // 🔑 在对齐对话基础上追加：系统上下文 + 设计指令
+                //  在对齐对话基础上追加：系统上下文 + 设计指令
                 // 不调用 BuildContextAwareMessages，直接复用对齐阶段的完整消息列表
                 messages = new List<ChatApiMessage>(alignmentMessages);
                 messages.AddRange(extraSystemMessages);
@@ -662,14 +662,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         new ChatApiMessage
                         {
                             Role = "system",
-                            Content = "⚠️ CRITICAL: You are in tool_choice=none mode. You have ZERO tools available. " +
+                            Content = " CRITICAL: You are in tool_choice=none mode. You have ZERO tools available. " +
                                       "Do NOT output DSML, function_calls, tool_calls, XML invoke tags, or any " +
                                       "tool invocation syntax. Your ONLY valid output is a raw JSON object."
                         },
                         new ChatApiMessage
                         {
                             Role = "user",
-                            Content = "⚠️ 严格指令：你只能输出 JSON 对象。不要调用任何工具（你无法调用工具）。" +
+                            Content = " 严格指令：你只能输出 JSON 对象。不要调用任何工具（你无法调用工具）。" +
                                       "不要输出任何 DSML、function_calls、tool_calls、XML invoke 标签、markdown、分析文字、" +
                                       "代码块标记、或解释。直接以 { 字符开始，输出纯 JSON。违反此规则将导致系统故障。"
                         }
@@ -854,7 +854,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             for (int i = 0; i < plan.Steps.Count; i++)
             {
                 var step = plan.Steps[i];
-                string prefix = step.RequiresApproval ? "🔐" : "📌";
+                string prefix = step.RequiresApproval ? "⚠️ " : "";
                 sb.AppendLine($"{prefix} **步骤 {step.Index}**: {step.Title}");
 
                 if (!string.IsNullOrWhiteSpace(step.Description))
@@ -939,7 +939,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     : title;
 
                 // 判断是否需要审批（标题或描述中包含特定关键词）
-                bool requiresApproval = title.Contains("🔐") || title.Contains("权限")
+                bool requiresApproval = title.Contains("权限")
                     || description.Contains("需要确认") || description.Contains("需要审批")
                     || description.Contains("权限") || description.Contains("terminal")
                     || description.Contains("Terminal");
@@ -1091,7 +1091,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 WriteIndented = true,
             });
 
-            // ── 🔑 在 Phase 3 对话历史上追加 plan.md 指令，最大化 Prefix Cache 命中 ──
+            // ──  在 Phase 3 对话历史上追加 plan.md 指令，最大化 Prefix Cache 命中 ──
             // discoveryContext 已在 designMessages 的历史中，无需重复注入
             var mdMessages = new List<ChatApiMessage>(designMessages);
             mdMessages.Add(new ChatApiMessage
@@ -1172,7 +1172,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     retryMdMessages.Add(new ChatApiMessage
                     {
                         Role = "system",
-                        Content = "⚠️ CRITICAL: You are in tool_choice=none mode. You have NO tools available. " +
+                        Content = " CRITICAL: You are in tool_choice=none mode. You have NO tools available. " +
                                   "Do NOT output any function calls, DSML tags, XML tags, tool invocations, " +
                                   "or code blocks that look like tool usage. Output ONLY the implementation plan " +
                                   "in clean Markdown format as instructed below."
@@ -1180,7 +1180,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     retryMdMessages.Add(new ChatApiMessage
                     {
                         Role = "user",
-                        Content = "⚠️ RETRY: Your previous response contained tool call syntax instead of a plan document. " +
+                        Content = " RETRY: Your previous response contained tool call syntax instead of a plan document. " +
                                   "Re-read the instructions and output ONLY a clean Markdown implementation plan. " +
                                   "No DSML, no XML, no tool calls, no function invocations — just the plan document."
                     });

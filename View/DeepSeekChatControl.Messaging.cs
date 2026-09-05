@@ -91,7 +91,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 _isGenerating = true;
             }
 
-            // ── 🚀 立即更新 UI：清空输入框、禁用按钮，让用户看到即时反馈 ──
+            // ──  立即更新 UI：清空输入框、禁用按钮，让用户看到即时反馈 ──
             InputTextBox.Text = string.Empty;
             UpdateButtonsState();
 
@@ -253,12 +253,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             List<string> attachedPdfPaths = _attachedFilePaths.Where(IsPdfFile).ToList();
 
             // 构建用户消息内容
-            string analyzeFilesPrompt = "请分析以上文件内容。";
+            string analyzeFilesPrompt = LocalizationService.Instance["messaging.analyzeFilesPrompt"];
             string userDisplayContent = userText ?? string.Empty;
             if (string.IsNullOrEmpty(userDisplayContent)
                 && attachedFileNames.Count > 0
                 && attachedImageDataUris.Count == 0)
-                userDisplayContent = $"[已上传 {attachedFileNames.Count} 个文件]";
+                userDisplayContent = LocalizationService.Instance.Format("chat.uploadedFilesPlaceholder", attachedFileNames.Count);
 
             string fullUserContent;
             if (!string.IsNullOrEmpty(fileContext) && !string.IsNullOrEmpty(effectiveUserText))
@@ -268,7 +268,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             else
                 fullUserContent = effectiveUserText ?? string.Empty;
 
-            // ── 🚀 立即显示用户消息气泡（在路由/技能调用之前）──
+            // ──  立即显示用户消息气泡（在路由/技能调用之前）──
             var earlyUserMsg = new ChatMessage
             {
                 Role = "user",
@@ -301,6 +301,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 earlyUserMsgIndex);
             UpdateBrowser();
             ClearAttachedFiles();
+            TouchCurrentSessionLastActive();
             AutoTitleSession();
             // 注意：InputTextBox 和 UpdateButtonsState 已在上方立即执行
 
@@ -400,6 +401,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         var capturedVisionContent = visionContent;
                         var capturedRoute = routing;
                         var capturedMsgIdx = capturedUserMsgIndex;
+                        var capturedCurrentUserContent = fullUserContent;
 
                         // ── 创建 Agent 路径的 CancellationTokenSource（停止按钮依赖此 CTS）──
                         var agentCts = CreateNewStreamingCts();
@@ -412,7 +414,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     capturedUserText,
                                     capturedFileContext,
                                     capturedRoute,
-                                    capturedVisionContent);
+                                    capturedVisionContent,
+                                    capturedCurrentUserContent);
                                 RecordAgentFileChanges(capturedMsgIdx);
                             }
                             catch (Exception ex)
@@ -460,10 +463,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     if (recentMessages.Count > 0)
                     {
-                        sb.AppendLine("最近对话:");
+                        sb.AppendLine(LocalizationService.Instance["messaging.recentConversation"]);
                         foreach (var msg in recentMessages)
                         {
-                            string role = msg.Role == "user" ? "用户" : "AI";
+                            string role = msg.Role == "user"
+                                ? LocalizationService.Instance["chat.role.user"]
+                                : LocalizationService.Instance["chat.role.ai"];
                             string content = (msg.Content ?? "").Truncate(120);
                             if (!string.IsNullOrWhiteSpace(content))
                                 sb.AppendLine($"- {role}: {content}");
@@ -477,7 +482,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (parseResults != null && parseResults.Count > 0)
             {
                 sb.AppendLine();
-                sb.AppendLine("用户附加了以下文件:");
+                sb.AppendLine(LocalizationService.Instance["messaging.attachedFilesHeader"]);
                 foreach (var pr in parseResults)
                 {
                     if (pr.FileName != null)
@@ -485,14 +490,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         string snippet = (pr.Content ?? "").Truncate(200);
                         sb.AppendLine($"- {pr.FileName}");
                         if (!string.IsNullOrWhiteSpace(snippet))
-                            sb.AppendLine($"  内容片段: {snippet}");
+                            sb.AppendLine(LocalizationService.Instance.Format("messaging.contentSnippet", snippet));
                     }
                 }
             }
             else if (!string.IsNullOrWhiteSpace(fileContext))
             {
                 sb.AppendLine();
-                sb.AppendLine($"用户附加了文件上下文: {fileContext.Truncate(300)}");
+                sb.AppendLine(LocalizationService.Instance.Format("messaging.fileContextHeader", fileContext.Truncate(300)));
             }
 
             string result = sb.ToString().Trim();
@@ -827,7 +832,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return argumentsJson;
 
             // ── OCR 参数格式提醒 ──
-            Logger.Info($"[OCR] 📋 调用 OCR 工具 `{toolName}`，期望参数格式:\n" +
+            Logger.Info($"[OCR]  调用 OCR 工具 `{toolName}`，期望参数格式:\n" +
                 "  • input_data (必需): 文件路径、URL 或 Base64 字符串\n" +
                 "  • output_mode (可选, 默认 \"simple\"): \"simple\" | \"detailed\"\n" +
                 "  • file_type (可选): \"image\" | \"pdf\" | null（input_data 为 URL 时必需）");
@@ -837,7 +842,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var args = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(argumentsJson);
                 if (args == null || args.Count == 0)
                 {
-                    Logger.Warn($"[OCR] ⚠️ OCR 工具 `{toolName}` 未收到任何参数！请确保传入 input_data。");
+                    Logger.Warn($"[OCR]  OCR 工具 `{toolName}` 未收到任何参数！请确保传入 input_data。");
                     return argumentsJson;
                 }
 
@@ -874,7 +879,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     bool hasFileType = args.ContainsKey("file_type") || args.ContainsKey("type");
                     if (!hasFileType)
                     {
-                        Logger.Warn($"[OCR] ⚠️ input_data 为 URL 但未提供 file_type 参数！\n" +
+                        Logger.Warn($"[OCR]  input_data 为 URL 但未提供 file_type 参数！\n" +
                             "  • 请补充 \"file_type\": \"image\" 或 \"file_type\": \"pdf\"\n" +
                             $"  • 当前 URL: {imageValue.Substring(0, Math.Min(80, imageValue.Length))}...");
                     }

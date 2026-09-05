@@ -43,6 +43,23 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         /// 订阅此事件可实现设置热切换，无需重启聊天窗口。
         /// </summary>
         public static event Action? SettingsChanged;
+        /// <summary>
+        /// 触发一次设置热更新（Unified Settings 桥接 SetValue 后调用）。
+        /// </summary>
+        internal void ApplyRuntimeHotUpdates()
+        {
+            ThemeService.Instance.UserThemeMode = ThemeMode;
+
+            // Language affects resource loading before general subscribers refresh the UI.
+            ApplyLanguageSetting();
+            SettingsChanged?.Invoke();
+        }
+
+        private string _loadedApiKey = string.Empty;
+        private string _loadedBaiduApiKey = string.Empty;
+        private string _loadedBingApiKey = string.Empty;
+        private bool _apiKeysDirty;
+        private bool _apiKeysMigrationPending;
 
         /// <summary>
         /// 全局实例引用，在 Package 初始化时设置，方便静态工具类读取设置。
@@ -71,6 +88,9 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
                 // 回退到自动检测（中文），表现为"切换失效"。
                 ApplyLanguageSetting();
                 SettingsChanged?.Invoke();
+
+                // ── 旧页改动 → 推送到 Unified Settings（新版设置 UI 同步）──
+                UnifiedSettingsSync.PushFromPage(this);
             }
         }
 
@@ -110,9 +130,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             try
             {
                 base.LoadSettingsFromStorage();
-                ApiKey = ApiKeyProtection.Unprotect(ApiKey);
-                BaiduApiKey = ApiKeyProtection.Unprotect(BaiduApiKey);
-                BingApiKey = ApiKeyProtection.Unprotect(BingApiKey);
+                LoadApiKeysFromCredentialStore();
             }
             catch (InvalidCastException ex)
             {
@@ -121,15 +139,28 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         }
 
         /// <summary>
-        /// 在写入设置存储前对 API Key 字段做 DPAPI 加密；写入后恢复内存中的明文，
-        /// 保证运行时读取逻辑和属性网格中的用户编辑值不受影响。
+        /// API Key 采用双持久化：优先读写 Visual Studio Credential Storage，
+        /// 同时保留 DPAPI 加密备份，避免 keychain 瞬时故障导致密钥丢失。
         /// </summary>
         public override void SaveSettingsToStorage()
         {
             string apiKey = ApiKey;
             string baiduApiKey = BaiduApiKey;
             string bingApiKey = BingApiKey;
+            var credentialStore = VisualStudioApiKeyStore.Current;
+            // DialogPage hosts can save before OnApply, so detect changes from the loaded
+            // baseline here. OnApply is too late to influence credential writes.
+            _apiKeysDirty = HasApiKeyChanges(apiKey, baiduApiKey, bingApiKey);
+            bool shouldWriteCredentialStore = _apiKeysDirty || _apiKeysMigrationPending;
+            bool credentialStoreUpdated = shouldWriteCredentialStore
+                && credentialStore != null
+                && SaveCredential(credentialStore, ApiKeyKind.DeepSeek, apiKey)
+                && SaveCredential(credentialStore, ApiKeyKind.Baidu, baiduApiKey)
+                && SaveCredential(credentialStore, ApiKeyKind.Bing, bingApiKey);
 
+            // Keep the DPAPI-encrypted DialogPage backup at all times. The VS keychain is
+            // preferred at runtime, but this backup prevents a transient keychain failure
+            // from turning into permanent credential loss.
             try
             {
                 ApiKey = ApiKeyProtection.Protect(apiKey);
@@ -143,6 +174,110 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
                 BaiduApiKey = baiduApiKey;
                 BingApiKey = bingApiKey;
             }
+
+            if (_apiKeysDirty)
+            {
+                _loadedApiKey = apiKey;
+                _loadedBaiduApiKey = baiduApiKey;
+                _loadedBingApiKey = bingApiKey;
+                _apiKeysDirty = false;
+            }
+
+            if (_apiKeysMigrationPending && credentialStoreUpdated)
+            {
+                _apiKeysMigrationPending = false;
+            }
+        }
+
+        private void LoadApiKeysFromCredentialStore()
+        {
+            string legacyApiKey = ApiKeyProtection.Unprotect(ApiKey);
+            string legacyBaiduApiKey = ApiKeyProtection.Unprotect(BaiduApiKey);
+            string legacyBingApiKey = ApiKeyProtection.Unprotect(BingApiKey);
+
+            var store = VisualStudioApiKeyStore.Current;
+            if (store == null)
+            {
+                ApiKey = legacyApiKey;
+                BaiduApiKey = legacyBaiduApiKey;
+                BingApiKey = legacyBingApiKey;
+                _apiKeysMigrationPending =
+                    !string.IsNullOrWhiteSpace(legacyApiKey) ||
+                    !string.IsNullOrWhiteSpace(legacyBaiduApiKey) ||
+                    !string.IsNullOrWhiteSpace(legacyBingApiKey);
+                _loadedApiKey = ApiKey;
+                _loadedBaiduApiKey = BaiduApiKey;
+                _loadedBingApiKey = BingApiKey;
+                _apiKeysDirty = false;
+                return;
+            }
+
+            ApiKey = GetCredentialOrMigrateLegacy(store, ApiKeyKind.DeepSeek, legacyApiKey);
+            BaiduApiKey = GetCredentialOrMigrateLegacy(store, ApiKeyKind.Baidu, legacyBaiduApiKey);
+            BingApiKey = GetCredentialOrMigrateLegacy(store, ApiKeyKind.Bing, legacyBingApiKey);
+
+            _loadedApiKey = ApiKey;
+            _loadedBaiduApiKey = BaiduApiKey;
+            _loadedBingApiKey = BingApiKey;
+            _apiKeysDirty = false;
+            _apiKeysMigrationPending =
+                (!string.IsNullOrWhiteSpace(legacyApiKey) && !store.TryGet(ApiKeyKind.DeepSeek, out _)) ||
+                (!string.IsNullOrWhiteSpace(legacyBaiduApiKey) && !store.TryGet(ApiKeyKind.Baidu, out _)) ||
+                (!string.IsNullOrWhiteSpace(legacyBingApiKey) && !store.TryGet(ApiKeyKind.Bing, out _));
+        }
+
+        private static string GetCredentialOrMigrateLegacy(
+            IApiKeyStore store,
+            ApiKeyKind kind,
+            string legacyValue)
+        {
+            if (store.TryGet(kind, out string value))
+            {
+                // 旧版本曾把 DPAPI 备份密文同步进 Credential Storage。Keychain 是
+                // 运行时主来源，因此这里必须保证返回明文；解密失败时按未配置处理。
+                // 注：解密失败时直接返回空串而不回退 legacyValue —— DPAPI 备份与
+                // Keychain 内的是同一密钥加密的密文，两者解密成败一致，回退无收益。
+                return ApiKeyProtection.Unprotect(value);
+            }
+
+            if (string.IsNullOrWhiteSpace(legacyValue))
+            {
+                return string.Empty;
+            }
+
+            // Keep the legacy value usable even if the keychain write fails; Save will then
+            // fall back to DPAPI instead of losing the user's key.
+            store.Set(kind, legacyValue);
+            return legacyValue;
+        }
+
+        private bool SaveCredential(IApiKeyStore store, ApiKeyKind kind, string value)
+        {
+            var runtimeValue = ApiKeyProtection.Unprotect(value);
+
+            // An empty in-memory value can also mean "the credential store was not readable
+            // during startup". Only clear it when the user explicitly edited this page.
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return !_apiKeysDirty || store.Clear(kind);
+            }
+
+            // value 非空但解密结果为空 → DPAPI 解密失败（跨用户/凭据变更），
+            // 绝不能 Clear 删除用户的密钥，视为本次未写入，保留原凭据等待下次成功。
+            if (string.IsNullOrWhiteSpace(runtimeValue))
+            {
+                Logger.Warn($"[Settings] {kind} 解密失败，Keychain 写入中止（保留原凭据）");
+                return true;
+            }
+
+            return store.Set(kind, runtimeValue);
+        }
+
+        private bool HasApiKeyChanges(string apiKey, string baiduApiKey, string bingApiKey)
+        {
+            return !string.Equals(apiKey, _loadedApiKey, StringComparison.Ordinal) ||
+                !string.Equals(baiduApiKey, _loadedBaiduApiKey, StringComparison.Ordinal) ||
+                !string.Equals(bingApiKey, _loadedBingApiKey, StringComparison.Ordinal);
         }
 
         [LocalizedCategory("settings.category.api")]
@@ -311,6 +446,35 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public bool ShowContextStats { get; set; } = true;
 
+        /// <summary>旧实例设置迁移已完成标记（防止迁移值再次覆盖新版本中用户手动修改的设置）。</summary>
+        /// P1-5b：必须加 DesignerSerializationVisibility(Visible) 才会被 DialogPage 序列化，
+        /// 否则每次启动复位为 false，导致迁移反复执行、反复用旧值覆盖用户新改的设置。
+        [System.ComponentModel.Browsable(false)]
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Visible)]
+        public bool LegacySettingsMigrated { get; set; } = false;
+
+        // ═══════════════════════════════════════════════
+        //  可观测性 (Telemetry) 设置 — P0
+        // ═══════════════════════════════════════════════
+
+        [LocalizedCategory("settings.category.context")]
+        [LocalizedDisplayName("settings.enableTelemetryExport.displayName")]
+        [LocalizedDescription("settings.enableTelemetryExport.description")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public bool EnableTelemetryExport { get; set; } = true;
+
+        [LocalizedCategory("settings.category.context")]
+        [LocalizedDisplayName("settings.enableIdeContextInjection.displayName")]
+        [LocalizedDescription("settings.enableIdeContextInjection.description")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public bool EnableIdeContextInjection { get; set; } = true;
+
+        [LocalizedCategory("settings.category.context")]
+        [LocalizedDisplayName("settings.llmTimeoutSeconds.displayName")]
+        [LocalizedDescription("settings.llmTimeoutSeconds.description")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public int LlmTimeoutSeconds { get; set; } = 300;
+
         // ═══════════════════════════════════════════════
         //  国际化 (i18n) 设置
         // ═══════════════════════════════════════════════
@@ -368,19 +532,22 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [LocalizedDisplayName("settings.themeMode.displayName")]
         [LocalizedDescription("settings.themeMode.description")]
         [TypeConverter(typeof(ThemeModeConverter))]
+        [DefaultValue(ThemeMode.Auto)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public string ThemeModeString
         {
-            get => _themeMode == ThemeMode.Auto ? "Auto" : _themeMode == ThemeMode.Dark ? "Dark" : "Light";
-            set
+            get => ThemeMode switch
             {
-                _themeMode = value switch
-                {
-                    "Dark" => ThemeMode.Dark,
-                    "Light" => ThemeMode.Light,
-                    _ => ThemeMode.Auto
-                };
-            }
+                ThemeMode.Dark => "Dark",
+                ThemeMode.Light => "Light",
+                _ => "Auto",
+            };
+            set => ThemeMode = value switch
+            {
+                "Dark" => ThemeMode.Dark,
+                "Light" => ThemeMode.Light,
+                _ => ThemeMode.Auto,
+            };
         }
 
         private int _inputBoxHeight = DefaultInputBoxHeight;
@@ -448,18 +615,13 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         private ThemeMode _themeMode = ThemeMode.Auto;
 
         /// <summary>
-        /// 获取/设置主题模式（强类型版本，供代码使用）。
+        /// 主题模式：Auto 跟随 VS，Dark/Light 强制扩展界面主题。
         /// </summary>
         [System.ComponentModel.Browsable(false)]
         public ThemeMode ThemeMode
         {
             get => _themeMode;
-            set
-            {
-                _themeMode = value;
-                // 同步通知 ThemeService（可能尚未初始化，安全忽略）
-                try { ThemeService.Instance.UserThemeMode = value; } catch { }
-            }
+            set => _themeMode = value;
         }
     }
 
@@ -494,13 +656,13 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     }
 
     /// <summary>
-    /// OCR 引擎下拉选项（PaddleOCR-Sharp 已移除以减小包体，仍可通过 MCP 使用远程 OCR）。
+    /// OCR 引擎下拉选项。PaddleOCR-Sharp 仅在 x64 完整版中提供。
     /// </summary>
     internal class OcrEngineConverter : StringConverter
     {
         public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
-            => new(new[] { "Windows Built-in" });
+            => new(new[] { "Windows Built-in", "PaddleOCR-Sharp" });
     }
 
     /// <summary>

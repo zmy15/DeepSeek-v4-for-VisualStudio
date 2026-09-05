@@ -83,14 +83,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string description = GetStringArg(args, "description");
 
             if (string.IsNullOrWhiteSpace(agentName))
-                return "❌ runSubagent: 缺少 agentName 参数。请指定 \"Explore\"。";
+                return "Error: runSubagent: 缺少 agentName 参数。请指定 \"Explore\"。";
 
             if (string.IsNullOrWhiteSpace(prompt))
-                return "❌ runSubagent: 缺少 prompt 参数。请提供委派给子 Agent 的任务描述。";
+                return "Error: runSubagent: 缺少 prompt 参数。请提供委派给子 Agent 的任务描述。";
 
             // 目前仅支持 Explore 子 Agent
             if (!string.Equals(agentName, "Explore", StringComparison.OrdinalIgnoreCase))
-                return $"❌ runSubagent: 未知的子 Agent \"{agentName}\"。当前仅支持 \"Explore\"。";
+                return $"Error: runSubagent: 未知的子 Agent \"{agentName}\"。当前仅支持 \"Explore\"。";
 
             string logDesc = string.IsNullOrWhiteSpace(description) ? prompt.Truncate(60) : description;
             Logger.Info($"[RunSubagent] → ExploreAgent: {logDesc}");
@@ -112,7 +112,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             catch (Exception ex)
             {
                 Logger.Error($"[RunSubagent] ExploreAgent 执行失败: {ex.Message}", ex);
-                return $"❌ ExploreAgent 执行异常: {ex.Message}";
+                return $"Error: ExploreAgent 执行异常: {ex.Message}";
             }
         }
 
@@ -124,13 +124,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 ? GetStringArg(args, "prompt")?.Truncate(50) ?? L["tool.runSubagent.fallbackDesc"]
                 : desc;
 
-            return $"🤖 **{agentName ?? "Explore"}** — {displayDesc}";
+            return $" **{agentName ?? "Explore"}** — {displayDesc}";
         }
 
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return L["tool.runSubagent.noResult"];
-            if (toolResult.StartsWith("❌")) return toolResult;
+            if (toolResult.StartsWith("Error: ")) return toolResult;
             // 统计探索到的关键信息量
             int lines = toolResult.Split('\n').Length;
             return LocalizationService.Instance.Format("tool.runSubagent.completed", toolResult.Length, lines);
@@ -152,7 +152,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public string? WorkspaceRoot { get; set; }
 
         /// <summary>
-        /// 🔑 v1.1.11：父Agent的当前消息列表，供子Agent复用缓存前缀。
+        ///  v1.1.11：父Agent的当前消息列表，供子Agent复用缓存前缀。
         /// 设置后，ExploreAgent的BuildContextAwareMessages将直接使用此列表作为前缀，
         /// 而非从ContextManager重建，使首轮API调用可命中父Agent的缓存。
         /// </summary>

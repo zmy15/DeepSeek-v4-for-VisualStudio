@@ -360,17 +360,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     }
                     if (tcs != null)
                     {
-                        Logger.Info($"[MCP] ✓ 匹配响应 #{response.Id}");
+                        Logger.Info($"[MCP]  匹配响应 #{response.Id}");
                         tcs.TrySetResult(response);
                     }
                     else
                     {
-                        Logger.Info($"[MCP] ⚠ 未找到等待者 #{response.Id}, pending: [{string.Join(",", _pendingRequests.Keys)}]");
+                        Logger.Info($"[MCP]  未找到等待者 #{response.Id}, pending: [{string.Join(",", _pendingRequests.Keys)}]");
                     }
                 }
                 else if (response != null && response.Error != null)
                 {
-                    Logger.Info($"[MCP] ⚠ 收到错误响应: {response.Error.Message}");
+                    Logger.Info($"[MCP]  收到错误响应: {response.Error.Message}");
                 }
             }
             catch (JsonException ex)

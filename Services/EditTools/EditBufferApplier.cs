@@ -29,9 +29,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         /// 统一写入入口（异步版）：将完整内容写入"已在编辑器中打开"的文档。
         ///
         /// 已打开的文档永远"通过 buffer 写、用编辑器自己的 Save 持久化"：
-        /// 1. 若 buffer 因用户自己的修改而 dirty，先 Save 一次把用户内容落盘（避免静默吞掉用户未保存编辑）；
-        /// 2. 在一个撤销事务中整体替换 buffer 内容（保留一步 Ctrl+Z）；
-        /// 3. 通过 ITextDocument.Save() 持久化 —— 编辑器主动保存不会被 VS 当作外部更改，
+        /// 1. 在一个撤销事务中整体替换 buffer 内容（保留一步 Ctrl+Z）；
+        /// 2. 通过 ITextDocument.Save() 持久化 —— 编辑器主动保存不会被 VS 当作外部更改，
         ///    buffer 保存后回到 clean，"文件已在磁盘上修改"弹窗的条件永远不成立。
         ///
         /// 未打开的文档不适用此入口（返回 false），调用方应回退 File.WriteAllText 裸写盘。
@@ -42,7 +41,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             if (string.IsNullOrWhiteSpace(filePath) || fullContent == null)
                 return false;
 
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            // 契约：任何失败都返回 false（调用方回退磁盘写入），绝不抛出中断调用链。
+            // 无 VS 宿主环境（如单元测试进程）中 JoinableTaskFactory 不可用会抛 NRE，同样回退。
+            try
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BufferWriter] 切换 UI 线程失败（回退磁盘写入）: {Path.GetFileName(filePath)} — {ex.Message}");
+                return false;
+            }
 
             return WriteToOpenDocumentOnUIThread(filePath, fullContent);
         }
@@ -73,31 +82,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
         }
 
         /// <summary>
-        /// 若文件已在编辑器中打开且有未保存修改（用户自己的编辑），先通过编辑器 Save 落盘。
-        /// 用于 StagedEditWorkspace 在登记 Baseline 之前冲刷用户未保存内容，
-        /// 保证 Baseline 捕获的是用户最新内容（撤销时不丢失用户编辑）。
+        /// 若文件已在编辑器中打开，返回当前编辑器 buffer 内容；否则返回 null。
+        /// 只读不保存，供 StagedEditWorkspace 在写入前捕获用户未保存内容作为撤销 Baseline。
         /// </summary>
-        /// <returns>true = 文档已打开（且现已 clean）；false = 未打开。</returns>
-        public static bool TrySaveOpenDocument(string filePath)
+        /// <returns>buffer 内容；文件未打开或读取失败时返回 null。</returns>
+        public static string? TryGetOpenDocumentContent(string filePath)
         {
             if (string.IsNullOrWhiteSpace(filePath))
-                return false;
+                return null;
 
             if (ThreadHelper.CheckAccess())
-                return SaveOpenDocumentOnUIThread(filePath);
+                return GetOpenDocumentContentOnUIThread(filePath);
 
             try
             {
                 return ThreadHelper.JoinableTaskFactory.Run(async () =>
                 {
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    return SaveOpenDocumentOnUIThread(filePath);
+                    return GetOpenDocumentContentOnUIThread(filePath);
                 });
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[BufferWriter] 切换 UI 线程冲刷失败: {Path.GetFileName(filePath)} — {ex.Message}");
-                return false;
+                Logger.Warn($"[BufferWriter] 切换 UI 线程读取失败: {Path.GetFileName(filePath)} — {ex.Message}");
+                return null;
             }
         }
 
@@ -119,11 +127,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     || textDoc == null)
                     return false;
 
-                // 1. buffer 因用户自己的修改而 dirty → 先保存用户内容，避免静默吞掉
-                if (textDoc.IsDirty)
-                    textDoc.Save();
-
-                // 2. 单个撤销事务内整体替换（保留一步 Ctrl+Z），参照 OpenBufferCommitTarget 的用法
+                // 不做写入前的二次 Save。调用方已通过 TryGetOpenDocumentContent
+                // 保留 dirty buffer 作为撤销 Baseline；这里只写最终内容并保存一次。
                 ITextUndoTransaction? transaction = null;
                 try
                 {
@@ -151,7 +156,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
                     transaction?.Dispose();
                 }
 
-                // 3. 编辑器自己的 Save：不会被当作外部更改，保存后 buffer 回到 clean
+                // 编辑器自己的 Save：不会被当作外部更改，保存后 buffer 回到 clean
                 textDoc.Save();
 
                 Logger.Info($"[BufferWriter] 已通过编辑器 buffer 写入并保存: {Path.GetFileName(filePath)}");
@@ -164,31 +169,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             }
         }
 
-        /// <summary>UI 线程上执行：若已打开且 dirty 则 Save。</summary>
-        private static bool SaveOpenDocumentOnUIThread(string filePath)
+        /// <summary>UI 线程上执行：读取已打开文档的当前 buffer 内容。</summary>
+        private static string? GetOpenDocumentContentOnUIThread(string filePath)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
 
             try
             {
                 var textBuffer = GetTextBufferForFile(filePath);
-                if (textBuffer == null)
-                    return false;
-
-                if (textBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument? textDoc)
-                    && textDoc != null
-                    && textDoc.IsDirty)
+                if (textBuffer != null)
                 {
-                    textDoc.Save();
-                    Logger.Info($"[BufferWriter] 已冲刷用户未保存内容: {Path.GetFileName(filePath)}");
+                    return textBuffer.CurrentSnapshot.GetText();
                 }
 
-                return true;
+                return null;
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[BufferWriter] 冲刷已打开文档失败: {Path.GetFileName(filePath)} — {ex.Message}");
-                return false;
+                Logger.Warn($"[BufferWriter] 读取已打开文档失败: {Path.GetFileName(filePath)} — {ex.Message}");
+                return null;
             }
         }
 

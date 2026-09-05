@@ -99,7 +99,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌")) return toolResult;
+            if (toolResult.StartsWith("Error: ")) return toolResult;
 
             var readLines = toolResult.Split('\n');
             string firstLine = readLines.Length > 0 ? readLines[0].Trim() : "";
@@ -297,6 +297,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             LastReadRound = CurrentRound
                         });
 
+                    // ── 契约前缀防碰撞（根修）：内容以 "Error: "/"Timeout: "/"[BLOCKED] " ──
+                    // 开头的文件若原样返回，会被 BaseAgent 连续错误检测 / ToolExecutionOutcome.Classify
+                    // 误判为工具失败，累计后强制终止工具循环。此场景改用 <file> 信封包裹
+                    // （与分页路径同构），正常内容保持原样快速通道不变。
+                    if (ToolExecutionOutcome.StartsWithContractMarker(fullContent))
+                    {
+                        var wrapped = new StringBuilder();
+                        wrapped.AppendLine($"<file path=\"{filePath}\" total_lines=\"{totalLines}\" shown_lines=\"1-{totalLines}\" truncated=\"false\">");
+                        wrapped.Append(fullContent);
+                        wrapped.Append("</file>");
+                        return Task.FromResult(wrapped.ToString());
+                    }
+
                     return Task.FromResult(fullContent);
                 }
 
@@ -340,7 +353,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 // 文件元数据行
                 resultBuilder.Append($"<file path=\"{filePath}\" total_lines=\"{totalLines}\" shown_lines=\"{shownStart}-{shownEnd}\" truncated=\"{truncated.ToString().ToLowerInvariant()}\"");
                 if (truncatedByLines)
-                    resultBuilder.Append($" next_start_line=\"{nextStart}\"");
+                    resultBuilder.Append($"next_start_line=\"{nextStart}\"");
                 resultBuilder.AppendLine(">");
 
                 // 文件内容

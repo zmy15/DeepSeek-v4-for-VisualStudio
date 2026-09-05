@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Shell;
@@ -102,7 +102,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     var errorMsg = new ChatMessage
                     {
                         Role = "assistant",
-                        Content = $"⚠️ **未知命令**: `/{commandName}`\n\n" +
+                        Content = $" **未知命令**: `/{commandName}`\n\n" +
                                   $"可用的技能命令：\n{skillListStr}\n\n" +
                                   $"输入 `/help` 查看完整帮助。",
                         Timestamp = DateTime.Now,
@@ -165,7 +165,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             SkillSource.Project => L["popup.skillSource.project"],
                             SkillSource.User => L["popup.skillSource.user"],
                             SkillSource.BuiltIn => L["popup.skillSource.package"],
-                            _ => "❓"
+                            _ => ""
                         };
                         var typeLabel = skill.UserInvocable ? L["skills.help.typeInvocable"] : L["skills.help.typeAuto"];
                         var desc = TruncateText(skill.Description, 60);

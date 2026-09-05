@@ -70,7 +70,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             if (lower.Contains("0 个错误") || lower.Contains("0 errors") || lower.Contains("0 error"))
                 return false;
 
-            if (lower.Contains("❌"))
+            if (lower.Contains("error:") || lower.Contains("timeout:"))
             {
                 return lower.Contains("构建") || lower.Contains("编译")
                     || lower.Contains("build") || lower.Contains("compile")
@@ -105,7 +105,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     || result.Contains("错误", StringComparison.Ordinal)
                     || result.Contains("failed", StringComparison.OrdinalIgnoreCase)
                     || result.Contains("error", StringComparison.OrdinalIgnoreCase)
-                    || result.Contains("❌", StringComparison.Ordinal));
+                    || result.Contains("Error: ", StringComparison.Ordinal));
         }
 
         private static bool IsBuildRelatedStepTitle(string? title)

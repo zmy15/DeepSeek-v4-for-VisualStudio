@@ -26,14 +26,14 @@ public class AgentSuggestionItemTests
         var item = new AgentSuggestionItem
         {
             Name = "edit",
-            Icon = "✏️",
+            Icon = "",
             Description = "修改和创建代码文件",
             ArgumentHint = "[指令]",
             AgentType = AgentType.Edit,
         };
 
         item.Name.Should().Be("edit");
-        item.Icon.Should().Be("✏️");
+        item.Icon.Should().Be("");
         item.Description.Should().Contain("修改");
         item.ArgumentHint.Should().Be("[指令]");
         item.AgentType.Should().Be(AgentType.Edit);

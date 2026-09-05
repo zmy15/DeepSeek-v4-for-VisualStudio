@@ -61,7 +61,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌")) return toolResult;
+            if (toolResult.StartsWith("Error: ")) return toolResult;
             if (toolResult.Contains(LocalizationService.Instance["tool.common.buildSuccess"]) || toolResult.Contains("Build succeeded"))
                 return LocalizationService.Instance["tool.buildSolution.success"];
             if (toolResult.Contains(LocalizationService.Instance["tool.common.buildFailed"]) || toolResult.Contains("Build failed"))
@@ -89,9 +89,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 Logger.Info($"[BuiltInTool] build_solution 完成: {oneLine.Truncate(120)}");
 
                 // ── 构建失败时附加一次性读取提示，避免 AI 逐轮试探 ──
-                if (result.Contains("❌") || result.Contains("Build FAILED") || result.Contains("error CS") || result.Contains("error C"))
+                if (result.Contains("Error: ") || result.Contains("Build FAILED") || result.Contains("error CS") || result.Contains("error C"))
                 {
-                    result += "\n\n> 💡 **构建失败提示**: 请在单次调用中同时读取**所有**报错文件及行号范围。"
+                    result += "\n\n>  **构建失败提示**: 请在单次调用中同时读取**所有**报错文件及行号范围。"
                         + "不要逐个文件试探。使用并行 read_file 调用（一次发送多个 read_file 请求）可大幅减少轮次。";
                 }
 

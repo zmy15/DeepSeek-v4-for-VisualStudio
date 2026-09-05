@@ -1,4 +1,4 @@
-﻿using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
@@ -146,12 +146,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (_lastSkillCount >= 0 && newCount != _lastSkillCount)
                 {
                     skillsChanged = true;
-                    Logger.Info($"[SkillService] 🔍 检测到技能数量变化: {_lastSkillCount} → {newCount}");
+                    Logger.Info($"[SkillService]  检测到技能数量变化: {_lastSkillCount} → {newCount}");
                     Logger.Info($"[SkillService]   项目级: {result.ProjectSkillCount}, 用户级: {result.UserSkillCount}, 内置: {result.TotalCount - result.ProjectSkillCount - result.UserSkillCount}");
                 }
                 else if (_lastSkillCount < 0)
                 {
-                    Logger.Info($"[SkillService] 🔍 首次技能发现: 共 {newCount} 个技能 (项目: {result.ProjectSkillCount}, 用户: {result.UserSkillCount})");
+                    Logger.Info($"[SkillService]  首次技能发现: 共 {newCount} 个技能 (项目: {result.ProjectSkillCount}, 用户: {result.UserSkillCount})");
                 }
                 _lastSkillCount = newCount;
                 _cachedResult = result;
@@ -164,24 +164,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             if (needsRegeneration)
             {
-                Logger.Info($"[SkillService] 📝 需要生成技能总结 (数量变化={skillsChanged}, 文件存在={fileExists})");
+                Logger.Info($"[SkillService]  需要生成技能总结 (数量变化={skillsChanged}, 文件存在={fileExists})");
 
                 // ── 生成技能总结 ──
                 _cachedSkillSummary = GenerateSkillsSummary(result);
-                Logger.Info($"[SkillService] 📝 已生成技能总结 ({_cachedSkillSummary.Length} 字符)");
+                Logger.Info($"[SkillService]  已生成技能总结 ({_cachedSkillSummary.Length} 字符)");
 
                 // ── 持久化到本地文件 ──
                 SaveSkillsSummaryToDisk(newCount, _cachedSkillSummary);
 
                 if (skillsChanged)
                 {
-                    Logger.Info($"[SkillService] 📢 触发 SkillsChanged 事件 (count={newCount})");
+                    Logger.Info($"[SkillService]  触发 SkillsChanged 事件 (count={newCount})");
                     SkillsChanged?.Invoke(newCount, _cachedSkillSummary);
                 }
             }
             else
             {
-                Logger.Info($"[SkillService] ⏭️ 技能数量未变化 ({newCount}) 且持久化文件已存在，跳过总结生成");
+                Logger.Info($"[SkillService]  技能数量未变化 ({newCount}) 且持久化文件已存在，跳过总结生成");
             }
 
             return result;
@@ -706,11 +706,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             var result = discoveryResult ?? _cachedResult;
             if (result == null || result.TotalCount == 0)
             {
-                Logger.Info("[SkillService] 📝 GenerateSkillsSummary: 无可用技能");
+                Logger.Info("[SkillService]  GenerateSkillsSummary: 无可用技能");
                 return LocalizationService.Instance["skills.noneAvailable"];
             }
 
-            Logger.Info($"[SkillService] 📝 开始生成技能总结: 共 {result.TotalCount} 个技能 (项目: {result.ProjectSkillCount}, 用户: {result.UserSkillCount}, 内置: {result.TotalCount - result.ProjectSkillCount - result.UserSkillCount})");
+            Logger.Info($"[SkillService]  开始生成技能总结: 共 {result.TotalCount} 个技能 (项目: {result.ProjectSkillCount}, 用户: {result.UserSkillCount}, 内置: {result.TotalCount - result.ProjectSkillCount - result.UserSkillCount})");
 
             var lines = new List<string>
             {
@@ -736,11 +736,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 lines.Add($"   {skill.Description}");
                 lines.Add(string.Empty);
 
-                Logger.Info($"[SkillService] 📝   [{i + 1}/{result.TotalCount}] {skill.Name} {sourceLabel} — {descPreview}");
+                Logger.Info($"[SkillService]    [{i + 1}/{result.TotalCount}] {skill.Name} {sourceLabel} — {descPreview}");
             }
 
             string summary = string.Join("\n", lines);
-            Logger.Info($"[SkillService] 📝 技能总结生成完成: {summary.Length} 字符");
+            Logger.Info($"[SkillService]  技能总结生成完成: {summary.Length} 字符");
             return summary;
         }
 
@@ -774,7 +774,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 if (!File.Exists(SkillsSummaryFilePath))
                 {
-                    Logger.Info($"[SkillService] 💾 技能总结文件不存在，跳过加载: {SkillsSummaryFilePath}");
+                    Logger.Info($"[SkillService]  技能总结文件不存在，跳过加载: {SkillsSummaryFilePath}");
                     return null;
                 }
 
@@ -783,7 +783,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 if (record == null || string.IsNullOrWhiteSpace(record.Summary))
                 {
-                    Logger.Warn("[SkillService] 💾 技能总结文件内容为空或格式无效");
+                    Logger.Warn("[SkillService]  技能总结文件内容为空或格式无效");
                     return null;
                 }
 
@@ -794,13 +794,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
 
                 var age = DateTime.Now - record.GeneratedAt;
-                Logger.Info($"[SkillService] 💾 从磁盘加载技能总结成功: {record.SkillCount} 个技能, 生成于 {age.TotalMinutes:F1} 分钟前");
-                Logger.Info($"[SkillService] 💾 总结长度: {record.Summary.Length} 字符, 文件: {SkillsSummaryFilePath}");
+                Logger.Info($"[SkillService]  从磁盘加载技能总结成功: {record.SkillCount} 个技能, 生成于 {age.TotalMinutes:F1} 分钟前");
+                Logger.Info($"[SkillService]  总结长度: {record.Summary.Length} 字符, 文件: {SkillsSummaryFilePath}");
                 return record.Summary;
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[SkillService] 💾 加载技能总结文件失败: {ex.Message}");
+                Logger.Warn($"[SkillService]  加载技能总结文件失败: {ex.Message}");
                 return null;
             }
         }
@@ -828,13 +828,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 string json = System.Text.Json.JsonSerializer.Serialize(record, SummaryJsonOptions);
                 File.WriteAllText(SkillsSummaryFilePath, json, System.Text.Encoding.UTF8);
 
-                Logger.Info($"[SkillService] 💾 技能总结已持久化到磁盘: {SkillsSummaryFilePath}");
-                Logger.Info($"[SkillService] 💾   技能数量: {skillCount} (项目: {record.ProjectSkillCount}, 用户: {record.UserSkillCount})");
-                Logger.Info($"[SkillService] 💾   文件大小: {json.Length} 字节, 总结长度: {summary.Length} 字符");
+                Logger.Info($"[SkillService]  技能总结已持久化到磁盘: {SkillsSummaryFilePath}");
+                Logger.Info($"[SkillService]    技能数量: {skillCount} (项目: {record.ProjectSkillCount}, 用户: {record.UserSkillCount})");
+                Logger.Info($"[SkillService]    文件大小: {json.Length} 字节, 总结长度: {summary.Length} 字符");
             }
             catch (Exception ex)
             {
-                Logger.Warn($"[SkillService] 💾 持久化技能总结失败: {ex.Message}");
+                Logger.Warn($"[SkillService]  持久化技能总结失败: {ex.Message}");
             }
         }
 

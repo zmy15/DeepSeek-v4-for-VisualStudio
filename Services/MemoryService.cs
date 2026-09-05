@@ -188,9 +188,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                     var count = CountOccurrences(normalizedContent, normalizedOld);
                     if (count == 0)
-                        return $"❌ 替换失败: oldStr 在文件中未找到，无法替换。请先 view 该文件获取当前精确内容。文件: {scope}/{path}";
+                        return $"Error: 替换失败: oldStr 在文件中未找到，无法替换。请先 view 该文件获取当前精确内容。文件: {scope}/{path}";
                     if (count > 1)
-                        return $"❌ 替换失败: oldStr 在文件中出现了 {count} 次，不唯一无法精确替换。请提供更多上下文使匹配唯一。文件: {scope}/{path}";
+                        return $"Error: 替换失败: oldStr 在文件中出现了 {count} 次，不唯一无法精确替换。请提供更多上下文使匹配唯一。文件: {scope}/{path}";
 
                     var newContent = NormalizeLineEndings(newStr);
                     var replaced = normalizedContent.Replace(normalizedOld, newContent);

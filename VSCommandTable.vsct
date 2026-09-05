@@ -23,6 +23,10 @@
 			<Group guid="guidDeepSeekCmdSet" id="grpToolbarCommands" priority="0x0000">
 				<Parent guid="guidDeepSeekCmdSet" id="idToolbar"/>
 			</Group>
+			<!-- 编辑器右键菜单中的组（IDM_VS_CTXT_CODEWIN 为代码窗口上下文菜单）-->
+			<Group guid="guidDeepSeekCmdSet" id="grpEditorContextMenu" priority="0x0100">
+				<Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN"/>
+			</Group>
 		</Groups>
 
 		<Buttons>
@@ -45,6 +49,16 @@
 					<LocCanonicalName>.DeepSeek_v4_for_VisualStudio.ShowChatWindowToolbar</LocCanonicalName>
 				</Strings>
 			</Button>
+
+			<!-- ═══ P1-B Inline Edit：编辑器右键菜单 + Ctrl+I（仅文本编辑器作用域）═══ -->
+			<Button guid="guidDeepSeekCmdSet" id="cmdidInlineAiEdit" priority="0x0100" type="Button">
+				<Parent guid="guidDeepSeekCmdSet" id="grpEditorContextMenu"/>
+				<Icon guid="guidImages" id="bmpPic1"/>
+				<Strings>
+					<ButtonText>DeepSeek AI Edit</ButtonText>
+					<LocCanonicalName>.DeepSeek_v4_for_VisualStudio.InlineAiEdit</LocCanonicalName>
+				</Strings>
+			</Button>
 		</Buttons>
 
 		<Bitmaps>
@@ -52,17 +66,36 @@
 		</Bitmaps>
 	</Commands>
 
+	<!-- 快捷键映射：
+	     Ctrl+Shift+D  全局：打开/聚焦 DeepSeek Chat 窗口（D = DeepSeek）
+	     Ctrl+I        文本编辑器内：Inline AI Edit（限定编辑器作用域，不影响其他位置的系统增量搜索）
+	     如与用户现有方案冲突，可在 工具 → 选项 → 环境 → 键盘 中自行调整 -->
+	<KeyBindings>
+		<KeyBinding guid="guidDeepSeekCmdSet" id="cmdidShowChatWindow"
+		            editor="guidStdEditor"
+		            mod1="Control Shift" key1="D"/>
+		<KeyBinding guid="guidDeepSeekCmdSet" id="cmdidInlineAiEdit"
+		            editor="guidTextEditorFactory"
+		            mod1="Control" key1="I"/>
+	</KeyBindings>
+
 	<!-- ═══ 符号定义 ═══ -->
 	<Symbols>
 		<!-- 包 GUID 符号：必须与 DeepSeek_v4_for_VisualStudioPackage 的 [Guid] 一致 -->
 		<GuidSymbol name="guidDeepSeekPackage" value="{7a5b2771-22cb-4337-b445-8d97e3189b64}">
 		</GuidSymbol>
 
+		<!-- 文本编辑器工厂（用于 KeyBinding 作用域，GUID 与 vsshlids.h 的 GUID_TextEditorFactory 一致）-->
+		<GuidSymbol name="guidTextEditorFactory" value="{8B382828-6202-11D1-8870-0000F87579D2}">
+		</GuidSymbol>
+
 		<GuidSymbol name="guidDeepSeekCmdSet" value="{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}">
 			<IDSymbol name="cmdidShowChatWindow" value="0x0100"/>
 			<IDSymbol name="cmdidShowChatWindowToolbar" value="0x0101"/>
+			<IDSymbol name="cmdidInlineAiEdit" value="0x0102"/>
 			<IDSymbol name="idToolbar" value="0x2000"/>
 			<IDSymbol name="grpToolbarCommands" value="0x3000"/>
+			<IDSymbol name="grpEditorContextMenu" value="0x3001"/>
 		</GuidSymbol>
 
 		<GuidSymbol name="guidImages" value="{B2C3D4E5-F6A7-8901-BCDE-F12345678901}">

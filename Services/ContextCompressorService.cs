@@ -220,7 +220,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             // 提取文件路径引用
             var filePattern = new System.Text.RegularExpressions.Regex(
-                @"(?:📄\s*)?([\w\-./\\]+\.(?:cs|py|js|ts|java|cpp|c|h|xml|json|yaml|yml|md|sql|html|css|txt))",
+                @"(?:\s*)?([\w\-./\\]+\.(?:cs|py|js|ts|java|cpp|c|h|xml|json|yaml|yml|md|sql|html|css|txt))",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             var files = new HashSet<string>();
             foreach (var entry in entries)

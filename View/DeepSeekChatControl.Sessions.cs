@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Controls;
 using System.Windows;
 
 namespace DeepSeek_v4_for_VisualStudio.View
@@ -80,7 +81,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── ApiHistory 始终保存（含 tool/system 消息，树结构不包含）──
             _activeSession.ApiHistory = _contextManager.GetFullContext();
-            _activeSession.LastActiveAt = DateTime.Now;
 
             // ── 持久化累计 Cache 统计（重启后恢复显示）──
             if (_apiService != null)
@@ -210,6 +210,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 仅在用户真正提交消息时刷新会话活跃时间；切换/查看会话不应改变排序。
+        /// 注意：本方法只更新内存值，持久化依赖后续 SaveCurrentSession() 序列化时
+        /// 携带该值（LastActiveAt 已不再由 SaveCurrentSession 主动刷新）。
+        /// </summary>
+        private void TouchCurrentSessionLastActive()
+        {
+            if (_activeSession == null) return;
+            _activeSession.LastActiveAt = DateTime.Now;
+            PopulateSessionComboBox();
+        }
+
+        /// <summary>
         /// 切换到指定会话。
         /// </summary>
         #pragma warning disable VSTHRD100 // async void 用于会话切换（从事件处理程序调用），异常已在方法内处理
@@ -241,8 +253,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     // 切换到新会话
                     _activeSession = session;
-                    _activeSession.LastActiveAt = DateTime.Now;
-
+                    if (_sessionsContainer != null)
+                        _sessionsContainer.ActiveSessionId = _activeSession.Id;
                     ResetActiveAgentToAsk();
 
                     // ── 同步当前会话 ID 到内置工具服务（MemoryTool 需要）──
@@ -349,6 +361,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 页面刷新后重建持久化任务面板
                 _ = RebuildPanelsWhenPageReadyAsync();
 
+                // ── 持久化 ActiveSessionId：异常退出后重启仍恢复到刚切换的会话 ──
+                if (_sessionsContainer != null)
+                    ChatPersistenceService.SaveSessions(_solutionPath, _sessionsContainer);
+
                 Logger.Info($"切换到会话: {_activeSession.Title}");
             }
             catch (Exception ex)
@@ -357,7 +373,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 try
                 {
                     await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = $"会话切换失败: {ex.Message}";
+                    StatusLabel.Text = LocalizationService.Instance.Format("status.sessionSwitchFailed", ex.Message);
                 }
                 catch { }
             }
@@ -371,18 +387,148 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (_sessionsContainer == null) return;
 
-            // 按最后活跃时间倒序排列
+            // 交互原则：当前会话钉在顶部，其余按最后活跃时间倒序，
+            // 避免用户悬停选择时列表因活跃时间变化而重排跳动。
             var sortedSessions = _sessionsContainer.Sessions
-                .OrderByDescending(s => s.LastActiveAt)
+                .OrderByDescending(s => _activeSession != null && s.Id == _activeSession.Id)
+                .ThenByDescending(s => s.LastActiveAt)
                 .ToList();
 
-            SessionComboBox.ItemsSource = null;
-            SessionComboBox.ItemsSource = sortedSessions;
-
-            if (_activeSession != null)
+            // 程序化填充期间抑制 SelectionChanged，避免瞬时 null/重置触发误切换
+            _suppressSessionSelection = true;
+            try
             {
-                SessionComboBox.SelectedItem = sortedSessions.FirstOrDefault(s => s.Id == _activeSession.Id);
+                SessionComboBox.ItemsSource = null;
+                SessionComboBox.ItemsSource = sortedSessions;
+
+                if (_activeSession != null)
+                {
+                    SessionComboBox.SelectedItem = sortedSessions.FirstOrDefault(s => s.Id == _activeSession.Id);
+                }
             }
+            finally
+            {
+                _suppressSessionSelection = false;
+            }
+
+            // ── P-B：同步 Copilot 式历史浮层与标题 ──
+            RefreshHistoryUI();
+        }
+
+        /// <summary>历史浮层条目视图模型。</summary>
+        internal sealed class HistoryItemViewModel
+        {
+            public string Id { get; set; } = string.Empty;
+            public string Title { get; set; } = string.Empty;
+            public string LastActiveText { get; set; } = string.Empty;
+            public bool IsCurrent { get; set; }
+            public string DeleteVisibility => IsCurrent ? "Collapsed" : "Visible";
+        }
+
+        private static string FormatRelativeTime(DateTime t)
+        {
+            var span = DateTime.Now - t;
+            if (span.TotalMinutes < 1) return "刚刚";
+            if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes} 分钟前";
+            if (span.TotalHours < 24) return $"{(int)span.TotalHours} 小时前";
+            if (span.TotalDays < 30) return $"{(int)span.TotalDays} 天前";
+            return t.ToString("yyyy-MM-dd");
+        }
+
+        /// <summary>刷新历史浮层列表与当前会话标题。</summary>
+        private void RefreshHistoryUI()
+        {
+            try
+            {
+                if (CurrentSessionTitle != null)
+                    CurrentSessionTitle.Text = _activeSession?.Title ?? string.Empty;
+
+                if (HistoryListBox == null || _sessionsContainer == null) return;
+
+                var items = _sessionsContainer.Sessions
+                    .OrderByDescending(s => _activeSession != null && s.Id == _activeSession.Id)
+                    .ThenByDescending(s => s.LastActiveAt)
+                    .Select(s => new HistoryItemViewModel
+                    {
+                        Id = s.Id,
+                        Title = string.IsNullOrWhiteSpace(s.Title) ? "(未命名对话)" : s.Title,
+                        LastActiveText = FormatRelativeTime(s.LastActiveAt),
+                        IsCurrent = _activeSession != null && s.Id == _activeSession.Id,
+                    })
+                    .ToList();
+
+                _suppressSessionSelection = true;
+                try
+                {
+                    HistoryListBox.ItemsSource = items;
+                }
+                finally
+                {
+                    _suppressSessionSelection = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[History] 刷新失败: {ex.Message}");
+            }
+        }
+
+        private void HistoryToggleButton_Click(object sender, RoutedEventArgs e)
+        {
+            RefreshHistoryUI();
+            HistoryPopup.IsOpen = !HistoryPopup.IsOpen;
+        }
+
+        /// <summary>
+        /// 历史浮层 DataTemplate 内删除按钮的 Loaded 钩子：
+        /// 模板实例化时套用本地化 ToolTip（XAML 静态值仅为设计时占位）。
+        /// </summary>
+        private void HistoryDeleteButton_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button btn)
+                btn.ToolTip = LocalizationService.Instance["input.deleteSessionItemTip"];
+        }
+
+        private void HistoryListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressSessionSelection) return;
+            if (HistoryListBox.SelectedItem is HistoryItemViewModel vm && _sessionsContainer != null)
+            {
+                var target = _sessionsContainer.Sessions.FirstOrDefault(s => s.Id == vm.Id);
+                if (target != null && target != _activeSession)
+                {
+                    SwitchToSession(target);
+                }
+            }
+            HistoryPopup.IsOpen = false;
+        }
+
+        private void DeleteHistoryItem_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender is System.Windows.Controls.Button btn ? btn.Tag as string : null) is not string id)
+                return;
+
+            if (_activeSession != null && _activeSession.Id == id)
+            {
+                DeleteCurrentSession();   // 复用既有确认+清理流程
+                RefreshHistoryUI();
+                return;
+            }
+
+            var result = System.Windows.MessageBox.Show(
+                LocalizationService.Instance["chat.confirmDeleteConversation"] ?? "删除此对话？",
+                LocalizationService.Instance["chat.deleteConversation"] ?? "删除对话",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Warning);
+            if (result != System.Windows.MessageBoxResult.Yes) return;
+
+            if (_sessionsContainer != null)
+            {
+                var target = _sessionsContainer.Sessions.FirstOrDefault(s => s.Id == id);
+                if (target != null) _sessionsContainer.Sessions.Remove(target);
+                ChatPersistenceService.SaveSessions(_solutionPath, _sessionsContainer);
+            }
+            RefreshHistoryUI();
         }
 
         /// <summary>
@@ -590,7 +736,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"DeleteCurrentSession 异常: {ex.Message}", ex);
-                StatusLabel.Text = $"删除会话失败: {ex.Message}";
+                    StatusLabel.Text = LocalizationService.Instance.Format("status.sessionDeleteFailed", ex.Message);
             }
         }
 
@@ -651,7 +797,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"ClearCurrentSessionMessages 异常: {ex.Message}", ex);
-                StatusLabel.Text = $"清空消息失败: {ex.Message}";
+                StatusLabel.Text = LocalizationService.Instance.Format("status.messageSaveFailed", ex.Message);
             }
         }
 

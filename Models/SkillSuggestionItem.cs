@@ -13,7 +13,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>简短描述</summary>
         public string Description { get; set; } = string.Empty;
 
-        /// <summary>来源标签（如 "📁 项目"）</summary>
+        /// <summary>来源标签（如 " 项目"）</summary>
         public string Source { get; set; } = string.Empty;
 
         /// <summary>是否为元命令（help, refresh-skills 等内置命令）</summary>

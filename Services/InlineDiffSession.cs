@@ -38,10 +38,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         #region Properties
 
         /// <summary>唯一标识</summary>
-        public string SessionId { get; }
+        public string SessionId { get; private set; }
 
         /// <summary>关联的变更提案</summary>
-        public PreparedChangeSet Change { get; }
+        public PreparedChangeSet Change { get; private set; }
 
         /// <summary>提交目标（决定如何写入）</summary>
         public IProposalCommitTarget CommitTarget { get; }
@@ -125,6 +125,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             ViewerHandle = newHandle ?? throw new ArgumentNullException(nameof(newHandle));
         }
 
+        /// <summary>
+        /// 替换变更提案（AI 在预览期间再次编辑同一文件时刷新会话内容）。
+        /// 调用方需同步移交 Workspace 并通过 Host 重建 Viewer。
+        /// </summary>
+        public void ReplaceChange(PreparedChangeSet change)
+        {
+            Change = change ?? throw new ArgumentNullException(nameof(change));
+            SessionId = change.ChangeId;
+        }
+
         #endregion
 
         #region Public Methods
@@ -182,7 +192,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
 
                 if (result.Success)
+                {
                     TransitionTo(InlineDiffSessionState.Committed);
+                    // Committed 是终态：立即释放 Diff Viewer，并让 SessionManager 移除索引。
+                    // 这样同一文档可以立刻创建下一次 Inline Diff。
+                    Dispose();
+                }
                 else if (result.IsConflict)
                     TransitionTo(InlineDiffSessionState.Conflicted);
                 else

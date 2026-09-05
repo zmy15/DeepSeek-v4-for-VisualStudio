@@ -1,3 +1,6 @@
+using DeepSeek_v4_for_VisualStudio.Models;
+using DeepSeek_v4_for_VisualStudio.Services;
+using DeepSeek_v4_for_VisualStudio.Services.Agents;
 using DeepSeek_v4_for_VisualStudio.Services.BuiltInTools;
 using System.Collections.Concurrent;
 using System.Text.Json;
@@ -53,6 +56,24 @@ public class BuiltInToolServiceTests
         defs.Should().HaveCount(21);
     }
 
+    [Theory]
+    [InlineData("deepseek-v4-pro", false)]
+    [InlineData(DeepSeekModelCatalog.FlashVisionExp, true)]
+    public void GetFilteredToolDefinitions_IncludesCaptureWindowOnlyForVisionModels(
+        string model,
+        bool expectedVisible)
+    {
+        var service = new BuiltInToolService
+        {
+            ApiService = new DeepSeekApiService("test-key", model)
+        };
+
+        var defs = service.GetFilteredToolDefinitions(AskAgent.AskTools.ToList());
+
+        defs.Any(d => d.Function.Name == "capture_window")
+            .Should().Be(expectedVisible);
+    }
+
     #endregion
 
     #region IsBuiltInTool
@@ -81,6 +102,19 @@ public class BuiltInToolServiceTests
     public void IsBuiltInTool_ReturnsCorrectResult(string toolName, bool expected)
     {
         BuiltInToolService.IsBuiltInTool(toolName).Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task ExecuteBuiltInToolAsync_CaptureWindow_NonVisionModel_ReturnsModelRequirement()
+    {
+        var service = new BuiltInToolService
+        {
+            ApiService = new DeepSeekApiService("test-key", "deepseek-v4-pro")
+        };
+
+        var result = await service.ExecuteBuiltInToolAsync("capture_window", "{}");
+
+        result.Should().Contain("Error:").And.Contain("capture_window");
     }
 
     #endregion
@@ -133,7 +167,7 @@ public class BuiltInToolServiceTests
         var result = await service.ExecuteBuiltInToolAsync("list_dir", "{}");
 
         result.Should().NotBeNull();
-        result.Should().Contain("❌");
+        result.Should().Contain("Error: ");
     }
 
     [Fact]
@@ -148,7 +182,7 @@ public class BuiltInToolServiceTests
             var result = await service.ExecuteBuiltInToolAsync("create_directory", args);
 
             result.Should().NotBeNull();
-            result.Should().Contain("✅");
+            result.Should().NotContain("Error: ");
             Directory.Exists(tempDir).Should().BeTrue();
         }
         finally
@@ -167,7 +201,7 @@ public class BuiltInToolServiceTests
         var result = await service.ExecuteBuiltInToolAsync("read_file", args);
 
         result.Should().NotBeNull();
-        result.Should().Contain("❌");
+        result.Should().Contain("Error: ");
     }
 
     [Fact]
@@ -178,7 +212,7 @@ public class BuiltInToolServiceTests
         var result = await service.ExecuteBuiltInToolAsync("get_terminal_output", "{}");
 
         result.Should().NotBeNull();
-        result.Should().Contain("❌");
+        result.Should().Contain("Error: ");
     }
 
     #endregion
@@ -192,7 +226,6 @@ public class BuiltInToolServiceTests
 
         var text = BuiltInToolService.GetToolCallDisplayText("list_dir", args);
 
-        text.Should().Contain("📂");
         text.Should().Contain("test");
     }
 
@@ -203,7 +236,6 @@ public class BuiltInToolServiceTests
 
         var text = BuiltInToolService.GetToolCallDisplayText("read_file", args);
 
-        text.Should().Contain("📄");
         text.Should().Contain("Program.cs");
     }
 
@@ -239,9 +271,9 @@ public class BuiltInToolServiceTests
     [Fact]
     public void GetToolResultSummary_ErrorResult_ReturnsErrorDirectly()
     {
-        var summary = BuiltInToolService.GetToolResultSummary("read_file", "❌ 文件不存在");
+        var summary = BuiltInToolService.GetToolResultSummary("read_file", "Error: 文件不存在");
 
-        summary.Should().Be("❌ 文件不存在");
+        summary.Should().Be("Error: 文件不存在");
     }
 
     [Fact]
@@ -249,7 +281,7 @@ public class BuiltInToolServiceTests
     {
         var summary = BuiltInToolService.GetToolResultSummary("build_solution", "构建成功！0 errors");
 
-        summary.Should().Be("✅ 构建成功");
+        summary.Should().Be("构建成功");
     }
 
     [Fact]

@@ -8,7 +8,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
 {
     /// <summary>
     /// 可点击的超链接编辑器，用于 VS Options 属性网格。
-    /// 在属性网格中显示 "🔗 点击下载" 文本，点击 "..." 按钮后在浏览器中打开 URL。
+    /// 在属性网格中显示 " 点击下载" 文本，点击 "..." 按钮后在浏览器中打开 URL。
     /// 
     /// 使用方式：
     /// [Editor(typeof(DownloadLinkEditor), typeof(UITypeEditor))]
@@ -54,7 +54,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         }
 
         /// <summary>
-        /// 在属性网格的值列中绘制提示文字 "🔗 点击下载"。
+        /// 在属性网格的值列中绘制提示文字 " 点击下载"。
         /// </summary>
         public override bool GetPaintValueSupported(ITypeDescriptorContext? context) => true;
 

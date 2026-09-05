@@ -124,15 +124,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 每条边界 = 从 messages[0] 到当前位置（含）的所有消息的规范化串联。
         /// 
         /// 边界定义（基于 BuildApiMessages / BuildContextAwareMessages 的固定前缀结构）：
-        ///   [0]      — SharedImmutablePrefix（跨 Agent 永远不变，最顶层缓存）
-        ///   [0..1]   — + FixedPrompt from CM（用户自定义+AskAgent+MultiAgent+Memory+Skill，同 Agent 间稳定）
-        ///   [0..2]   — + DynamicBlock from CM（压缩摘要/记忆/语言守卫，同轮次内稳定）
+        ///   [0]      — 稳定 system（SharedImmutablePrefix + FixedPrompt，跨 Agent/同会话稳定）
+        ///   [0..1]   — + 可选 DynamicBlock from CM（压缩摘要/记忆/语言守卫，同轮次内稳定）
         ///   [0..N-1] — 全部消息（含对话历史 + Agent 行为指令 + 用户消息，每次调用不同）
         /// 
         /// 注：联网搜索和 RAG 上下文位于 volatileBlock，在 BuildContextAwareMessages
         ///     中放在 user 之前；Agent 专属行为指令位于 user 之后。
-        ///     它们都不属于固定前缀边界 [0..2]。
-        ///     仅 CM 的 FP/DB 固定在历史之前（v1.1.11 从历史末尾移至此位置）。
+        ///     它们都不属于固定前缀边界 [0..1]。
+        ///     仅 CM 的稳定 system/DB 固定在历史之前（v1.1.11 从历史末尾移至此位置）。
         /// 
         /// 规范化格式：每条消息序列化为 "R:role\nC:content\n"，
         /// 确保 role 和 content 的字节级变化均可被 SHA-256 检测。
@@ -216,8 +215,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 应在每次构建 API 请求前调用。
         /// 
         /// 两级处理策略：
-        /// - system prompt 变化 → ⚠️ Warning + 完全 re-pin（真正的缓存失效风险）
-        /// - 仅 tool 集变化 → ℹ️ Info + 静默更新 tool 指纹（多 Agent/多阶段架构正常行为）
+        /// - system prompt 变化 →  Warning + 完全 re-pin（真正的缓存失效风险）
+        /// - 仅 tool 集变化 →  Info + 静默更新 tool 指纹（多 Agent/多阶段架构正常行为）
         /// </summary>
         /// <param name="currentSystemPromptFingerprint">当前 system prompt 指纹</param>
         /// <param name="currentToolCatalogFingerprint">当前 tool catalog 指纹</param>
@@ -259,8 +258,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             // ── 检测到变化 ──
             //     区分两个层级：
-            //     - system prompt 变化 → ⚠️ Warning（真正的缓存失效风险）
-            //     - 仅 tool 集变化 → ℹ️ Info（多 Agent/多阶段架构中的正常行为）
+            //     - system prompt 变化 →  Warning（真正的缓存失效风险）
+            //     - 仅 tool 集变化 →  Info（多 Agent/多阶段架构中的正常行为）
             var driftInfo = new PrefixDriftInfo
             {
                 HasDrift = spChanged,        // 只有 system prompt 漂移才算真正的 drift
@@ -282,7 +281,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 _stableChecks = 1;
 
                 string cause = toolChanged ? "system prompt 和 tool 集均变化" : "system prompt 变化";
-                Logger.Warn($"[PrefixCache] ⚠️ 前缀漂移检测: {cause} | " +
+                Logger.Warn($"[PrefixCache]  前缀漂移检测: {cause} | " +
                             $"旧指纹={TruncateFingerprint(driftInfo.PreviousCombinedFingerprint)} → " +
                             $"新指纹={TruncateFingerprint(currentCombinedFingerprint)} | " +
                             $"已自动 re-pin。稳定性={StabilityRatio:P1} ({_stableChecks}/{_totalChecks})");
@@ -294,10 +293,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 _pinnedCombinedFingerprint = ComputeCombinedFingerprint(_pinnedSystemPromptFingerprint!, currentToolCatalogFingerprint);
                 _stableChecks++;  // tool 变化不算漂移，计为稳定
 
-                Logger.Info($"[PrefixCache] 🔧 tool 集更新（非漂移）: " +
+                Logger.Info($"[PrefixCache]  tool 集更新（非漂移）: " +
                             $"旧 tool 指纹={TruncateFingerprint(driftInfo.PreviousToolCatalogFingerprint)} → " +
                             $"新 tool 指纹={TruncateFingerprint(currentToolCatalogFingerprint)} | " +
-                            $"system prompt 保持稳定 ✅");
+                            $"system prompt 保持稳定 ");
             }
 
             return driftInfo;

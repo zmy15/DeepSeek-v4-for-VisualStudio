@@ -77,8 +77,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌")) return toolResult;
-            if (toolResult.StartsWith("✅") || toolResult.Contains("成功") || toolResult.Contains("success"))
+            if (toolResult.StartsWith("Error: ")) return toolResult;
+            if (toolResult.Contains("成功") || toolResult.Contains("success"))
                 return LocalizationService.Instance["tool.multiReplace.editComplete"];
             return LocalizationService.Instance["tool.multiReplace.editDone"];
         }
@@ -113,8 +113,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 string result = await _singleReplacer.ExecuteAsync(singleArgs, workspaceRoot);
                 results.Add($"{Path.GetFileName(filePath)}: {result}");
-                if (result.StartsWith("✅")) successCount++;
-                else failCount++;
+                if (result.StartsWith("Error: ") || result.StartsWith("Timeout: ")) failCount++;
+                else successCount++;
             }
 
             string summary = $"multi_replace_string_in_file: success {successCount}, fail {failCount}";

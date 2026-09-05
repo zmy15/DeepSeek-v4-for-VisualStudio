@@ -54,11 +54,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌")) return toolResult;
+            if (toolResult.StartsWith("Error: ")) return toolResult;
 
             var dirLines = toolResult.Split('\n');
-            int dirCount = dirLines.Count(l => l.TrimStart().StartsWith("- 📁"));
-            int fileCount = dirLines.Count(l => l.TrimStart().StartsWith("- 📄"));
+            // 目录项以 "/" 结尾（如 "- src/"），文件项无斜杠 —— 以此区分类别
+            int dirCount = dirLines.Count(l => l.TrimStart().StartsWith("- ") && l.TrimEnd().EndsWith("/"));
+            int fileCount = dirLines.Count(l => l.TrimStart().StartsWith("- ") && !l.TrimEnd().EndsWith("/"));
             return LocalizationService.Instance.Format("tool.listDir.complete", dirCount, fileCount);
         }
 
@@ -76,54 +77,54 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 else
                 {
                     return Task.FromResult(LocalizationService.Instance["tool.listDir.missingParam"]
-                        + (string.IsNullOrEmpty(workspaceRoot) ? "" : $" 当前工作区: {workspaceRoot}"));
+                        + (string.IsNullOrEmpty(workspaceRoot) ? "" : LocalizationService.Instance.Format("tool.listDir.currentWorkspace", workspaceRoot)));
                 }
             }
 
             if (!Directory.Exists(path))
             {
                 string suggestion = !string.IsNullOrEmpty(workspaceRoot) && Directory.Exists(workspaceRoot)
-                    ? $"\n💡 提示: 当前工作区根目录是 \"{workspaceRoot}\"，请使用此路径或其中的子目录。"
-                    : "\n💡 提示: 请使用 Windows 绝对路径格式（如 C:\\Users\\...\\project\\src）。";
-                suggestion += "\n💡 如需创建新目录，请使用 create_directory 工具。";
+                    ? "\n" + LocalizationService.Instance.Format("tool.listDir.hintWorkspaceRoot", workspaceRoot)
+                    : "\n" + LocalizationService.Instance["tool.listDir.hintAbsoluteFormat"];
+                suggestion += "\n" + LocalizationService.Instance["tool.listDir.hintCreateDirectory"];
                 return Task.FromResult(LocalizationService.Instance.Format("tool.listDir.notFound", path) + suggestion);
             }
 
             try
             {
                 var sb = new StringBuilder();
-                sb.AppendLine($"📁 目录: {path}");
+                sb.AppendLine(LocalizationService.Instance.Format("tool.listDir.header", path));
                 sb.AppendLine();
 
                 var dirs = Directory.GetDirectories(path);
                 if (dirs.Length > 0)
                 {
-                    sb.AppendLine("### 子目录");
+                    sb.AppendLine(LocalizationService.Instance["tool.listDir.subdirsHeader"]);
                     foreach (var d in dirs.OrderBy(d => d).Take(100))
                     {
                         string name = Path.GetFileName(d);
-                        sb.AppendLine($"- 📁 {name}/");
+                        sb.AppendLine($"- {name}/");
                     }
                     if (dirs.Length > 100)
-                        sb.AppendLine($"... 还有 {dirs.Length - 100} 个子目录");
+                        sb.AppendLine(LocalizationService.Instance.Format("tool.listDir.moreSubdirs", dirs.Length - 100));
                     sb.AppendLine();
                 }
 
                 var files = Directory.GetFiles(path);
                 if (files.Length > 0)
                 {
-                    sb.AppendLine("### 文件");
+                    sb.AppendLine(LocalizationService.Instance["tool.listDir.filesHeader"]);
                     foreach (var f in files.OrderBy(f => f).Take(100))
                     {
                         string name = Path.GetFileName(f);
-                        sb.AppendLine($"- 📄 {name}");
+                        sb.AppendLine($"- {name}");
                     }
                     if (files.Length > 100)
-                        sb.AppendLine($"... 还有 {files.Length - 100} 个文件");
+                        sb.AppendLine(LocalizationService.Instance.Format("tool.listDir.moreFiles", files.Length - 100));
                 }
 
                 if (dirs.Length == 0 && files.Length == 0)
-                    sb.AppendLine("（空目录）");
+                    sb.AppendLine(LocalizationService.Instance["tool.listDir.empty"]);
 
                 return Task.FromResult(sb.ToString().TrimEnd());
             }

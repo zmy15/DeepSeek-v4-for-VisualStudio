@@ -2,6 +2,7 @@ using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Text.Differencing;
 using Microsoft.VisualStudio.Text.Editor;
 using System;
 using System.Windows;
@@ -60,45 +61,7 @@ namespace DeepSeek_v4_for_VisualStudio.View.Hosts
                 Close();
             };
 
-            if (session.Workspace != null)
-            {
-                var hunks = session.Workspace.GetHunks(session.Change.FilePath);
-                _hostControl.SetHunks(hunks, session.Change.FilePath);
-
-                _hostControl.OnRevertHunk = hunkIndex =>
-                {
-                    if (!session.Workspace!.RestoreSingleHunk(session.Change.FilePath, hunkIndex))
-                        return;
-
-                    Logger.Info($"[EditorDiffHost] Reverted hunk [{hunkIndex}]: {System.IO.Path.GetFileName(session.Change.FilePath)}");
-
-                    // ── 所有块均已处理（保留/撤销）→ 确认并自动关闭 ──
-                    if (!session.Workspace.HasPendingHunks(session.Change.FilePath))
-                    {
-                        FinishSession(session);
-                        return;
-                    }
-
-                    RebuildViewerForPendingHunks(session);
-                };
-
-                _hostControl.OnKeepHunk = hunkIndex =>
-                {
-                    if (!session.Workspace!.AcceptSingleHunk(session.Change.FilePath, hunkIndex))
-                        return;
-
-                    Logger.Info($"[EditorDiffHost] Kept hunk [{hunkIndex}]: {System.IO.Path.GetFileName(session.Change.FilePath)}");
-
-                    // ── 所有块均已处理（保留/撤销）→ 确认并自动关闭 ──
-                    if (!session.Workspace.HasPendingHunks(session.Change.FilePath))
-                    {
-                        FinishSession(session);
-                        return;
-                    }
-
-                    RebuildViewerForPendingHunks(session);
-                };
-            }
+            WireHunkHandlers(session);
 
             _isShown = true;
             AttachHostOverlay();
@@ -106,6 +69,82 @@ namespace DeepSeek_v4_for_VisualStudio.View.Hosts
         }
 
         public void Activate() { }
+
+        /// <summary>
+        /// 绑定 hunk 撤销/保留回调并装载当前待处理块。
+        /// 回调内通过 session.Workspace 动态解析，Workspace 刷新后仍然有效。
+        /// </summary>
+        private void WireHunkHandlers(InlineDiffSession session)
+        {
+            if (_hostControl == null || session.Workspace == null) return;
+
+            var hunks = session.Workspace.GetHunks(session.Change.FilePath);
+            _hostControl.SetHunks(hunks, session.Change.FilePath);
+
+            _hostControl.OnRevertHunk = hunkIndex =>
+            {
+                if (!session.Workspace!.RestoreSingleHunk(session.Change.FilePath, hunkIndex))
+                    return;
+
+                Logger.Info($"[EditorDiffHost] Reverted hunk [{hunkIndex}]: {System.IO.Path.GetFileName(session.Change.FilePath)}");
+
+                // ── 所有块均已处理（保留/撤销）→ 确认并自动关闭 ──
+                if (!session.Workspace.HasPendingHunks(session.Change.FilePath))
+                {
+                    FinishSession(session);
+                    return;
+                }
+
+                RebuildViewerForPendingHunks(session);
+            };
+
+            _hostControl.OnKeepHunk = hunkIndex =>
+            {
+                if (!session.Workspace!.AcceptSingleHunk(session.Change.FilePath, hunkIndex))
+                    return;
+
+                Logger.Info($"[EditorDiffHost] Kept hunk [{hunkIndex}]: {System.IO.Path.GetFileName(session.Change.FilePath)}");
+
+                // ── 所有块均已处理（保留/撤销）→ 确认并自动关闭 ──
+                if (!session.Workspace.HasPendingHunks(session.Change.FilePath))
+                {
+                    FinishSession(session);
+                    return;
+                }
+
+                RebuildViewerForPendingHunks(session);
+            };
+        }
+
+        /// <summary>
+        /// 原地刷新会话（AI 在预览期间再次编辑同一文件时调用）：
+        /// 重建只读 Diff 视图并刷新 hunk 按钮，预览立即反映最新编辑。
+        /// </summary>
+        public void RefreshSession(InlineDiffSession session)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            if (_hostControl == null) return;
+
+            try
+            {
+                WireHunkHandlers(session);
+
+                var oldHandle = session.ViewerHandle;
+                session.ReplaceViewerHandle(
+                    DiffViewerService.Instance.CreateReadOnlyPreview(
+                        session.Change.BaselineText,
+                        session.Change.ProposedText,
+                        session.Change.ContentTypeName,
+                        DifferenceViewMode.Inline));
+                _hostControl.SetViewerHandle(session.ViewerHandle);
+                try { oldHandle.Dispose(); } catch { /* 旧视图释放失败不影响刷新 */ }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[EditorDiffHost] 刷新 Diff 视图失败: {ex.Message}", ex);
+            }
+        }
 
         private void AttachHostOverlay()
         {

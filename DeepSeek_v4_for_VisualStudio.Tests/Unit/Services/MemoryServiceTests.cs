@@ -141,7 +141,7 @@ public class MemoryServiceTests : IDisposable
         var result = await _service.StrReplaceAsync(MemoryScope.User, path, "notfound", "replacement");
         var view = await _service.ViewAsync(MemoryScope.User, path);
 
-        result.Should().StartWith("❌");
+        result.Should().StartWith("Error: ");
         result.Should().Contain("未找到");
         view.Content.Should().Be("some content");
 
@@ -158,7 +158,7 @@ public class MemoryServiceTests : IDisposable
         var result = await _service.StrReplaceAsync(MemoryScope.User, path, "foo", "bar");
         var view = await _service.ViewAsync(MemoryScope.User, path);
 
-        result.Should().StartWith("❌");
+        result.Should().StartWith("Error: ");
         result.Should().Contain("不唯一");
         view.Content.Should().Be(content);
 

@@ -101,7 +101,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         StringComparison.OrdinalIgnoreCase))
                 {
                     System.Diagnostics.Debug.WriteLine(
-                        $"[BuiltInTool] ⚠️ 路径穿越检测: {resolved} 不在工作区 {workspaceRoot} 内，拒绝访问");
+                        $"[BuiltInTool]  路径穿越检测: {resolved} 不在工作区 {workspaceRoot} 内，拒绝访问");
                     return filePath;
                 }
             }

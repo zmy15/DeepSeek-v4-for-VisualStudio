@@ -103,7 +103,7 @@ public class MemoryToolTests
 
         var result = await _tool.ExecuteAsync(args, null);
 
-        result.Should().StartWith("❌");
+        result.Should().StartWith("Error: ");
     }
 
     #endregion
@@ -141,7 +141,7 @@ public class MemoryToolTests
 
         var result = await _tool.ExecuteAsync(args, null);
 
-        result.Should().StartWith("❌");
+        result.Should().StartWith("Error: ");
     }
 
     [Fact]
@@ -158,7 +158,7 @@ public class MemoryToolTests
 
         var result = await _tool.ExecuteAsync(args, null);
 
-        result.Should().StartWith("❌");
+        result.Should().StartWith("Error: ");
         result.Should().Contain(path);
         result.Should().Contain("view");
         result.Should().Contain("create");
@@ -180,7 +180,7 @@ public class MemoryToolTests
 
         var result = await _tool.ExecuteAsync(args, null);
 
-        result.Should().StartWith("❌");
+        result.Should().StartWith("Error: ");
         result.Should().Contain("view");
 
         await _memoryService.DeleteAsync(MemoryScope.User, path);
@@ -278,9 +278,9 @@ public class MemoryToolTests
     [Fact]
     public void GetResultSummary_Error_ReturnsErrorText()
     {
-        var summary = _tool.GetResultSummary("❌ memory: 文件不存在");
+        var summary = _tool.GetResultSummary("Error: memory: 文件不存在");
 
-        summary.Should().StartWith("❌");
+        summary.Should().StartWith("Error: ");
     }
 
     [Fact]
@@ -306,7 +306,7 @@ public class MemoryToolTests
 
         var result = await _tool.ExecuteAsync(args, null);
 
-        result.Should().StartWith("❌");
+        result.Should().StartWith("Error: ");
         result.Should().Contain("未知命令");
     }
 
@@ -317,7 +317,7 @@ public class MemoryToolTests
 
         var result = await _tool.ExecuteAsync(args, null);
 
-        result.Should().StartWith("❌");
+        result.Should().StartWith("Error: ");
         result.Should().Contain("缺少 command");
     }
 

@@ -24,12 +24,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// </summary>
     public static class BackupService
     {
-        private static readonly string BaseBackupDir = Path.Combine(
+        private static string? _baseDirOverride;
+
+        /// <summary>测试隔离注入点：仅单元测试使用，把备份根目录指到临时目录，避免污染真实 AppData。</summary>
+        internal static string? BaseDirOverride
+        {
+            get => _baseDirOverride;
+            set => _baseDirOverride = value;
+        }
+
+        private static string BaseBackupDir => _baseDirOverride ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "DeepSeekVS", "backups");
 
         private static string? _currentSessionDir;
         private static readonly object _sessionLock = new();
+
+        /// <summary>默认保留期（天）：超过该时长未被清理的会话目录将在清扫时移除。</summary>
+        internal const int DefaultRetentionDays = 14;
 
         /// <summary>
         /// 获取当前会话的备份目录路径。
@@ -46,6 +58,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 开始一次编辑会话，创建以当前时间戳命名的子目录。
         /// 同一会话内的所有备份存放在同一目录下。
+        /// 同秒冲突时追加序号（_2、_3…），避免两个会话共享目录互踩备份。
         /// </summary>
         public static void BeginSession()
         {
@@ -55,9 +68,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return; // 已有活跃会话
 
                 string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                _currentSessionDir = Path.Combine(BaseBackupDir, timestamp);
-                Directory.CreateDirectory(_currentSessionDir);
-                Logger.Info($"[BackupService] 备份会话开始: {_currentSessionDir}");
+                string sessionDir = Path.Combine(BaseBackupDir, timestamp);
+
+                // ── 同秒冲突：目录已存在则追加序号，保证会话目录私有 ──
+                int suffix = 2;
+                while (Directory.Exists(sessionDir))
+                {
+                    sessionDir = Path.Combine(BaseBackupDir, $"{timestamp}_{suffix}");
+                    suffix++;
+                }
+
+                Directory.CreateDirectory(sessionDir);
+                _currentSessionDir = sessionDir;
+                Logger.Info($"[BackupService] 备份会话开始: {sessionDir}");
             }
         }
 
@@ -112,26 +135,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (!File.Exists(filePath))
                     return null;
 
-                // 确保会话已开始
+                // ── P2-1：会话目录的读取 + 备份 IO 全部在锁内完成 ──
+                // 此前锁外读 _currentSessionDir! 与 EndSession 置空/删目录构成 TOCTOU：
+                // 读到目录后 EndSession 可能已把目录删掉，随后 CreateDirectory/File.Copy 失败。
+                // 备份是单文件 Copy，IO 极快，锁竞争开销可接受；换取会话生命周期与备份创建的原子性。
                 lock (_sessionLock)
                 {
                     if (_currentSessionDir == null)
                         BeginSession();
+                    string sessionDir = _currentSessionDir
+                        ?? throw new InvalidOperationException("备份会话目录初始化失败");
+
+                    // 使用文件完整路径的哈希作为子目录名，避免路径中的非法字符
+                    string pathHash = ComputePathHash(filePath);
+                    string fileBackupDir = Path.Combine(sessionDir, pathHash);
+                    Directory.CreateDirectory(fileBackupDir);
+
+                    string fileName = Path.GetFileName(filePath);
+                    string backupPath = Path.Combine(fileBackupDir, fileName);
+
+                    File.Copy(filePath, backupPath, overwrite: true);
+                    Logger.Info($"[BackupService] 已创建备份: {filePath} → {backupPath}");
+                    return backupPath;
                 }
-
-                string sessionDir = _currentSessionDir!;
-
-                // 使用文件完整路径的哈希作为子目录名，避免路径中的非法字符
-                string pathHash = ComputePathHash(filePath);
-                string fileBackupDir = Path.Combine(sessionDir, pathHash);
-                Directory.CreateDirectory(fileBackupDir);
-
-                string fileName = Path.GetFileName(filePath);
-                string backupPath = Path.Combine(fileBackupDir, fileName);
-
-                File.Copy(filePath, backupPath, overwrite: true);
-                Logger.Info($"[BackupService] 已创建备份: {filePath} → {backupPath}");
-                return backupPath;
             }
             catch (Exception ex)
             {
@@ -208,6 +234,51 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 {
                     Logger.Warn($"[BackupService] 回滚失败: {kvp.Key} — {ex.Message}（备份文件已保留，请手动恢复）");
                 }
+            }
+        }
+
+        /// <summary>
+        /// 清扫超过保留期的会话目录（启动时后台调用）。
+        /// 跳过当前活跃会话；单目录删除失败不中断整体。返回移除的目录数。
+        /// </summary>
+        public static int CleanupExpiredSessions(int retentionDays = DefaultRetentionDays, string? baseDirOverride = null)
+        {
+            try
+            {
+                var baseDir = baseDirOverride ?? BaseBackupDir;
+                if (!Directory.Exists(baseDir)) return 0;
+
+                var cutoff = DateTime.Now.AddDays(-retentionDays);
+                int removed = 0;
+                foreach (var dir in Directory.GetDirectories(baseDir))
+                {
+                    // 活跃会话永不清理
+                    if (_currentSessionDir != null &&
+                        string.Equals(dir, _currentSessionDir, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    try
+                    {
+                        if (Directory.GetLastWriteTime(dir) < cutoff)
+                        {
+                            Directory.Delete(dir, recursive: true);
+                            removed++;
+                            Logger.Info($"[BackupService] 已清扫过期备份会话: {dir}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn($"[BackupService] 清扫会话目录失败（跳过）: {dir} — {ex.Message}");
+                    }
+                }
+                if (removed > 0)
+                    Logger.Info($"[BackupService] 保留期清扫完成：移除 {removed} 个过期会话目录");
+                return removed;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[BackupService] 保留期清扫失败: {ex.Message}");
+                return 0;
             }
         }
 

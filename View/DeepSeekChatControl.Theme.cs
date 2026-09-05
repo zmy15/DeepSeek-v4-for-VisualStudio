@@ -21,19 +21,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
         #region Theme
 
         /// <summary>
-        /// 主题切换按钮点击：在 Auto → Dark → Light 之间循环。
+        /// 更新主题切换按钮图标（P2：独立切换已移除，保留空实现兼容调用点）。
         /// </summary>
-        private void ThemeToggleButton_Click(object sender, RoutedEventArgs e)
+        private void UpdateThemeToggleIcon()
         {
-            var nextMode = _themeService.UserThemeMode switch
-            {
-                ThemeMode.Auto => ThemeMode.Dark,
-                ThemeMode.Dark => ThemeMode.Light,
-                ThemeMode.Light => ThemeMode.Auto,
-                _ => ThemeMode.Auto
-            };
-            _themeService.UserThemeMode = nextMode;
-            UpdateThemeToggleIcon();
         }
 
         /// <summary>
@@ -58,36 +49,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 _isApplyingTheme = false;
             }
-        }
-
-        /// <summary>
-        /// 更新主题切换按钮图标。
-        /// </summary>
-        private void UpdateThemeToggleIcon()
-        {
-            try
-            {
-                if (ThemeToggleIcon == null) return;
-                ThemeToggleIcon.Text = _themeService.UserThemeMode switch
-                {
-                    ThemeMode.Auto => "🌓",
-                    ThemeMode.Dark => "🌙",
-                    ThemeMode.Light => "☀️",
-                    _ => "🌓"
-                };
-
-                var L = LocalizationService.Instance;
-                string themeLabel = _themeService.IsLight ? L["theme.light"] : L["theme.dark"];
-                var tooltip = _themeService.UserThemeMode switch
-                {
-                    ThemeMode.Auto => string.Format(L["theme.toggle.auto"], themeLabel),
-                    ThemeMode.Dark => L["theme.toggle.dark"],
-                    ThemeMode.Light => L["theme.toggle.light"],
-                    _ => L["theme.toggle.switch"]
-                };
-                ThemeToggleButton.ToolTip = tooltip;
-            }
-            catch { }
         }
 
         /// <summary>
@@ -184,6 +145,22 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 // ── 审批控制栏 ──
                 ApplyBorderBrush(FindParentBorder(ApprovalModeComboBox), panelBg, panelBorder);
+                if (ApprovalAreaBorder != null)
+                {
+                    ApprovalAreaBorder.Background = panelBg;
+                    ApprovalAreaBorder.BorderBrush = panelBorder;
+                }
+                if (ApprovalModeLabel != null) ApprovalModeLabel.Foreground = textColor;
+                if (BalanceLabel != null) BalanceLabel.Foreground = mutedText;
+
+                // ── P-B 历史浮层与标题 ──
+                if (HistoryPopupBorder != null)
+                {
+                    HistoryPopupBorder.Background = panelBg;
+                    HistoryPopupBorder.BorderBrush = panelBorder;
+                }
+                if (HistoryListBox != null) HistoryListBox.Foreground = textColor;
+                if (CurrentSessionTitle != null) CurrentSessionTitle.Foreground = textColor;
                 // Update the "审批模式:" label (TextBlock sibling of ApprovalModeComboBox)
                 UpdateApprovalLabel(panelBg, textColor);
                 if (ApprovalModeComboBox != null) ApprovalModeComboBox.Foreground = textColor;
@@ -198,9 +175,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 // ── 按钮文字颜色 ──
                 if (ClearButton != null) ClearButton.Foreground = textColor;
-                if (SendButton != null) SendButton.Foreground = accentBlue;
+                // 发送/停止按钮使用 AccentButton 样式：白字 + 强调底色，不随主题覆盖前景色
                 if (NewChatButton != null) NewChatButton.Foreground = accentGreen;
-                if (StopButton != null) StopButton.Foreground = new SolidColorBrush(Color.FromRgb(0xE0, 0x60, 0x60));
                 if (UploadButton != null) UploadButton.Foreground = new SolidColorBrush(Color.FromRgb(0xCE, 0x91, 0x78));
                 if (DeleteSessionButton != null) DeleteSessionButton.Foreground = mutedText;
                 if (WebSearchToggleButton != null) WebSearchToggleButton.Foreground = textColor;

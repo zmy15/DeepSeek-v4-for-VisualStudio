@@ -29,6 +29,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         // ── 系统/上下文设置 ──
         void SetSystemPrompt(string? prompt);
+        void SetSolutionPath(string? solutionPath);
         void SetSearchContext(string? searchContext);
         void SetSkillContext(string? skillContext);
         void SetRagContext(string? ragContext);
@@ -67,6 +68,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 始终占据 messages[2] 固定位置。
         /// </summary>
         string? BuildVolatileContextBlock();
+        bool PersistCurrentVolatileSnapshot();
 
         // ── Token 估算校准 ──
         /// <summary>

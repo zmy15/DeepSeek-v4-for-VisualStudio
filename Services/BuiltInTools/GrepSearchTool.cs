@@ -61,14 +61,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override string GetResultSummary(string toolResult)
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
-            if (toolResult.StartsWith("❌")) return toolResult;
+            if (toolResult.StartsWith("Error: ")) return toolResult;
 
             var gsFirstLine = toolResult.Split('\n')[0];
             var gsMatch = Regex.Match(
                 gsFirstLine, @"(?:找到|Found|found)\s*(\d+|>\d+)\s*(?:处|个)?\s*(?:匹配|matches?)",
                 RegexOptions.IgnoreCase);
             if (gsMatch.Success)
-                return $"✅ {gsMatch.Value.Trim()}";
+                return $" {gsMatch.Value.Trim()}";
             return LocalizationService.Instance["tool.grepSearch.complete"];
         }
 
@@ -170,7 +170,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 sb.AppendLine(LocalizationService.Instance.Format("tool.grepSearch.resultHeader", query, results.Count));
                 sb.AppendLine();
                 if (results.Count == 0)
-                    sb.AppendLine("（未找到匹配结果）");
+                    sb.AppendLine(LocalizationService.Instance["tool.grepSearch.noMatches"]);
                 else
                     foreach (var r in results)
                         sb.AppendLine($"- `{r}`");

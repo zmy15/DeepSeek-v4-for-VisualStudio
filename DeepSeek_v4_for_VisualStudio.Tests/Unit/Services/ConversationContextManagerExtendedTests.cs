@@ -130,6 +130,31 @@ public class ConversationContextManagerExtendedTests
     }
 
     [Fact]
+    public void GetStats_IncludesToolCallCount()
+    {
+        _manager.AddUserMessage("Search and inspect");
+        _manager.AddAssistantMessage(null, toolCalls:
+        [
+            new ToolCall
+            {
+                Id = "call_1",
+                Type = "function",
+                Function = new ToolCallFunction { Name = "file_search", Arguments = "{}" },
+            },
+            new ToolCall
+            {
+                Id = "call_2",
+                Type = "function",
+                Function = new ToolCallFunction { Name = "read_file", Arguments = "{}" },
+            },
+        ]);
+
+        var stats = _manager.GetStats();
+
+        stats.ToolCallCount.Should().Be(2);
+    }
+
+    [Fact]
     public void AddAssistantMessage_WithBothReasoningAndToolCalls_StoresBoth()
     {
         _manager.AddUserMessage("Search");
@@ -708,6 +733,54 @@ public class ConversationContextManagerExtendedTests
 
         volatileBlock.Should().NotBeNull();
         volatileBlock!.Should().Contain("Web search results");
+    }
+
+    [Fact]
+    public void BuildVolatileContextBlock_PlacesSolutionBeforeIdeContext()
+    {
+        _manager.SetSolutionPath(@"C:\Projects\MyApp\MyApp.sln");
+        _manager.SetIdeContext("[IDE Context] Active File: Test.cs");
+
+        var volatileBlock = _manager.BuildVolatileContextBlock();
+
+        volatileBlock.Should().NotBeNull();
+        volatileBlock!.Should().Contain("MyApp.sln");
+        volatileBlock.Should().Contain("[IDE Context]");
+        volatileBlock.IndexOf("MyApp.sln", StringComparison.Ordinal)
+            .Should().BeLessThan(volatileBlock.IndexOf("[IDE Context]", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PersistCurrentVolatileSnapshot_PreservesPreviousSnapshotsInHistory()
+    {
+        _manager.SetSolutionPath(@"C:\Projects\MyApp\MyApp.sln");
+        _manager.SetIdeContext("[IDE Context] Old");
+        _manager.AddUserMessage("Q1");
+
+        _manager.PersistCurrentVolatileSnapshot().Should().BeTrue();
+        _manager.PersistCurrentVolatileSnapshot().Should().BeFalse();
+
+        _manager.AddAssistantMessage("A1");
+        _manager.SetIdeContext("[IDE Context] New");
+        _manager.AddUserMessage("Q2");
+
+        _manager.PersistCurrentVolatileSnapshot().Should().BeTrue();
+
+        var messages = _manager.BuildApiMessages();
+
+        messages.Should().Contain(m => m.Role == "user" && m.Content == "Q1");
+        messages.Should().Contain(m => m.Role == "system" && m.Content!.Contains("[IDE Context] Old"));
+        messages.Should().Contain(m => m.Role == "assistant" && m.Content == "A1");
+        messages.Should().Contain(m => m.Role == "user" && m.Content == "Q2");
+        messages.Should().Contain(m => m.Role == "system" && m.Content!.Contains("[IDE Context] New"));
+
+        int oldIndex = messages.FindIndex(m => m.Role == "system" && m.Content!.Contains("[IDE Context] Old"));
+        int q1Index = messages.FindIndex(m => m.Role == "user" && m.Content == "Q1");
+        int newIndex = messages.FindIndex(m => m.Role == "system" && m.Content!.Contains("[IDE Context] New"));
+        int q2Index = messages.FindIndex(m => m.Role == "user" && m.Content == "Q2");
+
+        oldIndex.Should().BeLessThan(q1Index);
+        newIndex.Should().BeLessThan(q2Index);
     }
 
     #endregion

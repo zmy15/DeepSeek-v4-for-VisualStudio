@@ -415,7 +415,7 @@ public class EditAgentTests
     public void BuildReadOnlyExecutionContent_AppendsMissingRawOutput()
     {
         const string aiSummary = "已读取文件，以下是说明。";
-        const string rawOutput = "📟 终端输出 (退出码: 0):\n#include <iostream>\nint main() {}";
+        const string rawOutput = " 终端输出 (退出码: 0):\n#include <iostream>\nint main() {}";
 
         var result = BuildReadOnlyExecutionContentPublic(aiSummary, rawOutput);
 
@@ -428,7 +428,7 @@ public class EditAgentTests
     [Fact]
     public void BuildReadOnlyExecutionContent_DoesNotDuplicateCompleteOutput()
     {
-        const string rawOutput = "📟 终端输出 (退出码: 0):\n#include <iostream>\nint main() {}";
+        const string rawOutput = "终端输出 (退出码: 0):\n#include <iostream>\nint main() {}";
 
         var result = BuildReadOnlyExecutionContentPublic(rawOutput, rawOutput);
 

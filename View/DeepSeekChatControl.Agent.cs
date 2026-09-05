@@ -171,17 +171,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 if (_skillDiscoveryResult == null)
                     _skillDiscoveryResult = await SkillService.Instance.DiscoverSkillsAsync(_solutionPath);
-                string skillContext = SkillService.Instance.GenerateSkillsDiscoveryContext(_skillDiscoveryResult);
-                _contextManager.SetSkillContext(string.IsNullOrWhiteSpace(skillContext) ? null : skillContext);
+
+                // 技能发现结果仅用于 /skill 解析和 UI 列表；不在系统提示中注入
+                // available_skills 清单，避免未显式调用技能时污染上下文。
+                _contextManager.SetSkillContext(null);
 
                 // 注入始终激活的技能完整指令（每次对话均加载）
                 string alwaysInjectContext = SkillService.Instance.GenerateAlwaysInjectSkillsContext(_skillDiscoveryResult);
                 _contextManager.SetAlwaysInjectSkillsContext(string.IsNullOrWhiteSpace(alwaysInjectContext) ? null : alwaysInjectContext);
 
-                if (!string.IsNullOrWhiteSpace(skillContext) && _skillDiscoveryResult != null)
+                if (_skillDiscoveryResult != null)
                 {
                     var skillNames = string.Join(", ", _skillDiscoveryResult.AutoLoadableSkills.ConvertAll(s => s.Name));
-                    Logger.Info($"[Skill] 系统提示注入: {_skillDiscoveryResult.AutoLoadableSkills.Count} 个可选 + {_skillDiscoveryResult.AlwaysInjectSkills.Count} 个始终激活 → 可选: {skillNames}");
+                    Logger.Info($"[Skill] 发现: {_skillDiscoveryResult.AutoLoadableSkills.Count} 个可选(不注入清单) + {_skillDiscoveryResult.AlwaysInjectSkills.Count} 个始终激活 → 可选: {skillNames}");
                     if (_skillDiscoveryResult.AlwaysInjectSkills.Count > 0)
                     {
                         var alwaysNames = string.Join(", ", _skillDiscoveryResult.AlwaysInjectSkills.ConvertAll(s => s.Name));
@@ -296,16 +298,82 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// Agent 工作流主入口：分解任务 → 显示步骤计划 → 逐步执行 → 显示变更摘要。
         /// 注意：此方法在后台线程中调用，访问 UI 前必须切换到主线程。
         /// </summary>
+        /// <summary>IDE 实时态追踪器（P1-A，惰性创建；仅 UI 线程使用）</summary>
+        private Services.IdeContext.IdeContextTracker? _ideContextTracker;
+
+        /// <summary>
+        /// 构建会话开始时的上下文构成快照（P2 Context Debugger 数据面）。
+        /// 随遥测 JSON 导出，用于失败复盘时回答"模型当时看到了什么、为什么"。
+        /// </summary>
+        private string? BuildContextDebugJson()
+        {
+            try
+            {
+                var stats = _contextManager.GetStats();
+                var ide = _ideContextTracker?.Current;
+
+                var payload = new
+                {
+                    tokens = new
+                    {
+                        estimated = stats.EstimatedTokens,
+                        budget = stats.TokenBudget,
+                        percent = Math.Round(stats.UsagePercent, 1),
+                    },
+                    turns = stats.TurnCount,
+                    messages = stats.MessageCount,
+                    toolCalls = stats.ToolCallCount,
+                    compressedTurns = stats.CompressedTurns,
+                    injected = new
+                    {
+                        ide = ide != null,
+                        ideChars = _contextManager.IdeContextChars,
+                        search = _contextManager.HasSearchContext,
+                        rag = _contextManager.HasRagContext,
+                    },
+                    workingSet = _contextManager.GetWorkingSetTopPaths(6),
+                    ideSnapshot = ide == null ? null : new
+                    {
+                        file = ide.FilePath,
+                        hasSelection = ide.HasSelection,
+                        selectionStartLine = ide.SelectionStartLine,
+                        selectionEndLine = ide.SelectionEndLine,
+                        cursorLine = ide.CursorLine,
+                        symbol = ide.SymbolAtCursor,
+                        errors = ide.ErrorCount,
+                        warnings = ide.WarningCount,
+                    },
+                    capturedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                };
+                return JsonSerializer.Serialize(payload,
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[ContextDebug] 构建快照失败: {ex.Message}");
+                return null;
+            }
+        }
+
         private async Task RunAgentWorkflowAsync(
             string userText,
             string fileContext = "",
             AgentRoutingResult? routing = null,
-            List<ChatContentPart>? visionContent = null)
+            List<ChatContentPart>? visionContent = null,
+            string? currentUserContent = null)
         {
             if (_activeAgent == null || _agentFactory == null) return;
 
             // ── 单轮 Cache 统计快照：本次问答开始时的累计值 ──
             _apiService?.TakeCacheSnapshot();
+
+            // ── P0 Telemetry：会话指标采集器（设置开关控制，创建失败静默降级）──
+            Services.Telemetry.AgentMetricsCollector? telemetry = null;
+            if (_options?.EnableTelemetryExport != false)
+            {
+                try { telemetry = new Services.Telemetry.AgentMetricsCollector(); }
+                catch (Exception tex) { Logger.Warn($"[Telemetry] 采集器创建失败: {tex.Message}"); }
+            }
 
             try
             {
@@ -318,6 +386,54 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
 
                 StatusLabel.Text = LocalizationService.Instance["agent.status.analyzing"];
+
+                // ── P1-A IDE Context：捕获编辑器实时态并注入 volatile 块（设置开关控制）──
+                //    在 UI 线程上单次捕获；Agent 每轮只读快照，不重复扫描 VS。
+                try
+                {
+                    _contextManager.SetSolutionPath(_solutionPath);
+                    if (_options?.EnableIdeContextInjection == true)
+                    {
+                        _ideContextTracker ??= new Services.IdeContext.IdeContextTracker();
+                        _ideContextTracker.CaptureFromActiveView();
+                        _contextManager.SetIdeContext(
+                            _ideContextTracker.Current?.ToPromptBlock(_solutionPath));
+                        if (_ideContextTracker.Current != null)
+                            Logger.Info($"[IdeContext] 已注入: {_ideContextTracker.Current.FilePath} " +
+                                        $"(选区={_ideContextTracker.Current.HasSelection}, " +
+                                        $"诊断={_ideContextTracker.Current.Diagnostics.Count})");
+                    }
+                    else
+                    {
+                        _contextManager.SetIdeContext(null);
+                    }
+                }
+                catch (Exception ideEx)
+                {
+                    Logger.Warn($"[IdeContext] 注入失败: {ideEx.Message}");
+                }
+
+                // ── P2 Context Debugger：一行日志 + 聊天面板推送（设置开关复用 ShowContextStats）──
+                if (_options?.ShowContextStats == true)
+                {
+                    try
+                    {
+                        var dbgStats = _contextManager.GetStats();
+                        var ideCur = _ideContextTracker?.Current;
+                        Logger.Info($"[ContextDebug] IDE={(ideCur != null ? ideCur.FilePath : "off")}" +
+                            $"(sel={ideCur?.HasSelection == true}, diag={ideCur?.ErrorCount ?? 0}e/{ideCur?.WarningCount ?? 0}w) " +
+                            $"Search={_contextManager.HasSearchContext} RAG={_contextManager.HasRagContext} " +
+                            $"WS={_contextManager.GetWorkingSetTopPaths(6).Count} " +
+                            $"Tokens={dbgStats.EstimatedTokens:N0}/{dbgStats.TokenBudget:N0}");
+
+                        // 推送到聊天窗口右上角抽屉（JS 懒创建，折叠展示）
+                        string? ctxJson = BuildContextDebugJson();
+                        if (!string.IsNullOrEmpty(ctxJson))
+                            ChatWebView.CoreWebView2?.PostWebMessageAsString(
+                                "{\"type\":\"contextDebug\",\"d\":" + ctxJson + "}");
+                    }
+                    catch { }
+                }
 
                 // ── 清理上一轮 Agent 执行的追踪状态 ──
                 lock (_lock)
@@ -337,6 +453,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     SolutionPath = _solutionPath,
                     FileContext = fileContext,
                     VisionContent = visionContent,
+                    CurrentUserContent = currentUserContent,
                     ConversationHistory = _contextManager.GetConversationHistory(),
                     ContextManager = _contextManager,
                     IsPlanningMode = routing?.NeedsPlanning == true || routing?.TargetAgent == AgentType.Plan,
@@ -422,23 +539,43 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 // ── 设置实时推理流回调：每个 thinking chunk 立即推送到 WebView2 思考面板 ──
                 var capturedMsgIdx = _agentStreamingMsgIndex;
+                // ── P3: 流式增量累积的节流局部状态。与 BatchStreamingUpdate 内部 60ms 节流对齐，
+                //    将"每 chunk 一次 O(n) 全量拷贝/ToString/线程切换"降为每 60ms 一次，
+                //    长输出时整体字符搬运从 O(n²) 降为近似 O(n)；最终完整性由收尾的
+                //    FinalizeAgentMessage(isComplete) 全量推送兜底 ──
+                const long StreamFlushSyncIntervalTicks = 60 * TimeSpan.TicksPerMillisecond;
+                long lastContentFlushTicks = DateTime.UtcNow.Ticks;
+                long lastThinkingFlushTicks = DateTime.UtcNow.Ticks;
+                var streamingContentSb = new StringBuilder();
+
                 context.OnThinkingChunk = (chunk) =>
                 {
-                    lock (_lock) { _streamingReasoning.Append(chunk); }
+                    // 锁内增量累积（StringBuilder.Append 均摊 O(1)）；按 60ms 节流后才全量读取推送，
+                    // 避免长思考输出时每个 chunk 都执行 O(n) ToString 与跨线程切换
+                    bool syncDue = false;
+                    lock (_lock)
+                    {
+                        _streamingReasoning.Append(chunk);
+                        long nowTicks = DateTime.UtcNow.Ticks;
+                        syncDue = nowTicks - lastThinkingFlushTicks >= StreamFlushSyncIntervalTicks;
+                        if (!syncDue) return;
+                        lastThinkingFlushTicks = nowTicks;
+                    }
+
+                    string reasoning;
+                    string content;
+                    lock (_lock)
+                    {
+                        reasoning = _streamingReasoning.ToString();
+                        var msg = capturedMsgIdx < _messages.Count ? _messages[capturedMsgIdx] : null;
+                        content = msg?.Content ?? string.Empty;
+                    }
                     _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
                     {
                         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                         if (ChatWebView.CoreWebView2 == null || capturedMsgIdx < 0) return;
                         try
                         {
-                            string reasoning;
-                            string content;
-                            lock (_lock)
-                            {
-                                reasoning = _streamingReasoning.ToString();
-                                var msg = capturedMsgIdx < _messages.Count ? _messages[capturedMsgIdx] : null;
-                                content = msg?.Content ?? string.Empty;
-                            }
                             BatchStreamingUpdate(capturedMsgIdx, content, reasoning);
                         }
                         catch (Exception ex)
@@ -451,30 +588,42 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // ── 设置实时内容流回调：每个 content chunk 立即推送到 WebView2 消息正文 ──
                 context.OnContentChunk = (chunk) =>
                 {
+                    // 锁内单次临界区：StringBuilder 增量累积（均摊 O(1)），替代逐 chunk 的
+                    // string += 全量复制；按 60ms 节流把最新完整内容同步到消息并触发批处理推送
+                    bool syncDue = false;
                     lock (_lock)
                     {
-                        if (capturedMsgIdx >= 0 && capturedMsgIdx < _messages.Count)
-                            _messages[capturedMsgIdx].Content = (_messages[capturedMsgIdx].Content ?? "") + chunk;
-                    }
-                    string reasoning;
-                    string content;
-                    lock (_lock)
-                    {
-                        reasoning = _streamingReasoning.ToString();
-                        content = capturedMsgIdx >= 0 && capturedMsgIdx < _messages.Count
-                            ? (_messages[capturedMsgIdx]?.Content ?? "") : "";
+                        if (capturedMsgIdx < 0 || capturedMsgIdx >= _messages.Count) return;
+                        streamingContentSb.Append(chunk);
+
+                        long nowTicks = DateTime.UtcNow.Ticks;
+                        syncDue = nowTicks - lastContentFlushTicks >= StreamFlushSyncIntervalTicks;
+                        if (!syncDue) return;
+
+                        lastContentFlushTicks = nowTicks;
+                        _messages[capturedMsgIdx].Content = streamingContentSb.ToString();
                     }
                     _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
                     {
                         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                         if (ChatWebView.CoreWebView2 == null || capturedMsgIdx < 0) return;
-                        try { BatchStreamingUpdate(capturedMsgIdx, content, reasoning); }
+                        try
+                        {
+                            string reasoning;
+                            string content;
+                            lock (_lock)
+                            {
+                                reasoning = _streamingReasoning.ToString();
+                                content = capturedMsgIdx >= 0 && capturedMsgIdx < _messages.Count
+                                    ? (_messages[capturedMsgIdx]?.Content ?? "") : "";
+                            }
+                            BatchStreamingUpdate(capturedMsgIdx, content, reasoning);
+                        }
                         catch (Exception ex)
                         {
                             Logger.Warn($"[Agent] OnContentChunk BatchStreamingUpdate 异常: {ex.Message}");
                         }
                     });
-
                 };
 
                 // ── 显式路由 Agent 切换：@agent 时切换到目标 Agent ──
@@ -513,7 +662,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     try
                     {
                         bool isBaidu = _webSearchEngine == "Baidu";
-                        string providerName = isBaidu ? "百度搜索" : "DuckDuckGo";
+                        string providerName = _webSearchEngine switch
+                        {
+                            "Baidu" => "百度搜索",
+                            "Bing" => "Bing",
+                            _ => "DuckDuckGo",
+                        };
                         var searchCt = CancellationToken.None; // 搜索阶段不依赖外部取消令牌
                         var L = LocalizationService.Instance;
 
@@ -573,6 +727,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 AgentResult agentResult;
                 try
                 {
+                    // ── P0 Telemetry：路由确定后挂载采集器并标记会话开始（附上下文构成快照）──
+                    if (telemetry != null)
+                    {
+                        context.Metrics = telemetry;
+                        telemetry.BeginSession(_options?.SelectedModel,
+                            _activeAgent.Definition.Type.ToString(), userText,
+                            BuildContextDebugJson());
+                    }
+
                     agentResult = await _activeAgent.ExecuteAsync(userText, context);
                 }
                 finally
@@ -627,6 +790,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     var nextAgent = _agentFactory.GetAgent(agentResult.Handoff.TargetAgent);
                     SwitchActiveAgent(nextAgent, context);
+                    context.Metrics?.SwitchAgent(agentResult.Handoff.TargetAgent.ToString());
                     if (_agentFactory.EditAgent is EditAgent ea2)
                         ea2.PlanUpdated += OnAgentPlanUpdated;
                     try
@@ -652,7 +816,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     var plan = agentResult.Plan;
 
-                    // ── 创建或更新任务面板 ──
+                    // ── 创建或更新任务面板（仅本分支独有逻辑）──
                     bool anyStepExecuted = plan.Steps.Any(s => s.Status != AgentStepStatus.Pending);
                     if (plan.Steps.Count > 0)
                     {
@@ -732,48 +896,25 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                     string finalContent = summaryBuilder.ToString().TrimEnd();
 
-                    // ── 更新现有的流式思考气泡为最终内容 ──
+                    // ── 持久化任务计划 / Handoff JSON（重启后可重建任务面板与"开始执行"按钮）──
                     lock (_lock)
                     {
                         if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count)
                         {
                             var msg = _messages[_agentStreamingMsgIndex];
-                            msg.Content = finalContent;
-                            lock (_lock) { msg.ReasoningContent = _streamingReasoning.ToString(); }
-                            msg.IsStreaming = false;
-                            msg.IsRendered = true;
-                            // ── 持久化任务计划 JSON，重启后可重建任务面板 ──
                             try { msg.PlanJson = JsonSerializer.Serialize(plan, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
-                            // ── 持久化 Handoff JSON，会话切换后可重建"开始执行"按钮 ──
                             if (_pendingHandoff != null)
                             {
                                 try { msg.HandoffJson = JsonSerializer.Serialize(_pendingHandoff, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
                             }
                         }
                     }
-                    // ── 追加 Cache 命中率统计（本次问答的增量，非 Session 累计）──
-                    string cacheFooter = string.Empty;
-                    try
-                    {
-                        var delta = _apiService?.GetCacheDelta() ?? (0, 0, 0, 0);
-                        if (delta.Hit + delta.Miss > 0)
-                        {
-                            cacheFooter = ChatHtmlService.BuildCacheHitFooterHtml(
-                                delta.Hit, delta.Miss, delta.Prompt, delta.Completion, roundCount: 1);
-                            // ── 持久化到 ChatMessage，重启后 RebuildMessagesHtml 可恢复显示 ──
-                            lock (_lock) { if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count) _messages[_agentStreamingMsgIndex].CacheFooterHtml = cacheFooter; }
-                        }
-                    }
-                    catch { }
 
-                    // ── 同步最终内容并强制刷新，确保增量内容已推送 ──
+                    // ── 收尾（共用 helper）：Cache footer + 最终化消息推送（含执行过程 HTML）──
                     string reasoningForRender;
                     lock (_lock) { reasoningForRender = _streamingReasoning.ToString(); }
-                    BatchStreamingUpdate(_agentStreamingMsgIndex, finalContent, reasoningForRender, isComplete: true);
-
-                    // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染（含 Markdown HTML + 执行过程）──
-                    string combinedFooter = thinkingDetailsHtml + cacheFooter;
-                    PostStreamEnd(_agentStreamingMsgIndex, finalContent, reasoningForRender, combinedFooter);
+                    string cacheFooter = BuildCacheFooterAndPersist(_agentStreamingMsgIndex);
+                    FinalizeAgentMessage(_agentStreamingMsgIndex, finalContent, reasoningForRender, cacheFooter, thinkingDetailsHtml);
 
                     StatusLabel.Text = plan.IsCancelled
                         ? LocalizationService.Instance["agent.taskCancelled"]
@@ -781,18 +922,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             ? string.Format(LocalizationService.Instance["agent.taskCompletedFiles"], plan.ChangedFiles.Count)
                             : string.Format(LocalizationService.Instance["agent.planCompletedSteps"], plan.Steps.Count);
 
+                    // ── P0 Telemetry：计划执行完成（取消视为 Cancelled）──
+                    if (plan.IsCancelled || context.CancellationToken.IsCancellationRequested)
+                        telemetry?.CompleteCancelled();
+                    else
+                        telemetry?.CompleteSuccess();
+
                     // ── 如果有待处理的 Handoff（如 Plan→Edit），注入"开始实现"按钮 ──
-                    if (_pendingHandoff != null && _agentStreamingMsgIndex >= 0)
-                    {
-                        try
-                        {
-                            string targetAgentStr = _pendingHandoff.TargetAgent.ToString();
-                            string handoffBtnJs = ChatHtmlService.BuildHandoffButtonJs(
-                                _agentStreamingMsgIndex, targetAgentStr, _pendingHandoff.Label);
-                            await ChatWebView.CoreWebView2.ExecuteScriptAsync(handoffBtnJs);
-                        }
-                        catch { }
-                    }
+                    await InjectPendingHandoffButtonAsync();
 
                     if (plan.ChangedFiles.Count > 0)
                     {
@@ -801,92 +938,48 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
                 else if (agentResult.Success && !string.IsNullOrWhiteSpace(agentResult.Content))
                 {
-                    // 将思考气泡更新为最终内容
+                    // ── 持久化 Handoff JSON，会话切换后可重建"开始执行"按钮 ──
                     lock (_lock)
                     {
                         if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count)
                         {
-                            var msg = _messages[_agentStreamingMsgIndex];
-                            msg.Content = agentResult.Content;
-                            lock (_lock) { msg.ReasoningContent = _streamingReasoning.ToString(); }
-                            msg.IsStreaming = false;
-                            msg.IsRendered = true;
-                            // ── 持久化 Handoff JSON，会话切换后可重建"开始执行"按钮 ──
                             if (_pendingHandoff != null)
                             {
-                                try { msg.HandoffJson = JsonSerializer.Serialize(_pendingHandoff, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
+                                try { _messages[_agentStreamingMsgIndex].HandoffJson = JsonSerializer.Serialize(_pendingHandoff, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); } catch { }
                             }
                         }
                     }
-                    // ── 计算 Cache 命中率（本次问答增量）──
-                    string cacheFooter = string.Empty;
-                    try
-                    {
-                        var delta = _apiService?.GetCacheDelta() ?? (0, 0, 0, 0);
-                        if (delta.Hit + delta.Miss > 0)
-                        {
-                            cacheFooter = ChatHtmlService.BuildCacheHitFooterHtml(
-                                delta.Hit, delta.Miss, delta.Prompt, delta.Completion, roundCount: 1);
-                            lock (_lock) { if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count) _messages[_agentStreamingMsgIndex].CacheFooterHtml = cacheFooter; }
-                        }
-                    }
-                    catch { }
 
-                    // ── 同步最终内容并强制刷新，确保增量内容已推送 ──
+                    // ── 收尾（共用 helper）：Cache footer + 最终化消息推送 ──
                     string reasoningForRender;
                     lock (_lock) { reasoningForRender = _streamingReasoning.ToString(); }
-                    BatchStreamingUpdate(_agentStreamingMsgIndex, agentResult.Content, reasoningForRender, isComplete: true);
-
-                    // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染 ──
-                    PostStreamEnd(_agentStreamingMsgIndex, agentResult.Content, reasoningForRender, cacheFooter);
+                    string cacheFooter = BuildCacheFooterAndPersist(_agentStreamingMsgIndex);
+                    FinalizeAgentMessage(_agentStreamingMsgIndex, agentResult.Content, reasoningForRender, cacheFooter);
                     StatusLabel.Text = LocalizationService.Instance["status.ready"];
 
+                    // ── P0 Telemetry：问答完成（流中取消视为 Cancelled）──
+                    if (context.CancellationToken.IsCancellationRequested)
+                        telemetry?.CompleteCancelled();
+                    else
+                        telemetry?.CompleteSuccess();
+
                     // ── 如果有待处理的 Handoff，注入按钮 ──
-                    if (_pendingHandoff != null && _agentStreamingMsgIndex >= 0)
-                    {
-                        try
-                        {
-                            string targetAgentStr = _pendingHandoff.TargetAgent.ToString();
-                            string handoffBtnJs = ChatHtmlService.BuildHandoffButtonJs(
-                                _agentStreamingMsgIndex, targetAgentStr, _pendingHandoff.Label);
-                            await ChatWebView.CoreWebView2.ExecuteScriptAsync(handoffBtnJs);
-                        }
-                        catch { }
-                    }
+                    await InjectPendingHandoffButtonAsync();
                 }
                 else if (!agentResult.Success)
                 {
                     string errorContent = string.Format(LocalizationService.Instance["agent.executionFailed"], agentResult.ErrorMessage);
-                    lock (_lock)
-                    {
-                        if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count)
-                        {
-                            var msg = _messages[_agentStreamingMsgIndex];
-                            msg.Content = errorContent;
-                            msg.IsStreaming = false;
-                            msg.IsRendered = true;
-                        }
-                    }
-                    // ── 计算 Cache 命中率（本次问答增量）──
-                    string cacheFooter = string.Empty;
-                    try
-                    {
-                        var delta = _apiService?.GetCacheDelta() ?? (0, 0, 0, 0);
-                        if (delta.Hit + delta.Miss > 0)
-                        {
-                            cacheFooter = ChatHtmlService.BuildCacheHitFooterHtml(
-                                delta.Hit, delta.Miss, delta.Prompt, delta.Completion, roundCount: 1);
-                            lock (_lock) { if (_agentStreamingMsgIndex >= 0 && _agentStreamingMsgIndex < _messages.Count) _messages[_agentStreamingMsgIndex].CacheFooterHtml = cacheFooter; }
-                        }
-                    }
-                    catch { }
 
-                    // ── 同步最终内容并强制刷新，确保增量内容已推送 ──
-                    BatchStreamingUpdate(_agentStreamingMsgIndex, errorContent, string.Empty, isComplete: true);
-
-                    // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染 ──
-                    PostStreamEnd(_agentStreamingMsgIndex, errorContent, string.Empty, cacheFooter);
+                    // ── 收尾（共用 helper）：Cache footer + 最终化错误消息推送 ──
+                    string cacheFooter = BuildCacheFooterAndPersist(_agentStreamingMsgIndex);
+                    FinalizeAgentMessage(_agentStreamingMsgIndex, errorContent, string.Empty, cacheFooter);
                     StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentError"], agentResult.ErrorMessage);
+
+                    // ── P0 Telemetry：会话失败（取消 → Cancelled；其余 category 留待人工标注 Model/Context/Host）──
+                    if (context.CancellationToken.IsCancellationRequested)
+                        telemetry?.CompleteCancelled();
+                    else
+                        telemetry?.CompleteFailure(AgentFailureCategory.None, agentResult.ErrorMessage);
                 }
             }
             catch (Exception ex)
@@ -894,10 +987,21 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Error($"[AgentFlow] 工作流异常: {ex.Message}", ex);
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 StatusLabel.Text = string.Format(LocalizationService.Instance["status.agentError"], ex.Message);
+
+                // ── P0 Telemetry：未捕获异常归类为 System 故障 ──
+                try { telemetry?.CompleteFailure(AgentFailureCategory.System, ex.ToString()); } catch { }
             }
             finally
             {
                 _activePlan = null;
+
+                // ── P1-A：会话结束后清除 IDE 快照，避免过期上下文泄漏到非 Agent 的聊天轮次 ──
+                try { _contextManager.SetIdeContext(null); }
+                catch { }
+
+                // ── 追踪器内部快照同步清空（含未截断的原始 SelectionText，避免跨会话常驻内存）──
+                try { _ideContextTracker?.Clear(); }
+                catch { }
             }
 
             // ── 将 Agent 响应同步到树和上下文管理器（修复上下文丢失问题）──
@@ -987,6 +1091,87 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 计算本次问答的 Cache 命中率增量 footer（非 Session 累计），并持久化到消息。
+        /// 无增量数据时返回空字符串。Agent 结果三分支收尾共用，避免重复实现。
+        /// </summary>
+        /// <param name="msgIndex">当前流式消息下标。</param>
+        /// <returns>Cache footer HTML；无数据时为空字符串。</returns>
+        private string BuildCacheFooterAndPersist(int msgIndex)
+        {
+            try
+            {
+                var delta = _apiService?.GetCacheDelta() ?? (0, 0, 0, 0);
+                if (delta.Hit + delta.Miss <= 0) return string.Empty;
+
+                string footer = ChatHtmlService.BuildCacheHitFooterHtml(
+                    delta.Hit, delta.Miss, delta.Prompt, delta.Completion, roundCount: 1);
+                lock (_lock)
+                {
+                    if (msgIndex >= 0 && msgIndex < _messages.Count)
+                        _messages[msgIndex].CacheFooterHtml = footer;
+                }
+                return footer;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// 最终化一条 Agent 流式消息（结果三分支收尾共用）：
+        /// 锁内更新消息为完成态 → 同步批处理缓冲并强制刷新 → PostWebMessage 发送最终渲染。
+        /// Plan 分支的"执行过程"HTML 通过 extraFooterHtml 传入，拼接在 Cache footer 之前。
+        /// </summary>
+        /// <param name="msgIndex">当前流式消息下标。</param>
+        /// <param name="content">最终正文。</param>
+        /// <param name="reasoning">最终推理内容。</param>
+        /// <param name="footerHtml">Cache footer HTML（可为空字符串）。</param>
+        /// <param name="extraFooterHtml">额外页脚 HTML（如执行过程详情），拼在 footer 前（可为空）。</param>
+        private void FinalizeAgentMessage(int msgIndex, string content, string reasoning,
+            string footerHtml, string? extraFooterHtml = null)
+        {
+            // ── 更新消息状态为最终完成态（下标无效时跳过更新，与旧分支行为一致）──
+            lock (_lock)
+            {
+                if (msgIndex >= 0 && msgIndex < _messages.Count)
+                {
+                    var msg = _messages[msgIndex];
+                    msg.Content = content;
+                    msg.ReasoningContent = reasoning;
+                    msg.IsStreaming = false;
+                    msg.IsRendered = true;
+                }
+            }
+
+            // ── 同步批处理缓冲并强制刷新，确保增量内容已推送 ──
+            string combinedFooter = (extraFooterHtml ?? string.Empty) + footerHtml;
+            BatchStreamingUpdate(msgIndex, content, reasoning, isComplete: true);
+
+            // ── 使用非阻塞 PostWebMessageAsString 发送最终渲染 ──
+            PostStreamEnd(msgIndex, content, reasoning, combinedFooter);
+        }
+
+        /// <summary>
+        /// 若存在等待用户确认的 Handoff（ShowContinueOn），在其消息气泡下注入"开始执行"按钮。
+        /// Agent 结果分支收尾共用。
+        /// </summary>
+        private async Task InjectPendingHandoffButtonAsync()
+        {
+            if (_pendingHandoff == null || _agentStreamingMsgIndex < 0) return;
+            try
+            {
+                string targetAgentStr = _pendingHandoff.TargetAgent.ToString();
+                string handoffBtnJs = ChatHtmlService.BuildHandoffButtonJs(
+                    _agentStreamingMsgIndex, targetAgentStr, _pendingHandoff.Label);
+                await ChatWebView.CoreWebView2.ExecuteScriptAsync(handoffBtnJs);
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>
         /// 从 AI 原始响应中提取 JSON 数组。
         /// DeepSeek JSON Output 模式下仍可能包裹在 markdown 代码块、标题或其他文本中。
         /// </summary>
@@ -1046,6 +1231,59 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 兼容 json_object 模式下模型偶发返回单对象 {…}（而非协议要求的 JSON 数组）的情况：
+        /// 定位文本中第一个 JSON 对象的起止（括号深度配对，跳过字符串字面量），包装为单元素数组。
+        /// 仅在 ExtractJsonArray 解析失败时调用，不影响正常数组响应路径。
+        /// </summary>
+        /// <param name="rawResponse">AI 原始响应文本。</param>
+        /// <param name="jsonArray">输出：包装后的单元素 JSON 数组；失败时为空字符串。</param>
+        /// <returns>是否成功提取并包装为数组。</returns>
+        private static bool TryWrapSingleMemoryObjectAsArray(string rawResponse, out string jsonArray)
+        {
+            jsonArray = string.Empty;
+            if (string.IsNullOrWhiteSpace(rawResponse)) return false;
+
+            // 与 ExtractJsonArray 一致：先剥离 markdown 代码块包裹
+            string text = rawResponse.Trim();
+            var codeBlockMatch = System.Text.RegularExpressions.Regex.Match(
+                text, @"```(?:json)?\s*\n?([\s\S]*?)\n?```",
+                System.Text.RegularExpressions.RegexOptions.Singleline);
+            if (codeBlockMatch.Success)
+                text = codeBlockMatch.Groups[1].Value.Trim();
+
+            int startIdx = text.IndexOf('{');
+            if (startIdx < 0) return false;
+
+            // 括号深度配对：跳过字符串字面量内的 { }，避免 content 字段含花括号时配对错乱
+            int depth = 0;
+            bool inString = false;
+            bool escaped = false;
+            for (int i = startIdx; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (inString)
+                {
+                    if (escaped) escaped = false;
+                    else if (c == '\\') escaped = true;
+                    else if (c == '"') inString = false;
+                    continue;
+                }
+                if (c == '"') inString = true;
+                else if (c == '{') depth++;
+                else if (c == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        jsonArray = "[" + text.Substring(startIdx, i - startIdx + 1) + "]";
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// 在一次问答结束后，自动判断是否需要将关键信息记录到持久化记忆。
         /// 使用轻量级非流式 API 调用，解析 AI 返回的记忆操作指令并执行。
         /// </summary>
@@ -1076,10 +1314,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
 
                 // ── 解析 JSON（DeepSeek JSON Output 模式下仍可能包裹 markdown 或前缀文本）──
+                // 先按协议要求解析数组；json_object 模式下模型偶发返回单对象 {…}，
+                // 需兼容包装为单元素数组，否则会被误判为"无需记录"而静默丢失用户偏好数据。
                 string json = ExtractJsonArray(rawResponse);
+                if (string.IsNullOrWhiteSpace(json)
+                    && TryWrapSingleMemoryObjectAsArray(rawResponse, out var wrappedJson))
+                {
+                    json = wrappedJson;
+                }
                 if (string.IsNullOrWhiteSpace(json))
                 {
-                    Logger.Info("[Memory] 自动记忆判断：无需记录（未找到有效 JSON 数组）");
+                    // 格式异常（既非数组也非对象）意味着可能丢数据，升级 Warn 以便追踪模型输出问题
+                    Logger.Warn($"[Memory] 自动记忆判断：响应格式异常无法解析（可能丢数据），原文: {rawResponse.Truncate(200)}");
                     return;
                 }
 
@@ -1515,6 +1761,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             string msg = entry.Message ?? string.Empty;
 
+            // 工具调用摘要由 BaseAgent 显式标记，始终作为用户可见的过程输出展示。
+            if (entry.Level == "TOOL")
+                return msg;
+
             // ── 过滤纯内部日志（中英文双语匹配）──
             if (msg.StartsWith("[TokenUsage]") || msg.StartsWith("[Retry") || msg.StartsWith("[AgentFlow]"))
                 return string.Empty;
@@ -1524,22 +1774,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── 格式化为可读的思考内容 ──
 
-            // Emoji 前缀（locale-independent）：状态指示、文件操作、工具调用
-            if (msg.StartsWith("📄") || msg.StartsWith("📖") || msg.Contains("已读取") || msg.Contains("read file"))
+            // 结果标记行（文本前缀，locale 无关）与文件读取状态原样保留
+            if (msg.StartsWith("Error: ") || msg.StartsWith("Timeout: ") || msg.StartsWith("[BLOCKED] "))
                 return msg;
-            if (msg.StartsWith("✅") || msg.StartsWith("❌") || msg.StartsWith("⚠️"))
-                return msg;
-            if (msg.StartsWith("🔨") || msg.StartsWith("🔧"))
-                return msg;
-            // 工具调用 emoji：编辑、创建、终端、搜索、目录等
-            if (msg.StartsWith("✏️") || msg.StartsWith("📝") || msg.StartsWith("💻") || msg.StartsWith("📋")
-                || msg.StartsWith("📂") || msg.StartsWith("🔍") || msg.StartsWith("🔎") || msg.StartsWith("🌐")
-                || msg.StartsWith("🗑️"))
+            if (msg.Contains("已读取") || msg.Contains("read file"))
                 return msg;
 
             // Phase 进度指示（中英文通用：包含 "/3:" 的模式）
             if (msg.StartsWith("阶段") || msg.StartsWith("Phase") || msg.Contains("/3:"))
-                return $"🔍 {msg}";
+                return $" {msg}";
 
             // Plan Agent 开始（中英文）
             if (msg.StartsWith("Plan Agent 开始规划") || msg.StartsWith("Plan Agent started planning"))
@@ -1560,7 +1803,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return LocalizationService.Instance["status.buildVerified"];
             if ((msg.Contains("编译") || msg.Contains("build") || msg.Contains("Build"))
                 && (msg.Contains("失败") || msg.Contains("错误") || msg.Contains("failed") || msg.Contains("error")))
-                return $"⚠️ {msg}";
+                return $" {msg}";
 
             // Edit Agent 步骤前缀（使用 i18n）
             var L = LocalizationService.Instance;
@@ -1569,32 +1812,32 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── ExploreAgent 委托和发现日志 ──
             if (msg.StartsWith("[EditAgent] 委托 ExploreAgent") || msg.StartsWith("[EditAgent] delegated ExploreAgent"))
-                return $"🔍 {msg.Replace("[EditAgent] ", "")}";
+                return $" {msg.Replace("[EditAgent] ", "")}";
             if (msg.StartsWith("[EditAgent] ExploreAgent 返回") || msg.StartsWith("[EditAgent] ExploreAgent returned"))
-                return $"📁 {msg.Replace("[EditAgent] ", "")}";
+                return $" {msg.Replace("[EditAgent] ", "")}";
             if (msg.StartsWith("[EditAgent]"))
-                return $"📝 {msg.Replace("[EditAgent] ", "")}";
+                return $" {msg.Replace("[EditAgent] ", "")}";
 
             // ── Plan Agent 转发的 Explore 日志 ──
             if (msg.StartsWith("[Explore] [Discover]"))
                 return string.Empty; // Explore 内部发现日志不展示
             if (msg.StartsWith("[Explore]"))
-                return $"🔍 {msg.Replace("[Explore] ", "")}";
+                return $" {msg.Replace("[Explore] ", "")}";
 
             // ── Plan Agent 自身进度日志（[Plan] 前缀）──
             if (msg.StartsWith("[Plan]"))
-                return $"📋 {msg.Replace("[Plan] ", "")}";
+                return $" {msg.Replace("[Plan] ", "")}";
 
             // ── Plan Agent 关键日志（中英文通用匹配）──
-            // 匹配模式: "Phase X/Y:", "步骤 X/Y:", "step X/Y:", "📄 plan.md"
+            // 匹配模式: "Phase X/Y:", "步骤 X/Y:", "step X/Y:", " plan.md"
             if (msg.Contains(" plan.md") || msg.Contains(": 成功") || msg.Contains(": succeeded"))
                 return msg;
 
             // 其他日志：以 ERROR/WARN 级别展示简要信息
             if (entry.Level == "ERROR")
-                return $"❌ {msg}";
+                return $"Error: {msg}";
             if (entry.Level == "WARN")
-                return $"⚠️ {msg}";
+                return $" {msg}";
 
             // ── Plan/Explore Agent 的 INFO 日志：展示进度给用户 ──
             // 包含这些关键词的 INFO 日志对用户有意义，不应过滤
@@ -1775,7 +2018,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     string verifyResult = await ChatWebView.CoreWebView2.ExecuteScriptAsync(verifyJs);
                     if (verifyResult?.Contains("MISSING") == true)
                     {
-                        Logger.Warn("[Agent] ⚠️ 问题 UI 注入后验证失败: DOM 中未找到 #agent-questions 元素!");
+                        Logger.Warn("[Agent]  问题 UI 注入后验证失败: DOM 中未找到 #agent-questions 元素!");
                         // 检查可能的原因
                         string containerCheck = await ChatWebView.CoreWebView2.ExecuteScriptAsync(
                             "var c=document.getElementById('chat-container');" +
@@ -1785,7 +2028,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     }
                     else
                     {
-                        Logger.Info($"[Agent] ✅ 问题 UI 已成功注入 DOM (verify={verifyResult})");
+                        Logger.Info($"[Agent]  问题 UI 已成功注入 DOM (verify={verifyResult})");
                     }
                 }
                 catch (Exception ex)
@@ -1802,12 +2045,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private void OnAgentFileChangeNotified(AgentFileChangeEventArgs args)
         {
-            // ── 更新实时思考气泡 ──
+            // ── 更新实时思考气泡（标签随 i18n；此前硬编码中文在英文界面泄漏）──
             string icon = args.ChangeType.ToLowerInvariant() switch
             {
-                "create" => "📄 新建",
-                "delete" => "🗑️ 删除",
-                _ => "✏️ 修改",
+                "create" => LocalizationService.Instance["agent.fileChange.create"],
+                "delete" => LocalizationService.Instance["agent.fileChange.delete"],
+                _ => LocalizationService.Instance["agent.fileChange.modify"],
             };
             string fileName = System.IO.Path.GetFileName(args.FilePath);
             AppendAgentThinking($"{icon} `{fileName}` ({args.Detail})");

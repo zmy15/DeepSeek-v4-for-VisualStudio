@@ -174,30 +174,113 @@ public class AskAgentTests
     #region BuildContextualPrompt
 
     [Fact]
-    public void BuildContextualPrompt_WithSolutionPath_IncludesIt()
+    public void BuildContextAwareMessages_UsesSessionCurrentUser_AsStandardTurn()
+    {
+        var contextManager = new ConversationContextManager();
+        contextManager.AddUserMessage("你好");
+
+        var context = new AgentContext
+        {
+            ContextManager = contextManager,
+            CurrentUserContent = "你好",
+        };
+        var agent = new AskAgent(_apiService)
+        {
+            Context = context,
+        };
+
+        var method = typeof(BaseAgent).GetMethod(
+            "BuildContextAwareMessages",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            new[] { typeof(string), typeof(string), typeof(int), typeof(bool) },
+            modifiers: null);
+        method.Should().NotBeNull();
+
+        var messages = (List<ChatApiMessage>)method!.Invoke(
+            agent,
+            new object[] { "AskAgent system prompt", string.Empty, int.MaxValue, true })!;
+
+        messages.Count(m => m.Role == "user").Should().Be(1);
+        messages.Last(m => m.Role == "user").Content.Should().Be("你好");
+        messages.Last().Role.Should().Be("system");
+        messages.Last().Content.Should().Be("AskAgent system prompt");
+        messages.Count(m => m.Role == "system" && m.Content!.Contains("文件读取规则"))
+            .Should().Be(1);
+    }
+
+    [Fact]
+    public void BuildContextAwareMessages_HandoffPrefix_PlacesBoundaryToolsAndUserCorrectly()
+    {
+        var contextManager = new ConversationContextManager();
+        contextManager.SetIdeContext("[IDE Context] Active File: Test.cs");
+
+        var context = new AgentContext
+        {
+            ContextManager = contextManager,
+            ForwardedMessages = new List<ChatApiMessage>
+            {
+                new() { Role = "system", Content = "stable system" },
+                new() { Role = "assistant", Content = "explore" },
+                new() { Role = "tool", Content = "result" },
+            },
+        };
+        var agent = new AskAgent(_apiService)
+        {
+            Context = context,
+        };
+
+        var method = typeof(BaseAgent).GetMethod(
+            "BuildContextAwareMessages",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            new[] { typeof(string), typeof(string), typeof(int), typeof(bool) },
+            modifiers: null);
+        method.Should().NotBeNull();
+
+        var messages = (List<ChatApiMessage>)method!.Invoke(
+            agent,
+            new object[] { "Edit agent prompt", "handoff user", int.MaxValue, false })!;
+
+        context.HandoffPrefixLength.Should().Be(3);
+        context.ToolHistoryInsertIndex.Should().Be(6);
+        messages[3].Role.Should().Be("system");
+        messages[3].Content.Should().NotBeNullOrWhiteSpace();
+        messages[4].Role.Should().Be("system");
+        messages[4].Content.Should().Contain("[IDE Context]");
+        messages[5].Role.Should().Be("user");
+        messages[5].Content.Should().Be("handoff user");
+        messages[6].Role.Should().Be("system");
+        messages[6].Content.Should().Be("Edit agent prompt");
+    }
+
+    [Fact]
+    public void BuildContextualPrompt_WithFileContext_IncludesItWithoutQuestionWrapper()
     {
         var context = new AgentContext
         {
-            SolutionPath = @"C:\Projects\MyApp\MyApp.sln",
+            FileContext = "File content context",
         };
 
         var result = BuildContextualPromptPublic("帮我分析项目结构", context);
 
-        result.Should().Contain("MyApp.sln");
-        result.Should().Contain("当前解决方案");
+        result.Should().Contain("File content context");
+        result.Should().Contain("帮我分析项目结构");
+        result.Should().NotContain("[用户问题]");
     }
 
     [Fact]
-    public void BuildContextualPrompt_WithoutSolutionPath_ExcludesIt()
+    public void BuildContextualPrompt_WithoutFileContext_ExcludesSolutionMetadata()
     {
         var context = new AgentContext
         {
-            SolutionPath = null,
+            FileContext = null,
         };
 
         var result = BuildContextualPromptPublic("帮我分析项目结构", context);
 
         result.Should().NotContain("当前解决方案");
+        result.Should().NotContain("[用户问题]");
     }
 
     [Fact]

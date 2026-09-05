@@ -579,7 +579,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
 
         /// <summary>
         /// 分叉原因："edit"（编辑用户消息产生）或 "retry"（重试助手回复产生）。
-        /// 分支导航按钮（◀ 分支 X/Y ▶）始终渲染在用户气泡正下方。
+        /// 分支导航按钮（ 分支 X/Y ）始终渲染在用户气泡正下方。
         /// </summary>
         [DataMember]
         public string? ForkReason { get; set; }
@@ -662,6 +662,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [DataMember]
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 
+        /// <summary>
+        /// 最后一次用户提交消息的时间；仅切换/查看会话不会刷新该时间。
+        /// </summary>
         [DataMember]
         public DateTime LastActiveAt { get; set; } = DateTime.Now;
 

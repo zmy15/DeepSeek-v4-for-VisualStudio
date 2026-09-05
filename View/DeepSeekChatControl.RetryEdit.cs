@@ -67,7 +67,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 执行 Agent Handoff（从 Plan → Edit）。
-        /// 由 WebView 中的"▶ 开始实现"按钮触发。
+        /// 由 WebView 中的" 开始实现"按钮触发。
         /// </summary>
         /// <param name="targetAgent">目标 Agent 类型字符串（如 "Edit"）</param>
         /// <param name="label">按钮标签（用于日志）</param>
@@ -140,7 +140,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 var thinkingMsg = new ChatMessage
                 {
                     Role = "assistant",
-                    Content = $"🔨 {LocalizationService.Instance["agent.status.analyzing"]}",
+                    Content = $" {LocalizationService.Instance["agent.status.analyzing"]}",
                     ReasoningContent = string.Empty,
                     Timestamp = DateTime.Now,
                     IsStreaming = true,
@@ -405,7 +405,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             .Replace("\n", "<br>");
                         thinkingDetailsHtml =
                             "<details class='reasoning-panel' style='margin-top:12px' open='true'>" +
-                            "<summary>🔨 " + LocalizationService.Instance["agent.panel.executionProcess"] + "</summary>" +
+ "<summary> " + LocalizationService.Instance["agent.panel.executionProcess"] + "</summary>" +
                             "<div class='reasoning-content'>" + escapedThinking + "</div>" +
                             "</details>";
                     }
@@ -623,7 +623,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                     File.WriteAllText(change.FilePath, change.OriginalContent, Encoding.UTF8));
                             }
                             revertedCount++;
-                            Logger.Info($"[FileHistory] ✅ 已回退: {Path.GetFileName(change.FilePath)}");
+                            Logger.Info($"[FileHistory]  已回退: {Path.GetFileName(change.FilePath)}");
                         }
                         // ── 情况2：纯新建文件 → 删除文件 ──
                         else if (change.LinesAdded > 0 && change.LinesRemoved == 0)
@@ -632,7 +632,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             {
                                 await Task.Run(() => File.Delete(change.FilePath));
                                 revertedCount++;
-                                Logger.Info($"[FileHistory] ✅ 已删除新建文件: {Path.GetFileName(change.FilePath)}");
+                                Logger.Info($"[FileHistory]  已删除新建文件: {Path.GetFileName(change.FilePath)}");
                             }
                         }
                         // ── 情况3：文件被删除 → 从 OriginalContent 恢复（若已捕获）──
@@ -652,7 +652,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                                         File.WriteAllText(change.FilePath, change.OriginalContent, Encoding.UTF8));
 
                                 revertedCount++;
-                                Logger.Info($"[FileHistory] ✅ 已恢复删除的文件: {Path.GetFileName(change.FilePath)}");
+                                Logger.Info($"[FileHistory]  已恢复删除的文件: {Path.GetFileName(change.FilePath)}");
                             }
                             else
                             {
@@ -676,7 +676,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 lock (_lock) { _fileChangeHistory.Remove(userMsgIndex); }
 
                 StatusLabel.Text = revertedCount > 0
-                    ? $"✅ 已回退 {revertedCount} 个文件" + (failedCount > 0 ? $"，{failedCount} 个失败" : "")
+                    ? $"已回退 {revertedCount} 个文件" + (failedCount > 0 ? $"，{failedCount} 个失败" : "")
                     : "未回退任何文件";
                 Logger.Info($"[FileHistory] 回退完成: {revertedCount} 成功, {failedCount} 失败");
             }
@@ -775,6 +775,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // ── 同步消息列表并重建上下文 ──
                 RebuildFromTree();
                 RebuildContextFromTree();
+                TouchCurrentSessionLastActive();
 
                 // ── 恢复系统级上下文（Clear() 会清空 system prompt / memory / skill）──
                 await RestoreSystemContextAsync();
@@ -903,9 +904,6 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         originalUserMsg = _messages[userMsgIndex];
                 }
 
-                // ── 判断是否为 EditAgent：是则原地替换，否则树状分叉 ──
-                bool isEditAgent = originalUserMsg?.AgentType == AgentType.Edit;
-
                 var tree = EnsureTree();
                 var editedUserMsg = new ChatMessage
                 {
@@ -917,19 +915,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     AgentType = originalUserMsg?.AgentType, // 保留原 Agent 类型
                 };
 
-                if (isEditAgent)
-                {
-                    // ── EditAgent：原地修改，不产生分支，不显示 <> ──
-                    tree.ReplaceInPlace(userNode, editedUserMsg);
-                    Logger.Info($"[EditAgent] 编辑消息：原地替换 (nodeId={userNode.Id})，不产生分支");
-                }
-                else
-                {
-                    // ── 其他 Agent：树状分叉 ──
-                    editedUserMsg.ForkReason = "edit";
-                    tree.ForkAt(userNode, editedUserMsg, "edit");
-                    Logger.Info($"[Tree] 编辑消息：树状分叉 (nodeId={userNode.Id})");
-                }
+                // 编辑重发永远新增一个 user 轮次并建立分支，
+                // 保留原始提问，形成标准的多轮对话历史。
+                editedUserMsg.ForkReason = "edit";
+                tree.ForkAt(userNode, editedUserMsg, "edit");
+                Logger.Info($"[Tree] 编辑消息：新增用户分支 (nodeId={userNode.Id})");
 
                 // ── 同步消息列表并重建上下文 ──
                 RebuildFromTree();
