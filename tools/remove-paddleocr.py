@@ -83,9 +83,9 @@ def scrub_settings_surfaces():
     unified = Path("Settings/DeepSeekUnifiedSettings.cs")
     text = unified.read_text(**UTF8)
     text, count = re.subn(
-        r'new\[\]\s*\{\s*new EnumSettingEntry\("Windows Built-in", "Windows 内置"\),\s*'
-        r'new EnumSettingEntry\("PaddleOCR-Sharp", "PaddleOCR 本地"\),\s*\},',
-        'new[] { new EnumSettingEntry("Windows Built-in", "Windows 内置") },',
+        r'\s*new EnumSettingEntry\(\s*"PaddleOCR-Sharp",\s*'
+        r'(?:"[^"\r\n]*"|%[^%\r\n]*%)\s*\),',
+        "",
         text,
     )
     if count != 1:
