@@ -1456,8 +1456,6 @@
     "tool.listDir.subdirs": "### Subdirectories",
     "tool.listDir.files": "### Files",
     "tool.listDir.moreDirs": "... and {0} more subdirectories",
-    "tool.listDir.moreFiles": "... and {0} more files",
-    "tool.listDir.empty": "(Empty directory)",
     "tool.listDir.workspaceInfo": "Current workspace: {0}",
     "tool.memory.description": "Manage AI persistent memory system with three scopes.\n\nScope descriptions:\n- user: User memory — persistent notes across all workspaces and sessions, storing preferences, patterns, general insights\n- session: Session memory — scoped to the current conversation, storing task-specific context and in-progress notes; cleared after session ends\n- repo: Repository memory — scoped to the current solution, storing codebase conventions, build commands, project structure facts, etc.\n\nPath format: \u0027/memories/\u0027 for user scope, \u0027/memories/session/\u0027 for session scope, \u0027/memories/repo/\u0027 for repo scope.\nExample: \u0027/memories/build-notes.md\u0027 (user), \u0027/memories/repo/conventions.md\u0027 (repo)\n\nCommand descriptions:\n- view: View file contents or list a directory. Optionally provide view_range ([start_line, end_line], 1-indexed)\n- create: Create a new file (fails if it already exists). Requires file_text\n- str_replace: Exact string replacement. old_str must appear exactly once in the file\n- insert: Insert text at a specified line number (0 means beginning of file). Requires insert_line and insert_text\n- delete: Delete a file or recursively delete a directory\n- rename: Rename/move a file or directory. Requires old_path and new_path",
     "tool.memory.param.command": "The operation to perform",
