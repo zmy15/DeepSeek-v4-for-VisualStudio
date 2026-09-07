@@ -9,6 +9,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     internal enum ApiKeyKind
     {
         DeepSeek,
+        Custom,
         Baidu,
         Bing,
     }
@@ -143,6 +144,8 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         {
             ApiKeyKind.Baidu => _service.CreateCredentialKey(
                 FeatureName, "https://qianfan.baidubce.com", "ApiKey", "Bearer"),
+            ApiKeyKind.Custom => _service.CreateCredentialKey(
+                FeatureName, "https://custom-endpoint.deepseek", "ApiKey", "Bearer"),
             ApiKeyKind.Bing => _service.CreateCredentialKey(
                 FeatureName, "https://api.bing.microsoft.com", "ApiKey", "SubscriptionKey"),
             _ => _service.CreateCredentialKey(

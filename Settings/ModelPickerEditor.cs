@@ -28,7 +28,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
 
             using var dialog = new ModelPickerDialog(
                 page.ApiBaseUrl,
-                ApiKeyProtection.Unprotect(page.ApiKey));
+                ApiKeyProtection.Unprotect(page.CustomApiKey));
             if (dialog.ShowDialog() == DialogResult.OK &&
                 !string.IsNullOrWhiteSpace(dialog.SelectedModel))
             {

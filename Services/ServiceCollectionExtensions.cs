@@ -18,15 +18,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             services.AddSingleton<IDeepSeekApiService>(sp =>
             {
                 var options = Settings.DeepSeekOptionsPage.Instance;
-                var apiKey = options?.ApiKey ?? "";
-                var model = options?.SelectedModel ?? "deepseek-v4-pro";
-                var baseUrl = options?.ApiBaseUrl;
-                var customModel = options?.CustomModelName;
-                if (!string.IsNullOrWhiteSpace(customModel))
-                    model = customModel;
-                var service = new DeepSeekApiService(apiKey, model,
+                var config = DeepSeekEndpointResolver.Resolve(options);
+                var service = new DeepSeekApiService(config.ApiKey, config.Model,
                     requestTimeoutSeconds: options?.LlmTimeoutSeconds,
-                    baseUrl: baseUrl);
+                    baseUrl: config.BaseUrl);
 
                 // 配置思考模式
                 if (options != null)

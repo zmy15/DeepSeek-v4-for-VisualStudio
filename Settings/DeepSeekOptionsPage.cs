@@ -56,6 +56,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         }
 
         private string _loadedApiKey = string.Empty;
+        private string _loadedCustomApiKey = string.Empty;
         private string _loadedBaiduApiKey = string.Empty;
         private string _loadedBingApiKey = string.Empty;
         private bool _apiKeysDirty;
@@ -145,16 +146,18 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         public override void SaveSettingsToStorage()
         {
             string apiKey = ApiKey;
+            string customApiKey = CustomApiKey;
             string baiduApiKey = BaiduApiKey;
             string bingApiKey = BingApiKey;
             var credentialStore = VisualStudioApiKeyStore.Current;
             // DialogPage hosts can save before OnApply, so detect changes from the loaded
             // baseline here. OnApply is too late to influence credential writes.
-            _apiKeysDirty = HasApiKeyChanges(apiKey, baiduApiKey, bingApiKey);
+            _apiKeysDirty = HasApiKeyChanges(apiKey, customApiKey, baiduApiKey, bingApiKey);
             bool shouldWriteCredentialStore = _apiKeysDirty || _apiKeysMigrationPending;
             bool credentialStoreUpdated = shouldWriteCredentialStore
                 && credentialStore != null
                 && SaveCredential(credentialStore, ApiKeyKind.DeepSeek, apiKey)
+                && SaveCredential(credentialStore, ApiKeyKind.Custom, customApiKey)
                 && SaveCredential(credentialStore, ApiKeyKind.Baidu, baiduApiKey)
                 && SaveCredential(credentialStore, ApiKeyKind.Bing, bingApiKey);
 
@@ -164,6 +167,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             try
             {
                 ApiKey = ApiKeyProtection.Protect(apiKey);
+                CustomApiKey = ApiKeyProtection.Protect(customApiKey);
                 BaiduApiKey = ApiKeyProtection.Protect(baiduApiKey);
                 BingApiKey = ApiKeyProtection.Protect(bingApiKey);
                 base.SaveSettingsToStorage();
@@ -171,6 +175,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             finally
             {
                 ApiKey = apiKey;
+                CustomApiKey = customApiKey;
                 BaiduApiKey = baiduApiKey;
                 BingApiKey = bingApiKey;
             }
@@ -178,6 +183,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             if (_apiKeysDirty)
             {
                 _loadedApiKey = apiKey;
+                _loadedCustomApiKey = customApiKey;
                 _loadedBaiduApiKey = baiduApiKey;
                 _loadedBingApiKey = bingApiKey;
                 _apiKeysDirty = false;
@@ -192,6 +198,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         private void LoadApiKeysFromCredentialStore()
         {
             string legacyApiKey = ApiKeyProtection.Unprotect(ApiKey);
+            string legacyCustomApiKey = ApiKeyProtection.Unprotect(CustomApiKey);
             string legacyBaiduApiKey = ApiKeyProtection.Unprotect(BaiduApiKey);
             string legacyBingApiKey = ApiKeyProtection.Unprotect(BingApiKey);
 
@@ -199,13 +206,16 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             if (store == null)
             {
                 ApiKey = legacyApiKey;
+                CustomApiKey = legacyCustomApiKey;
                 BaiduApiKey = legacyBaiduApiKey;
                 BingApiKey = legacyBingApiKey;
                 _apiKeysMigrationPending =
                     !string.IsNullOrWhiteSpace(legacyApiKey) ||
+                    !string.IsNullOrWhiteSpace(legacyCustomApiKey) ||
                     !string.IsNullOrWhiteSpace(legacyBaiduApiKey) ||
                     !string.IsNullOrWhiteSpace(legacyBingApiKey);
                 _loadedApiKey = ApiKey;
+                _loadedCustomApiKey = CustomApiKey;
                 _loadedBaiduApiKey = BaiduApiKey;
                 _loadedBingApiKey = BingApiKey;
                 _apiKeysDirty = false;
@@ -213,15 +223,18 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             }
 
             ApiKey = GetCredentialOrMigrateLegacy(store, ApiKeyKind.DeepSeek, legacyApiKey);
+            CustomApiKey = GetCredentialOrMigrateLegacy(store, ApiKeyKind.Custom, legacyCustomApiKey);
             BaiduApiKey = GetCredentialOrMigrateLegacy(store, ApiKeyKind.Baidu, legacyBaiduApiKey);
             BingApiKey = GetCredentialOrMigrateLegacy(store, ApiKeyKind.Bing, legacyBingApiKey);
 
             _loadedApiKey = ApiKey;
+            _loadedCustomApiKey = CustomApiKey;
             _loadedBaiduApiKey = BaiduApiKey;
             _loadedBingApiKey = BingApiKey;
             _apiKeysDirty = false;
             _apiKeysMigrationPending =
                 (!string.IsNullOrWhiteSpace(legacyApiKey) && !store.TryGet(ApiKeyKind.DeepSeek, out _)) ||
+                (!string.IsNullOrWhiteSpace(legacyCustomApiKey) && !store.TryGet(ApiKeyKind.Custom, out _)) ||
                 (!string.IsNullOrWhiteSpace(legacyBaiduApiKey) && !store.TryGet(ApiKeyKind.Baidu, out _)) ||
                 (!string.IsNullOrWhiteSpace(legacyBingApiKey) && !store.TryGet(ApiKeyKind.Bing, out _));
         }
@@ -273,9 +286,10 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             return store.Set(kind, runtimeValue);
         }
 
-        private bool HasApiKeyChanges(string apiKey, string baiduApiKey, string bingApiKey)
+        private bool HasApiKeyChanges(string apiKey, string customApiKey, string baiduApiKey, string bingApiKey)
         {
             return !string.Equals(apiKey, _loadedApiKey, StringComparison.Ordinal) ||
+                !string.Equals(customApiKey, _loadedCustomApiKey, StringComparison.Ordinal) ||
                 !string.Equals(baiduApiKey, _loadedBaiduApiKey, StringComparison.Ordinal) ||
                 !string.Equals(bingApiKey, _loadedBingApiKey, StringComparison.Ordinal);
         }
@@ -288,20 +302,32 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         public string ApiKey { get; set; } = string.Empty;
 
         /// <summary>
-        /// 兼容所有 OpenAI chat/completions 协议的自定义端点。
-        /// 留空使用 DeepSeek 官方地址（https://api.deepseek.com）。
+        /// 自定义端点 API 密钥，与 DeepSeek 官方密钥分离存储。
+        /// 仅当 ApiBaseUrl 非空时作为运行时密钥使用。
         /// </summary>
-        [LocalizedCategory("settings.category.model")]
+        [LocalizedCategory("settings.category.custom")]
+        [LocalizedDisplayName("settings.customApiKey.displayName")]
+        [LocalizedDescription("settings.customApiKey.description")]
+        [PasswordPropertyText(true)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
+        public string CustomApiKey { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 自定义端点 (Base URL)，OpenAI chat/completions 协议兼容。
+        /// 非空时启用自定义端点模式，与本分类的密钥、模型名称配套使用。
+        /// 留空时使用 DeepSeek 官方服务与官方密钥。
+        /// </summary>
+        [LocalizedCategory("settings.category.custom")]
         [LocalizedDisplayName("settings.apiBaseUrl.displayName")]
         [LocalizedDescription("settings.apiBaseUrl.description")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
         public string ApiBaseUrl { get; set; } = string.Empty;
 
         /// <summary>
-        /// 自定义模型名称，非空时覆盖 SelectedModel 下拉框。
-        /// 用于接入任意 chat/completions 兼容端点的模型（如 Ollama 本地模型）。
+        /// 自定义端点的模型名称；可点击 … 按钮自动获取模型列表。
+        /// 留空时回退使用 DeepSeek 模型选择（部分中转接受 DeepSeek 模型名）。
         /// </summary>
-        [LocalizedCategory("settings.category.model")]
+        [LocalizedCategory("settings.category.custom")]
         [LocalizedDisplayName("settings.customModelName.displayName")]
         [LocalizedDescription("settings.customModelName.description")]
         [Editor(typeof(ModelPickerEditor), typeof(UITypeEditor))]

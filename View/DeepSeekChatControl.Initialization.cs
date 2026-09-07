@@ -34,10 +34,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         private void InitializeApiService()
         {
-            // DialogPage 保存流程可能留下 DPAPI 备份格式。这里是最后一道运行时防线：
-            // 禁止把 "dpapi1:..." 密文作为 Bearer Token 发给 DeepSeek API。
-            var runtimeApiKey = _options == null ? string.Empty : ApiKeyProtection.Unprotect(_options.ApiKey);
-            if (string.IsNullOrEmpty(runtimeApiKey))
+            // 官方 / 自定义端点配置分离：按 ApiBaseUrl 是否填写解析生效来源。
+            // Resolver 内部已做 Unprotect，禁止把 "dpapi1:..." 密文发给 API。
+            var config = DeepSeekEndpointResolver.Resolve(_options);
+            if (string.IsNullOrEmpty(config.ApiKey))
             {
                 // ── 无 Key：释放旧服务，避免残留旧 Key 继续发送请求 ──
                 _apiService?.Dispose();
@@ -46,8 +46,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
 
             _apiService?.Dispose();
-            _apiService = new DeepSeekApiService(runtimeApiKey, GetEffectiveModel(),
-                baseUrl: _options.ApiBaseUrl);
+            _apiService = new DeepSeekApiService(config.ApiKey, config.Model,
+                baseUrl: config.BaseUrl);
             _apiService.ConfigureThinking(_options.IsThinkingEnabled, _options.ReasoningEffort);
 
             // ── 注入前缀缓存管理器（修复：直接 new 的 ApiService 缺少 DI 注入的 PrefixCache）──
@@ -83,15 +83,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 获取当前生效的模型名称。
-        /// 自定义模型名称（CustomModelName）非空时优先，否则回退到下拉框选择的模型。
+        /// 自定义端点模式下优先自定义模型名（空则回退 DeepSeek 模型目录），
+        /// 官方模式使用下拉框选择。
         /// </summary>
-        internal string GetEffectiveModel()
-        {
-            var custom = _options?.CustomModelName;
-            if (!string.IsNullOrWhiteSpace(custom))
-                return custom;
-            return _options?.SelectedModel ?? "deepseek-v4-pro";
-        }
+        internal string GetEffectiveModel() => DeepSeekEndpointResolver.Resolve(_options).Model;
 
         /// <summary>
         /// 初始化 RAG 服务和上下文压缩服务。
@@ -249,18 +244,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 if (_apiService == null || _options == null) return;
 
-                var runtimeApiKey = ApiKeyProtection.Unprotect(_options.ApiKey);
-                if (!string.IsNullOrWhiteSpace(runtimeApiKey))
-                    _apiService.UpdateApiKey(runtimeApiKey);
-
-                var baseUrl = _options.ApiBaseUrl;
-                _apiService.UpdateBaseUrl(baseUrl);
+                var config = DeepSeekEndpointResolver.Resolve(_options);
+                _apiService.UpdateApiKey(config.ApiKey);
+                _apiService.UpdateBaseUrl(config.BaseUrl);
 
                 // Settings events are authoritative. Reading UI controls here caused
                 // Unified Settings changes to be overwritten with stale chat-window state.
-                var model = GetEffectiveModel();
-                if (!string.IsNullOrWhiteSpace(model))
-                    _apiService.UpdateModel(model);
+                if (!string.IsNullOrWhiteSpace(config.Model))
+                    _apiService.UpdateModel(config.Model);
 
                 var thinking = _options.IsThinkingEnabled;
                 var effort = _options.ReasoningEffort ?? "high";
@@ -280,6 +271,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 // ── 记录变更前的 API 配置，判断是否需要重建 API 服务 ──
                 string? oldApiKey = _options?.ApiKey;
+                string? oldCustomApiKey = _options?.CustomApiKey;
                 string? oldModel = _options?.SelectedModel;
                 string? oldBaseUrl = _options?.ApiBaseUrl;
                 string? oldCustomModel = _options?.CustomModelName;
@@ -298,6 +290,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 必须重启才能生效。
                 bool apiConfigChanged =
                     !string.Equals(oldApiKey, _options?.ApiKey, StringComparison.Ordinal) ||
+                    !string.Equals(oldCustomApiKey, _options?.CustomApiKey, StringComparison.Ordinal) ||
                     !string.Equals(oldModel, _options?.SelectedModel, StringComparison.Ordinal) ||
                     !string.Equals(oldBaseUrl, _options?.ApiBaseUrl, StringComparison.Ordinal) ||
                     !string.Equals(oldCustomModel, _options?.CustomModelName, StringComparison.Ordinal) ||
@@ -806,6 +799,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
                         string? oldApiKey = _options?.ApiKey;
+                        string? oldCustomApiKey = _options?.CustomApiKey;
                         string? oldModel = _options?.SelectedModel;
                         string? oldBaseUrl = _options?.ApiBaseUrl;
                         string? oldCustomModel = _options?.CustomModelName;
@@ -818,6 +812,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         bool apiConfigChanged =
                             _apiService == null ||
                             !string.Equals(oldApiKey, _options.ApiKey, StringComparison.Ordinal) ||
+                            !string.Equals(oldCustomApiKey, _options.CustomApiKey, StringComparison.Ordinal) ||
                             !string.Equals(oldModel, _options.SelectedModel, StringComparison.Ordinal) ||
                             !string.Equals(oldBaseUrl, _options.ApiBaseUrl, StringComparison.Ordinal) ||
                             !string.Equals(oldCustomModel, _options.CustomModelName, StringComparison.Ordinal) ||
