@@ -25,6 +25,8 @@
 
 **核心架构**基于 .NET Framework 4.7.2 + WPF + WebView2，使用 Visual Studio SDK 17.14 构建，兼容 Visual Studio 2022 17.14 及以上版本。
 
+> ❓ 使用方法、配置和集成问题请到 [Discussions](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/discussions) 讨论区；Bug 和功能建议请使用 [Issues](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/issues)。
+
 ---
 
 ## ✨ 核心特性
@@ -310,7 +312,7 @@ AI 通过 `memory` 工具管理三层持久化记忆：
 | **会话导出** | 对话导出为 Markdown / PDF / HTML | 🟢 低 |
 | **多语言扩展** | 日语、韩语等更多 UI 语言支持 | 🟢 低 |
 
-> 💡 欢迎通过 [Issues](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/issues) 提出建议或贡献代码！
+> 💡 Bug 和功能建议欢迎通过 [Issues](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/issues) 提交；使用方法和一般讨论请到 [Discussions](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/discussions)。
 
 ---
 

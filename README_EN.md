@@ -25,6 +25,8 @@
 
 **Core architecture** is built on .NET Framework 4.7.2 + WPF + WebView2, using Visual Studio SDK 17.14, compatible with Visual Studio 2022 17.14 and above.
 
+> ❓ For usage, configuration, and integration questions, please visit [Discussions](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/discussions). Use [Issues](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/issues) for bugs and feature requests.
+
 ---
 
 ## ✨ Core Features
@@ -310,7 +312,7 @@ Three approval modes: **BlockAll** / **AllowAll** / **SmartBlock** (recommended)
 | **Session Export** | Export conversations as Markdown / PDF / HTML | 🟢 Low |
 | **Multi-Language UI** | Japanese, Korean and more UI language support | 🟢 Low |
 
-> 💡 Suggestions and code contributions welcome via [Issues](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/issues)!
+> 💡 Bug reports and feature requests are welcome via [Issues](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/issues). For usage questions and general discussion, please visit [Discussions](https://github.com/zmy15/DeepSeek-v4-for-VisualStudio/discussions).
 
 ---
 
