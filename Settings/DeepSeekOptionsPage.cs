@@ -280,7 +280,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
                 !string.Equals(bingApiKey, _loadedBingApiKey, StringComparison.Ordinal);
         }
 
-        [LocalizedCategory("settings.category.api")]
+        [LocalizedCategory("settings.category.model")]
         [LocalizedDisplayName("settings.apiKey.displayName")]
         [LocalizedDescription("settings.apiKey.description")]
         [PasswordPropertyText(true)]
@@ -291,7 +291,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         /// 兼容所有 OpenAI chat/completions 协议的自定义端点。
         /// 留空使用 DeepSeek 官方地址（https://api.deepseek.com）。
         /// </summary>
-        [LocalizedCategory("settings.category.api")]
+        [LocalizedCategory("settings.category.model")]
         [LocalizedDisplayName("settings.apiBaseUrl.displayName")]
         [LocalizedDescription("settings.apiBaseUrl.description")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
@@ -304,6 +304,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [LocalizedCategory("settings.category.model")]
         [LocalizedDisplayName("settings.customModelName.displayName")]
         [LocalizedDescription("settings.customModelName.description")]
+        [Editor(typeof(ModelPickerEditor), typeof(UITypeEditor))]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
         public string CustomModelName { get; set; } = string.Empty;
 
