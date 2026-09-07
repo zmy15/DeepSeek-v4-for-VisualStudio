@@ -1,0 +1,51 @@
+name: 功能建议 / Feature Request
+description: 建议新功能、改进现有体验或集成新的能力。
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢建议！请说明使用场景和期望结果，这有助于评估优先级。
+        Thanks for the suggestion. Please describe the use case and expected result.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 使用场景 / Problem or Use Case
+      description: 当前遇到什么限制？这个功能会解决什么问题？
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案 / Proposed Solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案 / Alternatives
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准 / Acceptance Criteria
+      description: 可以的话，请描述实现后应该如何验证。
+
+  - type: dropdown
+    id: willingness
+    attributes:
+      label: 参与意愿 / Contribution Interest
+      options:
+        - 我可以尝试提交 PR / I may submit a PR
+        - 我可以测试 / I can help test
+        - 只提建议 / Suggestion only
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 补充信息 / Additional Context

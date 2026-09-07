@@ -1,0 +1,98 @@
+name: Bug 报告 / Bug Report
+description: 报告扩展运行错误、界面异常或功能失效。
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填写完整信息，便于快速定位问题。
+        Thanks for reporting the issue. Please provide as much detail as possible.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述 / Description
+      description: 简要说明遇到了什么问题，以及它对使用的影响。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤 / Reproduction Steps
+      placeholder: |
+        1. 打开...
+        2. 点击...
+        3. 出现...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为 / Expected Behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为 / Actual Behavior
+    validations:
+      required: true
+
+  - type: input
+    id: visual-studio-version
+    attributes:
+      label: Visual Studio 版本 / Visual Studio Version
+      placeholder: 例如 Visual Studio 2022 17.14
+    validations:
+      required: true
+
+  - type: input
+    id: extension-version
+    attributes:
+      label: 扩展版本 / Extension Version
+      placeholder: 可在“扩展 > 管理扩展”中查看
+    validations:
+      required: true
+
+  - type: dropdown
+    id: package-type
+    attributes:
+      label: 安装包类型 / Package Type
+      options:
+        - 标准版 / Standard
+        - No-Local-OCR 版 / No-Local-OCR
+        - 不确定 / Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: 模型接入方式 / Model Provider
+      options:
+        - DeepSeek 官方 API / Official DeepSeek API
+        - 兼容 API / Compatible API
+        - 不涉及 / Not applicable
+        - 不确定 / Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或错误信息 / Logs or Error Message
+      description: 请移除 API Key、解决方案路径、公司代码等敏感信息。
+      render: text
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图或录屏 / Screenshots or Recordings
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 补充信息 / Additional Context
