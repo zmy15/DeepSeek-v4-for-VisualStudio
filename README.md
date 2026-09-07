@@ -13,7 +13,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%2F%20ARM64-lightgrey)]()
 [![Version](https://img.shields.io/badge/version-1.2.2-blue)]()
 
-[中文](README.md)
+[简体中文](README.zh-CN.md)
 
 </div>
 
