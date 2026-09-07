@@ -70,6 +70,22 @@ namespace DeepSeek_v4_for_VisualStudio
             };
 
         [VisualStudioContribution]
+        internal static Setting.String ApiBaseUrl { get; } =
+            new("deepseekApiBaseUrl", "%DeepSeek.Chat.settings.apiBaseUrl.displayName%", GeneralCategory, defaultValue: string.Empty)
+            {
+                Description = "%DeepSeek.Chat.settings.apiBaseUrl.description%",
+                SearchKeywords = new[] { "URL", "endpoint", "baseUrl", "端点", "地址" },
+            };
+
+        [VisualStudioContribution]
+        internal static Setting.String CustomModelName { get; } =
+            new("deepseekCustomModelName", "%DeepSeek.Chat.settings.customModelName.displayName%", GeneralCategory, defaultValue: string.Empty)
+            {
+                Description = "%DeepSeek.Chat.settings.customModelName.description%",
+                SearchKeywords = new[] { "model", "custom", "模型", "自定义" },
+            };
+
+        [VisualStudioContribution]
         internal static Setting.Boolean ThinkingEnabled { get; } =
             new("deepseekThinking", "%DeepSeek.Chat.settings.enableThinking.displayName%", GeneralCategory, defaultValue: true)
             {

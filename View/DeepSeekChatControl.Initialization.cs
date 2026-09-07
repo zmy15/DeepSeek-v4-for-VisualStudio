@@ -46,7 +46,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
 
             _apiService?.Dispose();
-            _apiService = new DeepSeekApiService(runtimeApiKey, _options.SelectedModel);
+            _apiService = new DeepSeekApiService(runtimeApiKey, GetEffectiveModel(),
+                baseUrl: _options.ApiBaseUrl);
             _apiService.ConfigureThinking(_options.IsThinkingEnabled, _options.ReasoningEffort);
 
             // ── 注入前缀缓存管理器（修复：直接 new 的 ApiService 缺少 DI 注入的 PrefixCache）──
@@ -78,6 +79,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
             StartBalanceTimer();
 
             Logger.Info("API 服务初始化成功");
+        }
+
+        /// <summary>
+        /// 获取当前生效的模型名称。
+        /// 自定义模型名称（CustomModelName）非空时优先，否则回退到下拉框选择的模型。
+        /// </summary>
+        internal string GetEffectiveModel()
+        {
+            var custom = _options?.CustomModelName;
+            if (!string.IsNullOrWhiteSpace(custom))
+                return custom;
+            return _options?.SelectedModel ?? "deepseek-v4-pro";
         }
 
         /// <summary>
@@ -240,9 +253,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (!string.IsNullOrWhiteSpace(runtimeApiKey))
                     _apiService.UpdateApiKey(runtimeApiKey);
 
+                var baseUrl = _options.ApiBaseUrl;
+                _apiService.UpdateBaseUrl(baseUrl);
+
                 // Settings events are authoritative. Reading UI controls here caused
                 // Unified Settings changes to be overwritten with stale chat-window state.
-                var model = _options.SelectedModel;
+                var model = GetEffectiveModel();
                 if (!string.IsNullOrWhiteSpace(model))
                     _apiService.UpdateModel(model);
 
@@ -265,6 +281,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // ── 记录变更前的 API 配置，判断是否需要重建 API 服务 ──
                 string? oldApiKey = _options?.ApiKey;
                 string? oldModel = _options?.SelectedModel;
+                string? oldBaseUrl = _options?.ApiBaseUrl;
+                string? oldCustomModel = _options?.CustomModelName;
                 bool oldThinking = _options?.IsThinkingEnabled ?? true;
                 string? oldEffort = _options?.ReasoningEffort;
 
@@ -281,6 +299,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 bool apiConfigChanged =
                     !string.Equals(oldApiKey, _options?.ApiKey, StringComparison.Ordinal) ||
                     !string.Equals(oldModel, _options?.SelectedModel, StringComparison.Ordinal) ||
+                    !string.Equals(oldBaseUrl, _options?.ApiBaseUrl, StringComparison.Ordinal) ||
+                    !string.Equals(oldCustomModel, _options?.CustomModelName, StringComparison.Ordinal) ||
                     oldThinking != (_options?.IsThinkingEnabled ?? true) ||
                     !string.Equals(oldEffort, _options?.ReasoningEffort, StringComparison.Ordinal);
 
@@ -787,6 +807,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                         string? oldApiKey = _options?.ApiKey;
                         string? oldModel = _options?.SelectedModel;
+                        string? oldBaseUrl = _options?.ApiBaseUrl;
+                        string? oldCustomModel = _options?.CustomModelName;
                         bool oldThinking = _options?.IsThinkingEnabled ?? true;
                         string? oldEffort = _options?.ReasoningEffort;
 
@@ -797,6 +819,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             _apiService == null ||
                             !string.Equals(oldApiKey, _options.ApiKey, StringComparison.Ordinal) ||
                             !string.Equals(oldModel, _options.SelectedModel, StringComparison.Ordinal) ||
+                            !string.Equals(oldBaseUrl, _options.ApiBaseUrl, StringComparison.Ordinal) ||
+                            !string.Equals(oldCustomModel, _options.CustomModelName, StringComparison.Ordinal) ||
                             oldThinking != _options.IsThinkingEnabled ||
                             !string.Equals(oldEffort, _options.ReasoningEffort, StringComparison.Ordinal);
 

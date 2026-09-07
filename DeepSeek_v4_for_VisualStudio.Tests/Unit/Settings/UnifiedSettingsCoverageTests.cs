@@ -17,6 +17,8 @@ public class UnifiedSettingsCoverageTests
         (nameof(DeepSeekOptionsPage.SystemPrompt), "deepseekSystemPrompt"),
         (nameof(DeepSeekOptionsPage.SystemPromptEn), "deepseekSystemPromptEn"),
         (nameof(DeepSeekOptionsPage.SelectedModel), "deepseekModel"),
+        (nameof(DeepSeekOptionsPage.ApiBaseUrl), "deepseekApiBaseUrl"),
+        (nameof(DeepSeekOptionsPage.CustomModelName), "deepseekCustomModelName"),
         (nameof(DeepSeekOptionsPage.IsThinkingEnabled), "deepseekThinking"),
         (nameof(DeepSeekOptionsPage.ReasoningEffort), "deepseekReasoningEffort"),
         (nameof(DeepSeekOptionsPage.EnableWebSearch), "deepseekWebSearch"),
@@ -54,15 +56,15 @@ public class UnifiedSettingsCoverageTests
         var declaredIds = GetDeclaredSettingIds();
         var boundMonikers = GetBoundMonikers();
 
-        declaredIds.Should().HaveCount(33);
+        declaredIds.Should().HaveCount(35);
         declaredIds.Should().Contain(ApiKeyGuideId);
 
         var synchronizedIds = declaredIds
             .Where(id => id != ApiKeyGuideId)
             .ToList();
 
-        synchronizedIds.Should().HaveCount(32);
-        boundMonikers.Should().HaveCount(32);
+        synchronizedIds.Should().HaveCount(34);
+        boundMonikers.Should().HaveCount(34);
         declaredIds.GroupBy(id => id, StringComparer.Ordinal).Should().OnlyContain(group => group.Count() == 1);
         boundMonikers.GroupBy(id => id, StringComparer.Ordinal).Should().OnlyContain(group => group.Count() == 1);
 
@@ -76,7 +78,7 @@ public class UnifiedSettingsCoverageTests
     [Fact]
     public void UnifiedSettings_CoverLegacyNonSensitiveOptions()
     {
-        ExpectedCoverage.Should().HaveCount(32);
+        ExpectedCoverage.Should().HaveCount(34);
 
         var optionProperties = typeof(DeepSeekOptionsPage)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)

@@ -58,6 +58,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>运行时更新 API Key（选项页保存后即时生效，无需重启）</summary>
         void UpdateApiKey(string apiKey);
 
+        /// <summary>运行时更新 API 端点 Base URL（选项页保存后即时生效，无需重启）</summary>
+        void UpdateBaseUrl(string? baseUrl);
+
+        /// <summary>是否为 DeepSeek 官方端点（决定余额/FIM/thinking 等 DeepSeek 特有功能的可用性）</summary>
+        bool IsDeepSeekEndpoint { get; }
+
+        /// <summary>当前使用的 API 端点 Base URL</summary>
+        string BaseUrl { get; }
+
         /// <summary>流式聊天调用</summary>
         /// <param name="toolChoice">工具调用策略: "auto"(默认), "none"(禁用), "required"(强制). null 表示仅在有 tools 时启用 auto</param>
         /// <param name="temperature">采样温度 (0.0 ~ 2.0)。null 表示不设置（使用 API 默认值）</param>

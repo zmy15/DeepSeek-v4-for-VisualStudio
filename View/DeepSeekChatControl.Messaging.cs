@@ -164,7 +164,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             List<string> attachedFileNames = new();
             List<FileParseResult> parseResults = new();
             List<ChatContentPart>? visionContent = null;
-            bool visionModelSelected = DeepSeekModelCatalog.IsVisionModel(_options?.SelectedModel);
+            bool visionModelSelected = DeepSeekModelCatalog.IsVisionModel(GetEffectiveModel());
             bool ocrExplicitlyRequested = IsOcrExplicitlyRequested(userText, effectiveUserText);
 
             if (_attachedFilePaths.Count > 0)

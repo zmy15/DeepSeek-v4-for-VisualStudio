@@ -287,6 +287,26 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
         public string ApiKey { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 兼容所有 OpenAI chat/completions 协议的自定义端点。
+        /// 留空使用 DeepSeek 官方地址（https://api.deepseek.com）。
+        /// </summary>
+        [LocalizedCategory("settings.category.api")]
+        [LocalizedDisplayName("settings.apiBaseUrl.displayName")]
+        [LocalizedDescription("settings.apiBaseUrl.description")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
+        public string ApiBaseUrl { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 自定义模型名称，非空时覆盖 SelectedModel 下拉框。
+        /// 用于接入任意 chat/completions 兼容端点的模型（如 Ollama 本地模型）。
+        /// </summary>
+        [LocalizedCategory("settings.category.model")]
+        [LocalizedDisplayName("settings.customModelName.displayName")]
+        [LocalizedDescription("settings.customModelName.description")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
+        public string CustomModelName { get; set; } = string.Empty;
+
         [LocalizedCategory("settings.category.api")]
         [LocalizedDisplayName("settings.systemPrompt.displayName")]
         [LocalizedDescription("settings.systemPrompt.description")]

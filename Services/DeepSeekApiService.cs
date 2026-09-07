@@ -18,10 +18,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     public class DeepSeekApiService : IDeepSeekApiService
     {
         private readonly HttpClient _httpClient;
-        private const string BaseUrl = "https://api.deepseek.com";
+        /// <summary>默认 DeepSeek 官方 API 地址（留空时的回退值）。</summary>
+        public const string DefaultBaseUrl = "https://api.deepseek.com";
         private const string ChatEndpoint = "/chat/completions";
         private const string FimBaseUrl = "https://api.deepseek.com/beta";
         private const string FimEndpoint = "/completions";
+
+        /// <summary>当前使用的 API 端点 Base URL（实例级别，支持运行时热切换）。</summary>
+        private volatile string _baseUrl = DefaultBaseUrl;
 
         /// <summary>
         /// 全局唯一的客户端实例 ID（每个进程生命周期内不变）。
@@ -280,9 +284,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Interlocked.Add(ref _totalFimCompletionTokens, usage.CompletionTokens);
         }
 
-        public DeepSeekApiService(string apiKey, string model = "deepseek-v4-pro", int? requestTimeoutSeconds = null)
+        public DeepSeekApiService(string apiKey, string model = "deepseek-v4-pro", int? requestTimeoutSeconds = null, string? baseUrl = null)
         {
             _model = model;
+            _baseUrl = NormalizeBaseUrl(baseUrl);
 
             // ── 确保全局 ServicePoint 配置仅初始化一次 ──
             ConfigureServicePointManagerOnce();
@@ -303,19 +308,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             _httpClient = new HttpClient(handler)
             {
-                BaseAddress = new Uri(BaseUrl),
+                BaseAddress = new Uri(_baseUrl),
                 Timeout = TimeSpan.FromSeconds(timeoutSeconds)
             };
 
             _httpClient.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", apiKey);
-            _httpClient.DefaultRequestHeaders.Accept.Add(
-                new MediaTypeWithQualityHeaderValue("text/event-stream"));
 
             // ── 客户端实例 ID：帮助 DeepSeek API 服务端实现缓存亲和性 ──
             //    同一客户端实例的所有请求携带相同 ID，服务端可据此将请求路由到同一后端节点，
             //    提高 Agent 间的前缀缓存共享概率。
-            _httpClient.DefaultRequestHeaders.Add("X-Client-Instance-Id", ClientInstanceId);
+            //    仅对 DeepSeek 官方端点发送（严格第三方网关可能拒绝未知自定义头）。
+            if (string.Equals(_baseUrl, DefaultBaseUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                _httpClient.DefaultRequestHeaders.Add("X-Client-Instance-Id", ClientInstanceId);
+            }
 
             Logger.Info($"[HTTP] HttpClient 创建完成 (ClientId={ClientInstanceId}, " +
                 $"DefaultConnectionLimit={ServicePointManager.DefaultConnectionLimit}, " +
@@ -325,13 +332,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 测试用构造函数 — 接受外部 HttpClient（用于 Mock HTTP 处理程序）。
         /// </summary>
-        public DeepSeekApiService(HttpClient httpClient, string model = "deepseek-v4-pro")
+        public DeepSeekApiService(HttpClient httpClient, string model = "deepseek-v4-pro", string? baseUrl = null)
         {
             _model = model;
+            _baseUrl = NormalizeBaseUrl(baseUrl);
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             if (_httpClient.BaseAddress == null)
-                _httpClient.BaseAddress = new Uri(BaseUrl);
+                _httpClient.BaseAddress = new Uri(_baseUrl);
         }
+
+        /// <summary>
+        /// 规范化 Base URL：去尾部斜杠；空/空白回退默认官方地址。
+        /// </summary>
+        private static string NormalizeBaseUrl(string? baseUrl)
+            => string.IsNullOrWhiteSpace(baseUrl) ? DefaultBaseUrl : baseUrl.TrimEnd('/');
+
+        /// <summary>当前使用的 API 端点 Base URL。</summary>
+        public string BaseUrl => _baseUrl;
+
+        /// <summary>是否为 DeepSeek 官方端点（决定余额/FIM/thinking 等 DeepSeek 特有功能的可用性）。</summary>
+        public bool IsDeepSeekEndpoint
+            => string.Equals(_baseUrl, DefaultBaseUrl, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// 全局 ServicePointManager 一次性配置 — 优化 TCP 连接复用。
@@ -370,11 +391,105 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         public void UpdateModel(string model) => _model = model;
 
+        /// <summary>
+        /// 获取当前生效的 reasoning 能力配置。
+        /// Base URL 与模型变更时自动重新推断。
+        /// </summary>
+        private ReasoningCapabilityConfig ResolveReasoningCapability(string? requestModel = null)
+            => ReasoningCapabilityConfig.Infer(_baseUrl, requestModel ?? _model);
+
+        /// <summary>
+        /// 按端点能力配置将 thinking 开关和 effort 档位改写到请求体。
+        /// 参考 CC Switch apply_reasoning_options：
+        /// 先清空所有 reasoning 相关字段，再按平台参数形态注入。
+        /// </summary>
+        private static void ApplyReasoningOptions(
+            DeepSeekChatRequest request,
+            ReasoningCapabilityConfig capability,
+            bool thinkingEnabled,
+            string? effort)
+        {
+            request.Thinking = null;
+            request.ReasoningEffort = null;
+            request.EnableThinking = null;
+            request.ReasoningSplit = null;
+            request.Reasoning = null;
+
+            if (capability.SupportsThinking && capability.ThinkingParam != "none")
+            {
+                switch (capability.ThinkingParam)
+                {
+                    case "thinking":
+                        request.Thinking = new ThinkingControl { Type = thinkingEnabled ? "enabled" : "disabled" };
+                        break;
+                    case "enable_thinking":
+                        request.EnableThinking = thinkingEnabled;
+                        break;
+                    case "reasoning_split":
+                        request.ReasoningSplit = thinkingEnabled;
+                        break;
+                }
+            }
+
+            var mappedEffort = capability.MapEffort(thinkingEnabled ? effort : null);
+            if (mappedEffort != null)
+            {
+                switch (capability.EffortParam)
+                {
+                    case "reasoning_effort":
+                        request.ReasoningEffort = mappedEffort;
+                        break;
+                    case "reasoning.effort":
+                        request.Reasoning = new ReasoningObject { Effort = mappedEffort };
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 按端点能力配置改写请求体的通用字段（参考 CC Switch transform_codex_chat）：
+        /// 1. max_tokens → max_completion_tokens（OpenAI o-series / GPT-5+ 强制）
+        /// 2. 丢弃 o-series / GPT-5 拒绝的采样参数（temperature）
+        /// 3. 无 tools 时删除 tool_choice（vLLM/严格网关会 400）
+        /// 4. 流式请求注入 stream_options.include_usage（OpenAI 兼容端点默认不返回 usage）
+        /// </summary>
+        private static void ApplyEndpointShaping(
+            DeepSeekChatRequest request,
+            ReasoningCapabilityConfig capability,
+            bool isStreaming)
+        {
+            if (capability.UseMaxCompletionTokens && request.MaxTokens.HasValue)
+            {
+                request.MaxCompletionTokens = request.MaxTokens;
+                request.MaxTokens = null;
+            }
+
+            if (capability.RejectsSamplingParams)
+                request.Temperature = null;
+
+            if (request.Tools == null || request.Tools.Count == 0)
+            {
+                request.ToolChoice = null;
+                request.ParallelToolCalls = null;
+            }
+
+            if (isStreaming && capability.NeedsStreamOptionsForUsage)
+                request.StreamOptions = new StreamOptions { IncludeUsage = true };
+        }
+
         /// <summary>运行时更新 API Key（P1：选项页保存后即时生效，无需重启）。</summary>
         public void UpdateApiKey(string apiKey)
         {
             _httpClient.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey ?? string.Empty);
+        }
+
+        /// <summary>运行时更新 API 端点 Base URL（选项页保存后即时生效，无需重启）。</summary>
+        public void UpdateBaseUrl(string? baseUrl)
+        {
+            _baseUrl = NormalizeBaseUrl(baseUrl);
+            _httpClient.BaseAddress = new Uri(_baseUrl);
+            Logger.Info($"[API] Base URL 已更新: {_baseUrl}");
         }
 
         /// <summary>当前使用的模型标识（用于视觉模型等能力分支判断）。</summary>
@@ -398,7 +513,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             try
             {
-                var sp = ServicePointManager.FindServicePoint(new Uri(BaseUrl));
+                var sp = ServicePointManager.FindServicePoint(new Uri(_baseUrl));
                 // IdleSince 返回 DateTime（空闲开始的绝对时间），计算空闲时长
                 double idleMs = (DateTime.Now - sp.IdleSince).TotalMilliseconds;
                 Logger.Info($"[HTTP] 连接复用诊断: " +
@@ -441,8 +556,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Model = model ?? _model,
                 Messages = new List<ChatApiMessage>(messages),
                 Stream = true,
-                Thinking = new ThinkingControl { Type = effectiveThinking ? "enabled" : "disabled" },
-                ReasoningEffort = effectiveThinking ? _reasoningEffort : null,
                 Tools = normalizedTools,
                 ToolChoice = effectiveToolChoice,
                 MaxTokens = maxTokens,
@@ -451,6 +564,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     ? new ResponseFormat { Type = "json_object" }
                     : null
             };
+            var capability = ResolveReasoningCapability(request.Model);
+            ApplyReasoningOptions(request, capability, effectiveThinking, _reasoningEffort);
+            ApplyEndpointShaping(request, capability, isStreaming: true);
+            Logger.Info($"[Reasoning] 端点={_baseUrl}, 模型={request.Model}, " +
+                $"thinking={capability.ThinkingParam}, effort={capability.EffortParam}({capability.EffortValueMode})");
 
             // ── 消息清理：防止无效消息导致 HTTP 400 ──
             // DeepSeek API 对消息格式有严格要求：
@@ -1192,12 +1310,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // P1-3 修复：非流式路径同样深克隆，避免对调用方消息对象就地修改（ReasoningContent 注入）
                 Messages = messages.Select(m => CloneMessage(m)).ToList(),
                 Stream = false,
-                Thinking = new ThinkingControl { Type = "disabled" },
-                ReasoningEffort = null,
                 ResponseFormat = responseFormat == "json_object"
                     ? new ResponseFormat { Type = "json_object" }
                     : null
             };
+            ApplyReasoningOptions(request, ResolveReasoningCapability(request.Model), thinkingEnabled: false, effort: null);
+            ApplyEndpointShaping(request, ResolveReasoningCapability(request.Model), isStreaming: false);
 
             // Defensive check for non-streaming path as well
             foreach (var msg in request.Messages)
@@ -1250,6 +1368,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             int? maxTokens = null,
             CancellationToken cancellationToken = default)
         {
+            // FIM /beta/completions 是 DeepSeek 专有端点，非官方端点不可用
+            if (!IsDeepSeekEndpoint)
+                return string.Empty;
+
             var request = new DeepSeekFimRequest
             {
                 Model = ResolveFimModel(),
@@ -1313,8 +1435,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     },
                     Stream = false,
                     MaxTokens = 1,
-                    Thinking = new ThinkingControl { Type = "disabled" },
                 };
+                ApplyReasoningOptions(request, ResolveReasoningCapability(request.Model), thinkingEnabled: false, effort: null);
+                ApplyEndpointShaping(request, ResolveReasoningCapability(request.Model), isStreaming: false);
 
                 using var httpRequest = new HttpRequestMessage(HttpMethod.Post, ChatEndpoint)
                 {
@@ -1409,6 +1532,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             try
             {
+                // /user/balance 是 DeepSeek 专有端点，非官方端点不可用
+                if (!IsDeepSeekEndpoint)
+                    return null;
+
                 using var httpRequest = new HttpRequestMessage(HttpMethod.Get, "/user/balance");
                 httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 

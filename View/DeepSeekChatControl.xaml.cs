@@ -774,7 +774,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             else
             {
                 // ── 模型档位（用于标签显示与兜底估算）──
-                string modelName = _options?.SelectedModel ?? "deepseek-v4-pro";
+                string modelName = GetEffectiveModel();
                 bool isFlash = modelName.Contains("flash", StringComparison.OrdinalIgnoreCase);
 
                 // ── 币种判定：余额 API 缓存优先，其次 ApiService 捕获值，默认 CNY（国内价）──
@@ -1176,16 +1176,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private void RefreshModelFromSettings()
         {
             if (ModelComboBox == null || _options == null) return;
+            // 自定义模型优先：下拉框仅用于选择 DeepSeek 官方模型
             string savedModel = _options.SelectedModel ?? "deepseek-v4-pro";
-            // 如果保存的值不在下拉列表中，回退到默认值
             if (ModelComboBox.Items.Contains(savedModel))
                 ModelComboBox.SelectedItem = savedModel;
             else
                 ModelComboBox.SelectedIndex = 0;
 
-            // 同步更新 API 服务的模型
+            // 同步更新 API 服务的模型（含自定义模型覆盖）
             if (_apiService != null)
-                _apiService.UpdateModel((string?)ModelComboBox.SelectedItem ?? "deepseek-v4-pro");
+                _apiService.UpdateModel(GetEffectiveModel());
         }
 
         /// <summary>

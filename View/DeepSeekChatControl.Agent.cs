@@ -731,7 +731,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     if (telemetry != null)
                     {
                         context.Metrics = telemetry;
-                        telemetry.BeginSession(_options?.SelectedModel,
+                        telemetry.BeginSession(GetEffectiveModel(),
                             _activeAgent.Definition.Type.ToString(), userText,
                             BuildContextDebugJson());
                     }
