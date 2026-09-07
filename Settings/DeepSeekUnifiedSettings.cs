@@ -15,9 +15,9 @@ namespace DeepSeek_v4_for_VisualStudio
     {
         [VisualStudioContribution]
         internal static SettingCategory GeneralCategory { get; } =
-            new("deepseekGeneral", "%DeepSeek.Chat.Settings.CategoryTitle%")
+            new("deepseekGeneral", "DeepSeek Chat")
             {
-                Description = "%DeepSeek.Chat.Settings.CategoryDescription%",
+                Description = "DeepSeek Chat model, thinking mode, web search and agent behavior settings.",
                 GenerateObserverClass = true,
             };
 
@@ -25,38 +25,38 @@ namespace DeepSeek_v4_for_VisualStudio
         internal static Setting.String ApiKeyConfigurationGuide { get; } =
             new(
                 "deepseekApiKeyGuide",
-                "%DeepSeek.Chat.Settings.ApiKeyGuideTitle%",
+                "API Key Configuration",
                 GeneralCategory,
                 defaultValue: "工具 → 选项 → DeepSeek Chat → General")
             {
-                Description = "%DeepSeek.Chat.Settings.ApiKeyGuideDescription%",
+                Description = "Configure your API key in Tools > Options > DeepSeek Chat > General.",
                 SearchKeywords = new[] { "API", "密钥", "ApiKey", "Key", "Options" },
                 Messages = new[]
                 {
-                    new SettingMessage("%DeepSeek.Chat.Settings.ApiKeyGuideMessage%"),
+                    new SettingMessage("API keys are stored in Visual Studio Credential Storage and intentionally stay out of Unified Settings to avoid cloud sync/export leaks."),
                 },
                 EnabledWhen = SettingRule.FeatureFlag("DeepSeek.ApiKeyGuideReadOnly", true),
             };
 
         [VisualStudioContribution]
         internal static Setting.String SystemPrompt { get; } =
-            new("deepseekSystemPrompt", "%DeepSeek.Chat.settings.systemPrompt.displayName%", GeneralCategory, defaultValue: string.Empty)
+            new("deepseekSystemPrompt", "System Prompt", GeneralCategory, defaultValue: string.Empty)
             {
-                Description = "%DeepSeek.Chat.settings.systemPrompt.description%",
+                Description = "System prompt that defines the AI assistant's behavior and role",
             };
 
         [VisualStudioContribution]
         internal static Setting.String SystemPromptEn { get; } =
-            new("deepseekSystemPromptEn", "%DeepSeek.Chat.settings.systemPromptEn.displayName%", GeneralCategory, defaultValue: string.Empty)
+            new("deepseekSystemPromptEn", "System Prompt (English)", GeneralCategory, defaultValue: string.Empty)
             {
-                Description = "%DeepSeek.Chat.settings.systemPromptEn.description%",
+                Description = "English version of the system prompt. Used when UI language is set to English.",
             };
 
         [VisualStudioContribution]
         internal static Setting.Enum SelectedModel { get; } =
             new(
                 "deepseekModel",
-                "%DeepSeek.Chat.settings.selectedModel.displayName%",
+                "Selected Model",
                 GeneralCategory,
                 new[]
                 {
@@ -66,37 +66,37 @@ namespace DeepSeek_v4_for_VisualStudio
                 },
                 defaultValue: DeepSeekModelCatalog.Pro)
             {
-                Description = "%DeepSeek.Chat.settings.selectedModel.description%",
+                Description = "The DeepSeek model to use",
             };
 
         [VisualStudioContribution]
         internal static Setting.String ApiBaseUrl { get; } =
-            new("deepseekApiBaseUrl", "%DeepSeek.Chat.settings.apiBaseUrl.displayName%", GeneralCategory, defaultValue: string.Empty)
+            new("deepseekApiBaseUrl", "API Endpoint (Base URL)", GeneralCategory, defaultValue: string.Empty)
             {
-                Description = "%DeepSeek.Chat.settings.apiBaseUrl.description%",
+                Description = "Compatible with any OpenAI chat/completions protocol endpoint. Leave empty to use the official DeepSeek endpoint (https://api.deepseek.com).",
                 SearchKeywords = new[] { "URL", "endpoint", "baseUrl", "端点", "地址" },
             };
 
         [VisualStudioContribution]
         internal static Setting.String CustomModelName { get; } =
-            new("deepseekCustomModelName", "%DeepSeek.Chat.settings.customModelName.displayName%", GeneralCategory, defaultValue: string.Empty)
+            new("deepseekCustomModelName", "Custom Model Name", GeneralCategory, defaultValue: string.Empty)
             {
-                Description = "%DeepSeek.Chat.settings.customModelName.description%",
+                Description = "When non-empty, overrides the selected model above. Used for connecting to models on any chat/completions compatible endpoint.",
                 SearchKeywords = new[] { "model", "custom", "模型", "自定义" },
             };
 
         [VisualStudioContribution]
         internal static Setting.Boolean ThinkingEnabled { get; } =
-            new("deepseekThinking", "%DeepSeek.Chat.settings.enableThinking.displayName%", GeneralCategory, defaultValue: true)
+            new("deepseekThinking", "Enable Deep Thinking", GeneralCategory, defaultValue: true)
             {
-                Description = "%DeepSeek.Chat.settings.enableThinking.description%",
+                Description = "Enable deep thinking mode (Reasoning)",
             };
 
         [VisualStudioContribution]
         internal static Setting.Enum ReasoningEffort { get; } =
             new(
                 "deepseekReasoningEffort",
-                "%DeepSeek.Chat.settings.reasoningEffort.displayName%",
+                "Reasoning Effort",
                 GeneralCategory,
                 new[]
                 {
@@ -105,153 +105,153 @@ namespace DeepSeek_v4_for_VisualStudio
                 },
                 defaultValue: "high")
             {
-                Description = "%DeepSeek.Chat.settings.reasoningEffort.description%",
+                Description = "Reasoning intensity: high or max",
             };
 
         [VisualStudioContribution]
         internal static Setting.Boolean EnableWebSearch { get; } =
-            new("deepseekWebSearch", "%DeepSeek.Chat.chat.html.webSearchLabel%", GeneralCategory, defaultValue: true)
+            new("deepseekWebSearch", "Web Search", GeneralCategory, defaultValue: true)
             {
-                Description = "%DeepSeek.Chat.settings.enableWebSearch.description%",
+                Description = "Enable web search functionality. When enabled, a web search toggle will appear in the chat window.",
             };
 
         [VisualStudioContribution]
         internal static Setting.Enum SearchProvider { get; } =
             new(
                 "deepseekSearchProvider",
-                "%DeepSeek.Chat.settings.searchProvider.displayName%",
+                "Search Provider",
                 GeneralCategory,
                 new[]
                 {
                     new EnumSettingEntry("Baidu", "Baidu"),
                     new EnumSettingEntry("Bing", "Bing"),
-                    new EnumSettingEntry("DuckDuckGo", "%DeepSeek.Chat.websearch.searchEngine.duckduckgo%"),
+                    new EnumSettingEntry("DuckDuckGo", "DuckDuckGo"),
                 },
                 defaultValue: "DuckDuckGo")
             {
-                Description = "%DeepSeek.Chat.settings.searchProvider.description%",
+                Description = "Select search engine: Baidu (Baidu Qianfan, requires API Key, 1500 free/month), Bing (Azure, requires API Key, 1000 free/month), or DuckDuckGo (completely free)",
             };
 
         [VisualStudioContribution]
         internal static Setting.Boolean ShowDiffMarkers { get; } =
-            new("deepseekShowDiffMarkers", "%DeepSeek.Chat.settings.showDiffMarkers.displayName%", GeneralCategory, defaultValue: true)
+            new("deepseekShowDiffMarkers", "Show Diff Markers In Editor", GeneralCategory, defaultValue: true)
             {
-                Description = "%DeepSeek.Chat.settings.showDiffMarkers.description%",
+                Description = "After AI writes code, show red/green line markers in the editor (green=added, red=deleted) with confirm/revert buttons. When disabled, changes take effect directly without preview.",
             };
 
         [VisualStudioContribution]
         internal static Setting.Enum OcrEngine { get; } =
             new(
                 "deepseekOcrEngine",
-                "%DeepSeek.Chat.settings.ocrEngine.displayName%",
+                "OCR Engine",
                 GeneralCategory,
                 new[]
                 {
-                    new EnumSettingEntry("Windows Built-in", "%DeepSeek.Chat.Settings.OcrWindowsBuiltIn%"),
-                    new EnumSettingEntry("PaddleOCR-Sharp", "%DeepSeek.Chat.Settings.OcrPaddleLocal%"),
+                    new EnumSettingEntry("Windows Built-in", "Windows Built-in"),
+                    new EnumSettingEntry("PaddleOCR-Sharp", "PaddleOCR-Sharp (local, offline)"),
                 },
                 defaultValue: "Windows Built-in")
             {
-                Description = "%DeepSeek.Chat.settings.ocrEngine.description%",
+                Description = "Select image OCR engine:   • Windows Built-in — System built-in, no configuration needed, moderate accuracy   • PaddleOCR-Sharp — Local offline recognition with higher Chinese accuracy   • Remote OCR service via MCP protocol",
             };
 
         [VisualStudioContribution]
         internal static Setting.Boolean AutoCompleteEnabled { get; } =
-            new("deepseekAutoCompleteEnabled", "%DeepSeek.Chat.settings.autocompleteEnabled.displayName%", GeneralCategory, defaultValue: false)
+            new("deepseekAutoCompleteEnabled", "Enable Code Completion", GeneralCategory, defaultValue: false)
             {
-                Description = "%DeepSeek.Chat.settings.autocompleteEnabled.description%",
+                Description = "Enable inline code completion (ghost text) in the editor. When enabled, DeepSeek will provide code completion suggestions as you type. Press Tab to accept, Escape to cancel.",
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer AutoCompleteDelay { get; } =
-            new("deepseekAutoCompleteDelay", "%DeepSeek.Chat.settings.autocompleteDelay.displayName%", GeneralCategory, defaultValue: 800)
+            new("deepseekAutoCompleteDelay", "Completion Delay (ms)", GeneralCategory, defaultValue: 800)
             {
-                Description = "%DeepSeek.Chat.settings.autocompleteDelay.description%",
+                Description = "How many milliseconds to wait after you stop typing before requesting completion suggestions.",
                 Minimum = 100,
                 Maximum = 5000,
             };
 
         [VisualStudioContribution]
         internal static Setting.Boolean AutoCompleteContinueAfterAccept { get; } =
-            new("deepseekAutoCompleteContinueAfterAccept", "%DeepSeek.Chat.settings.autocompleteContinueAfterAccept.displayName%", GeneralCategory, defaultValue: true)
+            new("deepseekAutoCompleteContinueAfterAccept", "Continue Completion After Accept", GeneralCategory, defaultValue: true)
             {
-                Description = "%DeepSeek.Chat.settings.autocompleteContinueAfterAccept.description%",
+                Description = "When enabled, accepting a completion immediately triggers a new prediction.",
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer TokenBudget { get; } =
-            new("deepseekTokenBudget", "%DeepSeek.Chat.settings.tokenBudget.displayName%", GeneralCategory, defaultValue: 900_000)
+            new("deepseekTokenBudget", "Token Budget Limit", GeneralCategory, defaultValue: 900_000)
             {
-                Description = "%DeepSeek.Chat.settings.tokenBudget.description%",
+                Description = "DeepSeek V4 has a 1M token context window. This setting controls the maximum tokens sent to the API (reserving 100K for model output). Default is 900,000. Reduce to lower API costs; increase for more context.",
             };
 
         [VisualStudioContribution]
         internal static Setting.Boolean EnableAutoCompression { get; } =
-            new("deepseekAutoCompression", "%DeepSeek.Chat.settings.enableAutoCompression.displayName%", GeneralCategory, defaultValue: true)
+            new("deepseekAutoCompression", "Enable Auto Compression", GeneralCategory, defaultValue: true)
             {
-                Description = "%DeepSeek.Chat.settings.enableAutoCompression.description%",
+                Description = "When context approaches the token budget, automatically compress early conversation into summaries rather than deleting old messages. When disabled, falls back to the old truncation behavior.",
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer CompressionThreshold { get; } =
-            new("deepseekCompressionThreshold", "%DeepSeek.Chat.settings.compressionThreshold.displayName%", GeneralCategory, defaultValue: 85)
+            new("deepseekCompressionThreshold", "Compression Trigger Threshold (%)", GeneralCategory, defaultValue: 85)
             {
-                Description = "%DeepSeek.Chat.settings.compressionThreshold.description%",
+                Description = "Trigger auto-compression when context usage reaches this percentage. Default 85%, i.e., triggers at ~765K tokens of a 900K budget.",
                 Minimum = 1,
                 Maximum = 100,
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer PreserveRecentTurns { get; } =
-            new("deepseekPreserveRecentTurns", "%DeepSeek.Chat.settings.preserveRecentTurns.displayName%", GeneralCategory, defaultValue: 3)
+            new("deepseekPreserveRecentTurns", "Preserve Recent Turns", GeneralCategory, defaultValue: 3)
             {
-                Description = "%DeepSeek.Chat.settings.preserveRecentTurns.description%",
+                Description = "During compression, keep the most recent N turns of conversation uncompressed. Default 3 turns. Increase to preserve more immediate context.",
                 Minimum = 1,
                 Maximum = 100,
             };
 
         [VisualStudioContribution]
         internal static Setting.Boolean EnableRag { get; } =
-            new("deepseekEnableRag", "%DeepSeek.Chat.settings.enableRag.displayName%", GeneralCategory, defaultValue: false)
+            new("deepseekEnableRag", "Enable RAG", GeneralCategory, defaultValue: false)
             {
-                Description = "%DeepSeek.Chat.settings.enableRag.description%",
+                Description = "Enable Retrieval-Augmented Generation (RAG) to automatically retrieve relevant documents from the knowledge base before conversation. Requires configuring a RAG provider (such as a local vector database).",
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer RagTopK { get; } =
-            new("deepseekRagTopK", "%DeepSeek.Chat.settings.ragTopK.displayName%", GeneralCategory, defaultValue: 5)
+            new("deepseekRagTopK", "RAG Retrieval Count", GeneralCategory, defaultValue: 5)
             {
-                Description = "%DeepSeek.Chat.settings.ragTopK.description%",
+                Description = "Maximum number of documents to retrieve from the knowledge base per query. Default 5.",
                 Minimum = 1,
                 Maximum = 100,
             };
 
         [VisualStudioContribution]
         internal static Setting.Boolean ShowContextStats { get; } =
-            new("deepseekContextStats", "%DeepSeek.Chat.settings.showContextStats.displayName%", GeneralCategory, defaultValue: true)
+            new("deepseekContextStats", "Context Stats Indicator", GeneralCategory, defaultValue: true)
             {
-                Description = "%DeepSeek.Chat.settings.showContextStats.description%",
+                Description = "Show current token usage in the status bar (used/budget).",
             };
 
         [VisualStudioContribution]
         internal static Setting.Boolean EnableIdeContextInjection { get; } =
-            new("deepseekIdeContext", "%DeepSeek.Chat.settings.enableIdeContextInjection.displayName%", GeneralCategory, defaultValue: true)
+            new("deepseekIdeContext", "Inject Editor Context", GeneralCategory, defaultValue: true)
             {
-                Description = "%DeepSeek.Chat.settings.enableIdeContextInjection.description%",
+                Description = "On each message, automatically provide the AI with the active file, cursor position, selected code and a summary of current-file errors/warnings (injected as volatile context; does not affect prefix cache hits). Deep queries remain available via tools like get_errors.",
             };
 
         [VisualStudioContribution]
         internal static Setting.Boolean EnableTelemetryExport { get; } =
-            new("deepseekTelemetryExport", "%DeepSeek.Chat.settings.enableTelemetryExport.displayName%", GeneralCategory, defaultValue: true)
+            new("deepseekTelemetryExport", "Export Session Metrics", GeneralCategory, defaultValue: true)
             {
-                Description = "%DeepSeek.Chat.settings.enableTelemetryExport.description%",
+                Description = "After each agent session, export metrics (TTFT, turns, tokens, tool calls) as a JSON file to %LocalAppData%\\\\DeepSeekVS\\\\telemetry\\\\ for performance analysis and benchmarking.",
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer LlmTimeoutSeconds { get; } =
-            new("deepseekLlmTimeoutSeconds", "%DeepSeek.Chat.settings.llmTimeoutSeconds.displayName%", GeneralCategory, defaultValue: 300)
+            new("deepseekLlmTimeoutSeconds", "LLM request timeout (seconds)", GeneralCategory, defaultValue: 300)
             {
-                Description = "%DeepSeek.Chat.settings.llmTimeoutSeconds.description%",
+                Description = "Timeout for a single LLM API request. Default 300 seconds; streaming has a separate 120-second no-data disconnect detection that is unaffected by this setting.",
                 Minimum = 10,
                 Maximum = 3600,
             };
@@ -260,110 +260,110 @@ namespace DeepSeek_v4_for_VisualStudio
         internal static Setting.Enum Language { get; } =
             new(
                 "deepseekLanguage",
-                "%DeepSeek.Chat.settings.language.displayName%",
+                "Display Language / 显示语言",
                 GeneralCategory,
                 new[]
                 {
-                    new EnumSettingEntry("auto", "%DeepSeek.Chat.skills.help.typeAuto%"),
-                    new EnumSettingEntry("zh-CN", "%DeepSeek.Chat.Settings.LanguageChineseSimplified%"),
+                    new EnumSettingEntry("auto", "Auto"),
+                    new EnumSettingEntry("zh-CN", "Chinese (Simplified)"),
                     new EnumSettingEntry("en", "English"),
                 },
                 defaultValue: "auto")
             {
-                Description = "%DeepSeek.Chat.settings.language.description%",
+                Description = "Choose display language. Select 'Auto' to follow system language. 选择显示语言。「自动」则跟随系统语言。",
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer MaxToolCallRounds { get; } =
-            new("deepseekMaxToolCallRounds", "%DeepSeek.Chat.settings.maxToolCallRounds.displayName%", GeneralCategory, defaultValue: 200)
+            new("deepseekMaxToolCallRounds", "Max Tool Call Rounds", GeneralCategory, defaultValue: 200)
             {
-                Description = "%DeepSeek.Chat.settings.maxToolCallRounds.description%",
+                Description = "Maximum number of tool call rounds allowed in a single agent session. The conversation will be forced to end with a warning when this limit is reached. Default: 200.",
                 Minimum = 1,
                 Maximum = 1000,
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer MaxRepeatedSameCall { get; } =
-            new("deepseekMaxRepeatedSameCall", "%DeepSeek.Chat.settings.maxRepeatedSameCall.displayName%", GeneralCategory, defaultValue: 5)
+            new("deepseekMaxRepeatedSameCall", "Repeat Call Detection Threshold", GeneralCategory, defaultValue: 5)
             {
-                Description = "%DeepSeek.Chat.settings.maxRepeatedSameCall.description%",
+                Description = "When the same tool is called with the same arguments more than this many times AND returns the same result each time, it is treated as an infinite loop and the conversation is terminated. Default: 5.",
                 Minimum = 1,
                 Maximum = 100,
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer MaxConsecutiveErrors { get; } =
-            new("deepseekMaxConsecutiveErrors", "%DeepSeek.Chat.settings.maxConsecutiveErrors.displayName%", GeneralCategory, defaultValue: 5)
+            new("deepseekMaxConsecutiveErrors", "Consecutive Error Termination Threshold", GeneralCategory, defaultValue: 5)
             {
-                Description = "%DeepSeek.Chat.settings.maxConsecutiveErrors.description%",
+                Description = "Terminate when all tool calls in N consecutive rounds return errors. Default: 5.",
                 Minimum = 1,
                 Maximum = 100,
             };
 
         [VisualStudioContribution]
         internal static Setting.Boolean EnableAutoBuild { get; } =
-            new("deepseekEnableAutoBuild", "%DeepSeek.Chat.settings.enableAutoBuild.displayName%", GeneralCategory, defaultValue: true)
+            new("deepseekEnableAutoBuild", "Auto-build after code changes", GeneralCategory, defaultValue: true)
             {
-                Description = "%DeepSeek.Chat.settings.enableAutoBuild.description%",
+                Description = "Whether to automatically invoke Build Agent to compile and verify after Edit Agent completes code modifications. When disabled, the build step appears as a button for you to trigger manually. You can also use phrases like 'don't build' or 'skip build' in your prompt to temporarily skip the build. Default: enabled.",
             };
 
         [VisualStudioContribution]
         internal static Setting.Enum ApprovalMode { get; } =
             new(
                 "deepseekApprovalMode",
-                "%DeepSeek.Chat.settings.approvalMode.displayName%",
+                "Approval Mode",
                 GeneralCategory,
                 new[]
                 {
-                    new EnumSettingEntry("BlockAll", "%DeepSeek.Chat.approval.blockAll%"),
-                    new EnumSettingEntry("AllowAll", "%DeepSeek.Chat.approval.allowAll%"),
-                    new EnumSettingEntry("SmartBlock", "%DeepSeek.Chat.approval.smartBlock%"),
+                    new EnumSettingEntry("BlockAll", "Block all"),
+                    new EnumSettingEntry("AllowAll", "Allow all"),
+                    new EnumSettingEntry("SmartBlock", "Smart block"),
                 },
                 defaultValue: "SmartBlock")
             {
-                Description = "%DeepSeek.Chat.settings.approvalMode.description%",
+                Description = "Controls the approval behavior for tool operations (terminal commands, file deletion, etc.): • SmartBlock — Only dangerous commands require approval; safe commands auto-approved • BlockAll — All terminal commands and file operations require user approval • AllowAll — Auto-approve all operations without asking ( use with caution)",
             };
 
         [VisualStudioContribution]
         internal static Setting.Enum ThemeMode { get; } =
             new(
                 "deepseekThemeMode",
-                "%DeepSeek.Chat.settings.themeMode.displayName%",
+                "Theme",
                 GeneralCategory,
                 new[]
                 {
-                    new EnumSettingEntry("Auto", "%DeepSeek.Chat.Settings.ThemeFollowVS%"),
-                    new EnumSettingEntry("Dark", "%DeepSeek.Chat.theme.dark%"),
-                    new EnumSettingEntry("Light", "%DeepSeek.Chat.theme.light%"),
+                    new EnumSettingEntry("Auto", "Follow Visual Studio"),
+                    new EnumSettingEntry("Dark", "Dark"),
+                    new EnumSettingEntry("Light", "Light"),
                 },
                 defaultValue: "Auto")
             {
-                Description = "%DeepSeek.Chat.settings.themeMode.description%",
+                Description = "Interface theme: Auto (follow VS), Dark, or Light",
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer InputBoxHeight { get; } =
-            new("deepseekInputBoxHeight", "%DeepSeek.Chat.settings.inputBoxHeight.displayName%", GeneralCategory, defaultValue: Settings.DeepSeekOptionsPage.DefaultInputBoxHeight)
+            new("deepseekInputBoxHeight", "Input Box Height", GeneralCategory, defaultValue: Settings.DeepSeekOptionsPage.DefaultInputBoxHeight)
             {
-                Description = "%DeepSeek.Chat.settings.inputBoxHeight.description%",
+                Description = "Fixed height for the chat input box (50-500). Default: 50.",
                 Minimum = Settings.DeepSeekOptionsPage.MinInputBoxHeight,
                 Maximum = Settings.DeepSeekOptionsPage.MaxInputBoxHeight,
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer BottomAreaScalePercent { get; } =
-            new("deepseekBottomAreaScalePercent", "%DeepSeek.Chat.settings.bottomAreaScale.displayName%", GeneralCategory, defaultValue: Settings.DeepSeekOptionsPage.DefaultBottomAreaScalePercent)
+            new("deepseekBottomAreaScalePercent", "Bottom Area Scale", GeneralCategory, defaultValue: Settings.DeepSeekOptionsPage.DefaultBottomAreaScalePercent)
             {
-                Description = "%DeepSeek.Chat.settings.bottomAreaScale.description%",
+                Description = "Scale all text and controls below WebView2 by percentage (50-300). Default: 100%.",
                 Minimum = Settings.DeepSeekOptionsPage.MinBottomAreaScalePercent,
                 Maximum = Settings.DeepSeekOptionsPage.MaxBottomAreaScalePercent,
             };
 
         [VisualStudioContribution]
         internal static Setting.Integer WebView2ZoomPercent { get; } =
-            new("deepseekWebView2ZoomPercent", "%DeepSeek.Chat.Settings.WebView2ZoomTitle%", GeneralCategory, defaultValue: Settings.DeepSeekOptionsPage.DefaultWebView2ZoomPercent)
+            new("deepseekWebView2ZoomPercent", "WebView2 Zoom", GeneralCategory, defaultValue: Settings.DeepSeekOptionsPage.DefaultWebView2ZoomPercent)
             {
-                Description = "%DeepSeek.Chat.Settings.WebView2ZoomDescription%",
+                Description = "Zoom level of the chat window (50% - 300%).",
                 Minimum = Settings.DeepSeekOptionsPage.MinWebView2ZoomPercent,
                 Maximum = Settings.DeepSeekOptionsPage.MaxWebView2ZoomPercent,
             };
