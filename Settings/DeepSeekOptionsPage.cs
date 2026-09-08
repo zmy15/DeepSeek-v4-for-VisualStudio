@@ -372,6 +372,18 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
         public string SelectedModel { get; set; } = "deepseek-v4-pro";
 
+        /// <summary>
+        /// 模型来源：auto 跟随端点配置（填写了自定义端点即用自定义）；
+        /// official 强制 DeepSeek 官方服务；custom 强制自定义端点。
+        /// 聊天窗口模型下拉框选择官方/自定义条目时自动更新。
+        /// </summary>
+        [LocalizedCategory("settings.category.model")]
+        [LocalizedDisplayName("settings.modelSource.displayName")]
+        [LocalizedDescription("settings.modelSource.description")]
+        [TypeConverter(typeof(ModelSourceConverter))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
+        public string ActiveModelSource { get; set; } = "auto";
+
         [LocalizedCategory("settings.category.model")]
         [LocalizedDisplayName("settings.enableThinking.displayName")]
         [LocalizedDescription("settings.enableThinking.description")]
@@ -690,6 +702,16 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
             => new(new[] { "high", "max" });
+    }
+
+    /// <summary>
+    /// 模型来源下拉选项：auto 跟随端点 / official 官方 / custom 自定义端点。
+    /// </summary>
+    internal class ModelSourceConverter : StringConverter
+    {
+        public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
+        public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
+            => new(new[] { "auto", "official", "custom" });
     }
 
     /// <summary>

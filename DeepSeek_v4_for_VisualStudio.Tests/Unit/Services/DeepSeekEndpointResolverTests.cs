@@ -78,4 +78,54 @@ public class DeepSeekEndpointResolverTests
         config.ApiKey.Should().Be("sk-official");
         config.Model.Should().Be("deepseek-v4-pro");
     }
+
+    [Fact]
+    public void Resolve_ExplicitOfficial_OverridesCustomEndpoint()
+    {
+        var config = DeepSeekEndpointResolver.Resolve(
+            apiBaseUrl: "https://relay.example.com/v1",
+            officialApiKey: "sk-official",
+            customApiKey: "sk-custom",
+            selectedModel: "deepseek-v4-flash",
+            customModelName: "kimi-k3",
+            activeModelSource: "official");
+
+        config.IsCustom.Should().BeFalse();
+        config.ApiKey.Should().Be("sk-official");
+        config.Model.Should().Be("deepseek-v4-flash");
+        config.BaseUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public void Resolve_ExplicitCustomWithoutBaseUrl_FallsBackToOfficial()
+    {
+        var config = DeepSeekEndpointResolver.Resolve(
+            apiBaseUrl: null,
+            officialApiKey: "sk-official",
+            customApiKey: "sk-custom",
+            selectedModel: "deepseek-v4-flash",
+            customModelName: "kimi-k3",
+            activeModelSource: "custom");
+
+        config.IsCustom.Should().BeFalse();
+        config.ApiKey.Should().Be("sk-official");
+        config.Model.Should().Be("deepseek-v4-flash");
+    }
+
+    [Fact]
+    public void Resolve_ExplicitCustomWithBaseUrl_UsesCustomConfig()
+    {
+        var config = DeepSeekEndpointResolver.Resolve(
+            apiBaseUrl: "https://relay.example.com/v1",
+            officialApiKey: "sk-official",
+            customApiKey: "sk-custom",
+            selectedModel: "deepseek-v4-flash",
+            customModelName: "kimi-k3",
+            activeModelSource: "custom");
+
+        config.IsCustom.Should().BeTrue();
+        config.ApiKey.Should().Be("sk-custom");
+        config.Model.Should().Be("kimi-k3");
+        config.BaseUrl.Should().Be("https://relay.example.com/v1");
+    }
 }

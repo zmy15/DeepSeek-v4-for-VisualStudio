@@ -34,6 +34,39 @@ namespace DeepSeek_v4_for_VisualStudio.View
     /// </summary>
     public partial class DeepSeekChatControl : System.Windows.Controls.UserControl, IDisposable
     {
+        /// <summary>
+        /// 模型下拉框条目：携带来源（官方 / 自定义端点），
+        /// 同名模型可并存并可区分，选中时按来源路由。
+        /// </summary>
+        internal sealed class ModelListItem
+        {
+            internal enum EntrySource
+            {
+                Official,
+                Custom,
+            }
+
+            public string Model { get; }
+            public EntrySource Source { get; }
+            private readonly string _customSuffix;
+
+            private ModelListItem(string model, EntrySource source, string customSuffix)
+            {
+                Model = model;
+                Source = source;
+                _customSuffix = customSuffix;
+            }
+
+            public static ModelListItem Official(string model) => new(model, EntrySource.Official, string.Empty);
+
+            public static ModelListItem Custom(string model)
+                => new(model, EntrySource.Custom, LocalizationService.Instance["chat.model.customSuffix"]);
+
+            /// <summary>下拉框显示文本：官方条目显示原始模型名，自定义条目追加后缀。</summary>
+            public string Display
+                => Source == EntrySource.Custom ? Model + _customSuffix : Model;
+        }
+
         #region Constants
 
         private static string WelcomeMessage => AiPrompts.WelcomeMessage;
@@ -1171,17 +1204,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 构建模型下拉框选项：DeepSeek 官方目录 + 自定义模型名称（若已配置）。
+        /// 构建模型下拉框选项：DeepSeek 官方目录条目 + 自定义端点条目（带"（自定义端点）"后缀，
+        /// 与官方同名模型并存、可区分；选中时按条目来源路由到对应端点与密钥）。
         /// </summary>
-        private System.Collections.Generic.IReadOnlyList<string> BuildModelListItems()
+        private System.Collections.Generic.IReadOnlyList<ModelListItem> BuildModelListItems()
         {
-            var items = new System.Collections.Generic.List<string>(DeepSeekModelCatalog.All);
-            // 大小写/空白变体与目录条目视为同一模型，避免下拉框出现重复项
+            var items = new System.Collections.Generic.List<ModelListItem>();
+            foreach (var model in DeepSeekModelCatalog.All)
+                items.Add(ModelListItem.Official(model));
+
             var custom = _options?.CustomModelName?.Trim();
-            if (!string.IsNullOrWhiteSpace(custom) &&
-                !items.Contains(custom, StringComparer.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(custom))
             {
-                items.Add(custom);
+                items.Add(ModelListItem.Custom(custom));
             }
             return items;
         }
@@ -1194,11 +1229,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (ModelComboBox == null || _options == null) return;
 
             ModelComboBox.ItemsSource = BuildModelListItems();
-            var effectiveModel = GetEffectiveModel();
-            foreach (var item in ModelComboBox.Items)
+
+            // 高亮当前生效条目：按 Resolver 输出的来源 + 模型名匹配
+            var config = DeepSeekEndpointResolver.Resolve(_options);
+            var expectedSource = config.IsCustom
+                ? ModelListItem.EntrySource.Custom
+                : ModelListItem.EntrySource.Official;
+            foreach (var item in ModelComboBox.Items.OfType<ModelListItem>())
             {
-                if (item is string name &&
-                    string.Equals(name, effectiveModel, StringComparison.OrdinalIgnoreCase))
+                if (item.Source == expectedSource &&
+                    string.Equals(item.Model, config.Model, StringComparison.OrdinalIgnoreCase))
                 {
                     ModelComboBox.SelectedItem = item;
                     break;

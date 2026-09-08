@@ -22,7 +22,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     ApiKeyProtection.Unprotect(options.ApiKey),
                     ApiKeyProtection.Unprotect(options.CustomApiKey),
                     options.SelectedModel,
-                    options.CustomModelName);
+                    options.CustomModelName,
+                    options.ActiveModelSource);
 
         /// <summary>
         /// 原始参数重载（测试友好，不依赖 DialogPage 实例化）。
@@ -32,10 +33,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string officialApiKey,
             string customApiKey,
             string? selectedModel,
-            string? customModelName)
+            string? customModelName,
+            string? activeModelSource = "auto")
         {
             var baseUrl = (apiBaseUrl ?? string.Empty).Trim();
-            var isCustom = baseUrl.Length > 0;
+            var sourcePreference = (activeModelSource ?? "auto").Trim().ToLowerInvariant();
+            var isCustom = sourcePreference switch
+            {
+                "custom" => true,
+                "official" => false,
+                _ => baseUrl.Length > 0, // auto：跟随端点配置
+            };
+
+            // 自定义模式必须有端点；缺失时回退官方（配置不一致的兜底）
+            if (isCustom && baseUrl.Length == 0)
+            {
+                isCustom = false;
+                Logger.Warn("[Resolver] 模型来源为 custom 但未配置 API 端点，回退 DeepSeek 官方");
+            }
 
             var model = isCustom
                 ? CoalesceCustomModel(selectedModel, customModelName)

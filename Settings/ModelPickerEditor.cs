@@ -32,6 +32,8 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             if (dialog.ShowDialog() == DialogResult.OK &&
                 !string.IsNullOrWhiteSpace(dialog.SelectedModel))
             {
+                // 从自定义端点分类选定模型 → 激活自定义来源
+                page.ActiveModelSource = "custom";
                 return dialog.SelectedModel;
             }
 

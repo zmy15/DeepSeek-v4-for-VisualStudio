@@ -1387,27 +1387,33 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         private void ModelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_apiService != null && ModelComboBox.SelectedItem is string model)
+            if (_apiService != null && ModelComboBox.SelectedItem is ModelListItem item)
             {
-                _apiService.UpdateModel(model);
+                _apiService.UpdateModel(item.Model);
+
                 // ── 回写到选项页并持久化，确保 Tools→Options 和重启后生效 ──
-                // 自定义端点模式写 CustomModelName（该模式实际生效的字段），
-                // 官方模式写 SelectedModel，与 DeepSeekEndpointResolver 语义一致。
                 if (_options != null)
                 {
-                    bool isCustomMode = !string.IsNullOrWhiteSpace(_options.ApiBaseUrl);
-                    var currentTarget = isCustomMode ? _options.CustomModelName : _options.SelectedModel;
-                    if (!string.Equals(currentTarget, model, StringComparison.Ordinal))
+                    // 按条目来源路由：官方条目 → SelectedModel + official 来源；
+                    // 自定义条目 → CustomModelName + custom 来源。
+                    bool isCustomEntry = item.Source == ModelListItem.EntrySource.Custom;
+                    var targetSource = isCustomEntry ? "custom" : "official";
+                    var currentModel = isCustomEntry ? _options.CustomModelName : _options.SelectedModel;
+
+                    bool sourceChanged = !string.Equals(_options.ActiveModelSource, targetSource, StringComparison.Ordinal);
+                    bool modelChanged = !string.Equals(currentModel, item.Model, StringComparison.Ordinal);
+                    if (sourceChanged || modelChanged)
                     {
-                        if (isCustomMode)
-                            _options.CustomModelName = model;
+                        if (isCustomEntry)
+                            _options.CustomModelName = item.Model;
                         else
-                            _options.SelectedModel = model;
+                            _options.SelectedModel = item.Model;
+                        _options.ActiveModelSource = targetSource;
                         try { _options.SaveSettingsToStorage(); } catch { /* 非关键路径 */ }
                         UnifiedSettingsSync.PushFromPage(_options);
                     }
                 }
-                Logger.Info($"模型切换为: {model}");
+                Logger.Info($"模型切换为: {item.Display}");
             }
         }
 
