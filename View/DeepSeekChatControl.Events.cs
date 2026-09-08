@@ -1391,11 +1391,21 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 _apiService.UpdateModel(model);
                 // ── 回写到选项页并持久化，确保 Tools→Options 和重启后生效 ──
-                if (_options != null && _options.SelectedModel != model)
+                // 自定义端点模式写 CustomModelName（该模式实际生效的字段），
+                // 官方模式写 SelectedModel，与 DeepSeekEndpointResolver 语义一致。
+                if (_options != null)
                 {
-                    _options.SelectedModel = model;
-                    try { _options.SaveSettingsToStorage(); } catch { /* 非关键路径 */ }
-                    UnifiedSettingsSync.PushFromPage(_options);
+                    bool isCustomMode = !string.IsNullOrWhiteSpace(_options.ApiBaseUrl);
+                    var currentTarget = isCustomMode ? _options.CustomModelName : _options.SelectedModel;
+                    if (!string.Equals(currentTarget, model, StringComparison.Ordinal))
+                    {
+                        if (isCustomMode)
+                            _options.CustomModelName = model;
+                        else
+                            _options.SelectedModel = model;
+                        try { _options.SaveSettingsToStorage(); } catch { /* 非关键路径 */ }
+                        UnifiedSettingsSync.PushFromPage(_options);
+                    }
                 }
                 Logger.Info($"模型切换为: {model}");
             }

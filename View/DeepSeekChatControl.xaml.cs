@@ -424,7 +424,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             };
 
             // 初始化模型和推理强度下拉框
-            ModelComboBox.ItemsSource = DeepSeekModelCatalog.All;
+            ModelComboBox.ItemsSource = BuildModelListItems();
             ModelComboBox.SelectedIndex = 0;
 
             EffortComboBox.ItemsSource = new[] { "high", "max" };
@@ -1171,17 +1171,31 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 从设置恢复模型下拉框选中值。
+        /// 构建模型下拉框选项：DeepSeek 官方目录 + 自定义模型名称（若已配置）。
+        /// </summary>
+        private System.Collections.Generic.IReadOnlyList<string> BuildModelListItems()
+        {
+            var items = new System.Collections.Generic.List<string>(DeepSeekModelCatalog.All);
+            var custom = _options?.CustomModelName;
+            if (!string.IsNullOrWhiteSpace(custom) &&
+                !items.Contains(custom, StringComparer.Ordinal))
+            {
+                items.Add(custom);
+            }
+            return items;
+        }
+
+        /// <summary>
+        /// 从设置恢复模型下拉框选中值（含自定义模型条目，选中当前生效模型）。
         /// </summary>
         private void RefreshModelFromSettings()
         {
             if (ModelComboBox == null || _options == null) return;
-            // 自定义模型优先：下拉框仅用于选择 DeepSeek 官方模型
-            string savedModel = _options.SelectedModel ?? "deepseek-v4-pro";
-            if (ModelComboBox.Items.Contains(savedModel))
-                ModelComboBox.SelectedItem = savedModel;
-            else
-                ModelComboBox.SelectedIndex = 0;
+
+            ModelComboBox.ItemsSource = BuildModelListItems();
+            var effectiveModel = GetEffectiveModel();
+            if (ModelComboBox.Items.Contains(effectiveModel))
+                ModelComboBox.SelectedItem = effectiveModel;
 
             // 同步更新 API 服务的模型（含自定义模型覆盖）
             if (_apiService != null)
