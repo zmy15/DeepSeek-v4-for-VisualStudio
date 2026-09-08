@@ -1176,9 +1176,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private System.Collections.Generic.IReadOnlyList<string> BuildModelListItems()
         {
             var items = new System.Collections.Generic.List<string>(DeepSeekModelCatalog.All);
-            var custom = _options?.CustomModelName;
+            // 大小写/空白变体与目录条目视为同一模型，避免下拉框出现重复项
+            var custom = _options?.CustomModelName?.Trim();
             if (!string.IsNullOrWhiteSpace(custom) &&
-                !items.Contains(custom, StringComparer.Ordinal))
+                !items.Contains(custom, StringComparer.OrdinalIgnoreCase))
             {
                 items.Add(custom);
             }
@@ -1194,8 +1195,15 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             ModelComboBox.ItemsSource = BuildModelListItems();
             var effectiveModel = GetEffectiveModel();
-            if (ModelComboBox.Items.Contains(effectiveModel))
-                ModelComboBox.SelectedItem = effectiveModel;
+            foreach (var item in ModelComboBox.Items)
+            {
+                if (item is string name &&
+                    string.Equals(name, effectiveModel, StringComparison.OrdinalIgnoreCase))
+                {
+                    ModelComboBox.SelectedItem = item;
+                    break;
+                }
+            }
 
             // 同步更新 API 服务的模型（含自定义模型覆盖）
             if (_apiService != null)
