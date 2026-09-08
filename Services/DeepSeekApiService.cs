@@ -20,7 +20,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         private readonly HttpClient _httpClient;
         /// <summary>默认 DeepSeek 官方 API 地址（留空时的回退值）。</summary>
         public const string DefaultBaseUrl = "https://api.deepseek.com";
-        private const string ChatEndpoint = "/chat/completions";
+        // 注意：相对路径不能以 / 开头 —— HttpClient 对以 / 开头的相对 URI 会
+        // 从主机根开始拼接，丢失 BaseAddress 中的路径段（如自定义端点的 /v1）。
+        private const string ChatEndpoint = "chat/completions";
         private const string FimBaseUrl = "https://api.deepseek.com/beta";
         private const string FimEndpoint = "/completions";
 
@@ -319,7 +321,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             //    同一客户端实例的所有请求携带相同 ID，服务端可据此将请求路由到同一后端节点，
             //    提高 Agent 间的前缀缓存共享概率。
             //    仅对 DeepSeek 官方端点发送（严格第三方网关可能拒绝未知自定义头）。
-            if (string.Equals(_baseUrl, DefaultBaseUrl, StringComparison.OrdinalIgnoreCase))
+            // _baseUrl 已规范化为以 / 结尾，比较前先去尾斜杠
+            if (string.Equals(_baseUrl.TrimEnd('/'), DefaultBaseUrl, StringComparison.OrdinalIgnoreCase))
             {
                 _httpClient.DefaultRequestHeaders.Add("X-Client-Instance-Id", ClientInstanceId);
             }
@@ -342,17 +345,27 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// 规范化 Base URL：去尾部斜杠；空/空白回退默认官方地址。
+        /// 规范化 Base URL：
+        /// 1. 用户粘贴完整 chat 端点（/chat/completions 结尾）→ 剥离；
+        /// 2. 确保以 / 结尾 —— HttpClient 的 BaseAddress 必须以 / 结尾，
+        ///    相对请求路径（不带前导 /）才能正确追加，否则会丢失路径段（如 /v1）。
         /// </summary>
         private static string NormalizeBaseUrl(string? baseUrl)
-            => string.IsNullOrWhiteSpace(baseUrl) ? DefaultBaseUrl : baseUrl.TrimEnd('/');
+        {
+            var trimmed = string.IsNullOrWhiteSpace(baseUrl)
+                ? DefaultBaseUrl
+                : baseUrl.Trim();
+            if (trimmed.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
+                trimmed = trimmed.Substring(0, trimmed.Length - "/chat/completions".Length);
+            return trimmed.TrimEnd('/') + "/";
+        }
 
         /// <summary>当前使用的 API 端点 Base URL。</summary>
         public string BaseUrl => _baseUrl;
 
         /// <summary>是否为 DeepSeek 官方端点（决定余额/FIM/thinking 等 DeepSeek 特有功能的可用性）。</summary>
         public bool IsDeepSeekEndpoint
-            => string.Equals(_baseUrl, DefaultBaseUrl, StringComparison.OrdinalIgnoreCase);
+            => string.Equals(_baseUrl.TrimEnd('/'), DefaultBaseUrl, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// 全局 ServicePointManager 一次性配置 — 优化 TCP 连接复用。
@@ -1536,7 +1549,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (!IsDeepSeekEndpoint)
                     return null;
 
-                using var httpRequest = new HttpRequestMessage(HttpMethod.Get, "/user/balance");
+                // 相对路径不带前导 /（见 NormalizeBaseUrl 说明），否则丢失 BaseAddress 路径段
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Get, "user/balance");
                 httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
                 using var response = await _httpClient.SendAsync(httpRequest);
