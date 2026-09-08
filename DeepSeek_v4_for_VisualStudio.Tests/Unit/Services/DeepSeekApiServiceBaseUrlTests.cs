@@ -105,16 +105,40 @@ public class DeepSeekApiServiceBaseUrlTests
         handler.Requests.Should().NotContain("https://api.deepseek.com//user/balance");
     }
 
+    [Fact]
+    public async Task UpdateBaseUrl_TogglesDeepSeekClientHeader()
+    {
+        var handler = new RecordingHandler();
+        handler.Route["https://relay.example.com/v1/chat/completions"] = ChatOkResponse;
+        handler.Route["https://api.deepseek.com/chat/completions"] = ChatOkResponse;
+
+        var service = new DeepSeekApiService(
+            new HttpClient(handler), "deepseek-v4-pro",
+            baseUrl: "https://api.deepseek.com");
+
+        service.UpdateBaseUrl("https://relay.example.com/v1");
+        await service.CompleteAsync(new List<ChatApiMessage> { new() { Role = "user", Content = "hi" } });
+
+        service.UpdateBaseUrl("https://api.deepseek.com");
+        await service.CompleteAsync(new List<ChatApiMessage> { new() { Role = "user", Content = "hi" } });
+
+        handler.Requests.Should().Contain("https://relay.example.com/v1/chat/completions");
+        handler.Requests.Should().Contain("https://api.deepseek.com/chat/completions");
+        handler.ClientInstanceIds.Should().ContainInOrder(false, true);
+    }
+
     private sealed class RecordingHandler : HttpMessageHandler
     {
         public Dictionary<string, string> Route { get; } = new();
         public List<string> Requests { get; } = new();
+        public List<bool> ClientInstanceIds { get; } = new();
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var url = request.RequestUri!.ToString();
             Requests.Add(url);
+            ClientInstanceIds.Add(request.Headers.Contains("X-Client-Instance-Id"));
             if (Route.TryGetValue(url, out var body))
             {
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)

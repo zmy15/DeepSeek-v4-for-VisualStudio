@@ -275,6 +275,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string? oldModel = _options?.SelectedModel;
                 string? oldBaseUrl = _options?.ApiBaseUrl;
                 string? oldCustomModel = _options?.CustomModelName;
+                string? oldActiveCustomModel = _options?.ActiveCustomModel;
                 string? oldModelSource = _options?.ActiveModelSource;
                 bool oldThinking = _options?.IsThinkingEnabled ?? true;
                 string? oldEffort = _options?.ReasoningEffort;
@@ -295,6 +296,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     !string.Equals(oldModel, _options?.SelectedModel, StringComparison.Ordinal) ||
                     !string.Equals(oldBaseUrl, _options?.ApiBaseUrl, StringComparison.Ordinal) ||
                     !string.Equals(oldCustomModel, _options?.CustomModelName, StringComparison.Ordinal) ||
+                    !string.Equals(oldActiveCustomModel, _options?.ActiveCustomModel, StringComparison.Ordinal) ||
                     !string.Equals(oldModelSource, _options?.ActiveModelSource, StringComparison.Ordinal) ||
                     oldThinking != (_options?.IsThinkingEnabled ?? true) ||
                     !string.Equals(oldEffort, _options?.ReasoningEffort, StringComparison.Ordinal);
@@ -805,6 +807,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         string? oldModel = _options?.SelectedModel;
                         string? oldBaseUrl = _options?.ApiBaseUrl;
                         string? oldCustomModel = _options?.CustomModelName;
+                        string? oldActiveCustomModel = _options?.ActiveCustomModel;
                         string? oldModelSource = _options?.ActiveModelSource;
                         bool oldThinking = _options?.IsThinkingEnabled ?? true;
                         string? oldEffort = _options?.ReasoningEffort;
@@ -819,6 +822,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                             !string.Equals(oldModel, _options.SelectedModel, StringComparison.Ordinal) ||
                             !string.Equals(oldBaseUrl, _options.ApiBaseUrl, StringComparison.Ordinal) ||
                             !string.Equals(oldCustomModel, _options.CustomModelName, StringComparison.Ordinal) ||
+                            !string.Equals(oldActiveCustomModel, _options.ActiveCustomModel, StringComparison.Ordinal) ||
                             !string.Equals(oldModelSource, _options.ActiveModelSource, StringComparison.Ordinal) ||
                             oldThinking != _options.IsThinkingEnabled ||
                             !string.Equals(oldEffort, _options.ReasoningEffort, StringComparison.Ordinal);

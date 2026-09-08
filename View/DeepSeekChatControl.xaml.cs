@@ -1213,8 +1213,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             foreach (var model in DeepSeekModelCatalog.All)
                 items.Add(ModelListItem.Official(model));
 
-            var custom = _options?.CustomModelName?.Trim();
-            if (!string.IsNullOrWhiteSpace(custom))
+            foreach (var custom in _options?.GetCustomModels() ?? Array.Empty<string>())
             {
                 items.Add(ModelListItem.Custom(custom));
             }

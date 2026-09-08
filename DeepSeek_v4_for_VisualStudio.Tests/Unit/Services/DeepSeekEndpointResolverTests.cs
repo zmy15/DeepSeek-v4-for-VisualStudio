@@ -1,4 +1,5 @@
 using DeepSeek_v4_for_VisualStudio.Services;
+
 namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Services;
 
 /// <summary>
@@ -26,7 +27,7 @@ public class DeepSeekEndpointResolverTests
             officialApiKey: "sk-official",
             customApiKey: "sk-custom",
             selectedModel: "deepseek-v4-flash",
-            customModelName: "kimi-k3");
+            customModels: "kimi-k3");
 
         config.IsCustom.Should().BeFalse();
         config.ApiKey.Should().Be("sk-official");
@@ -42,7 +43,7 @@ public class DeepSeekEndpointResolverTests
             officialApiKey: "sk-official",
             customApiKey: "sk-custom",
             selectedModel: "deepseek-v4-flash",
-            customModelName: "kimi-k3");
+            customModels: "kimi-k3");
 
         config.IsCustom.Should().BeTrue();
         config.ApiKey.Should().Be("sk-custom");
@@ -51,14 +52,14 @@ public class DeepSeekEndpointResolverTests
     }
 
     [Fact]
-    public void Resolve_CustomWithoutModelName_FallsBackToCatalogModel()
+    public void Resolve_CustomWithEmptyList_UsesDefaultModel()
     {
         var config = DeepSeekEndpointResolver.Resolve(
             apiBaseUrl: "https://relay.example.com/v1",
             officialApiKey: "sk-official",
             customApiKey: "sk-custom",
-            selectedModel: "deepseek-v4-pro",
-            customModelName: "");
+            selectedModel: "deepseek-v4-flash",
+            customModels: "");
 
         config.IsCustom.Should().BeTrue();
         config.Model.Should().Be("deepseek-v4-pro");
@@ -72,7 +73,7 @@ public class DeepSeekEndpointResolverTests
             officialApiKey: "sk-official",
             customApiKey: "sk-custom",
             selectedModel: "",
-            customModelName: "kimi-k3");
+            customModels: "kimi-k3");
 
         config.IsCustom.Should().BeFalse();
         config.ApiKey.Should().Be("sk-official");
@@ -87,7 +88,7 @@ public class DeepSeekEndpointResolverTests
             officialApiKey: "sk-official",
             customApiKey: "sk-custom",
             selectedModel: "deepseek-v4-flash",
-            customModelName: "kimi-k3",
+            customModels: "kimi-k3",
             activeModelSource: "official");
 
         config.IsCustom.Should().BeFalse();
@@ -104,7 +105,7 @@ public class DeepSeekEndpointResolverTests
             officialApiKey: "sk-official",
             customApiKey: "sk-custom",
             selectedModel: "deepseek-v4-flash",
-            customModelName: "kimi-k3",
+            customModels: "kimi-k3",
             activeModelSource: "custom");
 
         config.IsCustom.Should().BeFalse();
@@ -120,12 +121,42 @@ public class DeepSeekEndpointResolverTests
             officialApiKey: "sk-official",
             customApiKey: "sk-custom",
             selectedModel: "deepseek-v4-flash",
-            customModelName: "kimi-k3",
+            customModels: "kimi-k3",
             activeModelSource: "custom");
 
         config.IsCustom.Should().BeTrue();
         config.ApiKey.Should().Be("sk-custom");
         config.Model.Should().Be("kimi-k3");
         config.BaseUrl.Should().Be("https://relay.example.com/v1");
+    }
+
+    [Fact]
+    public void Resolve_CustomModelList_UsesActiveModel()
+    {
+        var config = DeepSeekEndpointResolver.Resolve(
+            apiBaseUrl: "https://relay.example.com/v1",
+            officialApiKey: "sk-official",
+            customApiKey: "sk-custom",
+            selectedModel: "deepseek-v4-flash",
+            customModels: "kimi-k3; glm-5.3-flash; qwen3.8-max",
+            activeCustomModel: "glm-5.3-flash");
+
+        config.IsCustom.Should().BeTrue();
+        config.Model.Should().Be("glm-5.3-flash");
+    }
+
+    [Fact]
+    public void Resolve_InactiveCustomModel_FallsBackToFirstListItem()
+    {
+        var config = DeepSeekEndpointResolver.Resolve(
+            apiBaseUrl: "https://relay.example.com/v1",
+            officialApiKey: "sk-official",
+            customApiKey: "sk-custom",
+            selectedModel: "deepseek-v4-flash",
+            customModels: "kimi-k3, glm-5.3-flash",
+            activeCustomModel: "removed-model");
+
+        config.IsCustom.Should().BeTrue();
+        config.Model.Should().Be("kimi-k3");
     }
 }

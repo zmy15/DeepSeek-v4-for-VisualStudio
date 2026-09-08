@@ -1,5 +1,7 @@
+using System;
 using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.Utils;
+using System.Linq;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
 {
@@ -9,7 +11,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// <summary>
     /// 端点来源解析器 — DeepSeek 官方与自定义端点配置分离：
     /// 填写了自定义端点（ApiBaseUrl 非空）即启用自定义模式，使用独立的
-    /// 自定义密钥（CustomApiKey）与模型名（CustomModelName）；
+    /// 自定义密钥（CustomApiKey）与自定义模型列表（CustomModelName）；
     /// 否则回退 DeepSeek 官方密钥与模型目录。
     /// </summary>
     public static class DeepSeekEndpointResolver
@@ -23,6 +25,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     ApiKeyProtection.Unprotect(options.CustomApiKey),
                     options.SelectedModel,
                     options.CustomModelName,
+                    options.ActiveCustomModel,
                     options.ActiveModelSource);
 
         /// <summary>
@@ -33,7 +36,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string officialApiKey,
             string customApiKey,
             string? selectedModel,
-            string? customModelName,
+            string? customModels,
+            string? activeCustomModel = "",
             string? activeModelSource = "auto")
         {
             var baseUrl = (apiBaseUrl ?? string.Empty).Trim();
@@ -53,7 +57,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             var model = isCustom
-                ? CoalesceCustomModel(selectedModel, customModelName)
+                ? CoalesceCustomModel(customModels, activeCustomModel)
                 : CoalesceOfficialModel(selectedModel);
 
             return new DeepSeekEndpointConfig(
@@ -63,15 +67,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 isCustom);
         }
 
-        private static string CoalesceCustomModel(string? selectedModel, string? customModelName)
+        private static string CoalesceCustomModel(string? customModels, string? activeCustomModel)
         {
-            var custom = (customModelName ?? string.Empty).Trim();
-            if (custom.Length > 0)
-                return custom;
+            var models = DeepSeekOptionsPage.ParseCustomModels(customModels);
+            if (models.Count == 0)
+                return DefaultModel;
 
-            // 自定义端点未填模型名 → 回退官方模型目录选择（多数中转接受 DeepSeek 模型名）
-            var fallback = (selectedModel ?? string.Empty).Trim();
-            return fallback.Length > 0 ? fallback : DefaultModel;
+            var active = (activeCustomModel ?? string.Empty).Trim();
+            if (active.Length > 0)
+            {
+                var match = models.FirstOrDefault(model =>
+                    string.Equals(model, active, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+
+            // 激活模型不存在（例如列表刚被编辑）时使用列表第一个条目。
+            return models[0];
         }
 
         private static string CoalesceOfficialModel(string? selectedModel)

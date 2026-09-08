@@ -1,9 +1,11 @@
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Design;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -30,11 +32,18 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
                 page.ApiBaseUrl,
                 ApiKeyProtection.Unprotect(page.CustomApiKey));
             if (dialog.ShowDialog() == DialogResult.OK &&
-                !string.IsNullOrWhiteSpace(dialog.SelectedModel))
+                dialog.SelectedModels.Count > 0)
             {
+                // 从自定义端点选定模型 → 追加进列表并激活，不覆盖已有模型。
+                var models = page.GetCustomModels()
+                    .Union(dialog.SelectedModels, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                page.SetCustomModels(models);
+                page.ActiveCustomModel = dialog.SelectedModels.Last();
+
                 // 从自定义端点分类选定模型 → 激活自定义来源
                 page.ActiveModelSource = "custom";
-                return dialog.SelectedModel;
+                return page.CustomModelName;
             }
 
             return value;
@@ -51,6 +60,13 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         private readonly Label _statusLabel;
 
         public string? SelectedModel => _modelList.SelectedItem as string;
+        public IReadOnlyList<string> SelectedModels
+            => _modelList.SelectedItems.Cast<string>()
+                .Where(model => !string.IsNullOrWhiteSpace(model))
+                .Select(model => model.Trim())
+                .Where(model => model.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
         public ModelPickerDialog(string baseUrl, string apiKey)
         {
@@ -114,6 +130,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             {
                 Location = new Point(12, 168),
                 Size = new Size(436, 148),
+                SelectionMode = SelectionMode.MultiExtended,
             };
             _modelList.DoubleClick += (_, _) => DialogResult = DialogResult.OK;
 

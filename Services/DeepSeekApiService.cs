@@ -501,9 +501,26 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public void UpdateBaseUrl(string? baseUrl)
         {
             _baseUrl = NormalizeBaseUrl(baseUrl);
-            _httpClient.BaseAddress = new Uri(_baseUrl);
+            if (IsDeepSeekEndpoint)
+            {
+                if (!_httpClient.DefaultRequestHeaders.Contains("X-Client-Instance-Id"))
+                    _httpClient.DefaultRequestHeaders.Add("X-Client-Instance-Id", ClientInstanceId);
+            }
+            else
+            {
+                _httpClient.DefaultRequestHeaders.Remove("X-Client-Instance-Id");
+            }
             Logger.Info($"[API] Base URL 已更新: {_baseUrl}");
         }
+
+        /// <summary>
+        /// 构造绝对请求地址。HttpClient 在首个请求后不允许修改 BaseAddress，
+        /// 因此运行时端点热切换必须每次根据当前 BaseUrl 显式解析请求 URI。
+        /// </summary>
+        private Uri BuildRequestUri(string relativeOrAbsolutePath)
+            => Uri.TryCreate(relativeOrAbsolutePath, UriKind.Absolute, out var absolutePath)
+                ? absolutePath
+                : new Uri(new Uri(_baseUrl, UriKind.Absolute), relativeOrAbsolutePath);
 
         /// <summary>当前使用的模型标识（用于视觉模型等能力分支判断）。</summary>
         public string CurrentModel => _model;
@@ -948,7 +965,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 try
                 {
-                    var req = new HttpRequestMessage(HttpMethod.Post, ChatEndpoint)
+                    var req = new HttpRequestMessage(HttpMethod.Post, BuildRequestUri(ChatEndpoint))
                     {
                         Content = new ByteArrayContent(requestBodyBytes)
                     };
@@ -1340,7 +1357,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             }
 
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, ChatEndpoint)
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, BuildRequestUri(ChatEndpoint))
             {
                 Content = JsonContent.Create(request, options: new JsonSerializerOptions
                 {
@@ -1452,7 +1469,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 ApplyReasoningOptions(request, ResolveReasoningCapability(request.Model), thinkingEnabled: false, effort: null);
                 ApplyEndpointShaping(request, ResolveReasoningCapability(request.Model), isStreaming: false);
 
-                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, ChatEndpoint)
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, BuildRequestUri(ChatEndpoint))
                 {
                     Content = JsonContent.Create(request, options: new JsonSerializerOptions
                     {
@@ -1550,7 +1567,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return null;
 
                 // 相对路径不带前导 /（见 NormalizeBaseUrl 说明），否则丢失 BaseAddress 路径段
-                using var httpRequest = new HttpRequestMessage(HttpMethod.Get, "user/balance");
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Get, BuildRequestUri("user/balance"));
                 httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
                 using var response = await _httpClient.SendAsync(httpRequest);

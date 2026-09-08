@@ -1389,29 +1389,34 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             if (_apiService != null && ModelComboBox.SelectedItem is ModelListItem item)
             {
-                _apiService.UpdateModel(item.Model);
-
                 // ── 回写到选项页并持久化，确保 Tools→Options 和重启后生效 ──
                 if (_options != null)
                 {
                     // 按条目来源路由：官方条目 → SelectedModel + official 来源；
-                    // 自定义条目 → CustomModelName + custom 来源。
+                    // 自定义条目 → ActiveCustomModel + custom 来源，不改动模型列表。
                     bool isCustomEntry = item.Source == ModelListItem.EntrySource.Custom;
                     var targetSource = isCustomEntry ? "custom" : "official";
-                    var currentModel = isCustomEntry ? _options.CustomModelName : _options.SelectedModel;
+                    var currentModel = isCustomEntry ? _options.ActiveCustomModel : _options.SelectedModel;
 
                     bool sourceChanged = !string.Equals(_options.ActiveModelSource, targetSource, StringComparison.Ordinal);
                     bool modelChanged = !string.Equals(currentModel, item.Model, StringComparison.Ordinal);
                     if (sourceChanged || modelChanged)
                     {
                         if (isCustomEntry)
-                            _options.CustomModelName = item.Model;
+                            _options.ActiveCustomModel = item.Model;
                         else
                             _options.SelectedModel = item.Model;
                         _options.ActiveModelSource = targetSource;
                         try { _options.SaveSettingsToStorage(); } catch { /* 非关键路径 */ }
                         UnifiedSettingsSync.PushFromPage(_options);
                     }
+
+                    // 下拉框切换不只是换模型名：来源切换时必须同步 Base URL 和 API Key。
+                    var config = DeepSeekEndpointResolver.Resolve(_options);
+                    _apiService.UpdateApiKey(config.ApiKey);
+                    _apiService.UpdateBaseUrl(config.BaseUrl);
+                    _apiService.UpdateModel(config.Model);
+                    Logger.Info($"模型端点切换为: source={targetSource}, baseUrl={_apiService.BaseUrl}, model={config.Model}");
                 }
                 Logger.Info($"模型切换为: {item.Display}");
             }

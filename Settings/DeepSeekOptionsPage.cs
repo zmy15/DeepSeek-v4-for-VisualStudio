@@ -3,8 +3,10 @@ using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Shell;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing.Design;
+using System.Linq;
 
 namespace DeepSeek_v4_for_VisualStudio.Settings
 {
@@ -66,6 +68,56 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         /// 全局实例引用，在 Package 初始化时设置，方便静态工具类读取设置。
         /// </summary>
         public static DeepSeekOptionsPage? Instance { get; set; }
+
+        /// <summary>解析自定义模型列表，保留输入顺序并去重（忽略大小写与首尾空白）。</summary>
+        internal static IReadOnlyList<string> ParseCustomModels(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return Array.Empty<string>();
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var models = new List<string>();
+            foreach (var part in value.Split(
+                new[] { '\r', '\n', ';', '；', ',', '，' },
+                StringSplitOptions.RemoveEmptyEntries))
+            {
+                var model = part.Trim();
+                if (model.Length == 0 || !seen.Add(model))
+                    continue;
+                models.Add(model);
+            }
+
+            return models;
+        }
+
+        internal IReadOnlyList<string> GetCustomModels()
+            => ParseCustomModels(CustomModelName);
+
+        /// <summary>返回当前应请求的自定义模型；激活项失效时回退列表第一项。</summary>
+        internal string GetActiveCustomModel()
+        {
+            var models = GetCustomModels();
+            var active = ActiveCustomModel?.Trim() ?? string.Empty;
+            if (active.Length > 0)
+            {
+                var match = models.FirstOrDefault(model =>
+                    string.Equals(model, active, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+
+            return models.FirstOrDefault() ?? string.Empty;
+        }
+
+        /// <summary>归一化并写入模型列表；激活模型保留在列表中，否则回退到第一项。</summary>
+        internal void SetCustomModels(IEnumerable<string> models)
+        {
+            var modelList = models?.Where(model => !string.IsNullOrWhiteSpace(model))
+                .Select(model => model.Trim())
+                .ToArray() ?? Array.Empty<string>();
+            CustomModelName = string.Join(Environment.NewLine, modelList);
+            ActiveCustomModel = GetActiveCustomModel();
+        }
 
         /// <summary>
         /// VS 在用户应用设置更改时调用此方法。
@@ -324,15 +376,31 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         public string ApiBaseUrl { get; set; } = string.Empty;
 
         /// <summary>
-        /// 自定义端点的模型名称；可点击 … 按钮自动获取模型列表。
-        /// 留空时回退使用 DeepSeek 模型选择（部分中转接受 DeepSeek 模型名）。
+        /// 自定义端点可用的模型列表；支持换行、英文分号/逗号和中文分号/逗号分隔。
         /// </summary>
         [LocalizedCategory("settings.category.custom")]
         [LocalizedDisplayName("settings.customModelName.displayName")]
         [LocalizedDescription("settings.customModelName.description")]
-        [Editor(typeof(ModelPickerEditor), typeof(UITypeEditor))]
+        [Editor(typeof(System.ComponentModel.Design.MultilineStringEditor), typeof(UITypeEditor))]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
         public string CustomModelName { get; set; } = string.Empty;
+
+        /// <summary>自定义模型列表中的当前激活模型；聊天窗口选择自定义条目时更新。</summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public string ActiveCustomModel { get; set; } = string.Empty;
+
+        /// <summary>属性网格中的“从自定义端点添加模型”入口；不持久化自身值。</summary>
+        [LocalizedCategory("settings.category.custom")]
+        [LocalizedDisplayName("settings.customModelPicker.displayName")]
+        [LocalizedDescription("settings.customModelPicker.description")]
+        [Editor(typeof(ModelPickerEditor), typeof(UITypeEditor))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public string CustomModelPicker
+        {
+            get => string.Empty;
+            set { /* 值由 ModelPickerEditor 写入模型列表。 */ }
+        }
 
         [LocalizedCategory("settings.category.api")]
         [LocalizedDisplayName("settings.systemPrompt.displayName")]
