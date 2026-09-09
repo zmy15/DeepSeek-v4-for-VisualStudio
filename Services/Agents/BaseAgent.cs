@@ -636,6 +636,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             List<ChatApiMessage>? forwarded = Context?.ForwardedMessages;
             if (forwarded != null && forwarded.Count > 0)
             {
+                Context!.ConsumedForwardedMessages = forwarded;
                 Context!.ForwardedMessages = null; // 消费后清空，防止下次误用
                 var result = new List<ChatApiMessage>(forwarded);
 
@@ -2945,6 +2946,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static bool IsInteractiveTool(string toolName)
         {
             return toolName is "run_in_terminal"
+                or "get_terminal_output"
                 or "delete_file"
                 or "VisualStudio_askQuestions"
                 or "replace_string_in_file"

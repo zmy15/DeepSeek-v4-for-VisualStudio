@@ -1484,7 +1484,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 构建事件接收器，实现 IVsUpdateSolutionEvents2 以监听构建开始/完成/取消/项目配置。
         /// 所有回调方法必须快速返回，避免阻塞事件流。
         /// </summary>
-        private sealed class BuildEventsSink : IVsUpdateSolutionEvents2, IDisposable
+        internal sealed class BuildEventsSink : IVsUpdateSolutionEvents2, IDisposable
         {
             private readonly TaskCompletionSource<bool> _tcs = new();
             private CancellationTokenRegistration _ctRegistration;
@@ -1524,6 +1524,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             }
 
+            /// <summary>
+            /// 获取解决方案级结果。成功/失败计数使用项目级事件聚合，
+            /// 避免 VS 的解决方案级布尔结果被误报成“1 个项目通过”。
+            /// </summary>
             public void GetBuildResult(out int succeeded, out int failed, out int cancelled)
             {
                 succeeded = _succeeded;
@@ -1554,8 +1558,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 Volatile.Write(ref _completed, true);
                 Logger.Info($"[BuildEvents]  UpdateSolution_Done: Succeeded={fSucceeded}, Modified={fModified}, Cancelled={fCancelCommand}, Projects={_projectCount} (ok={_projectSucceeded}, fail={_projectFailed}), Elapsed={_sw.Elapsed.TotalSeconds:F1}s");
                 if (fCancelCommand != 0) _cancelled = 1;
-                else if (fSucceeded != 0) _succeeded = 1;
-                else _failed = 1;
+                else if (fSucceeded != 0)
+                {
+                    // fSucceeded 是解决方案级布尔标志；项目数来自 IVsUpdateSolutionEvents2。
+                    // 若宿主只触发基础事件，则至少表示 1 个成功项。
+                    _succeeded = _projectSucceeded > 0 ? _projectSucceeded : 1;
+                }
+                else
+                {
+                    _failed = _projectFailed > 0 ? _projectFailed : 1;
+                }
                 _tcs.TrySetResult(true);
                 return VSConstants.S_OK;
             }

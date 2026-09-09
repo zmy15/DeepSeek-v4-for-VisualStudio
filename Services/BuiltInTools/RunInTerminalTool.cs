@@ -3,9 +3,11 @@ using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Shell;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -38,6 +40,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
     {
         /// <summary>同步模式最大等待时间（防止进程僵死导致 Agent 永久卡住）</summary>
         private static readonly TimeSpan SyncTimeout = TimeSpan.FromMinutes(10);
+
+        /// <summary>
+        /// 异步终端作业注册表。get_terminal_output 只等待该 CompletionSource，
+        /// 不需要通过“稍后重试”的方式轮询。
+        /// </summary>
+        internal static readonly ConcurrentDictionary<string, TerminalProcessJob> AsyncJobs =
+            new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// 当前调用 Agent 类型（由 BaseAgent 在执行前设置，用于运行时权限校验）。
@@ -664,27 +673,52 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 if (isAsync)
                 {
                     string pid = process.Id.ToString();
-                    // ── P2：异步模式必须排空输出管道，否则子进程悬挂 ──
-                    // RedirectStandardOutput/Error = true 但无人读取时，子进程输出超过
-                    // OS 管道缓冲（~4KB）即阻塞在 write 上、永不退出 →
-                    // WaitForExit 悬挂 + 进程泄漏。BeginOutputReadLine/BeginErrorReadLine
-                    // 持续排空管道（回调丢弃输出），保证子进程能自然退出。
-                    // 注：async 输出的获取入口是 get_terminal_output 工具（当前为占位提示），
-                    // 此处仅做排水，不缓冲内容。
-                    process.OutputDataReceived += (_, _) => { };
-                    process.ErrorDataReceived += (_, _) => { };
-                    process.BeginOutputReadLine();
-                    process.BeginErrorReadLine();
+                    var job = new TerminalProcessJob(pid, command);
+                    AsyncJobs[pid] = job;
 
-                    // 不等待进程退出，直接返回。进程由 OS 管理，VS 退出时自动清理。
-                    // 注意：不能 using/dispose process，因为 fire-and-forget 任务还需要它。
-                    _ = Task.Run(() =>
+                    // 并发排空 stdout/stderr，同时把 WaitForExit 放到后台 Task。
+                    // 这两者共同构成一个 TaskCompletionSource；get_terminal_output 只
+                    // await 这个 source，避免把“轮询”成本转嫁给模型。
+                    var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                    var stderrTask = process.StandardError.ReadToEndAsync();
+                    var processTask = Task.Run(() =>
                     {
-                        try { process.WaitForExit(); }
-                        catch { }
-                        finally { process.Dispose(); }
+                        process.WaitForExit();
+                        return process.ExitCode;
                     });
-                    return warningPrefix + LocalizationService.Instance.Format("tool.runTerminal.started", pid, command);
+
+                    _ = Task.Run(async () =>
+                    {
+                        bool timedOut = false;
+                        try
+                        {
+                            var completed = await Task.WhenAny(processTask, Task.Delay(SyncTimeout))
+                                .ConfigureAwait(false);
+                            timedOut = completed != processTask;
+                            if (timedOut)
+                            {
+                                try { process.Kill(); } catch { }
+                            }
+
+                            await Task.WhenAll(processTask, stdoutTask, stderrTask)
+                                .ConfigureAwait(false);
+
+                            job.TrySetResult(new TerminalProcessResult(
+                                processTask.Result,
+                                stdoutTask.Result,
+                                stderrTask.Result,
+                                timedOut));
+                        }
+                        catch (Exception ex)
+                        {
+                            job.TrySetException(ex);
+                        }
+                    });
+
+                    return warningPrefix
+                        + LocalizationService.Instance.Format("tool.runTerminal.started", pid, command)
+                        + "\n"
+                        + LocalizationService.Instance["tool.runTerminal.getOutputOnce"];
                 }
                 else
                 {
@@ -749,6 +783,50 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             {
                 return LocalizationService.Instance.Format("tool.runTerminal.failed", ex.Message);
             }
+        }
+
+        /// <summary>
+        /// 终端命令的最终结果。异步模式在命令退出（或超时被终止）后填充。
+        /// </summary>
+        internal sealed class TerminalProcessResult
+        {
+            public TerminalProcessResult(int exitCode, string stdout, string stderr, bool timedOut)
+            {
+                ExitCode = exitCode;
+                Stdout = stdout;
+                Stderr = stderr;
+                TimedOut = timedOut;
+            }
+
+            public int ExitCode { get; }
+            public string Stdout { get; }
+            public string Stderr { get; }
+            public bool TimedOut { get; }
+        }
+
+        /// <summary>
+        /// 异步终端作业。一次 run_in_terminal 对应一次 get_terminal_output，
+        /// 后者直接 await 完成事件，不向模型返回“稍后重试”。
+        /// </summary>
+        internal sealed class TerminalProcessJob
+        {
+            private readonly TaskCompletionSource<TerminalProcessResult> _completion =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public TerminalProcessJob(string id, string command)
+            {
+                Id = id;
+                Command = command;
+                StartedAt = DateTimeOffset.Now;
+            }
+
+            public string Id { get; }
+            public string Command { get; }
+            public DateTimeOffset StartedAt { get; }
+            public Task<TerminalProcessResult> Completion => _completion.Task;
+
+            public bool TrySetResult(TerminalProcessResult result) => _completion.TrySetResult(result);
+            public bool TrySetException(Exception exception) => _completion.TrySetException(exception);
         }
 
         /// <summary>
