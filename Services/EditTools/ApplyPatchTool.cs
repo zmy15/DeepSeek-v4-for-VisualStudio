@@ -652,6 +652,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             if (closingEntries.Count == 0)
                 return;
 
+            // A segment that contains only closing tokens is likely an intentional
+            // structural brace (for example, closing a method before the class brace).
+            // Only strip a duplicate when it trails substantive inserted code.
+            if (segment.InsLines
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .All(IsClosingToken))
+                return;
+
             // ── 与原始文件后置上下文逐行对比 ──
             int removeCount = 0;
             for (int j = 0; j < closingEntries.Count && (postChangeStart + j) < fileLines.Length; j++)
