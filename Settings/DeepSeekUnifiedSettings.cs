@@ -85,6 +85,19 @@ namespace DeepSeek_v4_for_VisualStudio
                 SearchKeywords = new[] { "model", "custom", "模型", "自定义" },
             };
 
+        /// <summary>
+        /// 标记为多模态（视觉）的自定义模型列表，为 CustomModelName 的子集；
+        /// 分隔符语义与 CustomModelName 一致（换行/分号/逗号），由
+        /// DeepSeekEndpointResolver 在自定义端点模式下判断激活模型是否具备视觉能力。
+        /// </summary>
+        [VisualStudioContribution]
+        internal static Setting.String CustomVisionModels { get; } =
+            new("deepseekCustomVisionModels", "%DeepSeek.Chat.settings.customVisionModels.displayName%", GeneralCategory, defaultValue: string.Empty)
+            {
+                Description = "%DeepSeek.Chat.settings.customVisionModels.description%",
+                SearchKeywords = new[] { "vision", "multimodal", "image", "视觉", "多模态" },
+            };
+
         [VisualStudioContribution]
         internal static Setting.Enum ActiveModelSource { get; } =
             new(

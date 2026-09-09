@@ -1411,11 +1411,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         UnifiedSettingsSync.PushFromPage(_options);
                     }
 
-                    // 下拉框切换不只是换模型名：来源切换时必须同步 Base URL 和 API Key。
+                    // 下拉框切换不只是换模型名：来源切换时必须同步 Base URL、API Key 与视觉标记。
                     var config = DeepSeekEndpointResolver.Resolve(_options);
-                    _apiService.UpdateApiKey(config.ApiKey);
-                    _apiService.UpdateBaseUrl(config.BaseUrl);
-                    _apiService.UpdateModel(config.Model);
+                    _apiService.UpdateEndpoint(config);
+
+                    // 模型/来源切换影响 capture_window 等工具可见性 → 使 Agent 完整工具集缓存失效
+                    _agentFactory?.InvalidateFullToolSetCache();
                     Logger.Info($"模型端点切换为: source={targetSource}, baseUrl={_apiService.BaseUrl}, model={config.Model}");
                 }
                 Logger.Info($"模型切换为: {item.Display}");

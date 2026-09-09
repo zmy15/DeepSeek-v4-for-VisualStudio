@@ -202,7 +202,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return true;
 
             return _apiService == null ||
-                DeepSeekModelCatalog.IsVisionModel(_apiService.CurrentModel);
+                _apiService.CurrentIsVision;
         }
 
         /// <summary>

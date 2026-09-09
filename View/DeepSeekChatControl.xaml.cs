@@ -1244,9 +1244,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 }
             }
 
-            // 同步更新 API 服务的模型（含自定义模型覆盖）
+            // 同步更新 API 服务端点配置（含自定义模型覆盖；Key/BaseUrl/视觉标记顺带与 Resolver 保持一致）
             if (_apiService != null)
-                _apiService.UpdateModel(GetEffectiveModel());
+            {
+                _apiService.UpdateEndpoint(config);
+
+                // 模型/来源刷新影响 capture_window 等工具可见性 → 使 Agent 完整工具集缓存失效
+                _agentFactory?.InvalidateFullToolSetCache();
+            }
         }
 
         /// <summary>

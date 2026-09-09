@@ -67,6 +67,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>当前使用的 API 端点 Base URL</summary>
         string BaseUrl { get; }
 
+        /// <summary>当前模型是否具备多模态（视觉）能力，由端点解析器权威赋值（官方模式查官方目录，自定义模式查用户手动标记的视觉名单）</summary>
+        bool CurrentIsVision { get; }
+
+        /// <summary>当前是否为自定义端点（resolver 权威值，区别于 IsDeepSeekEndpoint 的 URL 推断）</summary>
+        bool CurrentIsCustom { get; }
+
+        /// <summary>运行时一次性应用端点配置（Key/BaseUrl/Model/IsCustom/IsVision），替代 UpdateApiKey + UpdateBaseUrl + UpdateModel 三连调用</summary>
+        void UpdateEndpoint(DeepSeekEndpointConfig config);
+
         /// <summary>流式聊天调用</summary>
         /// <param name="toolChoice">工具调用策略: "auto"(默认), "none"(禁用), "required"(强制). null 表示仅在有 tools 时启用 auto</param>
         /// <param name="temperature">采样温度 (0.0 ~ 2.0)。null 表示不设置（使用 API 默认值）</param>

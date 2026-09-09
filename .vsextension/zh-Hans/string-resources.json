@@ -29,6 +29,8 @@
   "DeepSeek.Chat.settings.compressionThreshold.displayName": "压缩触发阈值 (%)",
   "DeepSeek.Chat.settings.customModelName.description": "自定义端点的模型名称，可点击 … 按钮自动获取模型列表；留空时回退使用 DeepSeek 模型选择。",
   "DeepSeek.Chat.settings.customModelName.displayName": "自定义模型名称",
+  "DeepSeek.Chat.settings.customVisionModels.description": "支持图片/PDF 输入（多模态）的自定义模型。仅列表中的模型会直传图片。须为自定义模型列表的子集，支持换行、分号或逗号分隔。",
+  "DeepSeek.Chat.settings.customVisionModels.displayName": "视觉模型",
   "DeepSeek.Chat.settings.enableAutoBuild.description": "Edit Agent 完成代码修改后，是否自动调用 Build Agent 编译验证。关闭后，编译步骤将显示为按钮由您手动触发。您也可以在提问中使用「不要编译」「跳过构建」等短语临时跳过构建。默认开启。",
   "DeepSeek.Chat.settings.enableAutoBuild.displayName": "代码修改后自动编译",
   "DeepSeek.Chat.settings.enableAutoCompression.description": "当上下文接近 Token 预算时，自动将早期对话压缩为摘要，\n而非直接删除旧消息。关闭后回退到旧的截断行为。",

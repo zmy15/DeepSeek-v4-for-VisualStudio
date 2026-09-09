@@ -1357,7 +1357,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             var (cleanText, imageUrls) = WebSearchService.ParseWebImagesBlock(toolResult);
                             resultText = cleanText;
                             if (imageUrls.Count > 0
-                                && DeepSeekModelCatalog.IsVisionModel(_apiService.CurrentModel))
+                                && _apiService.CurrentIsVision)
                             {
                                 // ── 过滤视觉模型不支持的图片格式（如 SVG），避免直传导致 HTTP 400 ──
                                 webImageUrls = WebSearchService.FilterVisionImageUrls(imageUrls);
@@ -1368,7 +1368,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             var (cleanText, imageUris) = CaptureWindowTool.ParseImageBlock(toolResult);
                             resultText = cleanText;
                             if (imageUris.Count > 0
-                                && DeepSeekModelCatalog.IsVisionModel(_apiService.CurrentModel))
+                                && _apiService.CurrentIsVision)
                             {
                                 webImageUrls = imageUris;
                             }

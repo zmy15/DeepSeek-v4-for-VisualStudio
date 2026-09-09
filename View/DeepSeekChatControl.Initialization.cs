@@ -47,7 +47,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             _apiService?.Dispose();
             _apiService = new DeepSeekApiService(config.ApiKey, config.Model,
-                baseUrl: config.BaseUrl);
+                baseUrl: config.BaseUrl,
+                isVision: config.IsVision, isCustom: config.IsCustom);
             _apiService.ConfigureThinking(_options.IsThinkingEnabled, _options.ReasoningEffort);
 
             // ── 注入前缀缓存管理器（修复：直接 new 的 ApiService 缺少 DI 注入的 PrefixCache）──
@@ -245,13 +246,14 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (_apiService == null || _options == null) return;
 
                 var config = DeepSeekEndpointResolver.Resolve(_options);
-                _apiService.UpdateApiKey(config.ApiKey);
-                _apiService.UpdateBaseUrl(config.BaseUrl);
 
                 // Settings events are authoritative. Reading UI controls here caused
                 // Unified Settings changes to be overwritten with stale chat-window state.
-                if (!string.IsNullOrWhiteSpace(config.Model))
-                    _apiService.UpdateModel(config.Model);
+                // config（含 IsVision）为 resolver 权威输出，一次性同步 Key/BaseUrl/Model/IsCustom/IsVision。
+                _apiService.UpdateEndpoint(config);
+
+                // 视觉标记/模型切换影响 capture_window 等工具可见性 → 使 Agent 完整工具集缓存失效
+                _agentFactory?.InvalidateFullToolSetCache();
 
                 var thinking = _options.IsThinkingEnabled;
                 var effort = _options.ReasoningEffort ?? "high";

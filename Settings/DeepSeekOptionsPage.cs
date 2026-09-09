@@ -93,6 +93,10 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         internal IReadOnlyList<string> GetCustomModels()
             => ParseCustomModels(CustomModelName);
 
+        /// <summary>解析用户手动标记的多模态模型名单（CustomModelName 的子集，不强制校验）。</summary>
+        internal IReadOnlyList<string> GetCustomVisionModels()
+            => ParseCustomModels(CustomVisionModels);
+
         /// <summary>返回当前应请求的自定义模型；激活项失效时回退列表第一项。</summary>
         internal string GetActiveCustomModel()
         {
@@ -384,6 +388,17 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [Editor(typeof(System.ComponentModel.Design.MultilineStringEditor), typeof(UITypeEditor))]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
         public string CustomModelName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 自定义端点中支持图片/PDF 直传（多模态）的模型子集；
+        /// 分隔符与 CustomModelName 一致，未列出的自定义模型一律按纯文本处理。
+        /// </summary>
+        [LocalizedCategory("settings.category.custom")]
+        [LocalizedDisplayName("settings.customVisionModels.displayName")]
+        [LocalizedDescription("settings.customVisionModels.description")]
+        [Editor(typeof(System.ComponentModel.Design.MultilineStringEditor), typeof(UITypeEditor))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
+        public string CustomVisionModels { get; set; } = string.Empty;
 
         /// <summary>自定义模型列表中的当前激活模型；聊天窗口选择自定义条目时更新。</summary>
         [Browsable(false)]

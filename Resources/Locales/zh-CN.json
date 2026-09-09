@@ -112,6 +112,8 @@
     "settings.apiBaseUrl.description": "填写后启用自定义端点模式 (OpenAI chat/completions 兼容)，使用本分类下的密钥与模型名称。留空使用 DeepSeek 官方服务。",
     "settings.customModelName.displayName": "自定义模型列表",
     "settings.customModelName.description": "自定义端点可用的模型，支持换行、分号或逗号分隔。多个模型会显示在聊天窗口模型下拉框中。",
+    "settings.customVisionModels.displayName": "视觉模型",
+    "settings.customVisionModels.description": "支持图片/PDF 输入（多模态）的自定义模型。仅列表中的模型会直传图片。须为自定义模型列表的子集，支持换行、分号或逗号分隔。",
     "settings.customModelPicker.displayName": "从端点添加模型",
     "settings.customModelPicker.description": "从自定义端点获取模型列表并追加到自定义模型列表，可选择多个模型。",
     "settings.systemPrompt.displayName": "系统提示词",

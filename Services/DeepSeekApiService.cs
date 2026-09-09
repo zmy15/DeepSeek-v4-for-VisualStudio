@@ -286,9 +286,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Interlocked.Add(ref _totalFimCompletionTokens, usage.CompletionTokens);
         }
 
-        public DeepSeekApiService(string apiKey, string model = "deepseek-v4-pro", int? requestTimeoutSeconds = null, string? baseUrl = null)
+        public DeepSeekApiService(string apiKey, string model = "deepseek-v4-pro",
+            int? requestTimeoutSeconds = null, string? baseUrl = null,
+            bool isVision = false, bool isCustom = false)
         {
             _model = model;
+            CurrentIsVision = isVision;
+            CurrentIsCustom = isCustom;
             _baseUrl = NormalizeBaseUrl(baseUrl);
 
             // ── 确保全局 ServicePoint 配置仅初始化一次 ──
@@ -335,9 +339,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 测试用构造函数 — 接受外部 HttpClient（用于 Mock HTTP 处理程序）。
         /// </summary>
-        public DeepSeekApiService(HttpClient httpClient, string model = "deepseek-v4-pro", string? baseUrl = null)
+        public DeepSeekApiService(HttpClient httpClient, string model = "deepseek-v4-pro",
+            string? baseUrl = null, bool isVision = false, bool isCustom = false)
         {
             _model = model;
+            CurrentIsVision = isVision;
+            CurrentIsCustom = isCustom;
             _baseUrl = NormalizeBaseUrl(baseUrl);
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             if (_httpClient.BaseAddress == null)
@@ -403,6 +410,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         public void UpdateModel(string model) => _model = model;
+
+        /// <summary>
+        /// 运行时一次性应用端点配置（Key/BaseUrl/Model/IsCustom/IsVision）。
+        /// 替代 UpdateApiKey + UpdateBaseUrl + UpdateModel 三连调用，并同步能力标志。
+        /// </summary>
+        public void UpdateEndpoint(DeepSeekEndpointConfig config)
+        {
+            UpdateApiKey(config.ApiKey);
+            UpdateBaseUrl(config.BaseUrl);
+            UpdateModel(config.Model);
+            CurrentIsCustom = config.IsCustom;
+            CurrentIsVision = config.IsVision;
+            Logger.Info($"[API] 端点配置已更新: model={config.Model}, isCustom={config.IsCustom}, isVision={config.IsVision}");
+        }
 
         /// <summary>
         /// 获取当前生效的 reasoning 能力配置。
@@ -524,6 +545,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>当前使用的模型标识（用于视觉模型等能力分支判断）。</summary>
         public string CurrentModel => _model;
+
+        /// <summary>当前模型是否具备多模态（视觉）能力，由端点解析器权威赋值。</summary>
+        public bool CurrentIsVision { get; private set; }
+
+        /// <summary>当前是否为自定义端点（resolver 权威值，区别于 IsDeepSeekEndpoint 的 URL 推断）。</summary>
+        public bool CurrentIsCustom { get; private set; }
 
         public void ConfigureThinking(bool enabled, string effort = "high")
         {
@@ -1442,6 +1469,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>
         /// 解析 FIM 补全实际发送的模型名。
         /// deepseek-v4-flash-vision-exp 不支持 FIM 补全，回退到 deepseek-v4-flash。
+        /// 注意：自定义端点模型无需在此回退 —— FIM 是 DeepSeek 专有端点，
+        /// FimCompletionAsync 入口已被 !IsDeepSeekEndpoint 守卫，自定义模型不可达此逻辑。
         /// </summary>
         private string ResolveFimModel()
             => DeepSeekModelCatalog.IsVisionModel(_model)

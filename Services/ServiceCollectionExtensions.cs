@@ -21,7 +21,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 var config = DeepSeekEndpointResolver.Resolve(options);
                 var service = new DeepSeekApiService(config.ApiKey, config.Model,
                     requestTimeoutSeconds: options?.LlmTimeoutSeconds,
-                    baseUrl: config.BaseUrl);
+                    baseUrl: config.BaseUrl,
+                    isVision: config.IsVision, isCustom: config.IsCustom);
 
                 // 配置思考模式
                 if (options != null)
