@@ -33,6 +33,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 "messages:" + EscapeJsString(L["chat.html.context.messages"]) +
                 "," +
                 "toolCalls:" + EscapeJsString(L["chat.html.context.toolCalls"]) +
+                ",forwarded:" + EscapeJsString(L["chat.html.context.forwarded"]) +
+                ",requestEstimate:" + EscapeJsString(L["chat.html.context.requestEstimate"]) +
                 "};";
         }
 
@@ -544,6 +546,19 @@ window._showCopyFeedback=function(msgIndex){
             rows.push((t.turns||'Turns')+' : '+(d.turns||0)
                 +'    '+(t.messages||'Messages')+' : '+(d.messages||0)
                 +'    '+(t.toolCalls||'Tool Calls')+' : '+(d.toolCalls||0));
+            if(d.forwarded){
+                rows.push((t.forwarded||'Forwarded')+' : '+(d.forwarded.messages||0)
+                    +'    '+(t.toolCalls||'Tool Calls')+' : '+(d.forwarded.toolCalls||0)
+                    +'    ~'+((d.forwarded.estimatedTokens||0)/1000).toFixed(1)+'k '+(t.tokens||'Tokens'));
+            }
+            if(d.forwarded){
+                var totalMessages=(d.messages||0)+(d.forwarded.messages||0);
+                var totalToolCalls=(d.toolCalls||0)+(d.forwarded.toolCalls||0);
+                var totalTokens=(tk.estimated||0)+(d.forwarded.estimatedTokens||0);
+                rows.push((t.requestEstimate||'Request Estimate')+' : '+totalMessages.toLocaleString()
+                    +'    '+(t.messages||'Messages')+'    '+totalToolCalls.toLocaleString()
+                    +'    '+(t.toolCalls||'Tool Calls')+'    ~'+(totalTokens/1000).toFixed(1)+'k '+(t.tokens||'Tokens'));
+            }
             var body=document.getElementById('ctx-debug-body');
             if(body)body.textContent=rows.join('\n');
         }catch(err){ console.error('[DeepSeek] ctxDebug render:',err); }

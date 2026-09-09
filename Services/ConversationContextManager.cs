@@ -161,6 +161,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Logger.Info($"[ContextManager]  缓存边界快照已保存: entryIndex={_cacheSnapshotEntryIndex}, dynamicBlock={(_cachedDynamicBlock?.Length ?? 0)}chars");
         }
 
+        /// <summary>
+        /// 消费并清空缓存边界快照。
+        /// 多步骤 Agent 在执行后续步骤前必须回到完整上下文；
+        /// 否则 assistant/tool 历史会被 Handoff 边界意外排除。
+        /// </summary>
+        public void ClearCacheSnapshot()
+        {
+            if (!_cacheSnapshotEntryIndex.HasValue && _cachedDynamicBlock == null)
+                return;
+
+            Logger.Info($"[ContextManager]  缓存边界快照已清除: was at entry {_cacheSnapshotEntryIndex}");
+            _cacheSnapshotEntryIndex = null;
+            _cachedDynamicBlock = null;
+        }
+
         /// <summary>获取当前对话轮次数（一个 user 消息 = 一轮）</summary>
         public int TurnCount => _entries.Count(e => e.Role == "user");
 
@@ -1168,6 +1183,34 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
             // 1 中文 ≈ 0.6 token, 1 英文/数字 ≈ 0.3 token
             return (int)(chineseChars * 0.6 + otherChars * 0.3) + 1;
+        }
+
+        /// <summary>
+        /// 估算消息列表的 Token 数。与持久化统计不同，这里包含
+        /// tool_calls 的函数名和参数，适用于 Handoff 转发快照。
+        /// </summary>
+        public static int EstimateMessageTokens(IEnumerable<ChatApiMessage>? messages)
+        {
+            if (messages == null) return 0;
+
+            int tokens = 0;
+            foreach (var message in messages)
+            {
+                if (message == null) continue;
+
+                tokens += EstimateTokens(message.Content);
+                tokens += EstimateMultimodalTokens(message.MultimodalContent);
+                tokens += EstimateTokens(message.ReasoningContent);
+                if (message.ToolCalls == null) continue;
+
+                foreach (var toolCall in message.ToolCalls)
+                {
+                    tokens += EstimateTokens(toolCall.Function?.Name);
+                    tokens += EstimateTokens(toolCall.Function?.Arguments);
+                }
+            }
+
+            return tokens;
         }
 
         private static int EstimateMultimodalTokens(List<ChatContentPart>? parts)

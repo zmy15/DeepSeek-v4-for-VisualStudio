@@ -29,6 +29,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
     {
         private ExploreAgent? _exploreAgent;
 
+        /// <summary>计划步骤的目标数量。复杂任务围绕这个规模组织，避免过度拆分。</summary>
+        internal const int PreferredPlanStepCount = 5;
+
+        /// <summary>计划步骤的硬性上限。即使模型输出更多步骤，也会合并到该数量以内。</summary>
+        internal const int MaxPlanStepCount = 8;
+
         /// <summary>
         /// ExploreAgent 引用，由 AgentFactory 注入。
         /// 用于在发现阶段并行探索代码库。
@@ -94,6 +100,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         private static string BuildSystemPrompt()
         {
             return LocalizationService.Instance["agent.plan.systemPromptFragment"]
+                + "\n\n" + LocalizationService.Instance["agent.plan.stepLimitRule"]
                 + AiPrompts.PlanAgentMcpFragment;
         }
 
@@ -180,6 +187,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             var extractedSteps = ExtractStepsFromPlanMarkdown(planMarkdown);
                             if (extractedSteps.Count > 1)
                             {
+                                extractedSteps = NormalizePlanStepLimit(new AgentTaskPlan
+                                {
+                                    Steps = extractedSteps,
+                                }).Steps;
                                 plan.Steps = extractedSteps;
                                 plan.Title = plan.Title ?? extractedSteps.FirstOrDefault()?.Title ?? plan.Title ?? "";
                                 AddLog("INFO", string.Format(L["agent.log.planStepsExtractedFromMd"],
@@ -728,6 +739,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                 if (plan != null && plan.Steps.Count > 0)
                 {
+                    plan = NormalizePlanStepLimit(plan);
                     plan.Intent = AgentIntent.CodeChange;
                     return (plan, messages);
                 }
@@ -741,6 +753,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         plan.Steps = extractedSteps;
                         plan.Title = plan.Title ?? extractedSteps[0].Title;
+                        plan = NormalizePlanStepLimit(plan);
                         plan.Intent = AgentIntent.CodeChange;
                         AddLog("INFO", $"[Plan] Extracted {extractedSteps.Count} steps from raw AI text (JSON steps were empty).");
                         return (plan, messages);
@@ -763,17 +776,54 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (fallbackSteps.Count > 0)
                 {
                     AddLog("INFO", $"[Plan] Extracted {fallbackSteps.Count} steps from raw AI text after JSON parse failure.");
-                    return (new AgentTaskPlan
+                    var fallbackPlan = new AgentTaskPlan
                     {
                         Intent = AgentIntent.CodeChange,
                         Title = fallbackSteps[0].Title,
                         Steps = fallbackSteps,
-                    }, messages);
+                    };
+                    return (NormalizePlanStepLimit(fallbackPlan), messages);
                 }
             }
 
             // 回退：单步计划
             return (BuildFallbackPlan(userMessage), messages);
+        }
+
+        /// <summary>
+        /// 将模型生成的步骤数量收敛到硬性上限以内。
+        /// 合并而不是丢弃超出上限的步骤，避免遗漏待实现内容。
+        /// </summary>
+        internal static AgentTaskPlan NormalizePlanStepLimit(AgentTaskPlan? plan)
+        {
+            if (plan == null || plan.Steps.Count == 0)
+                return plan ?? new AgentTaskPlan();
+
+            if (plan.Steps.Count <= MaxPlanStepCount)
+            {
+                for (int i = 0; i < plan.Steps.Count; i++)
+                    plan.Steps[i].Index = i + 1;
+                return plan;
+            }
+
+            var keptSteps = plan.Steps.Take(MaxPlanStepCount - 1).ToList();
+            var overflowSteps = plan.Steps.Skip(MaxPlanStepCount - 1).ToList();
+            var overflowDescription = string.Join(
+                "\n\n",
+                overflowSteps.Select(step => $"#### {step.Title}\n{step.Description}"));
+            overflowDescription = overflowDescription.Truncate(12000);
+
+            keptSteps.Add(new AgentStep
+            {
+                Index = MaxPlanStepCount,
+                Title = LocalizationService.Instance["plan.steps.remainingTitle"],
+                Description = overflowDescription,
+                RequiresApproval = overflowSteps.Any(step => step.RequiresApproval),
+            });
+
+            plan.Steps = keptSteps;
+            NormalizePlanStepLimit(plan);
+            return plan;
         }
 
         /// <summary>
@@ -821,6 +871,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine(SB["plan.creation.instructions"]);
             sb.AppendLine(SB["plan.creation.instruction1"]);
             sb.AppendLine(SB["plan.creation.instruction2"]);
+            sb.AppendLine(SB["plan.creation.stepLimit"]);
             sb.AppendLine();
             sb.AppendLine(SB["plan.creation.instruction3"]);
             sb.AppendLine(SB["plan.creation.instruction4"]);

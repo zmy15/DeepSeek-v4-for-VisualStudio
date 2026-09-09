@@ -117,6 +117,38 @@ public class BuiltInToolServiceTests
         result.Should().Contain("Error:").And.Contain("capture_window");
     }
 
+    [Fact]
+    public void UpdateFileReadCache_StoresLatestContent()
+    {
+        var service = new BuiltInToolService();
+        var path = Path.Combine(Path.GetTempPath(), "agent-memory-test.cs");
+
+        service.UpdateFileReadCache(new[]
+        {
+            new KeyValuePair<string, string>(path, "latest content"),
+        });
+
+        service.GetFileReadCacheSnapshot()[path].Should().Be("latest content");
+    }
+
+    [Fact]
+    public void BuildEventsSink_CountsProjectLevelSuccesses()
+    {
+        var sink = new BuildService.BuildEventsSink();
+
+#pragma warning disable VSTHRD010 // 单元测试直接调用事件接收器，不访问真实 VS COM 对象
+        sink.UpdateSolution_ProjectUpdateDone(1, 0, 0, "Project A");
+        sink.UpdateSolution_ProjectUpdateDone(1, 0, 0, "Project B");
+        sink.UpdateSolution_Done(1, 0, 0);
+#pragma warning restore VSTHRD010
+
+        sink.GetBuildResult(out var succeeded, out var failed, out var cancelled);
+
+        succeeded.Should().Be(2);
+        failed.Should().Be(0);
+        cancelled.Should().Be(0);
+    }
+
     #endregion
 
     #region Static GetBuiltInToolDefinitions

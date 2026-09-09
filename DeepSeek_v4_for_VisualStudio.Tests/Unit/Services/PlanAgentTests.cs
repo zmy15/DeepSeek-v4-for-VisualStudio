@@ -117,6 +117,15 @@ public class PlanAgentTests
         agent.Definition.SystemPrompt.Should().Contain("Plan");
     }
 
+    [Fact]
+    public void Definition_SystemPrompt_ContainsStepLimit()
+    {
+        var agent = new PlanAgent(_apiService);
+
+        agent.Definition.SystemPrompt.Should().Contain("5");
+        agent.Definition.SystemPrompt.Should().Contain("8");
+    }
+
     #endregion
 
     #region ExploreAgent Property
@@ -414,11 +423,56 @@ public class PlanAgentTests
 
     // ──────────── Reflection helpers ────────────
 
+    #region Plan Step Limit
+
+    [Fact]
+    public void BuildPlanCreationPrompt_RequestsAboutFiveStepsAndLimitsToEight()
+    {
+        var prompt = BuildPlanCreationPromptPublic("Implement the feature", new AgentContext());
+
+        prompt.Should().Contain("5");
+        prompt.Should().Contain("8");
+    }
+
+    [Fact]
+    public void NormalizePlanStepLimit_MergesOverflowIntoEighthStep()
+    {
+        var plan = new AgentTaskPlan
+        {
+            Title = "Complex task",
+            Steps = Enumerable.Range(1, 10).Select(index => new AgentStep
+            {
+                Index = index,
+                Title = $"Step {index}",
+                Description = $"Detail {index}",
+                RequiresApproval = index == 9,
+            }).ToList(),
+        };
+
+        var normalized = PlanAgent.NormalizePlanStepLimit(plan);
+
+        normalized.Steps.Should().HaveCount(PlanAgent.MaxPlanStepCount);
+        normalized.Steps.Select(step => step.Index).Should().Equal(Enumerable.Range(1, PlanAgent.MaxPlanStepCount));
+        normalized.Steps.Take(7).Select(step => step.Title).Should().Equal(
+            new[] { "Step 1", "Step 2", "Step 3", "Step 4", "Step 5", "Step 6", "Step 7" });
+        normalized.Steps.Last().Description.Should().Contain("Detail 9").And.Contain("Detail 10");
+        normalized.Steps.Last().RequiresApproval.Should().BeTrue();
+    }
+
+    #endregion
+
     private static string BuildUnifiedDiscoveryPromptPublic(string userMessage, AgentContext context, string? structureCache)
     {
         var method = typeof(PlanAgent).GetMethod("BuildUnifiedDiscoveryPrompt",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         return (string)method!.Invoke(null, new object[] { userMessage, context, structureCache! })!;
+    }
+
+    private static string BuildPlanCreationPromptPublic(string userMessage, AgentContext context)
+    {
+        var method = typeof(PlanAgent).GetMethod("BuildPlanCreationPrompt",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        return (string)method!.Invoke(null, new object[] { userMessage, context })!;
     }
 
     private static string ExtractDiscoveryContextFromMessagesPublic(List<ChatApiMessage> messages)

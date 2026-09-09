@@ -222,6 +222,14 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public List<ChatApiMessage>? ForwardedMessages { get; set; }
 
         /// <summary>
+        /// 已消费的 Handoff 转发消息诊断副本。
+        /// 转发列表不进入 ContextManager，但上下文面板需要显示它，
+        /// 否则 Handoff 请求的实际规模会被显著低估。
+        /// </summary>
+        [JsonIgnore]
+        public List<ChatApiMessage>? ConsumedForwardedMessages { get; set; }
+
+        /// <summary>
         /// UI 层已写入 ContextManager 的当前轮原始 user 内容。
         /// Agent 构建请求时用它确认当前 user 已在标准多轮历史中，避免重复包装。
         /// </summary>

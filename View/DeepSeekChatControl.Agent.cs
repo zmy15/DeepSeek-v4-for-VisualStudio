@@ -311,6 +311,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 var stats = _contextManager.GetStats();
                 var ide = _ideContextTracker?.Current;
+                var agentContext = _activeAgent?.Context;
+                var forwardedMessages = agentContext?.ForwardedMessages
+                    ?? agentContext?.ConsumedForwardedMessages;
+                var forwardedTokens = ConversationContextManager.EstimateMessageTokens(forwardedMessages);
 
                 var payload = new
                 {
@@ -324,6 +328,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     messages = stats.MessageCount,
                     toolCalls = stats.ToolCallCount,
                     compressedTurns = stats.CompressedTurns,
+                    forwarded = forwardedMessages == null ? null : new
+                    {
+                        messages = forwardedMessages.Count,
+                        toolCalls = forwardedMessages.Sum(m => m.ToolCalls?.Count ?? 0),
+                        estimatedTokens = forwardedTokens,
+                    },
                     injected = new
                     {
                         ide = ide != null,

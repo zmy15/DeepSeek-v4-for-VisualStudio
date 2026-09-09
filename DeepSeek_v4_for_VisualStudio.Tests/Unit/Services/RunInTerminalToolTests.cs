@@ -148,6 +148,27 @@ public class RunInTerminalToolTests
             env.Version.Should().StartWith("Python ");
     }
 
+    [Fact]
+    public async Task GetTerminalOutput_AwaitsJobCompletionWithoutPolling()
+    {
+        var id = Guid.NewGuid().ToString("N");
+        var job = new RunInTerminalTool.TerminalProcessJob(id, "test command");
+        RunInTerminalTool.AsyncJobs[id] = job;
+
+        var tool = new GetTerminalOutputTool();
+        var args = ParseArgs("{\"id\":\"" + id + "\"}");
+        var execution = tool.ExecuteAsync(args, null);
+
+        job.TrySetResult(new RunInTerminalTool.TerminalProcessResult(0, "stdout", "stderr", false));
+
+        var result = await execution;
+
+        result.Should().Contain("0")
+            .And.Contain("stdout")
+            .And.Contain("stderr");
+        RunInTerminalTool.AsyncJobs.ContainsKey(id).Should().BeFalse();
+    }
+
     private static Dictionary<string, JsonElement> ParseArgs(string json)
     {
         return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json)

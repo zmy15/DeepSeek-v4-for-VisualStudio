@@ -112,6 +112,54 @@ public class ConversationContextManagerTests
     }
 
     [Fact]
+    public void ClearCacheSnapshot_IncludesMessagesAddedAfterHandoff()
+    {
+        _manager.AddUserMessage("handoff task");
+        _manager.SnapshotForCache();
+        _manager.AddAssistantMessage("step 1 completed");
+
+        var frozenMessages = _manager.BuildApiMessages();
+        frozenMessages.Should().NotContain(m =>
+            m.Role == "assistant" && m.Content == "step 1 completed");
+
+        _manager.ClearCacheSnapshot();
+
+        var messages = _manager.BuildApiMessages();
+        messages.Should().Contain(m =>
+            m.Role == "assistant" && m.Content == "step 1 completed");
+    }
+
+    [Fact]
+    public void EstimateMessageTokens_IncludesToolCallArguments()
+    {
+        var messages = new List<ChatApiMessage>
+        {
+            new()
+            {
+                Role = "assistant",
+                Content = null,
+                ToolCalls = new List<ToolCall>
+                {
+                    new()
+                    {
+                        Id = "call_1",
+                        Type = "function",
+                        Function = new ToolCallFunction
+                        {
+                            Name = "read_file",
+                            Arguments = """{"filePath":"C:\\test.cs","startLine":1}""",
+                        },
+                    },
+                },
+            },
+        };
+
+        var tokens = ConversationContextManager.EstimateMessageTokens(messages);
+
+        tokens.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
     public void TokenBudget_DefaultIs900K()
     {
         _manager.TokenBudget.Should().Be(900_000);
