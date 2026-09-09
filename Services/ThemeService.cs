@@ -412,7 +412,7 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .search-results-card .search-result-snippet{color:#a0a0a0;font-size:11px;line-height:1.4}
 .agent-plan{margin:4px 0}
 .agent-step-node{display:flex;gap:6px;margin:3px 0}.agent-step-bullet-wrap{display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0}
-.agent-step-bullet{width:12px;height:12px;border-radius:50%;font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:bold}
+.agent-step-bullet{width:12px;height:12px;border-radius:50%;font-size:9px;line-height:1;display:flex;align-items:center;justify-content:center;font-weight:bold;overflow:hidden;white-space:nowrap}
 .agent-step-bullet.completed{background:#4ec9b0;color:#1e1e1e}.agent-step-bullet.in-progress{background:#e0c060;color:#1e1e1e;animation:pulse 1.5s infinite}
 .agent-step-bullet.failed{background:#f48771;color:#1e1e1e}.agent-step-bullet.pending{background:#333;color:#aaa}
 .agent-step-line{width:2px;flex:1;background:#333;min-height:8px;margin:1px 0}.agent-step-line.done{background:#4ec9b0}.agent-step-line.active{background:#e0c060}
@@ -445,8 +445,8 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #4
 .agent-task-panel.collapsed .agent-task-panel-body{display:none}
 .agent-task-panel-header{display:flex;align-items:center;gap:6px;padding:6px 10px;background:#222a3a;cursor:pointer;user-select:none;border-bottom:1px solid #2a3a4a}
 .agent-task-panel-header:hover{background:#263040}
-.task-icon{font-size:12px}.task-title{color:#b0c8e0;font-size:11px;font-weight:600;flex:1}.task-progress{color:#7ea8c8;font-size:10px}
-.task-close{background:transparent;border:1px solid #4a5a6a;color:#8a9ab0;cursor:pointer;font-size:11px;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+.task-icon{font-size:12px}.task-title{color:#b0c8e0;font-size:11px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-progress{color:#7ea8c8;font-size:10px;flex-shrink:0}
+.task-close{background:transparent;border:1px solid #4a5a6a;color:#8a9ab0;cursor:pointer;font-size:11px;line-height:1;padding:0;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
 .task-close:hover{background:#c0392b;color:#fff;border-color:#c0392b;transform:scale(1.1)}
 .task-close.finished{background:#3C1A1A;color:#E07878;border-color:#6A3A3A}
 .task-close.finished:hover{background:#c0392b;color:#fff;border-color:#c0392b}
@@ -522,7 +522,7 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #d
 .search-results-card .search-result-snippet{color:#555;font-size:11px;line-height:1.4}
 .agent-plan{margin:4px 0}
 .agent-step-node{display:flex;gap:6px;margin:3px 0}.agent-step-bullet-wrap{display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0}
-.agent-step-bullet{width:12px;height:12px;border-radius:50%;font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:bold}
+.agent-step-bullet{width:12px;height:12px;border-radius:50%;font-size:9px;line-height:1;display:flex;align-items:center;justify-content:center;font-weight:bold;overflow:hidden;white-space:nowrap}
 .agent-step-bullet.completed{background:#2ea87a;color:#fff}.agent-step-bullet.in-progress{background:#c8a030;color:#fff;animation:pulse 1.5s infinite}
 .agent-step-bullet.failed{background:#d04040;color:#fff}.agent-step-bullet.pending{background:#e0e0e0;color:#999}
 .agent-step-line{width:2px;flex:1;background:#e0e0e0;min-height:8px;margin:1px 0}.agent-step-line.done{background:#2ea87a}.agent-step-line.active{background:#c8a030}
@@ -555,8 +555,8 @@ table{border-collapse:collapse;margin:8px 0;width:100%}th,td{border:1px solid #d
 .agent-task-panel.collapsed .agent-task-panel-body{display:none}
 .agent-task-panel-header{display:flex;align-items:center;gap:6px;padding:6px 10px;background:#e4ecf4;cursor:pointer;user-select:none;border-bottom:1px solid #d0dce8}
 .agent-task-panel-header:hover{background:#d8e4f0}
-.task-icon{font-size:12px}.task-title{color:#3a5070;font-size:11px;font-weight:600;flex:1}.task-progress{color:#5a7a9a;font-size:10px}
-.task-close{background:transparent;border:1px solid #b0c0d0;color:#7a8a9a;cursor:pointer;font-size:11px;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+.task-icon{font-size:12px}.task-title{color:#3a5070;font-size:11px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-progress{color:#5a7a9a;font-size:10px;flex-shrink:0}
+.task-close{background:transparent;border:1px solid #b0c0d0;color:#7a8a9a;cursor:pointer;font-size:11px;line-height:1;padding:0;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
 .task-close:hover{background:#c0392b;color:#fff;border-color:#c0392b;transform:scale(1.1)}
 .task-close.finished{background:#f8e0e0;color:#c04040;border-color:#d8a0a0}
 .task-close.finished:hover{background:#c0392b;color:#fff;border-color:#c0392b}
