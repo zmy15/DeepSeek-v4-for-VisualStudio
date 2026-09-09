@@ -42,6 +42,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // ── 无 Key：释放旧服务，避免残留旧 Key 继续发送请求 ──
                 _apiService?.Dispose();
                 _apiService = null;
+                UpdateEndpointCapabilityControls();
                 return;
             }
 
@@ -76,8 +77,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // 初始化 Agent 模式徽章（默认隐藏 Ask 模式）
             UpdateAgentModeBadge();
 
-            // ── 初始化余额查询定时器（每分钟刷新一次）──
-            StartBalanceTimer();
+            // ── 初始化官方端点能力控件与余额查询定时器 ──
+            UpdateEndpointCapabilityControls();
 
             Logger.Info("API 服务初始化成功");
         }
@@ -243,21 +244,22 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             try
             {
-                if (_apiService == null || _options == null) return;
+                if (_options == null) return;
 
                 var config = DeepSeekEndpointResolver.Resolve(_options);
 
                 // Settings events are authoritative. Reading UI controls here caused
                 // Unified Settings changes to be overwritten with stale chat-window state.
                 // config（含 IsVision）为 resolver 权威输出，一次性同步 Key/BaseUrl/Model/IsCustom/IsVision。
-                _apiService.UpdateEndpoint(config);
+                _apiService?.UpdateEndpoint(config);
 
                 // 视觉标记/模型切换影响 capture_window 等工具可见性 → 使 Agent 完整工具集缓存失效
                 _agentFactory?.InvalidateFullToolSetCache();
 
                 var thinking = _options.IsThinkingEnabled;
                 var effort = _options.ReasoningEffort ?? "high";
-                _apiService.ConfigureThinking(thinking, effort);
+                _apiService?.ConfigureThinking(thinking, effort);
+                UpdateEndpointCapabilityControls();
             }
             catch (Exception ex)
             {

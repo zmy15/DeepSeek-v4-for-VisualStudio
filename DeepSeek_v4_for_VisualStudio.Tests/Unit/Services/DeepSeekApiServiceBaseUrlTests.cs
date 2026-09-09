@@ -106,6 +106,53 @@ public class DeepSeekApiServiceBaseUrlTests
     }
 
     [Fact]
+    public async Task FimCompletionAsync_CustomEndpoint_ReturnsEmptyWithoutRequest()
+    {
+        var handler = new RecordingHandler();
+
+        var service = new DeepSeekApiService(
+            new HttpClient(handler), "custom-model",
+            baseUrl: "https://relay.example.com/v1");
+
+        var result = await service.FimCompletionAsync("prefix", "suffix");
+
+        result.Should().BeEmpty();
+        handler.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetBalanceAsync_CustomEndpoint_ReturnsNullWithoutRequest()
+    {
+        var handler = new RecordingHandler();
+
+        var service = new DeepSeekApiService(
+            new HttpClient(handler), "custom-model",
+            baseUrl: "https://relay.example.com/v1", isCustom: true);
+
+        var balance = await service.GetBalanceAsync();
+
+        balance.Should().BeNull();
+        handler.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CompleteAsync_CustomEndpoint_AccumulatesTokensWithoutCost()
+    {
+        var handler = new RecordingHandler();
+        handler.Route["https://relay.example.com/v1/chat/completions"] = ChatOkResponse;
+
+        var service = new DeepSeekApiService(
+            new HttpClient(handler), "custom-model",
+            baseUrl: "https://relay.example.com/v1", isCustom: true);
+
+        await service.CompleteAsync(new List<ChatApiMessage> { new() { Role = "user", Content = "hi" } });
+
+        service.TotalPromptTokens.Should().BeGreaterThan(0);
+        service.TotalSessionCostYuan.Should().Be(0);
+        service.TotalSessionCostUsd.Should().Be(0);
+    }
+
+    [Fact]
     public async Task UpdateBaseUrl_TogglesDeepSeekClientHeader()
     {
         var handler = new RecordingHandler();

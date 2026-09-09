@@ -240,19 +240,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             Interlocked.Add(ref _totalPromptTokens, usage.PromptTokens);
             Interlocked.Add(ref _totalCompletionTokens, usage.CompletionTokens);
 
-            // ── 费用累计：按调用时点的模型 × 高峰/空闲单价，双币种同时计价 ──
-            string model = effectiveModel ?? _model ?? string.Empty;
-            bool isFlash = model.Contains("flash", StringComparison.OrdinalIgnoreCase);
-            bool isPeak = IsBeijingPeakTime();
-            var (missCny, hitCny, outputCny) = GetPricing(isFlash, isPeak, "CNY");
-            var (missUsd, hitUsd, outputUsd) = GetPricing(isFlash, isPeak, "USD");
-            AddAccumulatedCost(
-                usage.PromptCacheMissTokens / 1_000_000.0 * missCny
-                + usage.PromptCacheHitTokens / 1_000_000.0 * hitCny
-                + usage.CompletionTokens / 1_000_000.0 * outputCny,
-                usage.PromptCacheMissTokens / 1_000_000.0 * missUsd
-                + usage.PromptCacheHitTokens / 1_000_000.0 * hitUsd
-                + usage.CompletionTokens / 1_000_000.0 * outputUsd);
+            if (!CurrentIsCustom)
+            {
+                // ── 费用累计：按调用时点的模型 × 高峰/空闲单价，双币种同时计价 ──
+                string model = effectiveModel ?? _model ?? string.Empty;
+                bool isFlash = model.Contains("flash", StringComparison.OrdinalIgnoreCase);
+                bool isPeak = IsBeijingPeakTime();
+                var (missCny, hitCny, outputCny) = GetPricing(isFlash, isPeak, "CNY");
+                var (missUsd, hitUsd, outputUsd) = GetPricing(isFlash, isPeak, "USD");
+                AddAccumulatedCost(
+                    usage.PromptCacheMissTokens / 1_000_000.0 * missCny
+                    + usage.PromptCacheHitTokens / 1_000_000.0 * hitCny
+                    + usage.CompletionTokens / 1_000_000.0 * outputCny,
+                    usage.PromptCacheMissTokens / 1_000_000.0 * missUsd
+                    + usage.PromptCacheHitTokens / 1_000_000.0 * hitUsd
+                    + usage.CompletionTokens / 1_000_000.0 * outputUsd);
+            }
         }
 
         /// <summary>
@@ -465,7 +468,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             }
 
-            var mappedEffort = capability.MapEffort(thinkingEnabled ? effort : null);
+            var effortForRequest = thinkingEnabled
+                ? effort
+                : capability.AlwaysThinking ? "low" : null;
+            var mappedEffort = capability.MapEffort(effortForRequest);
             if (mappedEffort != null)
             {
                 switch (capability.EffortParam)

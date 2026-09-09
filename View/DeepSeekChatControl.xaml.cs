@@ -657,12 +657,35 @@ namespace DeepSeek_v4_for_VisualStudio.View
         #region Balance Query
 
         /// <summary>
+        /// 当前是否使用 DeepSeek 官方来源。自定义来源即使 URL 指向官方域名，
+        /// 也使用独立 Key 与模型路由，不视为官方能力来源。
+        /// </summary>
+        private bool IsOfficialSource
+            => _apiService != null
+                ? _apiService.IsDeepSeekEndpoint && !_apiService.CurrentIsCustom
+                : !DeepSeekEndpointResolver.Resolve(_options).IsCustom;
+
+        /// <summary>
+        /// 是否允许查询余额。只有 DeepSeek 官方端点提供 /user/balance；
+        /// 自定义端点即使用指向官方域名，也使用独立的 Key 与模型来源，不做该请求。
+        /// </summary>
+        private bool CanQueryBalance
+            => IsOfficialSource;
+
+        /// <summary>
         /// 启动余额查询定时器，每 60 秒自动刷新一次。
         /// </summary>
         private void StartBalanceTimer()
         {
             // 停止并释放旧定时器
             StopBalanceTimer();
+
+            // /user/balance 是 DeepSeek 官方专有能力，非官方端点保持 UI 与请求同时关闭。
+            if (!CanQueryBalance)
+            {
+                HideBalanceDisplay();
+                return;
+            }
 
             _balanceTimer = new System.Windows.Threading.DispatcherTimer
             {
@@ -689,7 +712,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private async Task RefreshBalanceAsync()
         {
-            if (_apiService == null) return;
+            if (!CanQueryBalance) return;
 
             try
             {
@@ -721,6 +744,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             var balanceBar = BalanceBar;
             var balanceLabel = BalanceLabel;
             if (balanceBar == null || balanceLabel == null) return;
+
+            if (!CanQueryBalance)
+            {
+                HideBalanceDisplay();
+                return;
+            }
 
             // ── 余额部分 ──
             string balanceText = FormatBalanceText(balance);
@@ -810,40 +839,53 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string modelName = GetEffectiveModel();
                 bool isFlash = modelName.Contains("flash", StringComparison.OrdinalIgnoreCase);
 
-                // ── 币种判定：余额 API 缓存优先，其次 ApiService 捕获值，默认 CNY（国内价）──
-                string currency =
-                    (_lastBalance != null && _lastBalance.BalanceInfos.Count > 0
-                        ? _lastBalance.BalanceInfos[0].Currency
-                        : null)
-                    ?? _apiService.AccountCurrency;
-                if (string.IsNullOrWhiteSpace(currency))
-                    currency = "CNY";
-                currency = currency.ToUpperInvariant();
-                bool isUsd = currency == "USD";
-                string symbol = GetCurrencySymbol(currency);
+                // 自定义端点的模型定价可能不同，不套用 DeepSeek 价目表。
+                bool canEstimateCost = IsOfficialSource;
 
-                // ── 费用：优先使用 ApiService 按调用时点（模型 × 高峰/空闲）双轨累计的真实计价；
-                //    旧版本会话没有累计费用字段时，按当前时段单价估算兜底 ──
-                double totalCost = isUsd ? _apiService.TotalSessionCostUsd : _apiService.TotalSessionCostYuan;
-                if (totalCost <= 0)
+                if (!canEstimateCost)
                 {
-                    var (missPrice, hitPrice, outputPrice) = DeepSeekApiService.GetPricing(
-                        isFlash, DeepSeekApiService.IsBeijingPeakTime(), currency);
-                    totalCost = cacheMissTokens / 1_000_000.0 * missPrice
-                              + cacheHitTokens / 1_000_000.0 * hitPrice
-                              + completionTokens / 1_000_000.0 * outputPrice;
+                    string customModelLabel = LocalizationService.Instance["agent.panel.modelLabel.custom"];
+                    apiPart = LocalizationService.Instance.Format(
+                        "agent.panel.sessionTokenUsageNoCost",
+                        FormatTokens(promptTokens), FormatTokens(completionTokens), customModelLabel);
                 }
+                else
+                {
+                    // ── 币种判定：余额 API 缓存优先，其次 ApiService 捕获值，默认 CNY（国内价）──
+                    string currency =
+                        (_lastBalance != null && _lastBalance.BalanceInfos.Count > 0
+                            ? _lastBalance.BalanceInfos[0].Currency
+                            : null)
+                        ?? _apiService.AccountCurrency;
+                    if (string.IsNullOrWhiteSpace(currency))
+                        currency = "CNY";
+                    currency = currency.ToUpperInvariant();
+                    bool isUsd = currency == "USD";
+                    string symbol = GetCurrencySymbol(currency);
 
-                string costStr = totalCost >= 0.01
-                    ? $"{symbol}{totalCost:F2}"
-                    : totalCost > 0
-                        ? $"{symbol}{totalCost:F4}"
-                        : $"{symbol}0";
+                    // ── 费用：优先使用 ApiService 按调用时点（模型 × 高峰/空闲）双轨累计的真实计价；
+                    //    旧版本会话没有累计费用字段时，按当前时段单价估算兜底 ──
+                    double totalCost = isUsd ? _apiService.TotalSessionCostUsd : _apiService.TotalSessionCostYuan;
+                    if (totalCost <= 0)
+                    {
+                        var (missPrice, hitPrice, outputPrice) = DeepSeekApiService.GetPricing(
+                            isFlash, DeepSeekApiService.IsBeijingPeakTime(), currency);
+                        totalCost = cacheMissTokens / 1_000_000.0 * missPrice
+                                  + cacheHitTokens / 1_000_000.0 * hitPrice
+                                  + completionTokens / 1_000_000.0 * outputPrice;
+                    }
 
-                string modelLabel = isFlash ? "Flash" : "Pro";
+                    string costStr = totalCost >= 0.01
+                        ? $"{symbol}{totalCost:F2}"
+                        : totalCost > 0
+                            ? $"{symbol}{totalCost:F4}"
+                            : $"{symbol}0";
 
-                apiPart = LocalizationService.Instance.Format("agent.panel.sessionTokenUsage",
-                    FormatTokens(promptTokens), FormatTokens(completionTokens), modelLabel, costStr);
+                    string modelLabel = isFlash ? "Flash" : "Pro";
+
+                    apiPart = LocalizationService.Instance.Format("agent.panel.sessionTokenUsage",
+                        FormatTokens(promptTokens), FormatTokens(completionTokens), modelLabel, costStr);
+                }
             }
 
             // ── 上下文窗口利用率（仅在有对话内容时显示）──
@@ -930,6 +972,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private void RefreshBalanceDisplay()
         {
+            if (!CanQueryBalance)
+            {
+                RefreshConsumptionDisplay();
+                return;
+            }
+
             if (_lastBalance != null)
             {
                 UpdateBalanceDisplay(_lastBalance);
@@ -938,6 +986,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 RefreshConsumptionDisplay();
             }
+        }
+
+        /// <summary>
+        /// 隐藏官方端点专用的余额显示；非官方端点不展示余额，也不展示空标签。
+        /// </summary>
+        private void HideBalanceDisplay()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(HideBalanceDisplay);
+                return;
+            }
+
+            if (BalanceLabel != null)
+                BalanceLabel.Text = string.Empty;
+            if (BalanceBar != null)
+                BalanceBar.Visibility = System.Windows.Visibility.Collapsed;
         }
 
         #endregion
@@ -1283,6 +1348,39 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (ThinkingCheckBox != null)
                 ThinkingCheckBox.IsChecked = _options.IsThinkingEnabled;
             RefreshReasoningEffortFromSettings();
+            UpdateEndpointCapabilityControls();
+        }
+
+        /// <summary>
+        /// 根据当前生效端点显示/隐藏 DeepSeek 官方专属控件。
+        /// FIM 由 InlinePredictionManager 使用同一 Resolver 在请求侧门控。
+        /// </summary>
+        private void UpdateEndpointCapabilityControls()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(UpdateEndpointCapabilityControls);
+                return;
+            }
+
+            bool isOfficial = IsOfficialSource;
+            var visibility = isOfficial
+                ? System.Windows.Visibility.Visible
+                : System.Windows.Visibility.Collapsed;
+
+            if (ThinkingCheckBox != null)
+                ThinkingCheckBox.Visibility = visibility;
+            if (EffortComboBox != null)
+                EffortComboBox.Visibility = visibility;
+
+            if (!isOfficial)
+            {
+                StopBalanceTimer();
+                RefreshConsumptionDisplay();
+                return;
+            }
+
+            RefreshBalanceDisplay();
         }
 
         /// <summary>

@@ -417,6 +417,18 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             set { /* 值由 ModelPickerEditor 写入模型列表。 */ }
         }
 
+        /// <summary>属性网格中的“测试连接”入口；不持久化自身值。</summary>
+        [LocalizedCategory("settings.category.custom")]
+        [LocalizedDisplayName("settings.testConnection.displayName")]
+        [LocalizedDescription("settings.testConnection.description")]
+        [Editor(typeof(TestConnectionEditor), typeof(UITypeEditor))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public string TestConnection
+        {
+            get => string.Empty;
+            set { /* 值由 TestConnectionEditor 读取当前端点配置并执行校验。 */ }
+        }
+
         [LocalizedCategory("settings.category.api")]
         [LocalizedDisplayName("settings.systemPrompt.displayName")]
         [LocalizedDescription("settings.systemPrompt.description")]

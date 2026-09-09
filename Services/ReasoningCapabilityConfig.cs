@@ -57,6 +57,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         public bool NeedsStreamOptionsForUsage { get; init; }
 
+        /// <summary>
+        /// 模型无法关闭思考（例如 GLM Flash / Kingsoft）时，禁用请求也应发送
+        /// 一个低强度 effort，而不是发送 thinking=disabled。
+        /// </summary>
+        public bool AlwaysThinking { get; init; }
+
         /// <summary>默认配置：不发 thinking 开关，透传 reasoning_effort。</summary>
         public static ReasoningCapabilityConfig Default { get; } = new()
         {
@@ -133,6 +139,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     SupportsEffort = false,
                     ThinkingParam = "thinking",
                     EffortParam = "none",
+                    NeedsStreamOptionsForUsage = true,
+                };
+
+            // GLM Flash / Kingsoft 常见为始终思考模型：不接受 disabled，
+            // 需要 reasoning_effort ∈ {low, high, max}。
+            if (mdl.Contains("glm") && mdl.Contains("flash"))
+                return new ReasoningCapabilityConfig
+                {
+                    SupportsThinking = false,
+                    SupportsEffort = true,
+                    ThinkingParam = "none",
+                    EffortParam = "reasoning_effort",
+                    EffortValueMode = "passthrough",
+                    AlwaysThinking = true,
                     NeedsStreamOptionsForUsage = true,
                 };
 
@@ -250,6 +270,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 && SupportsEffort == other.SupportsEffort
                 && string.Equals(ThinkingParam, other.ThinkingParam, StringComparison.Ordinal)
                 && string.Equals(EffortParam, other.EffortParam, StringComparison.Ordinal)
-                && string.Equals(EffortValueMode, other.EffortValueMode, StringComparison.Ordinal);
+                && string.Equals(EffortValueMode, other.EffortValueMode, StringComparison.Ordinal)
+                && AlwaysThinking == other.AlwaysThinking;
     }
 }

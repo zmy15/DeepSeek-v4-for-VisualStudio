@@ -39,6 +39,23 @@ namespace DeepSeek_v4_for_VisualStudio
             };
 
         [VisualStudioContribution]
+        internal static Setting.String EndpointToolsGuide { get; } =
+            new(
+                "deepseekEndpointToolsGuide",
+                "%DeepSeek.Chat.Settings.EndpointToolsGuideTitle%",
+                GeneralCategory,
+                defaultValue: "工具 → 选项 → DeepSeek Chat → Custom Endpoint")
+            {
+                Description = "%DeepSeek.Chat.Settings.EndpointToolsGuideDescription%",
+                SearchKeywords = new[] { "model", "models", "fetch", "test", "connection", "模型", "列表", "测试", "连接" },
+                Messages = new[]
+                {
+                    new SettingMessage("%DeepSeek.Chat.Settings.EndpointToolsGuideMessage%"),
+                },
+                EnabledWhen = SettingRule.FeatureFlag("DeepSeek.EndpointToolsGuideReadOnly", true),
+            };
+
+        [VisualStudioContribution]
         internal static Setting.String SystemPrompt { get; } =
             new("deepseekSystemPrompt", "%DeepSeek.Chat.settings.systemPrompt.displayName%", GeneralCategory, defaultValue: string.Empty)
             {

@@ -87,6 +87,20 @@ public class ReasoningCapabilityConfigTests
     }
 
     [Fact]
+    public void Infer_GlmFlashModel_IsAlwaysThinkingAndUsesEffort()
+    {
+        var config = ReasoningCapabilityConfig.Infer(
+            "https://new-api.xiaoduoai.com/v1", "glm-5.3-flash-kingsoft");
+
+        config.SupportsThinking.Should().BeFalse();
+        config.AlwaysThinking.Should().BeTrue();
+        config.SupportsEffort.Should().BeTrue();
+        config.EffortParam.Should().Be("reasoning_effort");
+        config.MapEffort("low").Should().Be("low");
+        config.MapEffort("max").Should().Be("max");
+    }
+
+    [Fact]
     public void Infer_QwenModel_UsesEnableThinking()
     {
         var config = ReasoningCapabilityConfig.Infer("https://dashscope.aliyuncs.com/v1", "qwen3-max");
