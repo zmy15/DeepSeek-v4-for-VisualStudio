@@ -124,4 +124,75 @@ public class ApplyPatchToolTests
                 File.Delete(tempPath);
         }
     }
+
+    [Fact]
+    public void ApplySinglePatch_PreservesClosingTokenInsertedBeforeMatchingContext()
+    {
+        string tempPath = Path.Combine(
+            Path.GetTempPath(), $"apply-patch-closing-token-{Guid.NewGuid():N}.txt");
+        string original = "config.IsVision.Should().BeTrue();\n}\n";
+        File.WriteAllText(tempPath, original);
+
+        try
+        {
+            var hunk = new PatchHunk
+            {
+                Lines =
+                {
+                    new PatchLine { Type = ' ', Text = "config.IsVision.Should().BeTrue();" },
+                    new PatchLine { Type = '+', Text = "    }" },
+                    new PatchLine { Type = ' ', Text = "}" },
+                },
+            };
+            var patch = new PatchOperation
+            {
+                Action = PatchFileAction.Update,
+                FilePath = tempPath,
+                Hunks = { hunk },
+            };
+
+            var result = ApplyPatchTool.ApplySinglePatch(patch, tempPath, original);
+
+            result.Success.Should().BeTrue();
+            result.AppliedEdits.Should().HaveCount(1);
+            result.FinalContent.Should().NotBeNull();
+            result.FinalContent!.Replace("\r\n", "\n").Should().Be(
+                "config.IsVision.Should().BeTrue();\n    }\n}\n");
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public void TrimTrailingDuplicateClosingTokens_PreservesInsertionContainingOnlyClosingToken()
+    {
+        var segment = new FileChunkSegment
+        {
+            Offset = 0,
+            InsLines = { "    }" },
+        };
+        string[] fileLines = { "}" };
+
+        ApplyPatchTool.TrimTrailingDuplicateClosingTokens(segment, 0, fileLines);
+
+        segment.InsLines.Should().Equal("    }");
+    }
+
+    [Fact]
+    public void TrimTrailingDuplicateClosingTokens_RemovesDuplicateAfterInsertedCode()
+    {
+        var segment = new FileChunkSegment
+        {
+            Offset = 1,
+            InsLines = { "    newStatement();", "}" },
+        };
+        string[] fileLines = { "    existing();", "}" };
+
+        ApplyPatchTool.TrimTrailingDuplicateClosingTokens(segment, 1, fileLines);
+
+        segment.InsLines.Should().Equal("    newStatement();");
+    }
 }
