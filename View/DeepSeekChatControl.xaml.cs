@@ -487,6 +487,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // ── 订阅主题变更事件 ──
             _themeService.ThemeChanged += OnThemeChanged;
 
+            // ── 订阅官方 /models 目录刷新，模型列表拉取完成后热更新下拉框 ──
+            OfficialModelCatalogService.ModelsChanged += OnOfficialModelsChanged;
+
             // ── 程序化创建 WebView2 控件 ──
             // 不在 XAML 中声明 wv2:WebView2，以避免 ReSharper 等第三方扩展
             // 预加载不同版本的 Microsoft.Web.WebView2.Wpf.dll 导致
@@ -1020,6 +1023,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             DeepSeekOptionsPage.SettingsChanged -= OnOcrSettingsChanged;
             DeepSeekOptionsPage.SettingsChanged -= OnCoreSettingsChanged;
+            OfficialModelCatalogService.ModelsChanged -= OnOfficialModelsChanged;
 
             // ── 取消主题事件订阅 ──
             _themeService.ThemeChanged -= OnThemeChanged;
@@ -1275,7 +1279,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private System.Collections.Generic.IReadOnlyList<ModelListItem> BuildModelListItems()
         {
             var items = new System.Collections.Generic.List<ModelListItem>();
-            foreach (var model in DeepSeekModelCatalog.All)
+            foreach (var model in OfficialModelCatalogService.GetModels())
                 items.Add(ModelListItem.Official(model));
 
             foreach (var custom in _options?.GetCustomModels() ?? Array.Empty<string>())
@@ -1317,6 +1321,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 模型/来源刷新影响 capture_window 等工具可见性 → 使 Agent 完整工具集缓存失效
                 _agentFactory?.InvalidateFullToolSetCache();
             }
+        }
+
+        /// <summary>官方模型列表从 /models 接口刷新完成后，回到 UI 线程重建下拉框。</summary>
+        private void OnOfficialModelsChanged()
+        {
+            if (_disposed) return;
+            _ = Dispatcher.InvokeAsync(RefreshModelFromSettings);
         }
 
         /// <summary>

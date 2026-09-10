@@ -246,6 +246,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 if (_options == null) return;
 
+                // Key 或端点保存后重新确认官方目录；自定义端点不影响官方模型列表。
+                _ = RefreshOfficialModelsAsync();
+
                 var config = DeepSeekEndpointResolver.Resolve(_options);
 
                 // Settings events are authoritative. Reading UI controls here caused
@@ -329,6 +332,25 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"[Settings] 设置热切换失败: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>用当前官方 Key 刷新 /models 目录；失败由目录服务降级处理。</summary>
+        private async Task RefreshOfficialModelsAsync()
+        {
+            try
+            {
+                await OfficialModelCatalogService.RefreshAsync(
+                    ApiKeyProtection.Unprotect(_options?.ApiKey),
+                    _package?.DisposalToken ?? default);
+            }
+            catch (OperationCanceledException)
+            {
+                // 包关闭时取消属正常路径。
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Models] 刷新官方模型目录失败: {ex.Message}");
             }
         }
 

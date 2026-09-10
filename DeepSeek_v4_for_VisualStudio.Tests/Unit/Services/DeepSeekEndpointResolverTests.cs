@@ -5,6 +5,7 @@ namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Services;
 /// <summary>
 /// DeepSeek 官方与自定义端点配置分离的来源解析。
 /// </summary>
+[Collection("OfficialModelCatalogService")]
 public class DeepSeekEndpointResolverTests
 {
     [Fact]
@@ -277,5 +278,49 @@ public class DeepSeekEndpointResolverTests
         config.IsCustom.Should().BeTrue();
         config.Model.Should().Be("gpt-4o");
         config.IsVision.Should().BeTrue();
+    }
+
+    // ── 官方模型列表改为 GET /models 动态获取后的校验 ──
+
+    [Fact]
+    public void Resolve_RemoteOfficialModel_IsAccepted()
+    {
+        var config = DeepSeekEndpointResolver.Resolve(
+            apiBaseUrl: null,
+            officialApiKey: "sk-official",
+            customApiKey: "sk-custom",
+            selectedModel: "deepseek-v4-exp-1228",
+            customModels: "kimi-k3",
+            officialModels: new[] { "deepseek-v4-exp-1228", "deepseek-v4-pro" });
+
+        config.Model.Should().Be("deepseek-v4-exp-1228");
+    }
+
+    [Fact]
+    public void Resolve_RemoteOfficialModelWithNameVision_IsVision()
+    {
+        var config = DeepSeekEndpointResolver.Resolve(
+            apiBaseUrl: null,
+            officialApiKey: "sk-official",
+            customApiKey: "sk-custom",
+            selectedModel: "deepseek-v4-vision-exp",
+            customModels: "kimi-k3",
+            officialModels: new[] { "deepseek-v4-vision-exp" });
+
+        config.IsVision.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Resolve_RemovedOfficialModel_FallsBackToFirstRemoteModel()
+    {
+        var config = DeepSeekEndpointResolver.Resolve(
+            apiBaseUrl: null,
+            officialApiKey: "sk-official",
+            customApiKey: "sk-custom",
+            selectedModel: "deepseek-v4-removed",
+            customModels: "kimi-k3",
+            officialModels: new[] { "deepseek-v4-current" });
+
+        config.Model.Should().Be("deepseek-v4-current");
     }
 }

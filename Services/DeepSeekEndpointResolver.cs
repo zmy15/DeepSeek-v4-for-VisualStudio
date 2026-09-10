@@ -48,7 +48,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string? customModels,
             string? activeCustomModel = "",
             string? activeModelSource = "auto",
-            IReadOnlyList<string>? customVisionModels = null)
+            IReadOnlyList<string>? customVisionModels = null,
+            IReadOnlyList<string>? officialModels = null)
         {
             var baseUrl = (apiBaseUrl ?? string.Empty).Trim();
             var sourcePreference = (activeModelSource ?? "auto").Trim().ToLowerInvariant();
@@ -68,10 +69,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             var model = isCustom
                 ? CoalesceCustomModel(customModels, activeCustomModel)
-                : CoalesceOfficialModel(selectedModel);
+                : CoalesceOfficialModel(
+                    selectedModel,
+                    officialModels ?? OfficialModelCatalogService.GetModels());
 
             // ── 视觉能力判断收敛点 ──
-            // 官方模式：查官方模型目录（仅 FlashVisionExp 为视觉模型）；
+            // 官方模式：查官方模型目录（目录内名字含 vision 视为视觉模型）；
             // 自定义模式：查用户在 CustomVisionModels 中手动标记的名单。
             // 注：自定义模型的 FIM 回退无需在此考虑 —— FIM 为 DeepSeek 专有端点，
             // FimCompletionAsync 对非官方端点已提前返回空串。
@@ -107,10 +110,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             return models[0];
         }
 
-        private static string CoalesceOfficialModel(string? selectedModel)
+        private static string CoalesceOfficialModel(
+            string? selectedModel,
+            IReadOnlyList<string> officialModels)
         {
             var model = (selectedModel ?? string.Empty).Trim();
-            return model.Length > 0 ? model : DefaultModel;
+            if (model.Length > 0 &&
+                officialModels.Any(item => string.Equals(item, model, StringComparison.OrdinalIgnoreCase)))
+                return model;
+
+            return officialModels.FirstOrDefault() ?? DefaultModel;
         }
 
         private const string DefaultModel = "deepseek-v4-pro";

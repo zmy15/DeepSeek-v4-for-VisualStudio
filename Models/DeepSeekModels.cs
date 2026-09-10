@@ -26,7 +26,9 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         };
 
         public static bool IsVisionModel(string? model)
-            => string.Equals(model, FlashVisionExp, StringComparison.OrdinalIgnoreCase);
+            => !string.IsNullOrWhiteSpace(model) && (
+                string.Equals(model, FlashVisionExp, StringComparison.OrdinalIgnoreCase) ||
+                model.Contains("vision", StringComparison.OrdinalIgnoreCase));
     }
 
     // ======== API 请求模型 ========
