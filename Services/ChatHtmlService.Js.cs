@@ -505,7 +505,7 @@ window._showCopyFeedback=function(msgIndex){
         p.id='ctx-debug';
         p.style.cssText='position:fixed;top:8px;right:12px;z-index:9999;background:#252526ee;'
             +'border:1px solid #007ACC;border-radius:8px;font:11px/1.55 Consolas,monospace;'
-            +'color:#d4d4d4;max-width:340px;display:none;box-shadow:0 4px 14px rgba(0,0,0,.4);';
+            +'color:#d4d4d4;max-width:420px;display:none;box-shadow:0 4px 14px rgba(0,0,0,.4);';
         var head=document.createElement('div');
         head.id='ctx-debug-head';
         head.textContent=(window.__ctxDebugLabels||{}).title||'Context';
@@ -547,17 +547,17 @@ window._showCopyFeedback=function(msgIndex){
                 +'    '+(t.messages||'Messages')+' : '+(d.messages||0)
                 +'    '+(t.toolCalls||'Tool Calls')+' : '+(d.toolCalls||0));
             if(d.forwarded){
-                rows.push((t.forwarded||'Forwarded')+' : '+(d.forwarded.messages||0)
-                    +'    '+(t.toolCalls||'Tool Calls')+' : '+(d.forwarded.toolCalls||0)
+                rows.push((t.forwarded||'Forwarded')+' : '+(t.messages||'Messages')+' '+(d.forwarded.messages||0)
+                    +'    '+(t.toolCalls||'Tool Calls')+' '+(d.forwarded.toolCalls||0)
                     +'    ~'+((d.forwarded.estimatedTokens||0)/1000).toFixed(1)+'k '+(t.tokens||'Tokens'));
             }
             if(d.forwarded){
                 var totalMessages=(d.messages||0)+(d.forwarded.messages||0);
                 var totalToolCalls=(d.toolCalls||0)+(d.forwarded.toolCalls||0);
                 var totalTokens=(tk.estimated||0)+(d.forwarded.estimatedTokens||0);
-                rows.push((t.requestEstimate||'Request Estimate')+' : '+totalMessages.toLocaleString()
-                    +'    '+(t.messages||'Messages')+'    '+totalToolCalls.toLocaleString()
-                    +'    '+(t.toolCalls||'Tool Calls')+'    ~'+(totalTokens/1000).toFixed(1)+'k '+(t.tokens||'Tokens'));
+                rows.push((t.requestEstimate||'Request Estimate')+' : '+(t.messages||'Messages')+' '+totalMessages.toLocaleString()
+                    +'    '+(t.toolCalls||'Tool Calls')+' '+totalToolCalls.toLocaleString()
+                    +'    ~'+(totalTokens/1000).toFixed(1)+'k '+(t.tokens||'Tokens'));
             }
             var body=document.getElementById('ctx-debug-body');
             if(body)body.textContent=rows.join('\n');

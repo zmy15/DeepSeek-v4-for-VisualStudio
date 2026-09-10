@@ -810,11 +810,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 格式化当前会话的 token 消耗信息。
         /// 包含：API 实际 Token 消耗 + 费用估算 + 上下文窗口利用率。
-        /// 费用基于 DeepSeek V4 官方定价，按"国内/国际 × 模型 × 时段"分档
-        /// （国内 ¥ 价目 / 国际 $ 价目，高峰时段均为北京时间 9:00-12:00、14:00-18:00，
-        /// 详见 DeepSeekApiService.GetPricing）。
+        /// 费用基于 DeepSeek V4 官方统一定价（所有官方模型同价），按"国内/国际 × 时段"分档
+        /// （国内 ¥ 价目 / 国际 $ 价目，高峰时段为北京时间周一至周五 9:00-12:00、14:00-18:00，
+        /// 周六、周日全天为空闲时段，详见 DeepSeekApiService.GetPricing）。
         /// 币种由余额 API 返回值自动判定（CNY→国内价，USD→国际价），首次查询前默认国内价。
-        /// 费用在每次 API 调用时按"当时点的模型 × 时段"双币种累计
+        /// 费用在每次 API 调用时按"当时点的时段"双币种累计
         /// （见 DeepSeekApiService.AccumulateStats），跨高峰/空闲的会话自动分档计价。
         /// </summary>
         private string FormatSessionConsumption()
@@ -866,13 +866,13 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     bool isUsd = currency == "USD";
                     string symbol = GetCurrencySymbol(currency);
 
-                    // ── 费用：优先使用 ApiService 按调用时点（模型 × 高峰/空闲）双轨累计的真实计价；
+                    // ── 费用：优先使用 ApiService 按调用时点（高峰/空闲）双轨累计的真实计价；
                     //    旧版本会话没有累计费用字段时，按当前时段单价估算兜底 ──
                     double totalCost = isUsd ? _apiService.TotalSessionCostUsd : _apiService.TotalSessionCostYuan;
                     if (totalCost <= 0)
                     {
                         var (missPrice, hitPrice, outputPrice) = DeepSeekApiService.GetPricing(
-                            isFlash, DeepSeekApiService.IsBeijingPeakTime(), currency);
+                            DeepSeekApiService.IsBeijingPeakTime(), currency);
                         totalCost = cacheMissTokens / 1_000_000.0 * missPrice
                                   + cacheHitTokens / 1_000_000.0 * hitPrice
                                   + completionTokens / 1_000_000.0 * outputPrice;
