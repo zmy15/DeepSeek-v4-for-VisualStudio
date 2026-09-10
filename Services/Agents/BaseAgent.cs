@@ -535,21 +535,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 return CloneApiMessages(forwarded);
 
             var sentMessages = CaptureLastSentMessagesForCache();
-            return sentMessages == null ? null : TrimHandoffCachePrefix(sentMessages);
+            return sentMessages == null ? null : PrepareHandoffCacheMessages(sentMessages);
         }
 
         /// <summary>
-        /// Handoff 前缀只保留稳定历史和工具调用历史；
-        /// 源请求尾部的 volatile + user + agent prompt 由目标 Agent 重新生成。
+        /// 准备 Handoff 转发的完整消息历史。只移除源 Agent 末尾的身份提示词，
+        /// 保留当前 user 及其全部 assistant/tool_calls + tool result 历史。
         /// </summary>
-        private List<ChatApiMessage> TrimHandoffCachePrefix(List<ChatApiMessage> messages)
+        private static List<ChatApiMessage> PrepareHandoffCacheMessages(List<ChatApiMessage> messages)
         {
-            int prefixCount = Context?.HandoffPrefixLength
-                ?? Context?.ToolHistoryInsertIndex
-                ?? messages.Count;
-            if (prefixCount < 0) prefixCount = 0;
-            if (prefixCount > messages.Count) prefixCount = messages.Count;
-            return CloneApiMessages(messages.Take(prefixCount));
+            if (messages.Count > 0 && messages[messages.Count - 1].Role == "system")
+                messages.RemoveAt(messages.Count - 1);
+
+            return messages;
         }
 
         /// <summary>
@@ -656,10 +654,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // Handoff 前缀保留到源 Agent 的稳定工具历史为止；目标 Agent 的
                 // 身份边界以后的内容由目标 Agent 重新生成。
                 if (Context != null)
-                {
-                    Context.HandoffPrefixLength = result.Count;
                     Context.ToolHistoryInsertIndex = result.Count;
-                }
 
                 result.Add(new ChatApiMessage { Role = "system", Content = AiPrompts.HandoffRoleBoundaryPrompt });
 
@@ -707,10 +702,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             {
                 messages.Add(CreateCurrentUserMessage(Context!.CurrentUserContent!));
             }
-
-            // Handoff 缓存前缀边界：稳定历史之后，volatile/当前 user 之前。
-            if (Context != null)
-                Context.HandoffPrefixLength = messages.Count;
 
             // ── 第4层：易变上下文。若已固化到标准历史，则不再重复注入；
             //     否则作为当前轮临时 system 追加。 ──
@@ -1254,11 +1245,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     {
                         if (isRequestHandoff)
                         {
-                            // Handoff 前缀只保留到已完成的工具历史为止；源请求的
-                            // volatile + user 由目标 Agent 重新生成。
+                            // 保留当前轮完整上下文，包括已完成的多轮 tool_calls/tool 结果。
                             var sentMessages = CaptureLastSentMessagesForCache()
                                 ?? new List<ChatApiMessage>(messages);
-                            Context.ForwardedMessages = TrimHandoffCachePrefix(sentMessages);
+                            Context.ForwardedMessages = PrepareHandoffCacheMessages(sentMessages);
                         }
                         else
                         {
@@ -1469,7 +1459,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                             // 此处仅作为异常路径兜底，避免把 request_handoff 自身消息带入前缀。
                             var sentMessages = CaptureLastSentMessagesForCache()
                                 ?? new List<ChatApiMessage>(messages);
-                            Context.ForwardedMessages = TrimHandoffCachePrefix(sentMessages);
+                            Context.ForwardedMessages = PrepareHandoffCacheMessages(sentMessages);
                         }
                         contentBuilder.Append("\n\n>  任务已移交给 " + PendingHandoffRequest.TargetAgent + " Agent...");
                         break;

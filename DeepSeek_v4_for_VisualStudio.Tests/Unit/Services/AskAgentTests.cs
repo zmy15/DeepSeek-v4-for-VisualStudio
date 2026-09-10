@@ -242,7 +242,6 @@ public class AskAgentTests
             agent,
             new object[] { "Edit agent prompt", "handoff user", int.MaxValue, false })!;
 
-        context.HandoffPrefixLength.Should().Be(3);
         context.ToolHistoryInsertIndex.Should().Be(6);
         messages[3].Role.Should().Be("system");
         messages[3].Content.Should().NotBeNullOrWhiteSpace();
@@ -252,6 +251,44 @@ public class AskAgentTests
         messages[5].Content.Should().Be("handoff user");
         messages[6].Role.Should().Be("system");
         messages[6].Content.Should().Be("Edit agent prompt");
+    }
+
+    [Fact]
+    public void SnapshotHandoffCacheMessages_PreservesCompletedToolHistory()
+    {
+        var sentMessages = new List<ChatApiMessage>
+        {
+            new() { Role = "system", Content = "stable system" },
+            new() { Role = "user", Content = "inspect the project" },
+            new()
+            {
+                Role = "assistant",
+                ToolCalls = new List<ToolCall>
+                {
+                    new()
+                    {
+                        Id = "call_1",
+                        Type = "function",
+                        Function = new ToolCallFunction { Name = "read_file", Arguments = "{}" },
+                    },
+                },
+            },
+            new() { Role = "tool", ToolCallId = "call_1", Name = "read_file", Content = "file content" },
+            new() { Role = "system", Content = "source agent prompt" },
+        };
+
+        typeof(DeepSeekApiService)
+            .GetField("<LastSentMessages>k__BackingField",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(_apiService, sentMessages);
+
+        var agent = new AskAgent(_apiService);
+        var snapshot = agent.SnapshotHandoffCacheMessages();
+
+        snapshot.Should().NotBeNull();
+        snapshot.Should().HaveCount(4);
+        snapshot.Should().Contain(m => m.Role == "tool" && m.ToolCallId == "call_1");
+        snapshot.Should().NotContain(m => m.Content == "source agent prompt");
     }
 
     [Fact]
