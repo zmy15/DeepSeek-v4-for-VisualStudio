@@ -222,6 +222,14 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public List<ChatApiMessage>? ForwardedMessages { get; set; }
 
         /// <summary>
+        /// 已消费的 Handoff 转发消息诊断副本。
+        /// 转发列表不进入 ContextManager，但上下文面板需要显示它，
+        /// 否则 Handoff 请求的实际规模会被显著低估。
+        /// </summary>
+        [JsonIgnore]
+        public List<ChatApiMessage>? ConsumedForwardedMessages { get; set; }
+
+        /// <summary>
         /// UI 层已写入 ContextManager 的当前轮原始 user 内容。
         /// Agent 构建请求时用它确认当前 user 已在标准多轮历史中，避免重复包装。
         /// </summary>
@@ -235,14 +243,6 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// </summary>
         [JsonIgnore]
         public int? ToolHistoryInsertIndex { get; set; }
-
-        /// <summary>
-        /// Handoff 可复用前缀的边界：位于源 Agent 稳定历史之后，
-        /// 身份边界/volatile/当前 user/Agent 提示词之前。
-        /// 与 ToolHistoryInsertIndex 分离，避免目标 Agent 新增工具历史污染旧前缀。
-        /// </summary>
-        [JsonIgnore]
-        public int? HandoffPrefixLength { get; set; }
 
         /// <summary>
         /// 实时推理流回调。Agent 内部每收到一个 thinking chunk 时调用，

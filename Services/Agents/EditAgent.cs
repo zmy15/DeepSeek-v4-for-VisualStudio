@@ -340,6 +340,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             // ── v1.1.11: 清理上一次计划的步骤摘要记忆文件，防止新旧摘要混在一起 ──
             await ClearPreviousPlanMemoryAsync(context);
 
+            // Handoff 快照只保护 Plan→Edit 的首次请求前缀。
+            // 计划包含多个步骤时必须回到完整上下文，否则第 2 步起看不到第 1 步的工具历史。
+            context.ContextManager?.ClearCacheSnapshot();
+
             // ═══════════════════════════════════════════════════════════════
             // 缓存策略：将 BuiltInToolService 已读取的文件同步到 AgentContext
             // 全局缓存，避免后续步骤重复 read_file（以后会被 RAG 替代）
@@ -1133,14 +1137,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
             }
 
-            // ── 使已修改文件的读取缓存失效，确保后续步骤读取到最新内容 ──
+            // ── 刷新已修改文件的缓存：先移除旧内容，再写入磁盘上的最新快照 ──
             if (BuiltInTools != null && appliedResults.Count > 0)
             {
                 var modifiedPaths = appliedResults
                     .Where(r => r.Success)
                     .Select(r => r.FilePath)
+                    .Concat(plan.ChangedFiles.Select(c => c.FilePath))
                     .Distinct(StringComparer.OrdinalIgnoreCase);
                 BuiltInTools.InvalidateFileReadCache(modifiedPaths);
+
+                var latestContents = new List<KeyValuePair<string, string>>();
+                foreach (var path in modifiedPaths)
+                {
+                    if (!File.Exists(path))
+                        continue;
+
+                    try
+                    {
+                        var content = await Task.Run(() => File.ReadAllText(path), ct);
+                        latestContents.Add(new KeyValuePair<string, string>(path, content));
+                    }
+                    catch (Exception ex)
+                    {
+                        AddLog("WARN", string.Format(
+                            LocalizationService.Instance["agent.log.editFileCacheRefreshFailed"],
+                            Path.GetFileName(path), ex.Message));
+                    }
+                }
+
+                BuiltInTools.UpdateFileReadCache(latestContents);
             }
 
             // ── 恢复 diff 预览，从 Workspace 生成 Batch 并创建 Session ──
@@ -2374,11 +2400,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             sb.AppendLine(string.Format(AiPrompts.EditStepPromptPrefix, plan.Title));
             sb.AppendLine();
 
-            // 第2层：代码记忆（跨步骤持久化，未读新文件/未修改文件时不变）
+            // 第2层：代码记忆（跨步骤持久化，包含未读文件与已修改文件的最新快照）
             if (!string.IsNullOrEmpty(context.CodeMemory))
             {
-                sb.AppendLine("##  代码记忆（前面步骤读取的关键文件内容，可直接使用，无需重复 read_file）");
-                sb.AppendLine(">  以下内容来自前面步骤的 read_file 结果，这些文件在之前步骤中**未被修改**。已被修改过的文件已自动排除。");
+                sb.AppendLine("##  代码记忆（前面步骤的关键文件最新内容，可直接使用，无需重复 read_file）");
+                sb.AppendLine(">  未修改文件来自之前的 read_file 结果；已修改文件是编辑后的最新磁盘快照。");
                 sb.AppendLine();
                 sb.AppendLine(context.CodeMemory);
                 sb.AppendLine();
@@ -2441,17 +2467,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
             }
 
-            // ── 注入前面步骤已读取的文件内容缓存（所有模式通用），避免重复 read_file 调用 ──
+            // ── 注入前面步骤缓存的最新文件内容（所有模式通用），避免重复 read_file 调用 ──
             if (BuiltInTools != null)
             {
                 var fileCache = BuiltInTools.GetFileReadCacheSnapshot();
                 if (fileCache.Count > 0)
                 {
-                    // 排除之前步骤已修改过的文件（内容可能已过时）
-                    var modifiedPaths = new HashSet<string>(
-                        plan.ChangedFiles.Select(c => NormalizePath(c.FilePath)),
-                        StringComparer.OrdinalIgnoreCase);
-
                     // 过滤出与当前步骤可能相关的文件（基于步骤标题/描述中的文件名关键词）
                     var relevantFiles = FilterRelevantCachedFiles(fileCache, step);
 
@@ -2468,15 +2489,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     var safeFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var kvp in relevantFiles)
                     {
-                        if (!modifiedPaths.Contains(NormalizePath(kvp.Key))
-                            && !codeMemoryFileNames.Contains(System.IO.Path.GetFileName(kvp.Key)))
+                        if (!codeMemoryFileNames.Contains(System.IO.Path.GetFileName(kvp.Key)))
                             safeFiles[kvp.Key] = kvp.Value;
                     }
 
                     if (safeFiles.Count > 0)
                     {
-                        sb.AppendLine("## 前面步骤已读取的文件内容（可直接使用，无需重复调用 read_file）");
-                        sb.AppendLine(">  以下文件内容来自前面步骤的读取缓存，这些文件在之前步骤中**未被修改**，内容仍然有效。已被修改过的文件已自动排除。");
+                        sb.AppendLine("## 前面步骤的缓存文件内容（可直接使用，无需重复调用 read_file）");
+                        sb.AppendLine(">  以下文件内容来自跨步骤缓存，未修改文件保持原读取内容，已修改文件为编辑后的最新快照。");
                         sb.AppendLine();
 
                         const int maxFilesToInclude = 10;
@@ -2733,6 +2753,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             var modifiedPaths = new HashSet<string>(
                 plan.ChangedFiles.Select(c => NormalizePath(c.FilePath)),
                 StringComparer.OrdinalIgnoreCase);
+            var missingPaths = modifiedPaths
+                .Where(path => !File.Exists(path))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             // 提取计划步骤关键词用于语义加分
             var stepKeywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -2747,7 +2770,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 }
             }
 
-            RefreshCodeMemory(context, modifiedPaths, stepKeywords);
+            // 修改后的文件已刷新为最新内容；只有已删除的文件才需要从记忆中排除。
+            RefreshCodeMemory(context, missingPaths, stepKeywords);
         }
 
         #endregion

@@ -330,6 +330,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 写入或更新文件读取缓存。
+        /// Agent 应用编辑后用它刷新最新文件内容，供下一步的 CodeMemory 使用。
+        /// </summary>
+        public void UpdateFileReadCache(IEnumerable<KeyValuePair<string, string>> fileContents)
+        {
+            if (fileContents == null)
+                throw new ArgumentNullException(nameof(fileContents));
+
+            foreach (var kvp in fileContents)
+            {
+                if (string.IsNullOrWhiteSpace(kvp.Key) || kvp.Value == null)
+                    continue;
+
+                _fileReadCache[kvp.Key] = new FileReadCacheEntry
+                {
+                    FullContent = kvp.Value,
+                    ReadRanges = new List<(int, int)>(),
+                    LastReadRound = CurrentRound,
+                };
+            }
+        }
+
+        /// <summary>
         /// 使指定文件的读取缓存失效。
         /// </summary>
         public void InvalidateFileReadCache(string filePath)

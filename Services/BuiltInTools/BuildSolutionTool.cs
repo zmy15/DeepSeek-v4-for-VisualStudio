@@ -62,11 +62,28 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         {
             if (string.IsNullOrEmpty(toolResult)) return LocalizationService.Instance["tool.common.noResult"];
             if (toolResult.StartsWith("Error: ")) return toolResult;
-            if (toolResult.Contains(LocalizationService.Instance["tool.common.buildSuccess"]) || toolResult.Contains("Build succeeded"))
+            if (IsSuccessResult(toolResult))
                 return LocalizationService.Instance["tool.buildSolution.success"];
             if (toolResult.Contains(LocalizationService.Instance["tool.common.buildFailed"]) || toolResult.Contains("Build failed"))
                 return LocalizationService.Instance["tool.buildSolution.failed"];
             return LocalizationService.Instance["tool.buildSolution.complete"];
+        }
+
+        /// <summary>
+        /// 判断 build_solution 结果是否明确表示构建已完成且成功。
+        /// 只有明确的成功标记才算成功，“无错误”或构建进行中都不算。
+        /// </summary>
+        public static bool IsSuccessResult(string? toolResult)
+        {
+            if (string.IsNullOrWhiteSpace(toolResult))
+                return false;
+            if (toolResult.StartsWith("Error: ", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return toolResult.IndexOf(
+                       LocalizationService.Instance["tool.common.buildSuccess"],
+                       StringComparison.OrdinalIgnoreCase) >= 0
+                   || toolResult.IndexOf("Build succeeded", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
