@@ -26,7 +26,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>累计 Completion token 数（仅聊天，不含 FIM）</summary>
         long TotalCompletionTokens { get; }
 
-        /// <summary>累计费用（元，国内价目）。按每次 API 调用时点的模型 × 高峰/空闲时段单价计价累加</summary>
+        /// <summary>累计费用（元，国内价目）。按每次 API 调用时点的高峰/空闲时段单价计价累加（所有官方模型同价）</summary>
         double TotalSessionCostYuan { get; }
 
         /// <summary>累计费用（美元，国际价目）。与人民币双轨累计，显示时按账户币种取用</summary>

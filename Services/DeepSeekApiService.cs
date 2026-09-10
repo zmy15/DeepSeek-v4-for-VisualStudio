@@ -80,7 +80,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public long TotalCompletionTokens => Interlocked.Read(ref _totalCompletionTokens);
 
         /// <summary>
-        /// 累计费用（元，人民币，国内价目）。每次 API 调用按"调用时点的实际模型 × 高峰/空闲时段"单价计价后累加。
+        /// 累计费用（元，人民币，国内价目）。每次 API 调用按"调用时点的高峰/空闲时段"单价计价后累加。
         /// </summary>
         public double TotalSessionCostYuan => Volatile.Read(ref _totalSessionCostYuan);
 
@@ -118,40 +118,40 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
-        /// DeepSeek V4 官方定价，按"国内/国际（币种）× 模型（Flash/Pro）× 时段（高峰/空闲）"分档。
-        /// 高峰时段两个平台一致（北京时间 9:00-12:00、14:00-18:00）。
+        /// DeepSeek V4 官方统一定价（所有官方模型同价），按"国内/国际（币种）× 时段（高峰/空闲）"分档。
+        /// 高峰时段为北京时间周一至周五 9:00-12:00、14:00-18:00；周六、周日全天为空闲时段。
         ///   国内（¥/百万 tokens）：
-        ///     输入（缓存命中）:   空闲 Flash ¥0.05 / Pro ¥0.15 ；高峰 Flash ¥0.10 / Pro ¥0.30
-        ///     输入（缓存未命中）: 空闲 Flash ¥1.5  / Pro ¥4.5  ；高峰 Flash ¥3.0  / Pro ¥9.0
-        ///     输出:               空闲 Flash ¥4.5  / Pro ¥13.5 ；高峰 Flash ¥9.0  / Pro ¥27.0
+        ///     输入（缓存命中）:   空闲 ¥0.02 ；高峰 ¥0.04
+        ///     输入（缓存未命中）: 空闲 ¥1    ；高峰 ¥2
+        ///     输出:               空闲 ¥4    ；高峰 ¥8
         ///   国际（$/百万 tokens）：
-        ///     输入（缓存命中）:   空闲 Flash $0.007 / Pro $0.022 ；高峰 Flash $0.014 / Pro $0.044
-        ///     输入（缓存未命中）: 空闲 Flash $0.22  / Pro $0.66  ；高峰 Flash $0.44  / Pro $1.32
-        ///     输出:               空闲 Flash $0.66  / Pro $1.98  ；高峰 Flash $1.32  / Pro $3.96
+        ///     输入（缓存命中）:   空闲 $0.003 ；高峰 $0.006
+        ///     输入（缓存未命中）: 空闲 $0.15  ；高峰 $0.3
+        ///     输出:               空闲 $0.6   ；高峰 $1.2
         /// </summary>
-        /// <param name="isFlash">是否 Flash 模型（否则 Pro）</param>
         /// <param name="isPeak">是否高峰时段</param>
         /// <param name="currency">币种："USD" 国际价目，其余（含默认）按国内 CNY 价目</param>
         /// <returns>(缓存未命中单价, 缓存命中单价, 输出单价)</returns>
-        public static (double CacheMiss, double CacheHit, double Output) GetPricing(bool isFlash, bool isPeak, string currency = "CNY")
+        public static (double CacheMiss, double CacheHit, double Output) GetPricing(bool isPeak, string currency = "CNY")
         {
             bool usd = (currency ?? "").Equals("USD", StringComparison.OrdinalIgnoreCase);
-            return isFlash
-                ? (CacheMiss: isPeak ? (usd ? 0.44 : 3.0) : (usd ? 0.22 : 1.5),
-                   CacheHit:  isPeak ? (usd ? 0.014 : 0.10) : (usd ? 0.007 : 0.05),
-                   Output:    isPeak ? (usd ? 1.32 : 9.0) : (usd ? 0.66 : 4.5))
-                : (CacheMiss: isPeak ? (usd ? 1.32 : 9.0) : (usd ? 0.66 : 4.5),
-                   CacheHit:  isPeak ? (usd ? 0.044 : 0.30) : (usd ? 0.022 : 0.15),
-                   Output:    isPeak ? (usd ? 3.96 : 27.0) : (usd ? 1.98 : 13.5));
+            return isPeak
+                ? (CacheMiss: usd ? 0.3 : 2.0, CacheHit: usd ? 0.006 : 0.04, Output: usd ? 1.2 : 8.0)
+                : (CacheMiss: usd ? 0.15 : 1.0, CacheHit: usd ? 0.003 : 0.02, Output: usd ? 0.6 : 4.0);
         }
 
         /// <summary>
-        /// 判断当前是否处于北京高峰时段（9:00-12:00、14:00-18:00，其余为空闲时段）。
+        /// 判断当前是否处于北京高峰时段（周一至周五 9:00-12:00、14:00-18:00；周六、周日全天为空闲时段）。
         /// 北京时间为 UTC+8 且无夏令时，直接由 UTC 偏移计算，不依赖系统时区库。
         /// </summary>
-        public static bool IsBeijingPeakTime()
+        public static bool IsBeijingPeakTime() => IsBeijingPeakTime(DateTimeOffset.UtcNow);
+
+        internal static bool IsBeijingPeakTime(DateTimeOffset utcNow)
         {
-            int hour = DateTime.UtcNow.AddHours(8).Hour;
+            var beijingNow = utcNow.ToOffset(TimeSpan.FromHours(8));
+            if (beijingNow.DayOfWeek == DayOfWeek.Saturday || beijingNow.DayOfWeek == DayOfWeek.Sunday)
+                return false;
+            int hour = beijingNow.Hour;
             return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18);
         }
 
@@ -221,25 +221,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 线程安全地累加一次 API 调用的 Usage 统计到累计值（Chat API）。
-        /// 同时按"本次调用的实际模型 × 调用结束时点的时段"单价，以国内（¥）和国际（$）
+        /// 同时按"调用结束时点的高峰/空闲时段"单价，以国内（¥）和国际（$）
         /// 两套价目双轨累计费用；显示时按账户币种（余额 API 自动捕获）取用，
         /// 避免首次余额查询前或账户类型判定前后出现混币种累加。
         /// </summary>
         /// <param name="usage">本次调用的 usage</param>
-        /// <param name="effectiveModel">本次调用实际使用的模型（null 时取实例默认模型，如标题生成的 flash 覆盖）</param>
-        private void AccumulateStats(DeepSeekUsage usage, string? effectiveModel = null)
+        private void AccumulateStats(DeepSeekUsage usage)
         {
             Interlocked.Add(ref _totalCacheHitTokens, usage.PromptCacheHitTokens);
             Interlocked.Add(ref _totalCacheMissTokens, usage.PromptCacheMissTokens);
             Interlocked.Add(ref _totalPromptTokens, usage.PromptTokens);
             Interlocked.Add(ref _totalCompletionTokens, usage.CompletionTokens);
 
-            // ── 费用累计：按调用时点的模型 × 高峰/空闲单价，双币种同时计价 ──
-            string model = effectiveModel ?? _model ?? string.Empty;
-            bool isFlash = model.Contains("flash", StringComparison.OrdinalIgnoreCase);
+            // ── 费用累计：按调用时点的高峰/空闲单价，双币种同时计价 ──
             bool isPeak = IsBeijingPeakTime();
-            var (missCny, hitCny, outputCny) = GetPricing(isFlash, isPeak, "CNY");
-            var (missUsd, hitUsd, outputUsd) = GetPricing(isFlash, isPeak, "USD");
+            var (missCny, hitCny, outputCny) = GetPricing(isPeak, "CNY");
+            var (missUsd, hitUsd, outputUsd) = GetPricing(isPeak, "USD");
             AddAccumulatedCost(
                 usage.PromptCacheMissTokens / 1_000_000.0 * missCny
                 + usage.PromptCacheHitTokens / 1_000_000.0 * hitCny
@@ -1004,7 +1001,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     if (chunk?.Usage != null)
                     {
                         LastUsage = chunk.Usage;
-                        AccumulateStats(chunk.Usage, model);
+                        AccumulateStats(chunk.Usage);
                         cacheInfo = $"{chunk.Usage.PromptCacheHitTokens}|{chunk.Usage.PromptCacheMissTokens}|{chunk.Usage.PromptTokens}|{chunk.Usage.CompletionTokens}";
                     }
                 }
