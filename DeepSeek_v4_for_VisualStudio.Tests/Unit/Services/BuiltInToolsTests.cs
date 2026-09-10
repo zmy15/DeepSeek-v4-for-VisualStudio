@@ -59,6 +59,25 @@ public class BuiltInToolsTests
     }
 
     [Fact]
+    public void BuildSolutionTool_IsSuccessResult_RecognizesCompletedBuild()
+    {
+        string localizedSuccess =
+            LocalizationService.Instance["tool.common.buildSuccess"] + " (1 project)";
+
+        BuildSolutionTool.IsSuccessResult(localizedSuccess).Should().BeTrue();
+        BuildSolutionTool.IsSuccessResult("Build succeeded, 1 project(s) passed").Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Error: build failed")]
+    [InlineData("Build is still in progress.")]
+    [InlineData("")]
+    public void BuildSolutionTool_IsSuccessResult_RejectsFailureOrIncompleteBuild(string result)
+    {
+        BuildSolutionTool.IsSuccessResult(result).Should().BeFalse();
+    }
+
+    [Fact]
     public void ReplaceStringInFileTool_HasCorrectName()
     {
         new ReplaceStringInFileTool().Name.Should().Be("replace_string_in_file");

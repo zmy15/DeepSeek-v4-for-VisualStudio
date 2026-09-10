@@ -245,14 +245,6 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public int? ToolHistoryInsertIndex { get; set; }
 
         /// <summary>
-        /// Handoff 可复用前缀的边界：位于源 Agent 稳定历史之后，
-        /// 身份边界/volatile/当前 user/Agent 提示词之前。
-        /// 与 ToolHistoryInsertIndex 分离，避免目标 Agent 新增工具历史污染旧前缀。
-        /// </summary>
-        [JsonIgnore]
-        public int? HandoffPrefixLength { get; set; }
-
-        /// <summary>
         /// 实时推理流回调。Agent 内部每收到一个 thinking chunk 时调用，
         /// 供 UI 层实时流式更新思考面板。
         /// </summary>

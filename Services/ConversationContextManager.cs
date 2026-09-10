@@ -468,6 +468,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (hasText)
                 content = StringExtensions.SanitizeUserInput(content);
 
+            var normalizedMultimodalContent = CloneContentParts(multimodalContent);
+            if (hasText
+                && normalizedMultimodalContent is { Count: > 0 }
+                && !normalizedMultimodalContent.Any(p =>
+                    p.Type == "text" && string.Equals(p.Text, content, StringComparison.Ordinal)))
+            {
+                // 多模态消息序列化时 content 数组优先于纯文本字段。
+                // 调用方通常只传图片块，因此必须把文本显式放回数组，避免文字丢失。
+                normalizedMultimodalContent.Insert(0, new ChatContentPart
+                {
+                    Type = "text",
+                    Text = content,
+                });
+            }
+
             // ──  缓存边界快照：新用户消息意味着新对话轮次，清除旧快照 ──
             if (_cacheSnapshotEntryIndex.HasValue)
             {
@@ -479,7 +494,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 Role = "user",
                 Content = content,
-                MultimodalContent = CloneContentParts(multimodalContent),
+                MultimodalContent = normalizedMultimodalContent,
                 TurnIndex = TurnCount + 1, // 新轮次
             });
 
