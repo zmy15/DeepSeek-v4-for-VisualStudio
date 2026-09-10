@@ -87,6 +87,36 @@ public class ConversationContextManagerExtendedTests
         userMessage.MultimodalContent.Should().HaveCount(1);
     }
 
+    [Fact]
+    public void AddUserMessage_TextAndVisualContent_SerializesTextAndImage()
+    {
+        const string prompt = "What is shown in this image?";
+        var visual = new List<ChatContentPart>
+        {
+            new()
+            {
+                Type = "image_url",
+                ImageUrl = new ChatImageUrl { Url = "data:image/png;base64,AAAA" },
+            },
+        };
+
+        _manager.AddUserMessage(prompt, visual);
+
+        var userMessage = _manager.BuildApiMessages().Single(m => m.Role == "user");
+        userMessage.Content.Should().Be(prompt);
+        userMessage.MultimodalContent.Should().HaveCount(2);
+        userMessage.MultimodalContent![0].Type.Should().Be("text");
+        userMessage.MultimodalContent[0].Text.Should().Be(prompt);
+        userMessage.MultimodalContent[1].Type.Should().Be("image_url");
+        userMessage.MultimodalContent[1].ImageUrl!.Url.Should().Be("data:image/png;base64,AAAA");
+
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(userMessage));
+        var contentParts = document.RootElement.GetProperty("content");
+        contentParts.GetArrayLength().Should().Be(2);
+        contentParts[0].GetProperty("text").GetString().Should().Be(prompt);
+        contentParts[1].GetProperty("type").GetString().Should().Be("image_url");
+    }
+
     #endregion
 
     #region AddAssistantMessage with reasoning and toolCalls
