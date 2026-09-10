@@ -1474,12 +1474,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
         /// <summary>
         /// 解析 FIM 补全实际发送的模型名。
-        /// deepseek-v4-flash-vision-exp 不支持 FIM 补全，回退到 deepseek-v4-flash。
+        /// 用户勾选为视觉模型的模型不支持 FIM 补全，回退到 deepseek-v4-flash。
         /// 注意：自定义端点模型无需在此回退 —— FIM 是 DeepSeek 专有端点，
         /// FimCompletionAsync 入口已被 !IsDeepSeekEndpoint 守卫，自定义模型不可达此逻辑。
         /// </summary>
         private string ResolveFimModel()
-            => DeepSeekModelCatalog.IsVisionModel(_model)
+            => CurrentIsVision
                 ? DeepSeekModelCatalog.Flash
                 : _model;
 

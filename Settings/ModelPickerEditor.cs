@@ -1,4 +1,4 @@
-using DeepSeek_v4_for_VisualStudio.Services;
+﻿using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using System;
 using System.Collections.Generic;
@@ -35,11 +35,12 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
                 dialog.SelectedModels.Count > 0)
             {
                 // 从自定义端点选定模型 → 追加进列表并激活，不覆盖已有模型。
+                var selectedModels = dialog.SelectedModels;
                 var models = page.GetCustomModels()
-                    .Union(dialog.SelectedModels, StringComparer.OrdinalIgnoreCase)
+                    .Union(selectedModels, StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 page.SetCustomModels(models);
-                page.ActiveCustomModel = dialog.SelectedModels.Last();
+                page.ActiveCustomModel = selectedModels.Last();
 
                 // 从自定义端点分类选定模型 → 激活自定义来源
                 page.ActiveModelSource = "custom";
@@ -47,6 +48,137 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             }
 
             return value;
+        }
+    }
+
+    /// <summary>
+    /// 手动勾选视觉模型：同时列出官方接口模型和自定义端点模型。
+    /// </summary>
+    public class VisionModelPickerEditor : UITypeEditor
+    {
+        public override UITypeEditorEditStyle GetEditStyle(ITypeDescriptorContext? context)
+            => UITypeEditorEditStyle.Modal;
+
+        public override object? EditValue(
+            ITypeDescriptorContext? context,
+            IServiceProvider provider,
+            object? value)
+        {
+            if (context?.Instance is not DeepSeekOptionsPage page)
+                return value;
+
+            using var dialog = new VisionModelPickerDialog(
+                page.GetVisionModels(),
+                page.GetCustomModels());
+            if (dialog.ShowDialog() == DialogResult.OK)
+            {
+                page.CustomVisionModels = string.Join(
+                    Environment.NewLine,
+                    dialog.SelectedVisionModels);
+                return page.CustomVisionModels;
+            }
+
+            return value;
+        }
+    }
+
+    /// <summary>视觉模型勾选对话框：官方与自定义模型统一展示。</summary>
+    internal sealed class VisionModelPickerDialog : Form
+    {
+        private sealed record VisionModelItem(string Model, string Display);
+
+        private readonly CheckedListBox _modelList;
+
+        public IReadOnlyList<string> SelectedVisionModels
+            => _modelList.CheckedItems.Cast<VisionModelItem>()
+                .Select(item => item.Model)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+        public VisionModelPickerDialog(IReadOnlyList<string> visionModels, IReadOnlyList<string> customModels)
+        {
+            var l = LocalizationService.Instance;
+            Text = l["settings.visionModels.title"];
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition = FormStartPosition.CenterParent;
+            MinimizeBox = false;
+            MaximizeBox = false;
+            ShowInTaskbar = false;
+            ClientSize = new Size(460, 392);
+            Font = new Font("Segoe UI", 9f);
+
+            var descriptionLabel = new Label
+            {
+                Text = l["settings.visionModels.description"],
+                Location = new Point(12, 12),
+                AutoSize = true,
+            };
+            _modelList = new CheckedListBox
+            {
+                Location = new Point(12, 34),
+                Size = new Size(436, 296),
+                CheckOnClick = true,
+                DisplayMember = nameof(VisionModelItem.Display),
+            };
+
+            var officialModels = OfficialModelCatalogService.GetModels();
+            var sources = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var model in officialModels)
+                sources.Add(model, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "official" });
+            foreach (var model in customModels)
+            {
+                if (!sources.TryGetValue(model, out var modelSources))
+                {
+                    modelSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "custom" };
+                    sources[model] = modelSources;
+                }
+                modelSources.Add("custom");
+            }
+
+            foreach (var pair in sources)
+            {
+                var sourceText = pair.Value.Contains("official") && pair.Value.Contains("custom")
+                    ? l["settings.visionModels.source.both"]
+                    : pair.Value.Contains("official")
+                        ? l["settings.visionModels.source.official"]
+                        : l["settings.visionModels.source.custom"];
+                var display = string.IsNullOrWhiteSpace(sourceText)
+                    ? pair.Key
+                    : $"{pair.Key} ({sourceText})";
+                _modelList.Items.Add(new VisionModelItem(pair.Key, display), false);
+            }
+
+            var selected = new HashSet<string>(visionModels, StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < _modelList.Items.Count; i++)
+            {
+                if (_modelList.Items[i] is VisionModelItem item &&
+                    selected.Contains(item.Model))
+                {
+                    _modelList.SetItemChecked(i, true);
+                }
+            }
+
+            var okButton = new Button
+            {
+                Text = l["settings.modelPicker.ok"],
+                DialogResult = DialogResult.OK,
+                Location = new Point(273, 344),
+                Size = new Size(84, 26),
+            };
+            var cancelButton = new Button
+            {
+                Text = l["settings.modelPicker.cancel"],
+                DialogResult = DialogResult.Cancel,
+                Location = new Point(364, 344),
+                Size = new Size(84, 26),
+            };
+            AcceptButton = okButton;
+            CancelButton = cancelButton;
+
+            Controls.AddRange(new Control[]
+            {
+                descriptionLabel, _modelList, okButton, cancelButton,
+            });
         }
     }
 
@@ -129,7 +261,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             _modelList = new ListBox
             {
                 Location = new Point(12, 168),
-                Size = new Size(436, 148),
+                Size = new Size(436, 130),
                 SelectionMode = SelectionMode.MultiExtended,
             };
             _modelList.DoubleClick += (_, _) => DialogResult = DialogResult.OK;

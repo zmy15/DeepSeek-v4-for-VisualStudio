@@ -161,7 +161,7 @@ public class DeepSeekEndpointResolverTests
         config.Model.Should().Be("kimi-k3");
     }
 
-    // ── IsVision 视觉能力权威判定（方案 A：用户手动标记自定义多模态模型）──
+    // ── IsVision 视觉能力权威判定（官方与自定义模型统一由用户手动勾选）──
 
     [Fact]
     public void Resolve_CustomVisionList_MarksActiveModelAsVision()
@@ -173,7 +173,7 @@ public class DeepSeekEndpointResolverTests
             selectedModel: "deepseek-v4-flash",
             customModels: "gpt-4o; kimi-k3",
             activeCustomModel: "gpt-4o",
-            customVisionModels: new[] { "gpt-4o" });
+            visionModels: new[] { "gpt-4o" });
 
         config.IsCustom.Should().BeTrue();
         config.IsVision.Should().BeTrue();
@@ -190,7 +190,7 @@ public class DeepSeekEndpointResolverTests
             selectedModel: "deepseek-v4-flash",
             customModels: "gpt-4o; kimi-k3",
             activeCustomModel: "kimi-k3",
-            customVisionModels: new[] { "gpt-4o" });
+            visionModels: new[] { "gpt-4o" });
 
         config.IsCustom.Should().BeTrue();
         config.Model.Should().Be("kimi-k3");
@@ -200,7 +200,7 @@ public class DeepSeekEndpointResolverTests
     [Fact]
     public void Resolve_CustomVisionListEmpty_NotVision()
     {
-        // customVisionModels 为 null（未配置）→ 自定义模型默认按纯文本处理
+        // visionModels 为 null（未配置）→ 模型默认按纯文本处理
         var config = DeepSeekEndpointResolver.Resolve(
             apiBaseUrl: "https://relay.example.com/v1",
             officialApiKey: "sk-official",
@@ -208,7 +208,7 @@ public class DeepSeekEndpointResolverTests
             selectedModel: "deepseek-v4-flash",
             customModels: "gpt-4o; kimi-k3",
             activeCustomModel: "gpt-4o",
-            customVisionModels: null);
+            visionModels: null);
 
         config.IsCustom.Should().BeTrue();
         config.IsVision.Should().BeFalse();
@@ -225,38 +225,48 @@ public class DeepSeekEndpointResolverTests
             selectedModel: "deepseek-v4-flash",
             customModels: "gpt-4o; kimi-k3",
             activeCustomModel: "gpt-4o",
-            customVisionModels: new[] { "GPT-4O" });
+            visionModels: new[] { "GPT-4O" });
 
         config.IsCustom.Should().BeTrue();
         config.IsVision.Should().BeTrue();
     }
 
     [Fact]
-    public void Resolve_OfficialVisionModel_IsVision()
+    public void Resolve_OfficialModel_OnlyVisionWhenUserChecked()
     {
-        // 官方模式：视觉判定沿用官方模型目录（deepseek-v4-flash-vision-exp）
+        // 官方模型不再按名字自动判定；只有用户勾选后才视为视觉模型
         var config = DeepSeekEndpointResolver.Resolve(
+            apiBaseUrl: null,
+            officialApiKey: "sk-official",
+            customApiKey: "sk-custom",
+            selectedModel: "deepseek-v4-flash-vision-exp",
+            customModels: "gpt-4o",
+            visionModels: new[] { "deepseek-v4-flash-vision-exp" });
+
+        config.IsCustom.Should().BeFalse();
+        config.IsVision.Should().BeTrue();
+
+        var notChecked = DeepSeekEndpointResolver.Resolve(
             apiBaseUrl: null,
             officialApiKey: "sk-official",
             customApiKey: "sk-custom",
             selectedModel: "deepseek-v4-flash-vision-exp",
             customModels: "gpt-4o");
 
-        config.IsCustom.Should().BeFalse();
-        config.IsVision.Should().BeTrue();
+        notChecked.IsVision.Should().BeFalse();
     }
 
     [Fact]
     public void Resolve_OfficialNonVisionModel_NotVision()
     {
-        // 官方模式不受自定义视觉名单影响（即使名单包含同名模型）
+        // 官方模型未在视觉名单中时按纯文本处理
         var config = DeepSeekEndpointResolver.Resolve(
             apiBaseUrl: null,
             officialApiKey: "sk-official",
             customApiKey: "sk-custom",
             selectedModel: "deepseek-v4-flash",
             customModels: "gpt-4o",
-            customVisionModels: new[] { "gpt-4o" });
+            visionModels: new[] { "gpt-4o" });
 
         config.IsCustom.Should().BeFalse();
         config.IsVision.Should().BeFalse();
@@ -273,7 +283,7 @@ public class DeepSeekEndpointResolverTests
             selectedModel: "deepseek-v4-flash",
             customModels: "gpt-4o, kimi-k3",
             activeCustomModel: "removed-model",
-            customVisionModels: new[] { "gpt-4o" });
+            visionModels: new[] { "gpt-4o" });
 
         config.IsCustom.Should().BeTrue();
         config.Model.Should().Be("gpt-4o");
@@ -297,7 +307,7 @@ public class DeepSeekEndpointResolverTests
     }
 
     [Fact]
-    public void Resolve_RemoteOfficialModelWithNameVision_IsVision()
+    public void Resolve_RemoteOfficialModel_ManualVisionOnly()
     {
         var config = DeepSeekEndpointResolver.Resolve(
             apiBaseUrl: null,
@@ -305,7 +315,8 @@ public class DeepSeekEndpointResolverTests
             customApiKey: "sk-custom",
             selectedModel: "deepseek-v4-vision-exp",
             customModels: "kimi-k3",
-            officialModels: new[] { "deepseek-v4-vision-exp" });
+            officialModels: new[] { "deepseek-v4-vision-exp" },
+            visionModels: new[] { "deepseek-v4-vision-exp" });
 
         config.IsVision.Should().BeTrue();
     }
