@@ -1402,6 +1402,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         Logger.Info($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 返回: {(toolResult.Length > 200 ? toolResult.Substring(0, 200) + "..." : toolResult)}");
                     }
 
+                    // ── Build/Edit 验证：构建工具已经等待完整构建结果。明确成功后立即结束，
+                    //    不再进入下一轮让模型调用 get_errors 重复确认。──
+                    if ((Definition.Type == AgentType.Build || Definition.Type == AgentType.Edit)
+                        && PendingHandoffRequest == null)
+                    {
+                        var buildResultIndices = toolCalls
+                            .Select((tc, index) => new { ToolCall = tc, Index = index })
+                            .Where(item => item.ToolCall.Function.Name == "build_solution")
+                            .Select(item => item.Index)
+                            .ToList();
+
+                        if (buildResultIndices.Count > 0
+                            && buildResultIndices.All(index => BuildSolutionTool.IsSuccessResult(toolResults[index])))
+                        {
+                            int resultIndex = buildResultIndices[0];
+                            contentBuilder.Clear();
+                            contentBuilder.Append(toolResults[resultIndex]);
+                            Logger.Info($"[Agent:{Definition.Name}] build_solution 已成功完成，终止工具循环并返回结果。");
+                            metrics?.MarkTerminated("build_success");
+                            break;
+                        }
+                    }
+
                     // 合法工具轮次说明模型已纠正，重置连续白名单拒绝计数。
                     if (!rejectedToolThisRound)
                     {
