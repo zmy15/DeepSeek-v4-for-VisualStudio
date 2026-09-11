@@ -1363,7 +1363,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 根据当前生效端点显示/隐藏 DeepSeek 官方专属控件。
+        /// 根据当前端点的 reasoning 能力显示/隐藏思考控件；
+        /// 余额等真正 DeepSeek 官方专属控件仍由 IsOfficialSource 单独门控。
         /// FIM 由 InlinePredictionManager 使用同一 Resolver 在请求侧门控。
         /// </summary>
         private void UpdateEndpointCapabilityControls()
@@ -1374,17 +1375,28 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 return;
             }
 
-            bool isOfficial = IsOfficialSource;
-            var visibility = isOfficial
-                ? System.Windows.Visibility.Visible
-                : System.Windows.Visibility.Collapsed;
+            var config = DeepSeekEndpointResolver.Resolve(_options);
+            var reasoning = ReasoningCapabilityConfig.Infer(config.BaseUrl, config.Model);
 
             if (ThinkingCheckBox != null)
-                ThinkingCheckBox.Visibility = visibility;
+            {
+                ThinkingCheckBox.Visibility = reasoning.HasReasoningOptions
+                    ? System.Windows.Visibility.Visible
+                    : System.Windows.Visibility.Collapsed;
+                ThinkingCheckBox.IsEnabled = !reasoning.AlwaysThinking;
+                if (reasoning.AlwaysThinking)
+                    ThinkingCheckBox.IsChecked = true;
+                else if (_options != null)
+                    ThinkingCheckBox.IsChecked = _options.IsThinkingEnabled;
+            }
             if (EffortComboBox != null)
-                EffortComboBox.Visibility = visibility;
+            {
+                EffortComboBox.Visibility = reasoning.SupportsEffort
+                    ? System.Windows.Visibility.Visible
+                    : System.Windows.Visibility.Collapsed;
+            }
 
-            if (!isOfficial)
+            if (!IsOfficialSource)
             {
                 StopBalanceTimer();
                 RefreshConsumptionDisplay();

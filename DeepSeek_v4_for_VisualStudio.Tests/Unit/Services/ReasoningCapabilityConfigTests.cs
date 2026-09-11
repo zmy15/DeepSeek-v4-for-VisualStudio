@@ -1,3 +1,4 @@
+using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 
 namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Services;
@@ -121,6 +122,18 @@ public class ReasoningCapabilityConfigTests
         var config = ReasoningCapabilityConfig.Infer("https://relay.example.com/v1", "deepseek-v4-flash");
         config.EffortValueMode.Should().Be("deepseek");
         config.ThinkingParam.Should().Be("thinking");
+    }
+
+    [Fact]
+    public void Infer_DeepSeekModelOnCustomEndpoint_ExposesReasoningControls()
+    {
+        var config = ReasoningCapabilityConfig.Infer(
+            "https://relay.example.com/v1",
+            DeepSeekModelCatalog.FlashVisionExp);
+
+        config.HasReasoningOptions.Should().BeTrue();
+        config.SupportsThinking.Should().BeTrue();
+        config.SupportsEffort.Should().BeTrue();
     }
 
     [Fact]

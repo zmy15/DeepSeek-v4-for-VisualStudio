@@ -1414,6 +1414,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // 下拉框切换不只是换模型名：来源切换时必须同步 Base URL、API Key 与视觉标记。
                     var config = DeepSeekEndpointResolver.Resolve(_options);
                     _apiService.UpdateEndpoint(config);
+                    UpdateEndpointCapabilityControls();
 
                     // 模型/来源切换影响 capture_window 等工具可见性 → 使 Agent 完整工具集缓存失效
                     _agentFactory?.InvalidateFullToolSetCache();

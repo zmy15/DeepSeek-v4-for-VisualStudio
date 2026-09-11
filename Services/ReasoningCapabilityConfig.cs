@@ -25,6 +25,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>是否发送 effort 字段（reasoning_effort / reasoning.effort）。</summary>
         public bool SupportsEffort { get; init; }
 
+        /// <summary>当前端点是否提供任何可配置的 reasoning 能力。</summary>
+        public bool HasReasoningOptions => SupportsThinking || SupportsEffort;
+
         /// <summary>thinking 开关参数名: "thinking" | "enable_thinking" | "reasoning_split" | "none"。</summary>
         public string ThinkingParam { get; init; } = "none";
 
