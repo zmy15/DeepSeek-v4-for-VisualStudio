@@ -48,9 +48,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         {
                             filePath = new { type = "string", description = LocalizationService.Instance["tool.replaceString.param.filePath"] },
                             oldString = new { type = "string", description = LocalizationService.Instance["tool.replaceString.param.oldString"] },
-                            newString = new { type = "string", description = LocalizationService.Instance["tool.replaceString.param.newString"] }
+                            newString = new { type = "string", description = LocalizationService.Instance["tool.replaceString.param.newString"] },
+                            expected = new { type = "string", description = LocalizationService.Instance["tool.editVerify.expectedDescription"] }
                         },
-                        required = new[] { "filePath", "oldString", "newString" }
+                        required = new[] { "filePath", "oldString", "newString", "expected" }
                     }
                 }
             };
@@ -74,6 +75,24 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
         {
+            string expectedText = GetStringArg(args, "expected");
+            if (string.IsNullOrEmpty(expectedText))
+                return LocalizationService.Instance["tool.editVerify.missingExpected"];
+
+            var expectedParse = ExpectedContentVerifier.ParseLineNumberedContent(expectedText);
+            if (!expectedParse.Success)
+                return expectedParse.Error;
+
+            return await ApplyReplacementAsync(
+                args, workspaceRoot, expectedText, verifyAfterWrite: true);
+        }
+
+        internal async Task<string> ApplyReplacementAsync(
+            Dictionary<string, JsonElement> args,
+            string? workspaceRoot,
+            string? expectedText,
+            bool verifyAfterWrite)
+        {
             string filePath = GetStringArg(args, "filePath");
             string oldString = GetStringArg(args, "oldString");
             string newString = GetStringArg(args, "newString");
@@ -87,7 +106,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
             // Workspace 模式下文件必须已暂存或已存在
             if (Workspace == null && !File.Exists(filePath))
-                return LocalizationService.Instance.Format("tool.replaceString.fileNotFound", filePath);
+                return LocalizationService.Instance.Format("tool.replaceString.fileNotFound", filePath) +
+                    "\n" + await BuildCurrentStateSnapshotAsync(filePath);
 
             // 按文件加锁，防止并行工具调用对同一文件产生竞态条件
             SemaphoreSlim fileLock = _fileLocks.GetOrAdd(filePath, _ => new SemaphoreSlim(1, 1));
@@ -103,11 +123,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 int index = normalizedContent.IndexOf(normalizedOld, StringComparison.Ordinal);
                 if (index < 0)
-                    return LocalizationService.Instance.Format("tool.replaceString.textNotFound", Path.GetFileName(filePath));
+                    return LocalizationService.Instance.Format("tool.replaceString.textNotFound", Path.GetFileName(filePath)) +
+                        "\n" + await BuildCurrentStateSnapshotAsync(filePath);
 
                 int secondIndex = normalizedContent.IndexOf(normalizedOld, index + 1, StringComparison.Ordinal);
                 if (secondIndex >= 0)
-                    return LocalizationService.Instance.Format("tool.replaceString.multipleMatches", index, secondIndex);
+                    return LocalizationService.Instance.Format("tool.replaceString.multipleMatches", index, secondIndex) +
+                        "\n" + await BuildCurrentStateSnapshotAsync(filePath);
 
                 string newContent = normalizedContent.Substring(0, index)
                     + normalizedNew
@@ -119,7 +141,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 if (Workspace != null)
                 {
                     Workspace.WriteFile(filePath, newContent);
-                    return LocalizationService.Instance.Format("tool.replaceString.replaced", Path.GetFileName(filePath));
+                    if (!verifyAfterWrite)
+                        return LocalizationService.Instance.Format("tool.replaceString.replaced", Path.GetFileName(filePath));
+
+                    return await VerifyWrittenContentAsync(expectedText!, filePath);
                 }
 
                 // ── 写入前备份 ──
@@ -142,7 +167,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                 // ── 写入成功 → 清理备份 ──
                 BackupService.CleanupBackup(backupPath);
 
-                return LocalizationService.Instance.Format("tool.replaceString.replaced", Path.GetFileName(filePath));
+                if (!verifyAfterWrite)
+                    return LocalizationService.Instance.Format("tool.replaceString.replaced", Path.GetFileName(filePath));
+
+                return await VerifyWrittenContentAsync(expectedText!, filePath);
             }
             catch (Exception ex)
             {
@@ -152,6 +180,36 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             {
                 fileLock.Release();
             }
+        }
+
+        internal async Task<string?> ReadCurrentContentAsync(string filePath)
+        {
+            if (Workspace != null)
+            {
+                string stagedContent = Workspace.ReadFile(filePath);
+                if (File.Exists(filePath) || stagedContent.Length > 0)
+                    return stagedContent;
+                return null;
+            }
+
+            return File.Exists(filePath)
+                ? await Task.Run(() => File.ReadAllText(filePath, Encoding.UTF8))
+                : null;
+        }
+
+        internal async Task<string> BuildCurrentStateSnapshotAsync(string filePath)
+        {
+            string? actualContent = await ReadCurrentContentAsync(filePath);
+            return ExpectedContentVerifier.BuildCurrentStateMessage(actualContent);
+        }
+
+        private async Task<string> VerifyWrittenContentAsync(
+            string expectedText,
+            string filePath)
+        {
+            string? actualContent = await ReadCurrentContentAsync(filePath);
+            return ExpectedContentVerifier.VerifyExpectedContent(
+                expectedText, actualContent, filePath);
         }
     }
 }

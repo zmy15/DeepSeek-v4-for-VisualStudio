@@ -1,4 +1,5 @@
 using DeepSeek_v4_for_VisualStudio.Services.EditTools;
+using BuiltInApplyPatchTool = DeepSeek_v4_for_VisualStudio.Services.BuiltInTools.ApplyPatchTool;
 
 namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Services;
 
@@ -7,6 +8,48 @@ namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Services;
 /// </summary>
 public class ApplyPatchToolTests
 {
+    [Fact]
+    public void ParseExpectedLineNumberedContent_ParsesCommonFormats()
+    {
+        var parsed = BuiltInApplyPatchTool.ParseExpectedLineNumberedContent(
+            "1|class Program\n2: {\n3→    static void Main() {}\n4.}");
+
+        parsed.Success.Should().BeTrue();
+        parsed.Lines.Should().Equal(
+            "class Program",
+            "{",
+            "    static void Main() {}",
+            "}");
+    }
+
+    [Fact]
+    public void VerifyExpectedContent_MatchesActualFileContent()
+    {
+        string expected = "1|class Program\n2|{\n3|    static void Main() {}\n4|}";
+        string actual = "class Program\r\n{\r\n    static void Main() {}\r\n}";
+
+        string result = BuiltInApplyPatchTool.VerifyExpectedContent(
+            expected, actual, "Program.cs", expectDeleted: false);
+
+        result.Should().NotStartWith("Error: ");
+    }
+
+    [Fact]
+    public void VerifyExpectedContent_ReturnsFirstDifferenceAndLineNumberedCurrentState()
+    {
+        string expected = "1|alpha\n2|expected\n3|omega";
+        string actual = "alpha\nactual\nomega";
+
+        string result = BuiltInApplyPatchTool.VerifyExpectedContent(
+            expected, actual, "sample.cs", expectDeleted: false);
+
+        result.Should().StartWith("Error: ");
+        result.Should().Contain("2|expected");
+        result.Should().Contain("2|actual");
+        result.Should().Contain("1|alpha");
+        result.Should().Contain("3|omega");
+    }
+
     [Fact]
     public void HunkToChunk_SplitsSeparatedEditsIntoMultipleSegments()
     {
