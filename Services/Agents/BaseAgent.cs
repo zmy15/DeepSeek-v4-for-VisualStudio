@@ -551,6 +551,68 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         }
 
         /// <summary>
+        /// 在 Agent 工具循环中进行上下文压缩，并同步裁剪本地 messages。
+        /// 压缩边界与正常请求共用 ContextManager 的判断逻辑。
+        /// </summary>
+        private void TryCompressToolLoopContext(
+            ref List<ChatApiMessage> messages,
+            ref int toolInsertPos)
+        {
+            var contextManager = Context?.ContextManager;
+            if (contextManager == null || Context?.ForwardedMessages != null)
+                return;
+
+            if (!contextManager.TryCompressForToolLoop(
+                    out int staticPrefixMessageCount,
+                    out int removedMessageCount,
+                    out string? dynamicBlock))
+                return;
+
+            int removeStart = staticPrefixMessageCount;
+            if (removedMessageCount <= 0
+                || removeStart < 0
+                || removeStart + removedMessageCount > messages.Count)
+            {
+                Logger.Warn($"[ToolLoopCompression] 本地消息与压缩计数不匹配: " +
+                    $"removeStart={removeStart}, removeCount={removedMessageCount}, messages={messages.Count}");
+                return;
+            }
+
+            bool hadDynamicBlock = staticPrefixMessageCount > 1;
+            bool hasDynamicBlock = !string.IsNullOrWhiteSpace(dynamicBlock);
+
+            messages.RemoveRange(removeStart, removedMessageCount);
+            if (toolInsertPos > removeStart)
+                toolInsertPos -= Math.Min(removedMessageCount, toolInsertPos - removeStart);
+
+            if (hasDynamicBlock && !hadDynamicBlock)
+            {
+                messages.Insert(1, new ChatApiMessage
+                {
+                    Role = "system",
+                    Content = dynamicBlock,
+                });
+                toolInsertPos++;
+            }
+            else if (!hasDynamicBlock && hadDynamicBlock)
+            {
+                messages.RemoveAt(1);
+                toolInsertPos--;
+            }
+            else if (hasDynamicBlock && messages.Count > 1)
+            {
+                messages[1].Content = dynamicBlock;
+            }
+
+            toolInsertPos = Math.Max(0, Math.Min(toolInsertPos, messages.Count));
+            if (Context != null)
+                Context.ToolHistoryInsertIndex = toolInsertPos;
+
+            Logger.Info($"[ToolLoopCompression] 已裁剪本地消息 {removedMessageCount} 条，" +
+                $"toolInsertPos={toolInsertPos}, remaining={messages.Count}");
+        }
+
+        /// <summary>
         /// 深拷贝 ChatApiMessage 列表，避免 Handoff 后目标 Agent 修改复制列表时影响源快照。
         /// </summary>
         protected static List<ChatApiMessage> CloneApiMessages(IEnumerable<ChatApiMessage> messages)
@@ -1082,10 +1144,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // ── 记录本轮 Cache 命中率 ──
                 LogCacheHitRate(round);
 
+                // ── 每轮 API usage 返回后立即校准，工具循环中也能及时反映真实 token。──
+                var turnUsage = _apiService?.LastUsage;
+                if (turnUsage != null && turnUsage.PromptTokens > 0 && Context?.ContextManager != null)
+                    Context.ContextManager.CalibrateFromApiUsage(turnUsage.PromptTokens);
+
                 // ── P0 Telemetry：记录本轮 usage 与总耗时（usage 取自最后一帧 SSE）──
                 if (metrics != null)
                 {
-                    var turnUsage = _apiService?.LastUsage;
                     metrics.EndTurn(round,
                         turnUsage?.PromptTokens ?? 0,
                         turnUsage?.CompletionTokens ?? 0,
@@ -1391,6 +1457,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
                         Logger.Info($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 返回: {(toolResult.Length > 200 ? toolResult.Substring(0, 200) + "..." : toolResult)}");
                     }
+
+                    // ── 工具结果写回后立即检查：同一用户请求内超限也触发压缩。──
+                    TryCompressToolLoopContext(ref messages, ref toolInsertPos);
 
                     // ── Build/Edit 验证：构建工具已经等待完整构建结果。明确成功后立即结束，
                     //    不再进入下一轮让模型调用 get_errors 重复确认。──

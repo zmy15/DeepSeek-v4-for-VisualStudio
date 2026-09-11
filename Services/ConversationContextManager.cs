@@ -643,46 +643,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             //     保证待压缩内容既完整出现，又不会破坏这段缓存前缀。
             if (!_cacheSnapshotEntryIndex.HasValue)
             {
-                int compressionStart = startEntryIdx;
-                string compressionReason = "none";
-
-                if (_compressor != null && _compressor.Config.AutoCompressEnabled)
-                {
-                    int tokenWindowStart = FindCacheWindowStart(out string triggerReason);
-                    if (tokenWindowStart > compressionStart)
-                    {
-                        // 激进压缩：额外压缩窗口内旧轮次，减少后续频繁压缩。
-                        int aggressiveTurns = Math.Max(1, (int)(CacheWindowMaxTurns * CompressionAggressiveness));
-                        int aggressiveStart = FindTurnStartIndex(aggressiveTurns);
-                        compressionStart = Math.Max(tokenWindowStart, aggressiveStart);
-                        compressionReason = triggerReason;
-                    }
-
-                    var config = _compressor.Config;
-                    if (EstimatedTokens > TokenBudget * config.CompressionThreshold)
-                    {
-                        bool severe = EstimatedTokens > TokenBudget * config.AggressiveThreshold;
-                        int preserveTurns = severe ? 1 : config.PreserveRecentTurns;
-                        int budgetStart = FindTurnStartIndex(preserveTurns);
-                        if (budgetStart > compressionStart)
-                        {
-                            compressionStart = budgetStart;
-                            compressionReason = severe
-                                ? $"usage>{config.AggressiveThreshold:P0}"
-                                : $"usage>{config.CompressionThreshold:P0}";
-                        }
-                    }
-                }
-                else
-                {
-                    AutoTrimIfNeeded();
-                    int tokenWindowStart = FindCacheWindowStart(out string triggerReason);
-                    if (tokenWindowStart > compressionStart)
-                    {
-                        compressionStart = tokenWindowStart;
-                        compressionReason = triggerReason;
-                    }
-                }
+                int compressionStart = ResolveCompressionStartIndex(startEntryIdx, out string compressionReason);
 
                 if (compressionStart > startEntryIdx)
                 {
@@ -706,6 +667,98 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             return BuildApiMessagesSnapshot(startEntryIdx, dynamicBlock);
+        }
+
+        /// <summary>
+        /// 解析当前应当压缩到哪个条目边界。
+        /// 供正常请求构建和同一用户请求内的工具循环共用，确保触发条件一致。
+        /// </summary>
+        private int ResolveCompressionStartIndex(int startEntryIdx, out string compressionReason)
+        {
+            int compressionStart = startEntryIdx;
+            compressionReason = "none";
+
+            if (_compressor != null && _compressor.Config.AutoCompressEnabled)
+            {
+                int tokenWindowStart = FindCacheWindowStart(out string triggerReason);
+                if (tokenWindowStart > compressionStart)
+                {
+                    int aggressiveTurns = Math.Max(1, (int)(CacheWindowMaxTurns * CompressionAggressiveness));
+                    int aggressiveStart = FindTurnStartIndex(aggressiveTurns);
+                    compressionStart = Math.Max(tokenWindowStart, aggressiveStart);
+                    compressionReason = triggerReason;
+                }
+
+                var config = _compressor.Config;
+                if (EstimatedTokens > TokenBudget * config.CompressionThreshold)
+                {
+                    bool severe = EstimatedTokens > TokenBudget * config.AggressiveThreshold;
+                    int preserveTurns = severe ? 1 : config.PreserveRecentTurns;
+                    int budgetStart = FindTurnStartIndex(preserveTurns);
+                    if (budgetStart > compressionStart)
+                    {
+                        compressionStart = budgetStart;
+                        compressionReason = severe
+                            ? $"usage>{config.AggressiveThreshold:P0}"
+                            : $"usage>{config.CompressionThreshold:P0}";
+                    }
+                }
+            }
+            else
+            {
+                AutoTrimIfNeeded();
+                int tokenWindowStart = FindCacheWindowStart(out string triggerReason);
+                if (tokenWindowStart > compressionStart)
+                {
+                    compressionStart = tokenWindowStart;
+                    compressionReason = triggerReason;
+                }
+            }
+
+            return compressionStart;
+        }
+
+        /// <summary>
+        /// 同一用户请求的 Agent 工具循环中，在工具结果写回后检查并执行压缩。
+        /// 返回的消息数量用于同步裁剪本地 messages，避免下一轮仍发送旧历史。
+        /// </summary>
+        public bool TryCompressForToolLoop(
+            out int staticPrefixMessageCount,
+            out int removedMessageCount,
+            out string? dynamicBlock)
+        {
+            staticPrefixMessageCount = 0;
+            removedMessageCount = 0;
+            dynamicBlock = null;
+
+            if (_cacheSnapshotEntryIndex.HasValue)
+                return false;
+
+            int compressionStart = ResolveCompressionStartIndex(0, out string compressionReason);
+            if (compressionStart <= 0)
+                return false;
+
+            string? currentDynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
+            var staticPrefix = BuildApiMessagesSnapshot(
+                startEntryIdx: 0,
+                currentDynamicBlock,
+                entryLimitOverride: 0);
+            var compressionPrefix = BuildApiMessagesSnapshot(
+                startEntryIdx: 0,
+                currentDynamicBlock,
+                entryLimitOverride: compressionStart);
+
+            staticPrefixMessageCount = staticPrefix.Count;
+            removedMessageCount = Math.Max(0, compressionPrefix.Count - staticPrefix.Count);
+            if (removedMessageCount <= 0)
+                return false;
+
+            Logger.Info($"[ToolLoopCompression] 触发压缩: {compressionReason}, " +
+                $"待压缩消息={removedMessageCount}, 当前={EstimatedTokens:N0}/{TokenBudget:N0}");
+
+            CompressEntriesBeforeWindow(compressionStart, compressionPrefix);
+            dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
+            return true;
         }
 
         /// <summary>

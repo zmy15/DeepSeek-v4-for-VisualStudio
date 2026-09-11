@@ -388,6 +388,36 @@ public class ConversationContextManagerExtendedTests
             && m.Content.Contains("compressed-summary", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void TryCompressForToolLoop_WhenWindowExceeded_ReturnsLocalSpliceCounts()
+    {
+        IReadOnlyList<ChatApiMessage>? capturedMessages = null;
+        var compressor = new ContextCompressorService((messages, ct) =>
+        {
+            capturedMessages = messages;
+            return Task.FromResult("tool-loop-summary");
+        });
+
+        _manager.CacheWindowMaxTokens = 1;
+        _manager.SetCompressor(compressor);
+        _manager.AddUserMessage("Q1");
+        _manager.AddAssistantMessage("A1");
+        _manager.AddToolResult("call_1", "read_file", "T1");
+
+        bool compressed = _manager.TryCompressForToolLoop(
+            out int staticPrefixMessageCount,
+            out int removedMessageCount,
+            out string? dynamicBlock);
+
+        compressed.Should().BeTrue();
+        staticPrefixMessageCount.Should().Be(1);
+        removedMessageCount.Should().Be(2);
+        dynamicBlock.Should().Contain("tool-loop-summary");
+        capturedMessages.Should().Contain(m => m.Content == "Q1");
+        capturedMessages.Should().Contain(m => m.Content == "A1");
+        capturedMessages.Should().NotContain(m => m.Content == "T1");
+    }
+
     #endregion
 
     #region BuildApiMessagesRecentTurns
