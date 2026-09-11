@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using DeepSeek_v4_for_VisualStudio.Settings;
 
 namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Settings;
@@ -122,6 +124,57 @@ public class UnifiedSettingsCoverageTests
         // API keys intentionally stay out of Unified Settings, so the page that edits
         // Visual Studio Credential Storage entries must remain discoverable.
         isInUnifiedSettings.Should().NotBe(true);
+    }
+
+    [Fact]
+    public void UnifiedSettings_ResourceTokens_AreDefinedInEveryLocale()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            repositoryRoot, "Settings", "DeepSeekUnifiedSettings.cs"));
+        var resourceKeys = new List<string>();
+        foreach (System.Text.RegularExpressions.Match match in Regex.Matches(source, @"%([^%]+)%"))
+        {
+            var key = match.Groups[1].Value;
+            if (!resourceKeys.Contains(key, StringComparer.Ordinal))
+                resourceKeys.Add(key);
+        }
+
+        resourceKeys.Should().NotBeEmpty();
+
+        var resourceFiles = new[]
+        {
+            Path.Combine(repositoryRoot, ".vsextension", "string-resources.json"),
+            Path.Combine(repositoryRoot, ".vsextension", "zh-Hans", "string-resources.json"),
+        };
+
+        foreach (var resourceFile in resourceFiles)
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(resourceFile));
+            var missingKeys = resourceKeys
+                .Where(key => !document.RootElement.TryGetProperty(key, out _))
+                .ToList();
+
+            missingKeys.Should().BeEmpty(
+                $"{Path.GetFileName(resourceFile)} 缺少资源键: {string.Join(", ", missingKeys)}");
+        }
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null)
+        {
+            var hasSettingsSource = File.Exists(Path.Combine(
+                directory.FullName, "Settings", "DeepSeekUnifiedSettings.cs"));
+            var hasExtensionResources = Directory.Exists(Path.Combine(
+                directory.FullName, ".vsextension"));
+            if (hasSettingsSource && hasExtensionResources)
+                return directory.FullName;
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException("无法定位测试仓库根目录");
     }
 
     private static IReadOnlyList<string> GetDeclaredSettingIds()

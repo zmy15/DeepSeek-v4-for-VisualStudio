@@ -42,6 +42,8 @@
   "DeepSeek.Chat.settings.customModelName.displayName": "Custom Model Name",
   "DeepSeek.Chat.settings.customVisionModels.description": "Custom models that accept image/PDF input (multimodal). Only listed models receive images directly. Must be a subset of the custom model list, separated by newlines, semicolons, or commas.",
   "DeepSeek.Chat.settings.customVisionModels.displayName": "Vision Models",
+  "DeepSeek.Chat.settings.visionModels.description": "Models that accept image/PDF input (multimodal). Both official models and custom endpoint models can be selected.",
+  "DeepSeek.Chat.settings.visionModels.displayName": "Vision Models",
   "DeepSeek.Chat.settings.enableAutoBuild.description": "Whether to automatically invoke Build Agent to compile and verify after Edit Agent completes code modifications. When disabled, the build step appears as a button for you to trigger manually. You can also use phrases like 'don't build' or 'skip build' in your prompt to temporarily skip the build. Default: enabled.",
   "DeepSeek.Chat.settings.enableAutoBuild.displayName": "Auto-build after code changes",
   "DeepSeek.Chat.settings.enableAutoCompression.description": "When context approaches the token budget, automatically compress early conversation into summaries\nrather than deleting old messages. When disabled, falls back to the old truncation behavior.",
