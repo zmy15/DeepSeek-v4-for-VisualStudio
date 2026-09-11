@@ -164,7 +164,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
             List<string> attachedFileNames = new();
             List<FileParseResult> parseResults = new();
             List<ChatContentPart>? visionContent = null;
-            bool visionModelSelected = DeepSeekModelCatalog.IsVisionModel(_options?.SelectedModel);
+            // 视觉能力判定统一走 ApiService 权威标志（resolver 在构造/热更新时写入），
+            // 与 BuiltInToolService/BaseAgent 工具层读同一数据源，避免 UI/工具层分裂。
+            bool visionModelSelected = _apiService?.CurrentIsVision ?? false;
             bool ocrExplicitlyRequested = IsOcrExplicitlyRequested(userText, effectiveUserText);
 
             if (_attachedFilePaths.Count > 0)

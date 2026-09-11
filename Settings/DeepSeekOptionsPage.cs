@@ -3,8 +3,10 @@ using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio.Shell;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing.Design;
+using System.Linq;
 
 namespace DeepSeek_v4_for_VisualStudio.Settings
 {
@@ -56,6 +58,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         }
 
         private string _loadedApiKey = string.Empty;
+        private string _loadedCustomApiKey = string.Empty;
         private string _loadedBaiduApiKey = string.Empty;
         private string _loadedBingApiKey = string.Empty;
         private bool _apiKeysDirty;
@@ -65,6 +68,137 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         /// 全局实例引用，在 Package 初始化时设置，方便静态工具类读取设置。
         /// </summary>
         public static DeepSeekOptionsPage? Instance { get; set; }
+
+        /// <summary>解析自定义模型列表，保留输入顺序并去重（忽略大小写与首尾空白）。</summary>
+        internal static IReadOnlyList<string> ParseCustomModels(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return Array.Empty<string>();
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var models = new List<string>();
+            foreach (var part in value.Split(
+                new[] { '\r', '\n', ';', '；', ',', '，' },
+                StringSplitOptions.RemoveEmptyEntries))
+            {
+                var model = part.Trim();
+                if (model.Length == 0 || !seen.Add(model))
+                    continue;
+                models.Add(model);
+            }
+
+            return models;
+        }
+
+        internal IReadOnlyList<string> GetCustomModels()
+            => ParseCustomModels(CustomModelName);
+
+        /// <summary>解析用户手动勾选的多模态模型名单（官方与自定义模型共用）。</summary>
+        internal IReadOnlyList<string> GetVisionModels()
+            => ParseCustomModels(CustomVisionModels);
+
+        /// <summary>归一化并写入用户勾选的多模态模型名单。</summary>
+        internal void SetVisionModels(IEnumerable<string> models)
+        {
+            CustomVisionModels = string.Join(
+                Environment.NewLine,
+                ParseCustomModels(string.Join(Environment.NewLine, models)));
+        }
+
+        /// <summary>返回“选择模型”下拉框的统一显示文本。</summary>
+        internal string GetSelectedModelChoice()
+        {
+            var config = DeepSeekEndpointResolver.Resolve(this);
+            return config.IsCustom
+                ? FormatCustomModelChoice(config.Model)
+                : config.Model;
+        }
+
+        /// <summary>
+        /// 写入统一模型选择：官方条目更新 SelectedModel，自定义条目更新
+        /// ActiveCustomModel，并自动切换实际端点来源。
+        /// </summary>
+        internal void SetSelectedModelChoice(string? value)
+        {
+            var choice = value?.Trim() ?? string.Empty;
+            string customSuffix = GetCustomModelSuffix();
+            if (customSuffix.Length > 0 &&
+                choice.EndsWith(customSuffix, StringComparison.OrdinalIgnoreCase))
+            {
+                var model = choice.Substring(0, choice.Length - customSuffix.Length).Trim();
+                if (model.Length > 0)
+                {
+                    var models = GetCustomModels()
+                        .Union(new[] { model }, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    SetCustomModels(models);
+                    ActiveCustomModel = model;
+                    ActiveModelSource = "custom";
+                }
+                return;
+            }
+
+            SelectedModel = choice;
+            ActiveModelSource = "official";
+        }
+
+        /// <summary>官方模型 + 自定义模型（自定义条目带来源后缀，避免同名冲突）。</summary>
+        internal IReadOnlyList<string> GetModelChoices()
+        {
+            var choices = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var model in OfficialModelCatalogService.GetModels())
+            {
+                if (seen.Add(model))
+                    choices.Add(model);
+            }
+
+            foreach (var model in GetCustomModels())
+            {
+                var display = FormatCustomModelChoice(model);
+                if (seen.Add(display))
+                    choices.Add(display);
+            }
+
+            var current = GetSelectedModelChoice();
+            if (current.Length > 0 && seen.Add(current))
+                choices.Add(current);
+
+            return choices;
+        }
+
+        private static string GetCustomModelSuffix()
+            => LocalizationService.Instance["chat.model.customSuffix"] ?? string.Empty;
+
+        private static string FormatCustomModelChoice(string model)
+            => model + GetCustomModelSuffix();
+
+        /// <summary>返回当前应请求的自定义模型；激活项失效时回退列表第一项。</summary>
+        internal string GetActiveCustomModel()
+        {
+            var models = GetCustomModels();
+            var active = ActiveCustomModel?.Trim() ?? string.Empty;
+            if (active.Length > 0)
+            {
+                var match = models.FirstOrDefault(model =>
+                    string.Equals(model, active, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                    return match;
+            }
+
+            return models.FirstOrDefault() ?? string.Empty;
+        }
+
+        /// <summary>归一化并写入模型列表；激活模型保留在列表中，否则回退到第一项。</summary>
+        internal void SetCustomModels(IEnumerable<string> models)
+        {
+            var modelList = models?.Where(model => !string.IsNullOrWhiteSpace(model))
+                .Select(model => model.Trim())
+                .ToArray() ?? Array.Empty<string>();
+            CustomModelName = string.Join(Environment.NewLine, modelList);
+            ActiveCustomModel = GetActiveCustomModel();
+        }
 
         /// <summary>
         /// VS 在用户应用设置更改时调用此方法。
@@ -145,16 +279,18 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         public override void SaveSettingsToStorage()
         {
             string apiKey = ApiKey;
+            string customApiKey = CustomApiKey;
             string baiduApiKey = BaiduApiKey;
             string bingApiKey = BingApiKey;
             var credentialStore = VisualStudioApiKeyStore.Current;
             // DialogPage hosts can save before OnApply, so detect changes from the loaded
             // baseline here. OnApply is too late to influence credential writes.
-            _apiKeysDirty = HasApiKeyChanges(apiKey, baiduApiKey, bingApiKey);
+            _apiKeysDirty = HasApiKeyChanges(apiKey, customApiKey, baiduApiKey, bingApiKey);
             bool shouldWriteCredentialStore = _apiKeysDirty || _apiKeysMigrationPending;
             bool credentialStoreUpdated = shouldWriteCredentialStore
                 && credentialStore != null
                 && SaveCredential(credentialStore, ApiKeyKind.DeepSeek, apiKey)
+                && SaveCredential(credentialStore, ApiKeyKind.Custom, customApiKey)
                 && SaveCredential(credentialStore, ApiKeyKind.Baidu, baiduApiKey)
                 && SaveCredential(credentialStore, ApiKeyKind.Bing, bingApiKey);
 
@@ -164,6 +300,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             try
             {
                 ApiKey = ApiKeyProtection.Protect(apiKey);
+                CustomApiKey = ApiKeyProtection.Protect(customApiKey);
                 BaiduApiKey = ApiKeyProtection.Protect(baiduApiKey);
                 BingApiKey = ApiKeyProtection.Protect(bingApiKey);
                 base.SaveSettingsToStorage();
@@ -171,6 +308,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             finally
             {
                 ApiKey = apiKey;
+                CustomApiKey = customApiKey;
                 BaiduApiKey = baiduApiKey;
                 BingApiKey = bingApiKey;
             }
@@ -178,6 +316,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             if (_apiKeysDirty)
             {
                 _loadedApiKey = apiKey;
+                _loadedCustomApiKey = customApiKey;
                 _loadedBaiduApiKey = baiduApiKey;
                 _loadedBingApiKey = bingApiKey;
                 _apiKeysDirty = false;
@@ -192,6 +331,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         private void LoadApiKeysFromCredentialStore()
         {
             string legacyApiKey = ApiKeyProtection.Unprotect(ApiKey);
+            string legacyCustomApiKey = ApiKeyProtection.Unprotect(CustomApiKey);
             string legacyBaiduApiKey = ApiKeyProtection.Unprotect(BaiduApiKey);
             string legacyBingApiKey = ApiKeyProtection.Unprotect(BingApiKey);
 
@@ -199,13 +339,16 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             if (store == null)
             {
                 ApiKey = legacyApiKey;
+                CustomApiKey = legacyCustomApiKey;
                 BaiduApiKey = legacyBaiduApiKey;
                 BingApiKey = legacyBingApiKey;
                 _apiKeysMigrationPending =
                     !string.IsNullOrWhiteSpace(legacyApiKey) ||
+                    !string.IsNullOrWhiteSpace(legacyCustomApiKey) ||
                     !string.IsNullOrWhiteSpace(legacyBaiduApiKey) ||
                     !string.IsNullOrWhiteSpace(legacyBingApiKey);
                 _loadedApiKey = ApiKey;
+                _loadedCustomApiKey = CustomApiKey;
                 _loadedBaiduApiKey = BaiduApiKey;
                 _loadedBingApiKey = BingApiKey;
                 _apiKeysDirty = false;
@@ -213,15 +356,18 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             }
 
             ApiKey = GetCredentialOrMigrateLegacy(store, ApiKeyKind.DeepSeek, legacyApiKey);
+            CustomApiKey = GetCredentialOrMigrateLegacy(store, ApiKeyKind.Custom, legacyCustomApiKey);
             BaiduApiKey = GetCredentialOrMigrateLegacy(store, ApiKeyKind.Baidu, legacyBaiduApiKey);
             BingApiKey = GetCredentialOrMigrateLegacy(store, ApiKeyKind.Bing, legacyBingApiKey);
 
             _loadedApiKey = ApiKey;
+            _loadedCustomApiKey = CustomApiKey;
             _loadedBaiduApiKey = BaiduApiKey;
             _loadedBingApiKey = BingApiKey;
             _apiKeysDirty = false;
             _apiKeysMigrationPending =
                 (!string.IsNullOrWhiteSpace(legacyApiKey) && !store.TryGet(ApiKeyKind.DeepSeek, out _)) ||
+                (!string.IsNullOrWhiteSpace(legacyCustomApiKey) && !store.TryGet(ApiKeyKind.Custom, out _)) ||
                 (!string.IsNullOrWhiteSpace(legacyBaiduApiKey) && !store.TryGet(ApiKeyKind.Baidu, out _)) ||
                 (!string.IsNullOrWhiteSpace(legacyBingApiKey) && !store.TryGet(ApiKeyKind.Bing, out _));
         }
@@ -273,19 +419,92 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             return store.Set(kind, runtimeValue);
         }
 
-        private bool HasApiKeyChanges(string apiKey, string baiduApiKey, string bingApiKey)
+        private bool HasApiKeyChanges(string apiKey, string customApiKey, string baiduApiKey, string bingApiKey)
         {
             return !string.Equals(apiKey, _loadedApiKey, StringComparison.Ordinal) ||
+                !string.Equals(customApiKey, _loadedCustomApiKey, StringComparison.Ordinal) ||
                 !string.Equals(baiduApiKey, _loadedBaiduApiKey, StringComparison.Ordinal) ||
                 !string.Equals(bingApiKey, _loadedBingApiKey, StringComparison.Ordinal);
         }
 
-        [LocalizedCategory("settings.category.api")]
+        [LocalizedCategory("settings.category.model")]
         [LocalizedDisplayName("settings.apiKey.displayName")]
         [LocalizedDescription("settings.apiKey.description")]
         [PasswordPropertyText(true)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
         public string ApiKey { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 自定义端点 API 密钥，与 DeepSeek 官方密钥分离存储。
+        /// 仅当 ApiBaseUrl 非空时作为运行时密钥使用。
+        /// </summary>
+        [LocalizedCategory("settings.category.model")]
+        [LocalizedDisplayName("settings.customApiKey.displayName")]
+        [LocalizedDescription("settings.customApiKey.description")]
+        [PasswordPropertyText(true)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
+        public string CustomApiKey { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 自定义端点 (Base URL)，OpenAI chat/completions 协议兼容。
+        /// 非空时启用自定义端点模式，与本分类的密钥、模型名称配套使用。
+        /// 留空时使用 DeepSeek 官方服务与官方密钥。
+        /// </summary>
+        [LocalizedCategory("settings.category.model")]
+        [LocalizedDisplayName("settings.apiBaseUrl.displayName")]
+        [LocalizedDescription("settings.apiBaseUrl.description")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
+        public string ApiBaseUrl { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 自定义端点可用的模型列表；支持换行、英文分号/逗号和中文分号/逗号分隔。
+        /// </summary>
+        [LocalizedCategory("settings.category.model")]
+        [LocalizedDisplayName("settings.customModelName.displayName")]
+        [LocalizedDescription("settings.customModelName.description")]
+        [Editor(typeof(System.ComponentModel.Design.MultilineStringEditor), typeof(UITypeEditor))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
+        public string CustomModelName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 用户手动勾选为支持图片/PDF 直传（多模态）的模型名单；
+        /// 官方接口模型与自定义端点模型共用同一份名单。
+        /// </summary>
+        [LocalizedCategory("settings.category.model")]
+        [LocalizedDisplayName("settings.visionModels.displayName")]
+        [LocalizedDescription("settings.visionModels.description")]
+        [Editor(typeof(VisionModelPickerEditor), typeof(UITypeEditor))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
+        public string CustomVisionModels { get; set; } = string.Empty;
+
+        /// <summary>自定义模型列表中的当前激活模型；聊天窗口选择自定义条目时更新。</summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public string ActiveCustomModel { get; set; } = string.Empty;
+
+        /// <summary>属性网格中的“从自定义端点添加模型”入口；不持久化自身值。</summary>
+        [LocalizedCategory("settings.category.model")]
+        [LocalizedDisplayName("settings.customModelPicker.displayName")]
+        [LocalizedDescription("settings.customModelPicker.description")]
+        [Editor(typeof(ModelPickerEditor), typeof(UITypeEditor))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public string CustomModelPicker
+        {
+            get => string.Empty;
+            set { /* 值由 ModelPickerEditor 写入模型列表。 */ }
+        }
+
+        /// <summary>属性网格中的“测试连接”入口；不持久化自身值。</summary>
+        [LocalizedCategory("settings.category.model")]
+        [LocalizedDisplayName("settings.testConnection.displayName")]
+        [LocalizedDescription("settings.testConnection.description")]
+        [Editor(typeof(TestConnectionEditor), typeof(UITypeEditor))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public string TestConnection
+        {
+            get => string.Empty;
+            set { /* 值由 TestConnectionEditor 读取当前端点配置并执行校验。 */ }
+        }
 
         [LocalizedCategory("settings.category.api")]
         [LocalizedDisplayName("settings.systemPrompt.displayName")]
@@ -318,12 +537,33 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
             return !string.IsNullOrWhiteSpace(prompt) ? prompt : AiPrompts.DefaultSystemPrompt;
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
+        public string SelectedModel { get; set; } = "deepseek-v4-pro";
+
+        /// <summary>
+        /// 设置页使用的统一模型选择器；官方与自定义条目共用，
+        /// 实际值分别落到 SelectedModel / ActiveCustomModel 与 ActiveModelSource。
+        /// </summary>
         [LocalizedCategory("settings.category.model")]
         [LocalizedDisplayName("settings.selectedModel.displayName")]
         [LocalizedDescription("settings.selectedModel.description")]
         [TypeConverter(typeof(ModelListConverter))]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public string SelectedModelChoice
+        {
+            get => GetSelectedModelChoice();
+            set => SetSelectedModelChoice(value);
+        }
+
+        /// <summary>
+        /// 模型来源：auto 跟随端点配置（填写了自定义端点即用自定义）；
+        /// official 强制 DeepSeek 官方服务；custom 强制自定义端点。
+        /// 聊天窗口模型下拉框选择官方/自定义条目时自动更新。
+        /// </summary>
+        [Browsable(false)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
-        public string SelectedModel { get; set; } = "deepseek-v4-pro";
+        public string ActiveModelSource { get; set; } = "auto";
 
         [LocalizedCategory("settings.category.model")]
         [LocalizedDisplayName("settings.enableThinking.displayName")]
@@ -632,7 +872,9 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     {
         public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
-            => new(DeepSeekModelCatalog.All);
+            => new(context?.Instance is DeepSeekOptionsPage page
+                ? page.GetModelChoices().ToList()
+                : OfficialModelCatalogService.GetModels().ToList());
     }
 
     /// <summary>

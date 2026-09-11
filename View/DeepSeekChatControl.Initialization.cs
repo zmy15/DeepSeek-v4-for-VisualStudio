@@ -34,19 +34,22 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         private void InitializeApiService()
         {
-            // DialogPage 保存流程可能留下 DPAPI 备份格式。这里是最后一道运行时防线：
-            // 禁止把 "dpapi1:..." 密文作为 Bearer Token 发给 DeepSeek API。
-            var runtimeApiKey = _options == null ? string.Empty : ApiKeyProtection.Unprotect(_options.ApiKey);
-            if (string.IsNullOrEmpty(runtimeApiKey))
+            // 官方 / 自定义端点配置分离：按 ApiBaseUrl 是否填写解析生效来源。
+            // Resolver 内部已做 Unprotect，禁止把 "dpapi1:..." 密文发给 API。
+            var config = DeepSeekEndpointResolver.Resolve(_options);
+            if (string.IsNullOrEmpty(config.ApiKey))
             {
                 // ── 无 Key：释放旧服务，避免残留旧 Key 继续发送请求 ──
                 _apiService?.Dispose();
                 _apiService = null;
+                UpdateEndpointCapabilityControls();
                 return;
             }
 
             _apiService?.Dispose();
-            _apiService = new DeepSeekApiService(runtimeApiKey, _options.SelectedModel);
+            _apiService = new DeepSeekApiService(config.ApiKey, config.Model,
+                baseUrl: config.BaseUrl,
+                isVision: config.IsVision, isCustom: config.IsCustom);
             _apiService.ConfigureThinking(_options.IsThinkingEnabled, _options.ReasoningEffort);
 
             // ── 注入前缀缓存管理器（修复：直接 new 的 ApiService 缺少 DI 注入的 PrefixCache）──
@@ -74,11 +77,18 @@ namespace DeepSeek_v4_for_VisualStudio.View
             // 初始化 Agent 模式徽章（默认隐藏 Ask 模式）
             UpdateAgentModeBadge();
 
-            // ── 初始化余额查询定时器（每分钟刷新一次）──
-            StartBalanceTimer();
+            // ── 初始化官方端点能力控件与余额查询定时器 ──
+            UpdateEndpointCapabilityControls();
 
             Logger.Info("API 服务初始化成功");
         }
+
+        /// <summary>
+        /// 获取当前生效的模型名称。
+        /// 自定义端点模式下优先自定义模型名（空则回退 DeepSeek 模型目录），
+        /// 官方模式使用下拉框选择。
+        /// </summary>
+        internal string GetEffectiveModel() => DeepSeekEndpointResolver.Resolve(_options).Model;
 
         /// <summary>
         /// 初始化 RAG 服务和上下文压缩服务。
@@ -234,21 +244,25 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             try
             {
-                if (_apiService == null || _options == null) return;
+                if (_options == null) return;
 
-                var runtimeApiKey = ApiKeyProtection.Unprotect(_options.ApiKey);
-                if (!string.IsNullOrWhiteSpace(runtimeApiKey))
-                    _apiService.UpdateApiKey(runtimeApiKey);
+                // Key 或端点保存后重新确认官方目录；自定义端点不影响官方模型列表。
+                _ = RefreshOfficialModelsAsync();
+
+                var config = DeepSeekEndpointResolver.Resolve(_options);
 
                 // Settings events are authoritative. Reading UI controls here caused
                 // Unified Settings changes to be overwritten with stale chat-window state.
-                var model = _options.SelectedModel;
-                if (!string.IsNullOrWhiteSpace(model))
-                    _apiService.UpdateModel(model);
+                // config（含 IsVision）为 resolver 权威输出，一次性同步 Key/BaseUrl/Model/IsCustom/IsVision。
+                _apiService?.UpdateEndpoint(config);
+
+                // 视觉标记/模型切换影响 capture_window 等工具可见性 → 使 Agent 完整工具集缓存失效
+                _agentFactory?.InvalidateFullToolSetCache();
 
                 var thinking = _options.IsThinkingEnabled;
                 var effort = _options.ReasoningEffort ?? "high";
-                _apiService.ConfigureThinking(thinking, effort);
+                _apiService?.ConfigureThinking(thinking, effort);
+                UpdateEndpointCapabilityControls();
             }
             catch (Exception ex)
             {
@@ -264,7 +278,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 // ── 记录变更前的 API 配置，判断是否需要重建 API 服务 ──
                 string? oldApiKey = _options?.ApiKey;
+                string? oldCustomApiKey = _options?.CustomApiKey;
                 string? oldModel = _options?.SelectedModel;
+                string? oldBaseUrl = _options?.ApiBaseUrl;
+                string? oldCustomModel = _options?.CustomModelName;
+                string? oldActiveCustomModel = _options?.ActiveCustomModel;
+                string? oldModelSource = _options?.ActiveModelSource;
                 bool oldThinking = _options?.IsThinkingEnabled ?? true;
                 string? oldEffort = _options?.ReasoningEffort;
 
@@ -280,7 +299,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // 必须重启才能生效。
                 bool apiConfigChanged =
                     !string.Equals(oldApiKey, _options?.ApiKey, StringComparison.Ordinal) ||
+                    !string.Equals(oldCustomApiKey, _options?.CustomApiKey, StringComparison.Ordinal) ||
                     !string.Equals(oldModel, _options?.SelectedModel, StringComparison.Ordinal) ||
+                    !string.Equals(oldBaseUrl, _options?.ApiBaseUrl, StringComparison.Ordinal) ||
+                    !string.Equals(oldCustomModel, _options?.CustomModelName, StringComparison.Ordinal) ||
+                    !string.Equals(oldActiveCustomModel, _options?.ActiveCustomModel, StringComparison.Ordinal) ||
+                    !string.Equals(oldModelSource, _options?.ActiveModelSource, StringComparison.Ordinal) ||
                     oldThinking != (_options?.IsThinkingEnabled ?? true) ||
                     !string.Equals(oldEffort, _options?.ReasoningEffort, StringComparison.Ordinal);
 
@@ -308,6 +332,25 @@ namespace DeepSeek_v4_for_VisualStudio.View
             catch (Exception ex)
             {
                 Logger.Error($"[Settings] 设置热切换失败: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>用当前官方 Key 刷新 /models 目录；失败由目录服务降级处理。</summary>
+        private async Task RefreshOfficialModelsAsync()
+        {
+            try
+            {
+                await OfficialModelCatalogService.RefreshAsync(
+                    ApiKeyProtection.Unprotect(_options?.ApiKey),
+                    _package?.DisposalToken ?? default);
+            }
+            catch (OperationCanceledException)
+            {
+                // 包关闭时取消属正常路径。
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[Models] 刷新官方模型目录失败: {ex.Message}");
             }
         }
 
@@ -786,7 +829,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
                         string? oldApiKey = _options?.ApiKey;
+                        string? oldCustomApiKey = _options?.CustomApiKey;
                         string? oldModel = _options?.SelectedModel;
+                        string? oldBaseUrl = _options?.ApiBaseUrl;
+                        string? oldCustomModel = _options?.CustomModelName;
+                        string? oldActiveCustomModel = _options?.ActiveCustomModel;
+                        string? oldModelSource = _options?.ActiveModelSource;
                         bool oldThinking = _options?.IsThinkingEnabled ?? true;
                         string? oldEffort = _options?.ReasoningEffort;
 
@@ -796,7 +844,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         bool apiConfigChanged =
                             _apiService == null ||
                             !string.Equals(oldApiKey, _options.ApiKey, StringComparison.Ordinal) ||
+                            !string.Equals(oldCustomApiKey, _options.CustomApiKey, StringComparison.Ordinal) ||
                             !string.Equals(oldModel, _options.SelectedModel, StringComparison.Ordinal) ||
+                            !string.Equals(oldBaseUrl, _options.ApiBaseUrl, StringComparison.Ordinal) ||
+                            !string.Equals(oldCustomModel, _options.CustomModelName, StringComparison.Ordinal) ||
+                            !string.Equals(oldActiveCustomModel, _options.ActiveCustomModel, StringComparison.Ordinal) ||
+                            !string.Equals(oldModelSource, _options.ActiveModelSource, StringComparison.Ordinal) ||
                             oldThinking != _options.IsThinkingEnabled ||
                             !string.Equals(oldEffort, _options.ReasoningEffort, StringComparison.Ordinal);
 

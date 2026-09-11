@@ -1,6 +1,7 @@
 using DeepSeek_v4_for_VisualStudio.Models;
 using DeepSeek_v4_for_VisualStudio.Services;
 using DeepSeek_v4_for_VisualStudio.Services.Agents;
+using DeepSeek_v4_for_VisualStudio.Services.Providers;
 using DeepSeek_v4_for_VisualStudio.Settings;
 using DeepSeek_v4_for_VisualStudio.Utils;
 using Microsoft.VisualStudio;
@@ -34,6 +35,39 @@ namespace DeepSeek_v4_for_VisualStudio.View
     /// </summary>
     public partial class DeepSeekChatControl : System.Windows.Controls.UserControl, IDisposable
     {
+        /// <summary>
+        /// 模型下拉框条目：携带来源（官方 / 自定义端点），
+        /// 同名模型可并存并可区分，选中时按来源路由。
+        /// </summary>
+        internal sealed class ModelListItem
+        {
+            internal enum EntrySource
+            {
+                Official,
+                Custom,
+            }
+
+            public string Model { get; }
+            public EntrySource Source { get; }
+            private readonly string _customSuffix;
+
+            private ModelListItem(string model, EntrySource source, string customSuffix)
+            {
+                Model = model;
+                Source = source;
+                _customSuffix = customSuffix;
+            }
+
+            public static ModelListItem Official(string model) => new(model, EntrySource.Official, string.Empty);
+
+            public static ModelListItem Custom(string model)
+                => new(model, EntrySource.Custom, LocalizationService.Instance["chat.model.customSuffix"]);
+
+            /// <summary>下拉框显示文本：官方条目显示原始模型名，自定义条目追加后缀。</summary>
+            public string Display
+                => Source == EntrySource.Custom ? Model + _customSuffix : Model;
+        }
+
         #region Constants
 
         private static string WelcomeMessage => AiPrompts.WelcomeMessage;
@@ -424,7 +458,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             };
 
             // 初始化模型和推理强度下拉框
-            ModelComboBox.ItemsSource = DeepSeekModelCatalog.All;
+            ModelComboBox.ItemsSource = BuildModelListItems();
             ModelComboBox.SelectedIndex = 0;
 
             EffortComboBox.ItemsSource = new[] { "high", "max" };
@@ -453,6 +487,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── 订阅主题变更事件 ──
             _themeService.ThemeChanged += OnThemeChanged;
+
+            // ── 订阅官方 /models 目录刷新，模型列表拉取完成后热更新下拉框 ──
+            OfficialModelCatalogService.ModelsChanged += OnOfficialModelsChanged;
 
             // ── 程序化创建 WebView2 控件 ──
             // 不在 XAML 中声明 wv2:WebView2，以避免 ReSharper 等第三方扩展
@@ -624,12 +661,35 @@ namespace DeepSeek_v4_for_VisualStudio.View
         #region Balance Query
 
         /// <summary>
+        /// 当前是否使用 DeepSeek 官方来源。自定义来源即使 URL 指向官方域名，
+        /// 也使用独立 Key 与模型路由，不视为官方能力来源。
+        /// </summary>
+        private bool IsOfficialSource
+            => _apiService != null
+                ? _apiService.IsDeepSeekEndpoint && !_apiService.CurrentIsCustom
+                : !DeepSeekEndpointResolver.Resolve(_options).IsCustom;
+
+        /// <summary>
+        /// 是否允许查询余额。只有 DeepSeek 官方端点提供 /user/balance；
+        /// 自定义端点即使用指向官方域名，也使用独立的 Key 与模型来源，不做该请求。
+        /// </summary>
+        private bool CanQueryBalance
+            => IsOfficialSource;
+
+        /// <summary>
         /// 启动余额查询定时器，每 60 秒自动刷新一次。
         /// </summary>
         private void StartBalanceTimer()
         {
             // 停止并释放旧定时器
             StopBalanceTimer();
+
+            // /user/balance 是 DeepSeek 官方专有能力，非官方端点保持 UI 与请求同时关闭。
+            if (!CanQueryBalance)
+            {
+                HideBalanceDisplay();
+                return;
+            }
 
             _balanceTimer = new System.Windows.Threading.DispatcherTimer
             {
@@ -656,7 +716,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private async Task RefreshBalanceAsync()
         {
-            if (_apiService == null) return;
+            if (!CanQueryBalance) return;
 
             try
             {
@@ -688,6 +748,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
             var balanceBar = BalanceBar;
             var balanceLabel = BalanceLabel;
             if (balanceBar == null || balanceLabel == null) return;
+
+            if (!CanQueryBalance)
+            {
+                HideBalanceDisplay();
+                return;
+            }
 
             // ── 余额部分 ──
             string balanceText = FormatBalanceText(balance);
@@ -747,10 +813,10 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// 包含：API 实际 Token 消耗 + 费用估算 + 上下文窗口利用率。
         /// 费用基于 DeepSeek V4 官方定价，按"国内/国际 × 模型（Flash/Pro）× 时段"分档
         /// （国内 ¥ 价目 / 国际 $ 价目，高峰时段为北京时间周一至周五 9:00-12:00、14:00-18:00，
-        /// 周六、周日全天为空闲时段，详见 DeepSeekApiService.GetPricing）。
+        /// 周六、周日全天为空闲时段，详见 DeepSeekProvider.GetPricing）。
         /// 币种由余额 API 返回值自动判定（CNY→国内价，USD→国际价），首次查询前默认国内价。
         /// 费用在每次 API 调用时按"当时点的时段"双币种累计
-        /// （见 DeepSeekApiService.AccumulateStats），跨高峰/空闲的会话自动分档计价。
+        /// （见 OpenAiCompatibleProvider.AccumulateStats），跨高峰/空闲的会话自动分档计价。
         /// </summary>
         private string FormatSessionConsumption()
         {
@@ -774,43 +840,56 @@ namespace DeepSeek_v4_for_VisualStudio.View
             else
             {
                 // ── 模型档位（用于标签显示与兜底估算）──
-                string modelName = _options?.SelectedModel ?? "deepseek-v4-pro";
+                string modelName = GetEffectiveModel();
                 bool isFlash = modelName.Contains("flash", StringComparison.OrdinalIgnoreCase);
 
-                // ── 币种判定：余额 API 缓存优先，其次 ApiService 捕获值，默认 CNY（国内价）──
-                string currency =
-                    (_lastBalance != null && _lastBalance.BalanceInfos.Count > 0
-                        ? _lastBalance.BalanceInfos[0].Currency
-                        : null)
-                    ?? _apiService.AccountCurrency;
-                if (string.IsNullOrWhiteSpace(currency))
-                    currency = "CNY";
-                currency = currency.ToUpperInvariant();
-                bool isUsd = currency == "USD";
-                string symbol = GetCurrencySymbol(currency);
+                // 自定义端点的模型定价可能不同，不套用 DeepSeek 价目表。
+                bool canEstimateCost = IsOfficialSource;
 
-                // ── 费用：优先使用 ApiService 按调用时点（高峰/空闲）双轨累计的真实计价；
-                //    旧版本会话没有累计费用字段时，按当前时段单价估算兜底 ──
-                double totalCost = isUsd ? _apiService.TotalSessionCostUsd : _apiService.TotalSessionCostYuan;
-                if (totalCost <= 0)
+                if (!canEstimateCost)
                 {
-                    var (missPrice, hitPrice, outputPrice) = DeepSeekApiService.GetPricing(
-                        modelName, DeepSeekApiService.IsBeijingPeakTime(), currency);
-                    totalCost = cacheMissTokens / 1_000_000.0 * missPrice
-                              + cacheHitTokens / 1_000_000.0 * hitPrice
-                              + completionTokens / 1_000_000.0 * outputPrice;
+                    string customModelLabel = LocalizationService.Instance["agent.panel.modelLabel.custom"];
+                    apiPart = LocalizationService.Instance.Format(
+                        "agent.panel.sessionTokenUsageNoCost",
+                        FormatTokens(promptTokens), FormatTokens(completionTokens), customModelLabel);
                 }
+                else
+                {
+                    // ── 币种判定：余额 API 缓存优先，其次 ApiService 捕获值，默认 CNY（国内价）──
+                    string currency =
+                        (_lastBalance != null && _lastBalance.BalanceInfos.Count > 0
+                            ? _lastBalance.BalanceInfos[0].Currency
+                            : null)
+                        ?? _apiService.AccountCurrency;
+                    if (string.IsNullOrWhiteSpace(currency))
+                        currency = "CNY";
+                    currency = currency.ToUpperInvariant();
+                    bool isUsd = currency == "USD";
+                    string symbol = GetCurrencySymbol(currency);
 
-                string costStr = totalCost >= 0.01
-                    ? $"{symbol}{totalCost:F2}"
-                    : totalCost > 0
-                        ? $"{symbol}{totalCost:F4}"
-                        : $"{symbol}0";
+                    // ── 费用：优先使用 ApiService 按调用时点（高峰/空闲）双轨累计的真实计价；
+                    //    旧版本会话没有累计费用字段时，按当前时段单价估算兜底 ──
+                    double totalCost = isUsd ? _apiService.TotalSessionCostUsd : _apiService.TotalSessionCostYuan;
+                    if (totalCost <= 0)
+                    {
+                        var (missPrice, hitPrice, outputPrice) = DeepSeekProvider.GetPricing(
+                            modelName, DeepSeekProvider.IsBeijingPeakTime(), currency);
+                        totalCost = cacheMissTokens / 1_000_000.0 * missPrice
+                                  + cacheHitTokens / 1_000_000.0 * hitPrice
+                                  + completionTokens / 1_000_000.0 * outputPrice;
+                    }
 
-                string modelLabel = isFlash ? "Flash" : "Pro";
+                    string costStr = totalCost >= 0.01
+                        ? $"{symbol}{totalCost:F2}"
+                        : totalCost > 0
+                            ? $"{symbol}{totalCost:F4}"
+                            : $"{symbol}0";
 
-                apiPart = LocalizationService.Instance.Format("agent.panel.sessionTokenUsage",
-                    FormatTokens(promptTokens), FormatTokens(completionTokens), modelLabel, costStr);
+                    string modelLabel = isFlash ? "Flash" : "Pro";
+
+                    apiPart = LocalizationService.Instance.Format("agent.panel.sessionTokenUsage",
+                        FormatTokens(promptTokens), FormatTokens(completionTokens), modelLabel, costStr);
+                }
             }
 
             // ── 上下文窗口利用率（仅在有对话内容时显示）──
@@ -897,6 +976,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// </summary>
         private void RefreshBalanceDisplay()
         {
+            if (!CanQueryBalance)
+            {
+                RefreshConsumptionDisplay();
+                return;
+            }
+
             if (_lastBalance != null)
             {
                 UpdateBalanceDisplay(_lastBalance);
@@ -905,6 +990,23 @@ namespace DeepSeek_v4_for_VisualStudio.View
             {
                 RefreshConsumptionDisplay();
             }
+        }
+
+        /// <summary>
+        /// 隐藏官方端点专用的余额显示；非官方端点不展示余额，也不展示空标签。
+        /// </summary>
+        private void HideBalanceDisplay()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(HideBalanceDisplay);
+                return;
+            }
+
+            if (BalanceLabel != null)
+                BalanceLabel.Text = string.Empty;
+            if (BalanceBar != null)
+                BalanceBar.Visibility = System.Windows.Visibility.Collapsed;
         }
 
         #endregion
@@ -922,6 +1024,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             DeepSeekOptionsPage.SettingsChanged -= OnOcrSettingsChanged;
             DeepSeekOptionsPage.SettingsChanged -= OnCoreSettingsChanged;
+            OfficialModelCatalogService.ModelsChanged -= OnOfficialModelsChanged;
 
             // ── 取消主题事件订阅 ──
             _themeService.ThemeChanged -= OnThemeChanged;
@@ -1171,21 +1274,61 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
-        /// 从设置恢复模型下拉框选中值。
+        /// 构建模型下拉框选项：DeepSeek 官方目录条目 + 自定义端点条目（带"（自定义端点）"后缀，
+        /// 与官方同名模型并存、可区分；选中时按条目来源路由到对应端点与密钥）。
+        /// </summary>
+        private System.Collections.Generic.IReadOnlyList<ModelListItem> BuildModelListItems()
+        {
+            var items = new System.Collections.Generic.List<ModelListItem>();
+            foreach (var model in OfficialModelCatalogService.GetModels())
+                items.Add(ModelListItem.Official(model));
+
+            foreach (var custom in _options?.GetCustomModels() ?? Array.Empty<string>())
+            {
+                items.Add(ModelListItem.Custom(custom));
+            }
+            return items;
+        }
+
+        /// <summary>
+        /// 从设置恢复模型下拉框选中值（含自定义模型条目，选中当前生效模型）。
         /// </summary>
         private void RefreshModelFromSettings()
         {
             if (ModelComboBox == null || _options == null) return;
-            string savedModel = _options.SelectedModel ?? "deepseek-v4-pro";
-            // 如果保存的值不在下拉列表中，回退到默认值
-            if (ModelComboBox.Items.Contains(savedModel))
-                ModelComboBox.SelectedItem = savedModel;
-            else
-                ModelComboBox.SelectedIndex = 0;
 
-            // 同步更新 API 服务的模型
+            ModelComboBox.ItemsSource = BuildModelListItems();
+
+            // 高亮当前生效条目：按 Resolver 输出的来源 + 模型名匹配
+            var config = DeepSeekEndpointResolver.Resolve(_options);
+            var expectedSource = config.IsCustom
+                ? ModelListItem.EntrySource.Custom
+                : ModelListItem.EntrySource.Official;
+            foreach (var item in ModelComboBox.Items.OfType<ModelListItem>())
+            {
+                if (item.Source == expectedSource &&
+                    string.Equals(item.Model, config.Model, StringComparison.OrdinalIgnoreCase))
+                {
+                    ModelComboBox.SelectedItem = item;
+                    break;
+                }
+            }
+
+            // 同步更新 API 服务端点配置（含自定义模型覆盖；Key/BaseUrl/视觉标记顺带与 Resolver 保持一致）
             if (_apiService != null)
-                _apiService.UpdateModel((string?)ModelComboBox.SelectedItem ?? "deepseek-v4-pro");
+            {
+                _apiService.UpdateEndpoint(config);
+
+                // 模型/来源刷新影响 capture_window 等工具可见性 → 使 Agent 完整工具集缓存失效
+                _agentFactory?.InvalidateFullToolSetCache();
+            }
+        }
+
+        /// <summary>官方模型列表从 /models 接口刷新完成后，回到 UI 线程重建下拉框。</summary>
+        private void OnOfficialModelsChanged()
+        {
+            if (_disposed) return;
+            _ = Dispatcher.InvokeAsync(RefreshModelFromSettings);
         }
 
         /// <summary>
@@ -1217,6 +1360,51 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (ThinkingCheckBox != null)
                 ThinkingCheckBox.IsChecked = _options.IsThinkingEnabled;
             RefreshReasoningEffortFromSettings();
+            UpdateEndpointCapabilityControls();
+        }
+
+        /// <summary>
+        /// 根据当前端点的 reasoning 能力显示/隐藏思考控件；
+        /// 余额等真正 DeepSeek 官方专属控件仍由 IsOfficialSource 单独门控。
+        /// FIM 由 InlinePredictionManager 使用同一 Resolver 在请求侧门控。
+        /// </summary>
+        private void UpdateEndpointCapabilityControls()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(UpdateEndpointCapabilityControls);
+                return;
+            }
+
+            var config = DeepSeekEndpointResolver.Resolve(_options);
+            var reasoning = ReasoningCapabilityConfig.Infer(config.BaseUrl, config.Model);
+
+            if (ThinkingCheckBox != null)
+            {
+                ThinkingCheckBox.Visibility = reasoning.HasReasoningOptions
+                    ? System.Windows.Visibility.Visible
+                    : System.Windows.Visibility.Collapsed;
+                ThinkingCheckBox.IsEnabled = !reasoning.AlwaysThinking;
+                if (reasoning.AlwaysThinking)
+                    ThinkingCheckBox.IsChecked = true;
+                else if (_options != null)
+                    ThinkingCheckBox.IsChecked = _options.IsThinkingEnabled;
+            }
+            if (EffortComboBox != null)
+            {
+                EffortComboBox.Visibility = reasoning.SupportsEffort
+                    ? System.Windows.Visibility.Visible
+                    : System.Windows.Visibility.Collapsed;
+            }
+
+            if (!IsOfficialSource)
+            {
+                StopBalanceTimer();
+                RefreshConsumptionDisplay();
+                return;
+            }
+
+            RefreshBalanceDisplay();
         }
 
         /// <summary>

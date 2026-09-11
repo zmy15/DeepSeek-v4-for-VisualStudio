@@ -77,5 +77,22 @@ namespace DeepSeek_v4_for_VisualStudio.Tests.Unit
             // 请求体应当包含 "reasoning_content": "" for the assistant message
             handler.LastRequestBody!.Should().Contain("\"reasoning_content\":\"\"");
         }
+
+        [Fact]
+        public async Task DeepSeekApiService_ValidateApiKeyAsync_GlmFlash_SendsLowEffortInsteadOfDisabled()
+        {
+            var handler = new CaptureHandler();
+            var http = new HttpClient(handler) { BaseAddress = new System.Uri("https://relay.example.com/v1/") };
+            var svc = new DeepSeekApiService(
+                http,
+                model: "glm-5.3-flash-kingsoft",
+                baseUrl: "https://relay.example.com/v1");
+
+            await svc.ValidateApiKeyAsync();
+
+            handler.LastRequestBody.Should().NotBeNullOrEmpty();
+            handler.LastRequestBody!.Should().Contain("\"reasoning_effort\":\"low\"");
+            handler.LastRequestBody.Should().NotContain("\"thinking\"");
+        }
     }
 }

@@ -1,4 +1,5 @@
 using DeepSeek_v4_for_VisualStudio.Services;
+using DeepSeek_v4_for_VisualStudio.Services.Providers;
 
 namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Services;
 
@@ -21,7 +22,7 @@ public class DeepSeekApiServicePricingTests
         double expectedCacheHit,
         double expectedOutput)
     {
-        var pricing = DeepSeekApiService.GetPricing(model, isPeak, currency);
+        var pricing = DeepSeekProvider.GetPricing(model, isPeak, currency);
 
         pricing.CacheMiss.Should().BeApproximately(expectedCacheMiss, 0.000_000_001);
         pricing.CacheHit.Should().BeApproximately(expectedCacheHit, 0.000_000_001);
@@ -48,6 +49,6 @@ public class DeepSeekApiServicePricingTests
     {
         var utcNow = new DateTimeOffset(year, month, day, hour, minute, 0, TimeSpan.Zero);
 
-        DeepSeekApiService.IsBeijingPeakTime(utcNow).Should().Be(expected);
+        DeepSeekProvider.IsBeijingPeakTime(utcNow).Should().Be(expected);
     }
 }
