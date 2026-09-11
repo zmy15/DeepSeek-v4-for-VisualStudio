@@ -483,14 +483,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             double? temperature = null,
             string? responseFormat = null,
             string? model = null,
-            bool? thinkingEnabled = null)
+            bool? thinkingEnabled = null,
+            Action<string>? onThinking = null)
         {
             //  传入完整工具集以保持 Prefix Cache 稳定
             var fullTools = TryGetFullToolSet();
             var sb = new StringBuilder();
+            var effectiveOnThinking = onThinking ?? Context?.OnThinkingChunk;
             await foreach (var chunk in _apiService.ChatStreamAsync(messages, fullTools, ct, maxTokens, toolChoice, temperature, responseFormat, model, thinkingEnabled))
             {
-                if (IsContentChunk(chunk))
+                if (chunk.StartsWith("[THINKING]"))
+                    effectiveOnThinking?.Invoke(chunk.Substring(10));
+                else if (IsContentChunk(chunk))
                     sb.Append(chunk);
             }
             LogCacheHitRate();
@@ -856,6 +860,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <param name="onThinking">思考内容回调（用于 UI 实时更新）</param>
         /// <param name="onContent">内容回调（用于 UI 实时更新）</param>
         /// <param name="onToolCall">工具调用回调（用于 UI 通知）</param>
+        /// <param name="maxToolRounds">本次工具循环的最大轮数（null = 仅使用全局安全上限）</param>
         /// <returns>AI 最终生成的文本内容</returns>
         protected async Task<string> CallAiWithToolLoopAsync(
             List<ChatApiMessage> messages,
@@ -865,7 +870,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             List<string>? toolWhitelist = null,
             Action<string>? onThinking = null,
             Action<string>? onContent = null,
-            Action<string>? onToolCall = null)
+            Action<string>? onToolCall = null,
+            int? maxToolRounds = null)
         {
             var reasoningBuilder = new StringBuilder();
             var contentBuilder = new StringBuilder();
@@ -894,11 +900,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             int maxConsecutiveErrors = Settings.DeepSeekOptionsPage.Instance?.MaxConsecutiveErrors ?? 5;
             if (maxConsecutiveErrors < 1) maxConsecutiveErrors = 5;
             int maxConsecutiveWhitelistRejections = Math.Max(5, maxConsecutiveErrors);
-            int safetyLimit = Settings.DeepSeekOptionsPage.Instance?.MaxToolCallRounds ?? 200;
-            if (safetyLimit < 1) safetyLimit = 200;
+            int configuredSafetyLimit = Settings.DeepSeekOptionsPage.Instance?.MaxToolCallRounds ?? 200;
+            if (configuredSafetyLimit < 1) configuredSafetyLimit = 200;
             bool loopDetected = false;
 
             int round = BuiltInTools?.CurrentRound ?? 0;
+            int initialRound = round;
+            int effectiveRoundLimit = maxToolRounds is > 0
+                ? Math.Min(configuredSafetyLimit, maxToolRounds.Value)
+                : configuredSafetyLimit;
+            int safetyLimit = initialRound > int.MaxValue - effectiveRoundLimit
+                ? int.MaxValue
+                : initialRound + effectiveRoundLimit;
 
             // ──  v1.1.11：固定后缀插入点 ──
             // 消息结构：[prefix][稳定历史][tool_calls...][volatile][user][agent]
@@ -911,8 +924,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (round > safetyLimit)
                 {
                     var L = LocalizationService.Instance;
-                    Logger.Warn($"[Agent:{Definition.Name}] {string.Format(L["agent.log.safetyLimit"], safetyLimit)}");
-                    contentBuilder.Append($"\n\n>  {string.Format(L["agent.log.safetyLimit"], safetyLimit)}");
+                    Logger.Warn($"[Agent:{Definition.Name}] {string.Format(L["agent.log.safetyLimit"], effectiveRoundLimit)}");
+                    contentBuilder.Append($"\n\n>  {string.Format(L["agent.log.safetyLimit"], effectiveRoundLimit)}");
                     metrics?.MarkTerminated("safety_limit");
                     break;
                 }

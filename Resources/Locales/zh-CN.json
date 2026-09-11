@@ -773,6 +773,7 @@
     "agent.plan.jsonRetryFailed": "JSON 重试也失败了: {0}。将使用单步回退计划。",
     "agent.plan.executeChangesLabel": "执行代码变更",
     "agent.plan.unifiedDiscoveryHeader": "你是一个代码库研究助手。你的首要任务是判断：当前已有的上下文信息是否足够制定实现计划。如果可以，直接跳过探索进入需求对齐阶段。",
+    "agent.plan.discoverySystemPrompt": "你当前处于 Plan 模式的发现阶段。只允许使用只读工具。你的职责是判断当前上下文是否已经足够制定实现计划，必要时可通过 runSubagent 委托有针对性的探索，然后只回复纯文本 DONE。本阶段禁止输出最终计划、JSON、需求对齐问题或其他最终答案。如果已有探索结果、用户已回答对齐问题，或 /memories/session/plan-summary.md 已写入，则视为发现完成并立即回复 DONE。不要重复读取上下文中已有的文件或行范围。本阶段的 DONE-only 约定优先于对话中的其他 Plan 指令。",
     "agent.plan.discoveryStructureCached": "## 项目结构缓存（已预先扫描，可跳过根目录扫描）",
     "agent.plan.discoverySkipRootScan": "以上结构信息已提供。如果已包含足够信息，可直接跳过探索进入对齐阶段；如需深入探索特定区域，可使用 runSubagent。",
     "agent.plan.discoveryFirstExplore": "如果当前上下文不足以制定计划（例如不知道项目结构、不熟悉相关代码），请使用 runSubagent 探索项目。先快速浏览顶层结构，再深入相关区域。",
