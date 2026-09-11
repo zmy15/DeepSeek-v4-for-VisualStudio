@@ -5,18 +5,23 @@ namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Services;
 public class DeepSeekApiServicePricingTests
 {
     [Theory]
-    [InlineData(false, "USD", 0.15, 0.003, 0.6)]
-    [InlineData(true, "USD", 0.3, 0.006, 1.2)]
-    [InlineData(false, "CNY", 1.0, 0.02, 4.0)]
-    [InlineData(true, "CNY", 2.0, 0.04, 8.0)]
-    public void GetPricing_UsesUnifiedOfficialRates(
+    [InlineData("deepseek-v4-flash", false, "USD", 0.15, 0.003, 0.6)]
+    [InlineData("deepseek-v4-flash", true, "USD", 0.3, 0.006, 1.2)]
+    [InlineData("deepseek-v4-flash", false, "CNY", 1.0, 0.02, 4.0)]
+    [InlineData("deepseek-v4-flash", true, "CNY", 2.0, 0.04, 8.0)]
+    [InlineData("deepseek-v4-pro", false, "USD", 0.66, 0.022, 1.98)]
+    [InlineData("deepseek-v4-pro", true, "USD", 1.32, 0.044, 3.96)]
+    [InlineData("deepseek-v4-pro", false, "CNY", 4.5, 0.15, 13.5)]
+    [InlineData("deepseek-v4-pro", true, "CNY", 9.0, 0.30, 27.0)]
+    public void GetPricing_UsesModelSpecificOfficialRates(
+        string model,
         bool isPeak,
         string currency,
         double expectedCacheMiss,
         double expectedCacheHit,
         double expectedOutput)
     {
-        var pricing = DeepSeekApiService.GetPricing(isPeak, currency);
+        var pricing = DeepSeekApiService.GetPricing(model, isPeak, currency);
 
         pricing.CacheMiss.Should().BeApproximately(expectedCacheMiss, 0.000_000_001);
         pricing.CacheHit.Should().BeApproximately(expectedCacheHit, 0.000_000_001);

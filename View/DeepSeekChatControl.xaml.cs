@@ -745,7 +745,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         /// <summary>
         /// 格式化当前会话的 token 消耗信息。
         /// 包含：API 实际 Token 消耗 + 费用估算 + 上下文窗口利用率。
-        /// 费用基于 DeepSeek V4 官方统一定价（所有官方模型同价），按"国内/国际 × 时段"分档
+        /// 费用基于 DeepSeek V4 官方定价，按"国内/国际 × 模型（Flash/Pro）× 时段"分档
         /// （国内 ¥ 价目 / 国际 $ 价目，高峰时段为北京时间周一至周五 9:00-12:00、14:00-18:00，
         /// 周六、周日全天为空闲时段，详见 DeepSeekApiService.GetPricing）。
         /// 币种由余额 API 返回值自动判定（CNY→国内价，USD→国际价），首次查询前默认国内价。
@@ -795,7 +795,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 if (totalCost <= 0)
                 {
                     var (missPrice, hitPrice, outputPrice) = DeepSeekApiService.GetPricing(
-                        DeepSeekApiService.IsBeijingPeakTime(), currency);
+                        modelName, DeepSeekApiService.IsBeijingPeakTime(), currency);
                     totalCost = cacheMissTokens / 1_000_000.0 * missPrice
                               + cacheHitTokens / 1_000_000.0 * hitPrice
                               + completionTokens / 1_000_000.0 * outputPrice;
