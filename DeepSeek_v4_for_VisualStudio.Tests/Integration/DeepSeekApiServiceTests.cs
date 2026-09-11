@@ -149,6 +149,62 @@ public class DeepSeekApiServiceTests
     }
 
     [Fact]
+    public async Task ChatStreamAsync_Http400_ExceptionIncludesRequestAndResponseDetails()
+    {
+        const string errorBody =
+            "{\"error\":{\"message\":\"model not found\",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\"}}";
+        var handler = new TestHttpMessageHandler(
+            Array.Empty<string>(),
+            HttpStatusCode.BadRequest,
+            errorBody,
+            response => response.Headers.TryAddWithoutValidation("x-request-id", "req-400-detail"));
+
+        var httpClient = new HttpClient(handler);
+        var service = new DeepSeekApiService(httpClient, "deepseek-v4-flash-vision-exp");
+        var messages = new List<ChatApiMessage>
+        {
+            new() { Role = "user", Content = "Hi" }
+        };
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(async () =>
+        {
+            await foreach (var _ in service.ChatStreamAsync(messages)) { }
+        });
+
+        ex.Message.Should().Contain("HTTP 400");
+        ex.Message.Should().Contain("model=deepseek-v4-flash-vision-exp");
+        ex.Message.Should().Contain("x-request-id=req-400-detail");
+        ex.Message.Should().Contain("model_not_found");
+        ex.Message.Should().Contain("响应体");
+    }
+
+    [Fact]
+    public async Task CompleteAsync_Http400_ExceptionIncludesResponseDetails()
+    {
+        const string errorBody =
+            "{\"error\":{\"message\":\"invalid request body\",\"type\":\"invalid_request_error\"}}";
+        var handler = new TestHttpMessageHandler(
+            Array.Empty<string>(),
+            HttpStatusCode.BadRequest,
+            errorBody,
+            response => response.Headers.TryAddWithoutValidation("x-request-id", "req-complete-400"));
+
+        var httpClient = new HttpClient(handler);
+        var service = new DeepSeekApiService(httpClient, "deepseek-v4-pro");
+        var messages = new List<ChatApiMessage>
+        {
+            new() { Role = "user", Content = "Hi" }
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CompleteAsync(messages));
+
+        ex.Message.Should().Contain("HTTP 400");
+        ex.Message.Should().Contain("invalid request body");
+        ex.Message.Should().Contain("x-request-id=req-complete-400");
+    }
+
+    [Fact]
     public async Task ChatStreamAsync_EmptyResponse_CompletesWithoutTokens()
     {
         var sseLines = new[] { "data: [DONE]\n" };
@@ -201,12 +257,18 @@ internal class TestHttpMessageHandler : HttpMessageHandler
     private readonly string[] _responseLines;
     private readonly HttpStatusCode _statusCode;
     private readonly string? _errorBody;
+    private readonly Action<HttpResponseMessage>? _configureResponse;
 
-    public TestHttpMessageHandler(string[] responseLines, HttpStatusCode statusCode, string? errorBody = null)
+    public TestHttpMessageHandler(
+        string[] responseLines,
+        HttpStatusCode statusCode,
+        string? errorBody = null,
+        Action<HttpResponseMessage>? configureResponse = null)
     {
         _responseLines = responseLines;
         _statusCode = statusCode;
         _errorBody = errorBody;
+        _configureResponse = configureResponse;
     }
 
     protected override Task<HttpResponseMessage> SendAsync(
@@ -223,6 +285,8 @@ internal class TestHttpMessageHandler : HttpMessageHandler
         {
             response.Content = new StringContent(_errorBody, Encoding.UTF8, "application/json");
         }
+
+        _configureResponse?.Invoke(response);
 
         // 通过 tcs 支持异步语义
         var tcs = new TaskCompletionSource<HttpResponseMessage>();

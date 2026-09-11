@@ -242,7 +242,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
             };
 
             using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-            await ValidateResponseStatusAsync(response);
+            await ValidateResponseStatusAsync(
+                response,
+                $"model={request.Model}, endpoint={FimBaseUrl}{FimEndpoint}, " +
+                $"promptChars={prompt.Length}, suffixChars={suffix?.Length ?? 0}");
             response.EnsureSuccessStatusCode();
 
             var responseJson = await response.Content.ReadAsStringAsync();
@@ -277,7 +280,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                     new MediaTypeWithQualityHeaderValue("application/json"));
 
                 using var response = await _httpClient.SendAsync(httpRequest);
-                await ValidateResponseStatusAsync(response);
+                await ValidateResponseStatusAsync(response, "endpoint=/user/balance");
                 response.EnsureSuccessStatusCode();
 
                 var responseJson = await response.Content.ReadAsStringAsync();
