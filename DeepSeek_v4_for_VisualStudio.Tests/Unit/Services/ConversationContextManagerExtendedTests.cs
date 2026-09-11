@@ -418,6 +418,32 @@ public class ConversationContextManagerExtendedTests
         capturedMessages.Should().NotContain(m => m.Content == "T1");
     }
 
+    [Fact]
+    public void TryCompressForToolLoop_NoNewConversationContent_StopsAndSignalsReset()
+    {
+        var compressor = new ContextCompressorService((messages, ct) =>
+            Task.FromResult("summary"));
+
+        _manager.CacheWindowMaxTokens = 1;
+        _manager.SetCompressor(compressor);
+        _manager.AddUserMessage("Q1");
+        _manager.AddAssistantMessage("A1");
+        _manager.AddToolResult("call_1", "read_file", "T1");
+
+        _manager.TryCompressForToolLoop(out _, out _, out _).Should().BeTrue();
+
+        // T1 属于未压缩的新条目，仍可继续压缩。
+        _manager.AddCustomMessage("system", "custom-1");
+        _manager.TryCompressForToolLoop(out _, out _, out _).Should().BeTrue();
+
+        // 此时边界内只剩两个 custom 条目，没有新的 user/assistant/tool 内容。
+        _manager.AddCustomMessage("system", "custom-2");
+        _manager.TryCompressForToolLoop(out _, out _, out _).Should().BeFalse();
+
+        _manager.ConsumeConversationResetNotice().Should().BeTrue();
+        _manager.ConsumeConversationResetNotice().Should().BeFalse();
+    }
+
     #endregion
 
     #region BuildApiMessagesRecentTurns

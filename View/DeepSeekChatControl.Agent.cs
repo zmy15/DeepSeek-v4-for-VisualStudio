@@ -1024,6 +1024,16 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Logger.Error($"[AgentFlow] SyncAgentResponseToTreeAndContextAsync 失败: {ex.Message}", ex);
             }
 
+            // ── 上下文已无可继续压缩的新内容：等本次完整对话结束后提示切换新对话。──
+            if (_contextManager.ConsumeConversationResetNotice())
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                string title = LocalizationService.Instance["agent.contextCompressionExhausted.title"];
+                string message = LocalizationService.Instance["agent.contextCompressionExhausted.message"];
+                StatusLabel.Text = message;
+                NotifyUserActionRequired(title, message);
+            }
+
             // ── AI 自动生成会话标题（Agent 工作流完成后触发，独立 try 确保同步失败也不影响标题生成）──
             try
             {

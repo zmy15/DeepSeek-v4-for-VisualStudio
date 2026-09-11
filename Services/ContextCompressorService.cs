@@ -128,6 +128,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (_summarizer != null)
             {
                 string prompt = _config.CompressionPrompt;
+                if (_compressedSummaries.Count > 0)
+                {
+                    prompt += "\n\n" + LocalizationService.Instance["system.compressionIncrementalPrompt"];
+                }
 
                 // 保持正常对话前缀逐 token 不变，只在末尾追加压缩指令。
                 var requestMessages = new List<ChatApiMessage>(

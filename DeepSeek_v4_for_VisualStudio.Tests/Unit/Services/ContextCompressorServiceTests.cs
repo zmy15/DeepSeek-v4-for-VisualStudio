@@ -363,6 +363,34 @@ public class ContextCompressorServiceTests
     }
 
     [Fact]
+    public void CompressTurnsAsync_SecondCompression_AddsIncrementalInstruction()
+    {
+        var prompts = new List<string>();
+        var service = new ContextCompressorService((messages, ct) =>
+        {
+            prompts.Add(messages.Last().Content!);
+            return Task.FromResult("summary");
+        });
+
+        var firstEntries = new List<ConversationContextManager.ContextEntry>
+        {
+            new() { Role = "user", Content = "first" },
+        };
+        var secondEntries = new List<ConversationContextManager.ContextEntry>
+        {
+            new() { Role = "user", Content = "second" },
+        };
+
+        service.CompressTurnsAsync(firstEntries, 1, 1).Wait();
+        service.CompressTurnsAsync(secondEntries, 2, 2).Wait();
+
+        var incrementalPrompt = LocalizationService.Instance["system.compressionIncrementalPrompt"];
+        prompts.Should().HaveCount(2);
+        prompts[0].Should().NotContain(incrementalPrompt);
+        prompts[1].Should().Contain(incrementalPrompt);
+    }
+
+    [Fact]
     public void GetCompressedContextText_MultipleSummaries_OrdersByFromTurn()
     {
         var service = new ContextCompressorService();

@@ -71,6 +71,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>当前 Token 估算计数器（字符级原始估算，未校准）</summary>
         private int _estimatedTokens;
 
+        /// <summary>上下文条目单调递增 ID，用于判断压缩边界内是否仍有新内容。</summary>
+        private long _nextEntryId;
+
+        /// <summary>已经压缩过的最大条目 ID。</summary>
+        private long _lastCompressedEntryId;
+
+        /// <summary>是否需要在本次完整对话结束后提示用户切换新对话。</summary>
+        private bool _conversationResetNoticePending;
+
         /// <summary>Token 估算校准系数（基于 API 实际 usage 的指数移动平均，1.0 = 无校准）</summary>
         private double _calibrationFactor = 1.0;
 
@@ -407,6 +416,74 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             _compressor = compressor;
         }
 
+        private ContextEntry CreateEntry(
+            string Role,
+            string? Content = null,
+            List<ChatContentPart>? MultimodalContent = null,
+            string? ReasoningContent = null,
+            List<ToolCall>? ToolCalls = null,
+            bool HasToolCalls = false,
+            string? ToolCallId = null,
+            string? Name = null,
+            int TurnIndex = -1,
+            bool IsVolatileSnapshot = false)
+        {
+            return new ContextEntry
+            {
+                EntryId = ++_nextEntryId,
+                Role = Role,
+                Content = Content,
+                MultimodalContent = MultimodalContent,
+                ReasoningContent = ReasoningContent,
+                ToolCalls = ToolCalls,
+                HasToolCalls = HasToolCalls,
+                ToolCallId = ToolCallId,
+                Name = Name,
+                TurnIndex = TurnIndex,
+                IsVolatileSnapshot = IsVolatileSnapshot,
+            };
+        }
+
+        /// <summary>
+        /// 判断待压缩边界内是否还有从未压缩过的对话条目。
+        /// </summary>
+        private bool HasNewCompressibleEntries(int compressionStart)
+        {
+            if (compressionStart <= 0)
+                return false;
+
+            for (int i = 0; i < compressionStart && i < _entries.Count; i++)
+            {
+                var entry = _entries[i];
+                if (entry.TurnIndex > 0 && entry.EntryId > _lastCompressedEntryId)
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 标记需要在当前 Agent 工作流结束后提示用户切换新对话。
+        /// </summary>
+        private void MarkConversationResetNeeded(string reason)
+        {
+            if (_conversationResetNoticePending)
+                return;
+
+            _conversationResetNoticePending = true;
+            Logger.Warn($"[ContextManager] 没有新的可压缩对话内容，已停止压缩并要求切换新对话: {reason}");
+        }
+
+        /// <summary>
+        /// 消费“需要切换新对话”通知。返回 true 表示本次完整对话结束后应提示用户。
+        /// </summary>
+        public bool ConsumeConversationResetNotice()
+        {
+            bool pending = _conversationResetNoticePending;
+            _conversationResetNoticePending = false;
+            return pending;
+        }
+
         /// <summary>
         /// 注入前缀缓存管理器。
         /// 设置后，BuildApiMessages 时会自动检查前缀稳定性并记录漂移事件。
@@ -491,13 +568,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 _cacheSnapshotEntryIndex = null;
             }
 
-            _entries.Add(new ContextEntry
-            {
-                Role = "user",
-                Content = content,
-                MultimodalContent = normalizedMultimodalContent,
-                TurnIndex = TurnCount + 1, // 新轮次
-            });
+            _entries.Add(CreateEntry(
+                Role: "user",
+                Content: content,
+                MultimodalContent: normalizedMultimodalContent,
+                TurnIndex: TurnCount + 1)); // 新轮次
 
             _estimatedTokens += EstimateTokens(content);
             _estimatedTokens += EstimateMultimodalTokens(multimodalContent);
@@ -563,15 +638,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 }
             }
 
-            _entries.Add(new ContextEntry
-            {
-                Role = "assistant",
-                Content = content,
-                ReasoningContent = reasoningContent,
-                ToolCalls = toolCalls,
-                HasToolCalls = toolCalls != null && toolCalls.Count > 0,
-                TurnIndex = TurnCount, // 属于当前轮次
-            });
+            _entries.Add(CreateEntry(
+                Role: "assistant",
+                Content: content,
+                ReasoningContent: reasoningContent,
+                ToolCalls: toolCalls,
+                HasToolCalls: toolCalls != null && toolCalls.Count > 0,
+                TurnIndex: TurnCount)); // 属于当前轮次
             _estimatedTokens += EstimateTokens(content);
             if (!string.IsNullOrEmpty(reasoningContent))
                 _estimatedTokens += EstimateTokens(reasoningContent);
@@ -588,14 +661,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (!string.IsNullOrEmpty(toolCallId) && !string.IsNullOrEmpty(result))
                 _fullToolResultStore[toolCallId] = result;
 
-            _entries.Add(new ContextEntry
-            {
-                Role = "tool",
-                Content = result,
-                ToolCallId = toolCallId,
-                Name = toolName,
-                TurnIndex = TurnCount, // 工具调用属于当前轮次
-            });
+            _entries.Add(CreateEntry(
+                Role: "tool",
+                Content: result,
+                ToolCallId: toolCallId,
+                Name: toolName,
+                TurnIndex: TurnCount)); // 工具调用属于当前轮次
             _estimatedTokens += EstimateTokens(result);
         }
 
@@ -607,12 +678,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         {
             if (string.IsNullOrEmpty(content)) return;
 
-            _entries.Add(new ContextEntry
-            {
-                Role = role,
-                Content = content,
-                TurnIndex = -1, // 不属于任何轮次
-            });
+            _entries.Add(CreateEntry(
+                Role: role,
+                Content: content,
+                TurnIndex: -1)); // 不属于任何轮次
             _estimatedTokens += EstimateTokens(content);
         }
 
@@ -647,6 +716,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
                 if (compressionStart > startEntryIdx)
                 {
+                    if (!HasNewCompressibleEntries(compressionStart))
+                    {
+                        MarkConversationResetNeeded(compressionReason);
+                    }
+                    else
+                    {
                     // 压缩请求只发送到“待压缩区间末尾”为止的完整对话前缀，
                     // 不包含之后要继续保留的历史，也不重复追加待压缩内容。
                     var compressionPrefix = BuildApiMessagesSnapshot(
@@ -659,6 +734,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     // 压缩摘要已生成，立即刷新动态块，确保本轮正常请求就能注入结果。
                     dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
                     startEntryIdx = 0;
+                    }
                 }
                 else if (startEntryIdx > 0)
                 {
@@ -737,6 +813,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             int compressionStart = ResolveCompressionStartIndex(0, out string compressionReason);
             if (compressionStart <= 0)
                 return false;
+
+            if (!HasNewCompressibleEntries(compressionStart))
+            {
+                MarkConversationResetNeeded(compressionReason);
+                return false;
+            }
 
             string? currentDynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
             var staticPrefix = BuildApiMessagesSnapshot(
@@ -1021,13 +1103,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     return false;
             }
 
-            var snapshotEntry = new ContextEntry
-            {
-                Role = "system",
-                Content = snapshot,
-                TurnIndex = turnIndex,
-                IsVolatileSnapshot = true,
-            };
+            var snapshotEntry = CreateEntry(
+                Role: "system",
+                Content: snapshot,
+                TurnIndex: turnIndex,
+                IsVolatileSnapshot: true);
 
             _entries.Insert(lastUserIndex, snapshotEntry);
             _estimatedTokens += EstimateTokens(snapshot);
@@ -1157,6 +1237,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             if (entriesToCompress.Count == 0) return;
+
+            long lastCompressedEntryId = entriesToCompress.Max(e => e.EntryId);
+            _lastCompressedEntryId = Math.Max(_lastCompressedEntryId, lastCompressedEntryId);
 
             // 确定压缩的轮次范围
             int fromTurn = entriesToCompress.Where(e => e.TurnIndex > 0).Select(e => e.TurnIndex).DefaultIfEmpty(1).First();
@@ -1765,6 +1848,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             _compressor?.Clear();
             _cacheSnapshotEntryIndex = null;
             _cachedDynamicBlock = null;
+            _nextEntryId = 0;
+            _lastCompressedEntryId = 0;
+            _conversationResetNoticePending = false;
         }
 
         /// <summary>
@@ -1837,6 +1923,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         internal class ContextEntry
         {
+            /// <summary>单调递增条目 ID，用于判断压缩边界中的新内容</summary>
+            public long EntryId { get; set; }
             public string Role { get; set; } = "user";
             public string? Content { get; set; }
             public List<ChatContentPart>? MultimodalContent { get; set; }
