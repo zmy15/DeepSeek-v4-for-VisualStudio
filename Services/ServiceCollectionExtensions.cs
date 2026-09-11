@@ -60,12 +60,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 // ContextCompressorService 可选 LLM 摘要器（通过 DeepSeekApiService）
                 var apiService = sp.GetRequiredService<IDeepSeekApiService>();
                 return new ContextCompressorService(
-                    summarizer: async (text, ct) =>
+                    summarizer: async (messages, ct) =>
                     {
-                        var messages = new List<Models.ChatApiMessage>
-                        {
-                            new() { Role = "user", Content = text }
-                        };
                         return await apiService.CompleteAsync(messages, ct);
                     });
             });

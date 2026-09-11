@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading;
 
 namespace DeepSeek_v4_for_VisualStudio.Services
 {
@@ -501,12 +502,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             _estimatedTokens += EstimateTokens(content);
             _estimatedTokens += EstimateMultimodalTokens(multimodalContent);
 
-            // 使用压缩替代直接删除
-            if (_compressor != null && _compressor.Config.AutoCompressEnabled)
-                AutoCompressIfNeeded();
-            else
-                AutoTrimIfNeeded();
-
             // ──  v1.1.11：冻结动态上下文块，确保同轮次内后续API调用
             //     messages[2] 内容不变 → DeepSeek前缀缓存可持续命中。──
             _cachedDynamicBlock = BuildDynamicContextBlock();
@@ -641,51 +636,103 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <param name="startEntryIdx">_entries 中开始包含的起始索引</param>
         private List<ChatApiMessage> BuildApiMessagesCore(int startEntryIdx)
         {
+            string? dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
+
+            // ── 压缩必须在构建正常请求前完成 ──
+            //     压缩请求从对话开头截取到待压缩区间末尾，最后只追加压缩指令，
+            //     保证待压缩内容既完整出现，又不会破坏这段缓存前缀。
+            if (!_cacheSnapshotEntryIndex.HasValue)
+            {
+                int compressionStart = startEntryIdx;
+                string compressionReason = "none";
+
+                if (_compressor != null && _compressor.Config.AutoCompressEnabled)
+                {
+                    int tokenWindowStart = FindCacheWindowStart(out string triggerReason);
+                    if (tokenWindowStart > compressionStart)
+                    {
+                        // 激进压缩：额外压缩窗口内旧轮次，减少后续频繁压缩。
+                        int aggressiveTurns = Math.Max(1, (int)(CacheWindowMaxTurns * CompressionAggressiveness));
+                        int aggressiveStart = FindTurnStartIndex(aggressiveTurns);
+                        compressionStart = Math.Max(tokenWindowStart, aggressiveStart);
+                        compressionReason = triggerReason;
+                    }
+
+                    var config = _compressor.Config;
+                    if (EstimatedTokens > TokenBudget * config.CompressionThreshold)
+                    {
+                        bool severe = EstimatedTokens > TokenBudget * config.AggressiveThreshold;
+                        int preserveTurns = severe ? 1 : config.PreserveRecentTurns;
+                        int budgetStart = FindTurnStartIndex(preserveTurns);
+                        if (budgetStart > compressionStart)
+                        {
+                            compressionStart = budgetStart;
+                            compressionReason = severe
+                                ? $"usage>{config.AggressiveThreshold:P0}"
+                                : $"usage>{config.CompressionThreshold:P0}";
+                        }
+                    }
+                }
+                else
+                {
+                    AutoTrimIfNeeded();
+                    int tokenWindowStart = FindCacheWindowStart(out string triggerReason);
+                    if (tokenWindowStart > compressionStart)
+                    {
+                        compressionStart = tokenWindowStart;
+                        compressionReason = triggerReason;
+                    }
+                }
+
+                if (compressionStart > startEntryIdx)
+                {
+                    // 压缩请求只发送到“待压缩区间末尾”为止的完整对话前缀，
+                    // 不包含之后要继续保留的历史，也不重复追加待压缩内容。
+                    var compressionPrefix = BuildApiMessagesSnapshot(
+                        startEntryIdx: 0,
+                        dynamicBlock,
+                        entryLimitOverride: compressionStart);
+                    Logger.Info($"[CacheWindow] 触发压缩: {compressionReason}, 压缩前保留 {TurnCount} 轮");
+                    CompressEntriesBeforeWindow(compressionStart, compressionPrefix);
+
+                    // 压缩摘要已生成，立即刷新动态块，确保本轮正常请求就能注入结果。
+                    dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
+                    startEntryIdx = 0;
+                }
+                else if (startEntryIdx > 0)
+                {
+                    Logger.Info($"[CacheWindow] 触发压缩: 调用方限制(startEntry={startEntryIdx}), 当前{TurnCount}轮");
+                }
+            }
+
+            return BuildApiMessagesSnapshot(startEntryIdx, dynamicBlock);
+        }
+
+        /// <summary>
+        /// 构建未压缩的 API 消息快照，不修改任何历史条目。
+        /// 该快照既是正常对话前缀，也是压缩请求复用的前缀。
+        /// </summary>
+        private List<ChatApiMessage> BuildApiMessagesSnapshot(
+            int startEntryIdx,
+            string? dynamicBlock,
+            int? entryLimitOverride = null)
+        {
             var messages = new List<ChatApiMessage>();
 
             // ── [0] 稳定系统提示词（共享前缀 + 固定提示词）──
             string sharedPrefix = AiPrompts.SharedImmutablePrefix;
             string? fixedPrompt = _fixedSystemPrompt
                 ?? (string.IsNullOrWhiteSpace(_systemPrompt) && string.IsNullOrWhiteSpace(_skillContext) ? null : BuildFinalSystemPrompt());
-            // 用户/设置页身份提示词在前，共享工具规则在后，避免两段身份介绍抢占开头。
             string stableSystemPrompt = CombineSystemParts(fixedPrompt, sharedPrefix);
             if (!string.IsNullOrWhiteSpace(stableSystemPrompt))
                 messages.Add(new ChatApiMessage { Role = "system", Content = stableSystemPrompt });
 
-            // ── 缓存窗口裁剪 ──
-            //     快照冻结时跳过压缩（压缩会 MUTATE entries，破坏快照保护的前缀稳定性）。
-            if (!_cacheSnapshotEntryIndex.HasValue)
-            {
-                int tokenWindowStart = FindCacheWindowStart(out string triggerReason);
-                if (tokenWindowStart > startEntryIdx)
-                {
-                    // ── 激进压缩：不仅压缩窗口外的，还按 CompressionAggressiveness
-                    //     比例进一步压缩窗口内的旧轮次，为后续对话增长留余量，
-                    //     避免刚压缩完加一轮又触发下一次压缩 → 频繁缓存断裂 ──
-                    int aggressiveTurns = Math.Max(1, (int)(CacheWindowMaxTurns * CompressionAggressiveness));
-                    int aggressiveStart = FindTurnStartIndex(aggressiveTurns);
-                    startEntryIdx = Math.Max(tokenWindowStart, aggressiveStart);
-                    Logger.Info($"[CacheWindow] 触发压缩: {triggerReason}, 压缩到保留~{aggressiveTurns}轮");
-                }
-                else if (startEntryIdx > 0)
-                {
-                    // ── 非窗口超限触发：由调用方传入 startEntryIdx（如 BuildApiMessagesRecentTurns 限制轮次）──
-                    Logger.Info($"[CacheWindow] 触发压缩: 调用方限制(startEntry={startEntryIdx}), 当前{TurnCount}轮");
-                }
-                if (startEntryIdx > 0)
-                {
-                    CompressEntriesBeforeWindow(startEntryIdx);
-                    startEntryIdx = 0;
-                }
-            }
-
-            // ── [1] 动态上下文块（仅在非空时注入；独立保留以保护稳定前缀缓存）──
-            string? dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
+            // ── [1] 动态上下文块（仅在非空时注入）──
             if (!string.IsNullOrWhiteSpace(dynamicBlock))
                 messages.Add(new ChatApiMessage { Role = "system", Content = dynamicBlock });
 
-            // ── [3..] 对话历史 ──
-            int entryLimit = _cacheSnapshotEntryIndex ?? _entries.Count;
+            // ── [2..] 对话历史 ──
+            int entryLimit = entryLimitOverride ?? _cacheSnapshotEntryIndex ?? _entries.Count;
             for (int i = startEntryIdx; i < _entries.Count && i < entryLimit; i++)
             {
                 var entry = _entries[i];
@@ -1036,7 +1083,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// 将指定索引之前的条目移出 _entries，可选压缩为摘要。
         /// 即使没有压缩服务，也会移除旧条目以控制上下文大小。
         /// </summary>
-        private void CompressEntriesBeforeWindow(int windowStartIdx)
+        private void CompressEntriesBeforeWindow(
+            int windowStartIdx,
+            IReadOnlyList<ChatApiMessage>? compressionPrefix)
         {
             if (windowStartIdx <= 0)
                 return;
@@ -1063,24 +1112,35 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             // ── 始终从 _entries 中移除（无论有无 compressor）──
             _entries.RemoveRange(0, windowStartIdx);
             _estimatedTokens -= removedTokens;
+            _cachedDynamicBlock = null;
 
-            // ── 异步压缩（仅在有 compressor 时）──
+            // ── 同步完成摘要，确保同一轮后续消息构建立即包含压缩结果 ──
             if (_compressor != null)
             {
-                var capturedEntries = entriesToCompress;
-                _ = System.Threading.Tasks.Task.Run(async () =>
+                _isCompressing = true;
+                try
                 {
-                    try
-                    {
-                        await _compressor.CompressTurnsAsync(capturedEntries, fromTurn, toTurn);
-                        Logger.Info($"[CacheWindow] 压缩第 {fromTurn}-{toTurn} 轮: " +
-                            $"{removedTokens} → {_compressor.TotalCompressedTokens} tokens (摘要)");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warn($"[CacheWindow] 压缩失败: {ex.Message}");
-                    }
-                });
+                    var summary = System.Threading.Tasks.Task.Run(() =>
+                        _compressor.CompressTurnsAsync(
+                            entriesToCompress,
+                            fromTurn,
+                            toTurn,
+                            compressionPrefix,
+                            CancellationToken.None)).GetAwaiter().GetResult();
+
+                    _cachedDynamicBlock = BuildDynamicContextBlock();
+                    Logger.Info($"[CacheWindow] 压缩第 {fromTurn}-{toTurn} 轮: " +
+                        $"{removedTokens} → {summary.CompressedTokens} tokens (摘要)");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[CacheWindow] 压缩失败: {ex.Message}");
+                    _cachedDynamicBlock = BuildDynamicContextBlock();
+                }
+                finally
+                {
+                    _isCompressing = false;
+                }
             }
 
             Logger.Info($"[CacheWindow] 裁剪 {entriesToCompress.Count} 条旧消息 " +
@@ -1440,99 +1500,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
         }
 
-        /// <summary>
-        /// 当估算 Token 超过预算时，自动压缩最旧的轮次（新行为，有压缩服务时使用）。
-        /// 同步版本：使用基于规则的本地压缩。使用校准后估算值作为阈值比较。
-        /// </summary>
-        public void AutoCompressIfNeeded()
-        {
-            if (_compressor == null || _isCompressing) return;
-
-            var config = _compressor.Config;
-            double threshold = config.CompressionThreshold;
-            double aggressiveThreshold = config.AggressiveThreshold;
-            int minToCompress = config.MinTurnsToCompress;
-
-            // 目标：压回到 CompressionThreshold（默认 85%）以下
-            int targetBudget = (int)(TokenBudget * threshold);
-
-            // ── 两级压缩 ──
-            // 超过 AggressiveThreshold（默认 95%）→ 严重压缩：只保留最近 1 轮；
-            // 否则按 PreserveRecentTurns（默认 3 轮）保留最近轮次。
-            bool severe = EstimatedTokens > TokenBudget * aggressiveThreshold;
-            int preserveTurns = severe ? 1 : config.PreserveRecentTurns;
-
-            if (severe)
-            {
-                Logger.Info($"[ContextManager] 严重压缩触发: 使用率 > {aggressiveThreshold:P0}，" +
-                    $"仅保留最近 1 轮 (当前 {EstimatedTokens:N0}/{TokenBudget:N0})");
-            }
-
-            while (EstimatedTokens > targetBudget
-                && TurnCount > preserveTurns + minToCompress)
-            {
-                _isCompressing = true;
-                try
-                {
-                    CompressOldestTurnsSync(preserveTurns);
-                }
-                finally
-                {
-                    _isCompressing = false;
-                }
-            }
-        }
-
-        /// <summary>
-        /// 当估算 Token 超过预算时，自动压缩最旧的轮次（异步版本，支持 LLM 摘要）。
-        /// </summary>
-        /// <summary>
-        /// 同步压缩最旧的轮次（基于规则的本地压缩）。
-        /// </summary>
-        private void CompressOldestTurnsSync(int preserveTurns)
-        {
-            if (_compressor == null) return;
-
-            // 计算需要压缩的轮次范围
-            int turnsToKeep = preserveTurns;
-            int totalTurns = TurnCount;
-            int compressUpTo = totalTurns - turnsToKeep;
-
-            if (compressUpTo <= 0) return;
-
-            // 收集要压缩的条目
-            var entriesToCompress = _entries
-                .Where(e => e.TurnIndex > 0 && e.TurnIndex <= compressUpTo)
-                .ToList();
-
-            if (entriesToCompress.Count == 0) return;
-
-            // 移除要压缩的条目
-            int removedTokens = 0;
-            foreach (var entry in entriesToCompress)
-            {
-                removedTokens += EstimateTokens(entry.Content);
-                removedTokens += EstimateMultimodalTokens(entry.MultimodalContent);
-                if (!string.IsNullOrEmpty(entry.ReasoningContent))
-                    removedTokens += EstimateTokens(entry.ReasoningContent);
-                _entries.Remove(entry);
-            }
-            _estimatedTokens -= removedTokens;
-
-            // 本地生成摘要（同步，无 LLM 调用）。
-            // 使用 Task.Run 将压缩计算卸载到线程池，避免阻塞 UI 线程。
-            var summary = System.Threading.Tasks.Task.Run(() =>
-                _compressor.CompressTurnsAsync(
-                    entriesToCompress, 1, compressUpTo)).GetAwaiter().GetResult();
-
-            Logger.Info($"[ContextManager] 同步压缩第 1-{compressUpTo} 轮: " +
-                $"{removedTokens} → {summary.CompressedTokens} tokens " +
-                $"(压缩率 {summary.CompressionRatio:P0})");
-        }
-
-        /// <summary>
-        /// 异步压缩最旧的轮次（支持 LLM 摘要）。
-        /// </summary>
         /// <summary>
         /// 移除最旧的一轮对话（一个 user 消息 + 其后续的 assistant/tool 消息）。
         /// 仅在无压缩服务时作为回退使用。

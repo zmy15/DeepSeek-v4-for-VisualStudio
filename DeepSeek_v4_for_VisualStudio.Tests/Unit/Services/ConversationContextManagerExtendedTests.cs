@@ -355,6 +355,39 @@ public class ConversationContextManagerExtendedTests
         messages.Should().NotContain(m => m.Role == "system" && m.Content!.Contains("[对话历史摘要]"));
     }
 
+    [Fact]
+    public void BuildApiMessages_WhenCompressionTriggered_PassesUncompressedConversationAsPrefix()
+    {
+        IReadOnlyList<ChatApiMessage>? capturedMessages = null;
+        var compressor = new ContextCompressorService((messages, ct) =>
+        {
+            capturedMessages = messages;
+            return Task.FromResult("compressed-summary");
+        });
+
+        _manager.TokenBudget = 100;
+        _manager.CacheWindowMaxTokens = 1;
+        _manager.SetCompressor(compressor);
+        _manager.AddUserMessage("Q1");
+        _manager.AddAssistantMessage("A1");
+        _manager.AddUserMessage("Q2");
+
+        var messages = _manager.BuildApiMessages();
+
+        capturedMessages.Should().NotBeNull();
+        capturedMessages.Should().Contain(m => m.Role == "system");
+        capturedMessages.Should().Contain(m => m.Content == "Q1");
+        capturedMessages.Should().Contain(m => m.Content == "A1");
+        capturedMessages.Should().NotContain(m => m.Content == "Q2");
+        capturedMessages!.Last().Role.Should().Be("system");
+        capturedMessages.Last().Content.Should().Contain("请将上方");
+
+        messages.Should().Contain(m =>
+            m.Role == "system"
+            && m.Content != null
+            && m.Content.Contains("compressed-summary", StringComparison.Ordinal));
+    }
+
     #endregion
 
     #region BuildApiMessagesRecentTurns

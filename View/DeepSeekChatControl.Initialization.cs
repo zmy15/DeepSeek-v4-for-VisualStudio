@@ -113,15 +113,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     var agent = _activeAgent; // 捕获引用，避免后续变更
                     _compressorService = new ContextCompressorService(
-                        async (text, ct) =>
+                        async (messages, ct) =>
                         {
                             try
                             {
-                                var messages = new List<ChatApiMessage>
-                                {
-                                    new ChatApiMessage { Role = "user", Content = text }
-                                };
-                                return await agent.CallAiWithMessagesAsync(messages, ct);
+                                return await agent.CallAiWithMessagesAsync(messages.ToList(), ct);
                             }
                             catch (Exception ex)
                             {

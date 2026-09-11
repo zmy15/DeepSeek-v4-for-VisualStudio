@@ -109,7 +109,7 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>是否启用自动压缩</summary>
         public bool AutoCompressEnabled { get; set; } = true;
 
-        /// <summary>压缩用的提示词模板。{0}=被压缩的对话内容</summary>
+        /// <summary>压缩指令。待压缩内容已经包含在压缩请求前缀中。</summary>
         public string CompressionPrompt { get; set; } = AiPrompts.CompressionPromptTemplate;
     }
 }

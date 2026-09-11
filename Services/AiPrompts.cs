@@ -273,8 +273,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public static string HandoffRoleBoundaryPrompt => L["system.handoffRoleBoundaryPrompt"];
 
         /// <summary>
-        /// 上下文压缩提示词模板。
-        /// {0} = 被压缩的对话内容
+        /// 上下文压缩指令。待压缩内容由请求前缀携带。
         /// </summary>
         public static string CompressionPromptTemplate => L["system.compressionPromptTemplate"];
 

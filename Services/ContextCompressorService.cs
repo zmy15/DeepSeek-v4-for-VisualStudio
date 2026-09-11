@@ -28,9 +28,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
     /// </summary>
     public class ContextCompressorService : IContextCompressorService
     {
+        /// <summary>
+        /// LLM 摘要器。传入的 messages 是从对话开头截取到待压缩区间末尾的完整前缀，
+        /// 最后一条是压缩要求。
+        /// </summary>
+        public delegate Task<string> ContextSummarizer(
+            IReadOnlyList<ChatApiMessage> messages,
+            CancellationToken cancellationToken);
+
         private readonly CompressionConfig _config;
         private readonly List<CompressedTurnSummary> _compressedSummaries = new();
-        private readonly Func<string, CancellationToken, Task<string>>? _summarizer;
+        private readonly ContextSummarizer? _summarizer;
 
         /// <summary>已压缩的轮次摘要列表</summary>
         public IReadOnlyList<CompressedTurnSummary> CompressedSummaries => _compressedSummaries;
@@ -47,7 +55,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </param>
         /// <param name="config">压缩配置，为 null 时使用默认配置</param>
         public ContextCompressorService(
-            Func<string, CancellationToken, Task<string>>? summarizer = null,
+            ContextSummarizer? summarizer = null,
             CompressionConfig? config = null)
         {
             _summarizer = summarizer;
@@ -90,12 +98,17 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <param name="turnsToCompress">待压缩的上下文条目（由 ConversationContextManager 提供）</param>
         /// <param name="fromTurn">起始轮次号</param>
         /// <param name="toTurn">结束轮次号</param>
+        /// <param name="prefixMessages">
+        /// 从对话开头截取到待压缩区间末尾的完整消息前缀。
+        /// 压缩请求会直接在该前缀后追加压缩要求，从而复用 DeepSeek Prefix Cache。
+        /// </param>
         /// <param name="cancellationToken">取消令牌</param>
         /// <returns>压缩结果</returns>
         internal async Task<CompressedTurnSummary> CompressTurnsAsync(
             List<ConversationContextManager.ContextEntry> turnsToCompress,
             int fromTurn,
             int toTurn,
+            IReadOnlyList<ChatApiMessage>? prefixMessages = null,
             CancellationToken cancellationToken = default)
         {
             if (turnsToCompress == null || turnsToCompress.Count == 0)
@@ -114,9 +127,31 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string summary;
             if (_summarizer != null)
             {
-                // 使用 LLM 生成摘要
-                string prompt = string.Format(_config.CompressionPrompt, rawText);
-                summary = await _summarizer(prompt, cancellationToken);
+                string prompt = _config.CompressionPrompt;
+
+                // 保持正常对话前缀逐 token 不变，只在末尾追加压缩指令。
+                var requestMessages = new List<ChatApiMessage>(
+                    prefixMessages ?? Array.Empty<ChatApiMessage>());
+                requestMessages.Add(new ChatApiMessage
+                {
+                    // 正常对话末尾通常是 user；追加 system 指令可保持原 user 前缀逐 token 不变，
+                    // 同时避免发送层把两条连续 user 消息合并。
+                    Role = "system",
+                    Content = prompt,
+                });
+
+                try
+                {
+                    summary = await _summarizer(requestMessages, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"[ContextCompressor] LLM 摘要失败，回退到本地提取: {ex.Message}");
+                    summary = string.Empty;
+                }
+
+                if (string.IsNullOrWhiteSpace(summary))
+                    summary = ExtractLocalSummary(rawText, turnsToCompress);
             }
             else
             {
