@@ -68,6 +68,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             var buildService = new BuildService();
             _memoryService = new MemoryService();
             _builtInToolService = new BuiltInToolService(_mcpManager, _webSearchService, buildService, _memoryService);
+            _builtInToolService.CurrentSolutionPath = _solutionPath;
             _builtInToolService.ApiService = _apiService; // 注入 API 服务以启用 apply_patch Healing
 
             _agentFactory = new AgentFactory(_apiService, _builtInToolService, _mcpManager, _memoryService);

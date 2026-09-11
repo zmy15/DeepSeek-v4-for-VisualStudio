@@ -265,6 +265,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     // ── 同步当前会话 ID 到内置工具服务（MemoryTool 需要）──
                     if (_builtInToolService != null)
                         _builtInToolService.CurrentSessionId = _activeSession.Id;
+                        _builtInToolService.CurrentSolutionPath = _solutionPath;
 
                     // ── 重置 AI 标题生成状态（切换到的会话可能已有标题） ──
                     _pendingAiTitle = false;
@@ -568,6 +569,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 // ── 同步当前会话 ID 到内置工具服务 ──
                 if (_builtInToolService != null)
                     _builtInToolService.CurrentSessionId = _activeSession.Id;
+                    _builtInToolService.CurrentSolutionPath = _solutionPath;
 
                 lock (_lock)
                 {

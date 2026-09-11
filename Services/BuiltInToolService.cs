@@ -141,6 +141,12 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public string? CurrentSessionId { get; set; }
 
         /// <summary>
+        /// 当前解决方案文件路径，供 MemoryTool 的 Repo 作用域使用。
+        /// 不能使用 workspaceRoot，因为后者通常是解决方案目录，会导致 Repo 哈希不一致。
+        /// </summary>
+        public string? CurrentSolutionPath { get; set; }
+
+        /// <summary>
         /// 活跃文件追踪器（可选注入）。
         /// 设置时会自动同步到 ReadFileTool 实例。
         /// </summary>
@@ -278,7 +284,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             {
                 Register(new MemoryTool(_memoryService,
                     () => CurrentSessionId,
-                    () => null)); // solutionPath 回退值；实际由 ExecuteAsync 的 workspaceRoot 参数传入
+                    () => CurrentSolutionPath));
             }
 
             // 子代理委派工具

@@ -1899,6 +1899,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         private async Task<string> ExecuteToolAsync(string toolName, string argumentsJson, string? workspaceRoot, CancellationToken ct)
         {
+            if (BuiltInTools != null)
+                BuiltInTools.CurrentSolutionPath = Context?.SolutionPath;
+
             // ── OCR 参数预处理：将文件路径自动转为 base64 ──
             argumentsJson = DeepSeekChatControl.SanitizeOcrToolArguments(toolName, argumentsJson);
 

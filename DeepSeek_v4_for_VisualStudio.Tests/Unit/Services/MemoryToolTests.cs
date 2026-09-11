@@ -235,6 +235,29 @@ public class MemoryToolTests
         await _memoryService.DeleteAsync(MemoryScope.Repo, "project-notes.md", solutionPath: _testSolutionPath);
     }
 
+    [Fact]
+    public async Task Execute_View_RepoScope_PrefersInjectedSolutionPathOverWorkspaceRoot()
+    {
+        string fileName = $"repo-regression-{Guid.NewGuid():N}.md";
+        await _memoryService.CreateAsync(
+            MemoryScope.Repo,
+            fileName,
+            "Repo 记忆内容",
+            solutionPath: _testSolutionPath);
+
+        var args = new Dictionary<string, JsonElement>
+        {
+            ["command"] = JsonSerializer.SerializeToElement("view"),
+            ["path"] = JsonSerializer.SerializeToElement($"/memories/repo/{fileName}"),
+        };
+
+        var result = await _tool.ExecuteAsync(args, @"C:\DifferentWorkspaceRoot");
+
+        result.Should().Contain("Repo 记忆内容");
+
+        await _memoryService.DeleteAsync(MemoryScope.Repo, fileName, solutionPath: _testSolutionPath);
+    }
+
     #endregion
 
     #region Display & Summary
