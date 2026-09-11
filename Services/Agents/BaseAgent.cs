@@ -1521,7 +1521,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         {
                             // 读取 [cmCountBefore, cmCountAfterExplore) 范围的条目
                             // （不含 tool 结果，因为 cmCountAfterExplore 在结果写入 CM 之前记录）
-                            var exploreMessages = Context.ContextManager.GetEntryMessages(cmCountBefore, cmCountAfterExplore);
+                            var rawExploreMessages =
+                                Context.ContextManager.GetEntryMessages(cmCountBefore, cmCountAfterExplore);
+                            var exploreMessages = CleanIncompleteToolChains(rawExploreMessages);
                             if (exploreMessages.Count > 0)
                             {
                                 foreach (var em in exploreMessages)
@@ -1529,7 +1531,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                     messages.Insert(messages.Count - 1, em);
                                 }
                                 Logger.Info($"[Agent:{Definition.Name}]  注入 Explore 子代理消息: " +
-                                    $"{exploreMessages.Count} 条 (CM 索引 {cmCountBefore}→{cmCountAfterExplore})" +
+                                    $"{exploreMessages.Count} 条 " +
+                                    $"(原始 {rawExploreMessages.Count} 条, CM 索引 {cmCountBefore}→{cmCountAfterExplore})" +
                                     $" → 末尾注入 (pos={messages.Count - 1 - exploreMessages.Count}..{messages.Count - 2})");
                             }
                         }
@@ -2599,13 +2602,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 清理消息列表中不完整的工具调用链。
         /// 与 ChatStreamAsync Rule 5 使用相同算法：对每个 assistant(tool_calls)，
-        /// 向前扫描寻找匹配的 tool 结果；遇到非 tool 消息停止。
-        /// 找不到匹配则剥离 tool_calls 和 reasoning_content，空 content 一并移除。
+        /// 向前扫描匹配的 tool 结果；遇到非 tool 消息停止。
+        /// 必须收齐全部 tool_call_id，缺失的 tool_calls 单独剥离；全部缺失时清空整组。
         /// 
         /// 在 Handoff (ForwardedMessages) 时调用，确保传递给目标 Agent 的消息列表
         /// 在后续每轮 API 调用中产生一致的清洗结果，避免缓存前缀断裂。
         /// </summary>
-        private static List<ChatApiMessage> CleanIncompleteToolChains(List<ChatApiMessage> messages)
+        internal static List<ChatApiMessage> CleanIncompleteToolChains(List<ChatApiMessage> messages)
         {
             // 浅克隆避免修改原始消息（与 ChatStreamAsync 保持一致）
             var result = messages.Select(m => new ChatApiMessage
@@ -2626,27 +2629,53 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (m.Role != "assistant" || m.ToolCalls == null || m.ToolCalls.Count == 0)
                     continue;
 
-                var expectedIds = new HashSet<string>(m.ToolCalls.Select(tc => tc.Id ?? ""));
-                bool hasMatch = false;
+                var expectedIds = new HashSet<string>(
+                    m.ToolCalls
+                        .Where(tc => !string.IsNullOrEmpty(tc.Id))
+                        .Select(tc => tc.Id!),
+                    StringComparer.Ordinal);
+                var resolvedIds = new HashSet<string>(StringComparer.Ordinal);
                 for (int j = i + 1; j < result.Count; j++)
                 {
                     var next = result[j];
-                    if (next.Role == "tool" && !string.IsNullOrEmpty(next.ToolCallId)
+                    if (next.Role != "tool") break;
+
+                    if (!string.IsNullOrEmpty(next.ToolCallId)
                         && expectedIds.Contains(next.ToolCallId))
                     {
-                        hasMatch = true;
-                        break;
+                        resolvedIds.Add(next.ToolCallId);
                     }
-                    if (next.Role != "tool") break;
+
+                    if (resolvedIds.Count == expectedIds.Count)
+                        break;
                 }
 
-                if (!hasMatch)
+                bool hasCompleteToolChain =
+                    expectedIds.Count > 0 && resolvedIds.Count == expectedIds.Count;
+                if (!hasCompleteToolChain)
                 {
                     var tcNames = string.Join(", ", m.ToolCalls.Select(tc => tc.Function?.Name ?? "?"));
-                    Logger.Info($"[Agent] CleanIncompleteToolChains: 剥离 assistant[{i}] tool_calls=[{tcNames}] — 无匹配 tool 结果");
-                    m.ToolCalls = null;
-                    m.ReasoningContent = null;
-                    strippedCount++;
+                    int originalToolCount = m.ToolCalls.Count;
+
+                    if (resolvedIds.Count == 0)
+                    {
+                        Logger.Info(
+                            $"[Agent] CleanIncompleteToolChains: 剥离 assistant[{i}] " +
+                            $"tool_calls=[{tcNames}] — 无匹配 tool 结果");
+                        m.ToolCalls = null;
+                        m.ReasoningContent = null;
+                        strippedCount += originalToolCount;
+                    }
+                    else
+                    {
+                        m.ToolCalls = m.ToolCalls
+                            .Where(tc => !string.IsNullOrEmpty(tc.Id) && resolvedIds.Contains(tc.Id))
+                            .ToList();
+                        strippedCount += originalToolCount - m.ToolCalls.Count;
+                        Logger.Info(
+                            $"[Agent] CleanIncompleteToolChains: assistant[{i}] " +
+                            $"保留 {m.ToolCalls.Count}/{originalToolCount} 个已配对 tool_calls");
+                    }
                 }
             }
 

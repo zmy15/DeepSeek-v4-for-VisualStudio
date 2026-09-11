@@ -205,6 +205,54 @@ public class DeepSeekApiServiceTests
     }
 
     [Fact]
+    public async Task ChatStreamAsync_PartialToolResults_RemovesUnmatchedToolCall()
+    {
+        var handler = new TestHttpMessageHandler(
+            new[] { "data: [DONE]\n" },
+            HttpStatusCode.OK);
+
+        var httpClient = new HttpClient(handler);
+        var service = new DeepSeekApiService(httpClient);
+        var messages = new List<ChatApiMessage>
+        {
+            new() { Role = "user", Content = "start" },
+            new()
+            {
+                Role = "assistant",
+                ToolCalls = new List<ToolCall>
+                {
+                    new()
+                    {
+                        Id = "call_complete",
+                        Type = "function",
+                        Function = new ToolCallFunction { Name = "read_file", Arguments = "{}" },
+                    },
+                    new()
+                    {
+                        Id = "call_missing",
+                        Type = "function",
+                        Function = new ToolCallFunction { Name = "list_dir", Arguments = "{}" },
+                    },
+                },
+            },
+            new()
+            {
+                Role = "tool",
+                ToolCallId = "call_complete",
+                Name = "read_file",
+                Content = "ok",
+            },
+            new() { Role = "user", Content = "continue" },
+        };
+
+        await foreach (var _ in service.ChatStreamAsync(messages)) { }
+
+        handler.LastRequestBody.Should().NotBeNull();
+        handler.LastRequestBody.Should().Contain("call_complete");
+        handler.LastRequestBody.Should().NotContain("call_missing");
+    }
+
+    [Fact]
     public async Task ChatStreamAsync_EmptyResponse_CompletesWithoutTokens()
     {
         var sseLines = new[] { "data: [DONE]\n" };
@@ -259,6 +307,8 @@ internal class TestHttpMessageHandler : HttpMessageHandler
     private readonly string? _errorBody;
     private readonly Action<HttpResponseMessage>? _configureResponse;
 
+    public string? LastRequestBody { get; private set; }
+
     public TestHttpMessageHandler(
         string[] responseLines,
         HttpStatusCode statusCode,
@@ -271,9 +321,13 @@ internal class TestHttpMessageHandler : HttpMessageHandler
         _configureResponse = configureResponse;
     }
 
-    protected override Task<HttpResponseMessage> SendAsync(
+    protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        LastRequestBody = request.Content == null
+            ? null
+            : await request.Content.ReadAsStringAsync();
+
         var response = new HttpResponseMessage(_statusCode);
 
         if (_statusCode == HttpStatusCode.OK)
@@ -288,9 +342,6 @@ internal class TestHttpMessageHandler : HttpMessageHandler
 
         _configureResponse?.Invoke(response);
 
-        // 通过 tcs 支持异步语义
-        var tcs = new TaskCompletionSource<HttpResponseMessage>();
-        tcs.SetResult(response);
-        return tcs.Task;
+        return response;
     }
 }

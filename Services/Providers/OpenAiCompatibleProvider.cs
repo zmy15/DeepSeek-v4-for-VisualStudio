@@ -583,10 +583,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
             // 只作用在克隆上，绝不污染调用方（ConversationContextManager）的消息对象。
             request.Messages = cleanedMessages;
 
-            // ── 规则 5：孤立 assistant-with-tool_calls 检测 ──
+            // ── 规则 5：assistant-with-tool_calls 完整性检测 ──
             // 场景：ExploreAgent/PlanAgent 从 ContextManager 拿到父对话的 assistant(tool_calls)，
             // 但对应 tool 结果不在 _entries 中，导致 assistant(tool_calls) 后直接跟 system/user。
-            // DeepSeek API 要求 assistant(tool_calls) 后必须紧跟 tool 消息 → 剥离 orphan tool_calls。
+            // DeepSeek API 要求每个 tool_call_id 都有 tool 消息；并行调用只回来部分结果时，
+            // 上游会返回 "insufficient tool messages"。此处剥离未配对的 tool_calls。
             var finalMessages = request.Messages;
             int rule5StrippedCount = 0;
             for (int i = 0; i < finalMessages.Count; i++)
@@ -595,39 +596,73 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                 if (m.Role == "assistant" && m.ToolCalls != null && m.ToolCalls.Count > 0)
                 {
                     // 收集该 assistant 的 tool_call IDs
-                    var expectedIds = new HashSet<string>(m.ToolCalls.Select(tc => tc.Id ?? ""));
-                    // 检查后续消息中是否有匹配的 tool 结果（至少出现一个才算合法）
-                    bool hasMatchingToolResult = false;
+                    var expectedIds = new HashSet<string>(
+                        m.ToolCalls
+                            .Where(tc => !string.IsNullOrEmpty(tc.Id))
+                            .Select(tc => tc.Id!),
+                        StringComparer.Ordinal);
+                    var resolvedIds = new HashSet<string>(StringComparer.Ordinal);
                     int stopAtIndex = -1;
+
+                    // DeepSeek 要求每个 tool_call_id 都有对应 tool 消息；只有存在非 tool
+                    // 消息或已收齐全部结果时才停止扫描。
                     for (int j = i + 1; j < finalMessages.Count; j++)
                     {
                         var next = finalMessages[j];
-                        if (next.Role == "tool" && !string.IsNullOrEmpty(next.ToolCallId)
-                            && expectedIds.Contains(next.ToolCallId))
-                        {
-                            hasMatchingToolResult = true;
-                            break;
-                        }
-                        // 遇到非 tool 消息 → 停止搜索，当前 assistant 的 tool_calls 已孤立
                         if (next.Role != "tool")
                         {
                             stopAtIndex = j;
                             break;
                         }
+
+                        if (!string.IsNullOrEmpty(next.ToolCallId)
+                            && expectedIds.Contains(next.ToolCallId))
+                        {
+                            resolvedIds.Add(next.ToolCallId);
+                        }
+
+                        if (resolvedIds.Count == expectedIds.Count)
+                            break;
                     }
-                    if (!hasMatchingToolResult)
+
+                    bool hasCompleteToolChain =
+                        expectedIds.Count > 0 && resolvedIds.Count == expectedIds.Count;
+                    if (!hasCompleteToolChain)
                     {
                         var tcNames = string.Join(", ", m.ToolCalls.Select(tc => tc.Function?.Name ?? "?"));
                         string stopReason = stopAtIndex >= 0
                             ? $"遇到非tool消息[{stopAtIndex}](role={finalMessages[stopAtIndex].Role})"
                             : "到达消息列表末尾";
-                        Logger.Warn($"[API] Rule5 孤立 assistant[{i}]: toolCount={m.ToolCalls.Count} names=[{tcNames}] stopReason={stopReason} hasContent={!string.IsNullOrEmpty(m.Content)}");
-                        m.ToolCalls = null;
-                        m.ReasoningContent = null; // 无 tool_calls 时不应回传 reasoning_content
-                        rule5StrippedCount++;
-                        if (string.IsNullOrEmpty(m.Content))
+                        int originalToolCount = m.ToolCalls.Count;
+
+                        Logger.Warn(
+                            $"[API] Rule5 工具链不完整 assistant[{i}]: " +
+                            $"expected={expectedIds.Count}, resolved={resolvedIds.Count}, " +
+                            $"toolCount={originalToolCount} names=[{tcNames}] " +
+                            $"stopReason={stopReason} hasContent={!string.IsNullOrEmpty(m.Content)}");
+
+                        if (resolvedIds.Count == 0)
                         {
-                            Logger.Warn($"[API] Rule5 孤立的 assistant[{i}] 无 content，标记移除");
+                            // 没有任何 tool 结果：整个 tool_calls 链是孤立的，剥离全部。
+                            m.ToolCalls = null;
+                            m.ReasoningContent = null;
+                            rule5StrippedCount += originalToolCount;
+                        }
+                        else
+                        {
+                            // 只保留已配对的 tool_calls，避免把缺失结果的 ID 发给上游。
+                            m.ToolCalls = m.ToolCalls
+                                .Where(tc => !string.IsNullOrEmpty(tc.Id) && resolvedIds.Contains(tc.Id))
+                                .ToList();
+                            rule5StrippedCount += originalToolCount - m.ToolCalls.Count;
+                            Logger.Warn(
+                                $"[API] Rule5 保留已配对 tool_calls {m.ToolCalls.Count}/{originalToolCount}");
+                        }
+
+                        if ((m.ToolCalls == null || m.ToolCalls.Count == 0)
+                            && string.IsNullOrEmpty(m.Content))
+                        {
+                            Logger.Warn($"[API] Rule5 不完整 assistant[{i}] 无 content，标记移除");
                         }
                     }
                 }
