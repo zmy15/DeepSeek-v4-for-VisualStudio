@@ -127,6 +127,31 @@ public class DeepSeekApiServiceTests
     }
 
     [Fact]
+    public async Task ChatStreamAsync_RequestCompleted_FiresAfterNormalCompletion()
+    {
+        var sseLines = new[]
+        {
+            "data: {\"id\":\"chatcmpl-complete\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n",
+            "data: [DONE]\n",
+        };
+
+        var handler = new TestHttpMessageHandler(sseLines, HttpStatusCode.OK);
+        var httpClient = new HttpClient(handler);
+        var service = new DeepSeekApiService(httpClient);
+        int completedCount = 0;
+        service.RequestCompleted += () => completedCount++;
+
+        var messages = new List<ChatApiMessage>
+        {
+            new() { Role = "user", Content = "Test" }
+        };
+
+        await foreach (var _ in service.ChatStreamAsync(messages)) { }
+
+        completedCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task ChatStreamAsync_HttpError_ThrowsException()
     {
         var handler = new TestHttpMessageHandler(

@@ -40,16 +40,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (string.IsNullOrEmpty(config.ApiKey))
             {
                 // ── 无 Key：释放旧服务，避免残留旧 Key 继续发送请求 ──
+                SubscribeApiRequestCompletion(null);
                 _apiService?.Dispose();
                 _apiService = null;
                 UpdateEndpointCapabilityControls();
                 return;
             }
 
+            SubscribeApiRequestCompletion(null);
             _apiService?.Dispose();
             _apiService = new DeepSeekApiService(config.ApiKey, config.Model,
                 baseUrl: config.BaseUrl,
                 isVision: config.IsVision, isCustom: config.IsCustom);
+            SubscribeApiRequestCompletion(_apiService);
             _apiService.ConfigureThinking(_options.IsThinkingEnabled, _options.ReasoningEffort);
 
             // ── 注入前缀缓存管理器（修复：直接 new 的 ApiService 缺少 DI 注入的 PrefixCache）──

@@ -52,6 +52,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
         public DeepSeekUsage? LastUsage { get; protected set; }
 
         /// <summary>
+        /// 每次 ChatStreamAsync 正常完成后触发。UI 可据此刷新上下文与 Token 统计。
+        /// </summary>
+        public event Action? RequestCompleted;
+
+        /// <summary>
         /// 最近一次 Chat API 实际发送的消息列表（清洗/规则处理后的最终版本）。
         /// Handoff 时优先转发此快照，确保目标 Agent 使用与服务器缓存完全一致的 messages 长度和字段。
         /// </summary>
@@ -110,6 +115,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
             Interlocked.Exchange(ref _totalCompletionTokens, 0);
             Interlocked.Exchange(ref TotalSessionCostYuanValue, 0.0);
             Interlocked.Exchange(ref TotalSessionCostUsdValue, 0.0);
+        }
+
+        /// <summary>
+        /// 通知监听方：本次 ChatStreamAsync 已正常结束。
+        /// 事件处理异常不能影响 API 流本身。
+        /// </summary>
+        protected void RaiseRequestCompleted()
+        {
+            try
+            {
+                RequestCompleted?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[API] RequestCompleted 事件处理失败: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -1048,6 +1069,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                     }
                     // ── 在 [DONE] 处立即输出缓存诊断 + 磁盘转储 ──
                     FlushCacheDiagnostics();
+                    RaiseRequestCompleted();
                     yield break;
                 }
 
@@ -1113,6 +1135,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
 
             // ── 流正常结束（无 [DONE] 时）输出缓存诊断 ──
             FlushCacheDiagnostics();
+            RaiseRequestCompleted();
             } // using(response) — 重试块闭合
         }
 

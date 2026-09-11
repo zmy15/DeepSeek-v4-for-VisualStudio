@@ -427,6 +427,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private int _lastReportedStepIndex;
         private string _lastReportedStepStatus = string.Empty;
 
+        private DeepSeekApiService? _requestCompletedSubscribedService;
+
         // ── 主题服务 ──
         private ThemeService _themeService = ThemeService.Instance;
         private bool _isApplyingTheme; // 防止递归
@@ -956,6 +958,38 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 订阅底层 API 服务的单次请求完成事件。ApiService 重建时先解绑旧实例。
+        /// </summary>
+        private void SubscribeApiRequestCompletion(DeepSeekApiService? service)
+        {
+            if (ReferenceEquals(_requestCompletedSubscribedService, service))
+                return;
+
+            if (_requestCompletedSubscribedService != null)
+                _requestCompletedSubscribedService.RequestCompleted -= OnApiRequestCompleted;
+
+            _requestCompletedSubscribedService = service;
+            if (service != null)
+                service.RequestCompleted += OnApiRequestCompleted;
+        }
+
+        /// <summary>
+        /// 每次底层 API 请求完成后，异步刷新右下角上下文/Token 显示。
+        /// </summary>
+        private void OnApiRequestCompleted()
+        {
+            if (_disposed) return;
+
+            _ = Dispatcher.InvokeAsync(
+                new Action(() =>
+                {
+                    if (!_disposed)
+                        RefreshConsumptionDisplay();
+                }),
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        /// <summary>
         /// 若 API 返回了新的 usage 数据，使用实际 prompt_tokens 校准上下文估算器。
         /// 只在 prompt_tokens 发生变化时校准一次，避免重复校准。
         /// </summary>
@@ -1048,6 +1082,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             CancelStreaming();
             DisposeStreamingCts();
             StopBalanceTimer();
+            SubscribeApiRequestCompletion(null);
             _apiService?.Dispose();
             _webSearchService?.Dispose();
             _mcpManager?.Dispose();
