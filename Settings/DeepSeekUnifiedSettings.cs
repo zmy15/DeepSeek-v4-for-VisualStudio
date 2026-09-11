@@ -22,15 +22,40 @@ namespace DeepSeek_v4_for_VisualStudio
             };
 
         [VisualStudioContribution]
-        internal static Setting.String ApiKeyConfigurationGuide { get; } =
+        internal static Setting.String ApiBaseUrl { get; } =
+            new("deepseekApiBaseUrl", "%DeepSeek.Chat.settings.apiBaseUrl.displayName%", GeneralCategory, defaultValue: string.Empty)
+            {
+                Description = "%DeepSeek.Chat.settings.apiBaseUrl.description%",
+                SearchKeywords = new[] { "URL", "endpoint", "baseUrl", "端点", "地址" },
+            };
+
+        [VisualStudioContribution]
+        internal static Setting.String CustomApiKeyGuide { get; } =
+            new(
+                "deepseekCustomApiKeyGuide",
+                "%DeepSeek.Chat.settings.customApiKey.displayName%",
+                GeneralCategory,
+                defaultValue: "工具 → 选项 → DeepSeek Chat → 模型设置")
+            {
+                Description = "%DeepSeek.Chat.Settings.CustomApiKeyGuideDescription%",
+                SearchKeywords = new[] { "API", "密钥", "ApiKey", "Key", "custom", "自定义" },
+                Messages = new[]
+                {
+                    new SettingMessage("%DeepSeek.Chat.Settings.ApiKeyGuideMessage%"),
+                },
+                EnabledWhen = SettingRule.FeatureFlag("DeepSeek.CustomApiKeyGuideReadOnly", true),
+            };
+
+        [VisualStudioContribution]
+        internal static Setting.String DeepSeekApiKeyGuide { get; } =
             new(
                 "deepseekApiKeyGuide",
-                "%DeepSeek.Chat.Settings.ApiKeyGuideTitle%",
+                "%DeepSeek.Chat.settings.apiKey.displayName%",
                 GeneralCategory,
-                defaultValue: "工具 → 选项 → DeepSeek Chat → General")
+                defaultValue: "工具 → 选项 → DeepSeek Chat → 模型设置")
             {
-                Description = "%DeepSeek.Chat.Settings.ApiKeyGuideDescription%",
-                SearchKeywords = new[] { "API", "密钥", "ApiKey", "Key", "Options" },
+                Description = "%DeepSeek.Chat.Settings.DeepSeekApiKeyGuideDescription%",
+                SearchKeywords = new[] { "API", "密钥", "ApiKey", "Key", "DeepSeek" },
                 Messages = new[]
                 {
                     new SettingMessage("%DeepSeek.Chat.Settings.ApiKeyGuideMessage%"),
@@ -39,34 +64,72 @@ namespace DeepSeek_v4_for_VisualStudio
             };
 
         [VisualStudioContribution]
-        internal static Setting.String EndpointToolsGuide { get; } =
+        internal static Setting.String TestConnectionGuide { get; } =
             new(
-                "deepseekEndpointToolsGuide",
-                "%DeepSeek.Chat.Settings.EndpointToolsGuideTitle%",
+                "deepseekTestConnectionGuide",
+                "%DeepSeek.Chat.settings.testConnection.displayName%",
                 GeneralCategory,
-                defaultValue: "工具 → 选项 → DeepSeek Chat → Custom Endpoint")
+                defaultValue: "工具 → 选项 → DeepSeek Chat → 模型设置")
             {
-                Description = "%DeepSeek.Chat.Settings.EndpointToolsGuideDescription%",
-                SearchKeywords = new[] { "model", "models", "fetch", "test", "connection", "模型", "列表", "测试", "连接" },
+                Description = "%DeepSeek.Chat.Settings.TestConnectionGuideDescription%",
+                SearchKeywords = new[] { "test", "connection", "测试", "连接" },
                 Messages = new[]
                 {
                     new SettingMessage("%DeepSeek.Chat.Settings.EndpointToolsGuideMessage%"),
                 },
-                EnabledWhen = SettingRule.FeatureFlag("DeepSeek.EndpointToolsGuideReadOnly", true),
+                EnabledWhen = SettingRule.FeatureFlag("DeepSeek.TestConnectionGuideReadOnly", true),
             };
 
         [VisualStudioContribution]
-        internal static Setting.String SystemPrompt { get; } =
-            new("deepseekSystemPrompt", "%DeepSeek.Chat.settings.systemPrompt.displayName%", GeneralCategory, defaultValue: string.Empty)
+        internal static Setting.String CustomModelPickerGuide { get; } =
+            new(
+                "deepseekCustomModelPickerGuide",
+                "%DeepSeek.Chat.settings.customModelPicker.displayName%",
+                GeneralCategory,
+                defaultValue: "工具 → 选项 → DeepSeek Chat → 模型设置")
             {
-                Description = "%DeepSeek.Chat.settings.systemPrompt.description%",
+                Description = "%DeepSeek.Chat.Settings.CustomModelPickerGuideDescription%",
+                SearchKeywords = new[] { "model", "models", "fetch", "模型", "列表", "获取" },
+                Messages = new[]
+                {
+                    new SettingMessage("%DeepSeek.Chat.Settings.EndpointToolsGuideMessage%"),
+                },
+                EnabledWhen = SettingRule.FeatureFlag("DeepSeek.CustomModelPickerGuideReadOnly", true),
             };
 
         [VisualStudioContribution]
-        internal static Setting.String SystemPromptEn { get; } =
-            new("deepseekSystemPromptEn", "%DeepSeek.Chat.settings.systemPromptEn.displayName%", GeneralCategory, defaultValue: string.Empty)
+        internal static Setting.Boolean ThinkingEnabled { get; } =
+            new("deepseekThinking", "%DeepSeek.Chat.settings.enableThinking.displayName%", GeneralCategory, defaultValue: true)
             {
-                Description = "%DeepSeek.Chat.settings.systemPromptEn.description%",
+                Description = "%DeepSeek.Chat.settings.enableThinking.description%",
+            };
+
+        /// <summary>
+        /// 用户手动勾选为多模态（视觉）的模型列表；官方接口模型与自定义端点模型
+        /// 共用同一份名单，由 DeepSeekEndpointResolver 判断激活模型是否具备视觉能力。
+        /// </summary>
+        [VisualStudioContribution]
+        internal static Setting.String CustomVisionModels { get; } =
+            new("deepseekCustomVisionModels", "%DeepSeek.Chat.settings.visionModels.displayName%", GeneralCategory, defaultValue: string.Empty)
+            {
+                Description = "%DeepSeek.Chat.settings.visionModels.description%",
+                SearchKeywords = new[] { "vision", "multimodal", "image", "视觉", "多模态" },
+            };
+
+        [VisualStudioContribution]
+        internal static Setting.Enum ReasoningEffort { get; } =
+            new(
+                "deepseekReasoningEffort",
+                "%DeepSeek.Chat.settings.reasoningEffort.displayName%",
+                GeneralCategory,
+                new[]
+                {
+                    new EnumSettingEntry("high", "High"),
+                    new EnumSettingEntry("max", "Max"),
+                },
+                defaultValue: "high")
+            {
+                Description = "%DeepSeek.Chat.settings.reasoningEffort.description%",
             };
 
         [VisualStudioContribution]
@@ -84,34 +147,6 @@ namespace DeepSeek_v4_for_VisualStudio
                 defaultValue: DeepSeekModelCatalog.Pro)
             {
                 Description = "%DeepSeek.Chat.settings.selectedModel.description%",
-            };
-
-        [VisualStudioContribution]
-        internal static Setting.String ApiBaseUrl { get; } =
-            new("deepseekApiBaseUrl", "%DeepSeek.Chat.settings.apiBaseUrl.displayName%", GeneralCategory, defaultValue: string.Empty)
-            {
-                Description = "%DeepSeek.Chat.settings.apiBaseUrl.description%",
-                SearchKeywords = new[] { "URL", "endpoint", "baseUrl", "端点", "地址" },
-            };
-
-        [VisualStudioContribution]
-        internal static Setting.String CustomModelName { get; } =
-            new("deepseekCustomModelName", "%DeepSeek.Chat.settings.customModelName.displayName%", GeneralCategory, defaultValue: string.Empty)
-            {
-                Description = "%DeepSeek.Chat.settings.customModelName.description%",
-                SearchKeywords = new[] { "model", "custom", "模型", "自定义" },
-            };
-
-        /// <summary>
-        /// 用户手动勾选为多模态（视觉）的模型列表；官方接口模型与自定义端点模型
-        /// 共用同一份名单，由 DeepSeekEndpointResolver 判断激活模型是否具备视觉能力。
-        /// </summary>
-        [VisualStudioContribution]
-        internal static Setting.String CustomVisionModels { get; } =
-            new("deepseekCustomVisionModels", "%DeepSeek.Chat.settings.visionModels.displayName%", GeneralCategory, defaultValue: string.Empty)
-            {
-                Description = "%DeepSeek.Chat.settings.visionModels.description%",
-                SearchKeywords = new[] { "vision", "multimodal", "image", "视觉", "多模态" },
             };
 
         [VisualStudioContribution]
@@ -133,26 +168,25 @@ namespace DeepSeek_v4_for_VisualStudio
             };
 
         [VisualStudioContribution]
-        internal static Setting.Boolean ThinkingEnabled { get; } =
-            new("deepseekThinking", "%DeepSeek.Chat.settings.enableThinking.displayName%", GeneralCategory, defaultValue: true)
+        internal static Setting.String CustomModelName { get; } =
+            new("deepseekCustomModelName", "%DeepSeek.Chat.settings.customModelName.displayName%", GeneralCategory, defaultValue: string.Empty)
             {
-                Description = "%DeepSeek.Chat.settings.enableThinking.description%",
+                Description = "%DeepSeek.Chat.settings.customModelName.description%",
+                SearchKeywords = new[] { "model", "custom", "模型", "自定义" },
             };
 
         [VisualStudioContribution]
-        internal static Setting.Enum ReasoningEffort { get; } =
-            new(
-                "deepseekReasoningEffort",
-                "%DeepSeek.Chat.settings.reasoningEffort.displayName%",
-                GeneralCategory,
-                new[]
-                {
-                    new EnumSettingEntry("high", "High"),
-                    new EnumSettingEntry("max", "Max"),
-                },
-                defaultValue: "high")
+        internal static Setting.String SystemPrompt { get; } =
+            new("deepseekSystemPrompt", "%DeepSeek.Chat.settings.systemPrompt.displayName%", GeneralCategory, defaultValue: string.Empty)
             {
-                Description = "%DeepSeek.Chat.settings.reasoningEffort.description%",
+                Description = "%DeepSeek.Chat.settings.systemPrompt.description%",
+            };
+
+        [VisualStudioContribution]
+        internal static Setting.String SystemPromptEn { get; } =
+            new("deepseekSystemPromptEn", "%DeepSeek.Chat.settings.systemPromptEn.displayName%", GeneralCategory, defaultValue: string.Empty)
+            {
+                Description = "%DeepSeek.Chat.settings.systemPromptEn.description%",
             };
 
         [VisualStudioContribution]

@@ -10,8 +10,13 @@ namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Settings;
 public class UnifiedSettingsCoverageTests
 {
     private const string CategoryPrefix = "deepseekGeneral.";
-    private const string ApiKeyGuideId = "deepseekApiKeyGuide";
-    private const string EndpointToolsGuideId = "deepseekEndpointToolsGuide";
+    private static readonly string[] GuideSettingIds =
+    {
+        "deepseekCustomApiKeyGuide",
+        "deepseekApiKeyGuide",
+        "deepseekTestConnectionGuide",
+        "deepseekCustomModelPickerGuide",
+    };
 
     private static readonly (string OptionProperty, string SettingId)[] ExpectedCoverage =
     {
@@ -59,12 +64,12 @@ public class UnifiedSettingsCoverageTests
         var declaredIds = GetDeclaredSettingIds();
         var boundMonikers = GetBoundMonikers();
 
-        declaredIds.Should().HaveCount(38);
-        declaredIds.Should().Contain(ApiKeyGuideId);
-        declaredIds.Should().Contain(EndpointToolsGuideId);
+        declaredIds.Should().HaveCount(40);
+        foreach (var guideSettingId in GuideSettingIds)
+            declaredIds.Should().Contain(guideSettingId);
 
         var synchronizedIds = declaredIds
-            .Where(id => id != ApiKeyGuideId && id != EndpointToolsGuideId)
+            .Where(id => !GuideSettingIds.Contains(id, StringComparer.Ordinal))
             .ToList();
 
         synchronizedIds.Should().HaveCount(36);
