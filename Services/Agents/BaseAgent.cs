@@ -2655,13 +2655,16 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (!hasCompleteToolChain)
                 {
                     var tcNames = string.Join(", ", m.ToolCalls.Select(tc => tc.Function?.Name ?? "?"));
+                    var missingTools = string.Join(", ", m.ToolCalls
+                        .Where(tc => string.IsNullOrEmpty(tc.Id) || !resolvedIds.Contains(tc.Id))
+                        .Select(tc => $"{tc.Function?.Name ?? "?"}({tc.Id ?? "?"})"));
                     int originalToolCount = m.ToolCalls.Count;
 
                     if (resolvedIds.Count == 0)
                     {
                         Logger.Info(
                             $"[Agent] CleanIncompleteToolChains: 剥离 assistant[{i}] " +
-                            $"tool_calls=[{tcNames}] — 无匹配 tool 结果");
+                            $"tool_calls=[{tcNames}] missing=[{missingTools}] — 无匹配 tool 结果");
                         m.ToolCalls = null;
                         m.ReasoningContent = null;
                         strippedCount += originalToolCount;
@@ -2674,7 +2677,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         strippedCount += originalToolCount - m.ToolCalls.Count;
                         Logger.Info(
                             $"[Agent] CleanIncompleteToolChains: assistant[{i}] " +
-                            $"保留 {m.ToolCalls.Count}/{originalToolCount} 个已配对 tool_calls");
+                            $"保留 {m.ToolCalls.Count}/{originalToolCount} 个已配对 tool_calls, " +
+                            $"missing=[{missingTools}]");
                     }
                 }
             }

@@ -630,6 +630,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                     if (!hasCompleteToolChain)
                     {
                         var tcNames = string.Join(", ", m.ToolCalls.Select(tc => tc.Function?.Name ?? "?"));
+                        var missingTools = string.Join(", ", m.ToolCalls
+                            .Where(tc => string.IsNullOrEmpty(tc.Id) || !resolvedIds.Contains(tc.Id))
+                            .Select(tc => $"{tc.Function?.Name ?? "?"}({tc.Id ?? "?"})"));
                         string stopReason = stopAtIndex >= 0
                             ? $"遇到非tool消息[{stopAtIndex}](role={finalMessages[stopAtIndex].Role})"
                             : "到达消息列表末尾";
@@ -638,7 +641,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                         Logger.Warn(
                             $"[API] Rule5 工具链不完整 assistant[{i}]: " +
                             $"expected={expectedIds.Count}, resolved={resolvedIds.Count}, " +
-                            $"toolCount={originalToolCount} names=[{tcNames}] " +
+                            $"toolCount={originalToolCount} names=[{tcNames}] missing=[{missingTools}] " +
                             $"stopReason={stopReason} hasContent={!string.IsNullOrEmpty(m.Content)}");
 
                         if (resolvedIds.Count == 0)
