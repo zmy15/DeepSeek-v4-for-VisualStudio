@@ -7,25 +7,11 @@ using System.Threading.Tasks;
 namespace DeepSeek_v4_for_VisualStudio.Services
 {
     /// <summary>
-    /// DeepSeek API 服务接口。
+    /// DeepSeek API 服务接口：通用对话能力由 <see cref="IChatCompletionProvider"/> 提供，
+    /// 此接口仅承载 DeepSeek 官方端点特有的余额、FIM、计价与 reasoning 配置。
     /// </summary>
-    public interface IDeepSeekApiService : IDisposable
+    public interface IDeepSeekApiService : IChatCompletionProvider
     {
-        /// <summary>最近一次 API 调用的 Usage 信息</summary>
-        DeepSeekUsage? LastUsage { get; }
-
-        /// <summary>累计 Cache 命中 token 数（跨所有 API 调用，含 Agent 内部调用）</summary>
-        long TotalCacheHitTokens { get; }
-
-        /// <summary>累计 Cache 未命中 token 数</summary>
-        long TotalCacheMissTokens { get; }
-
-        /// <summary>累计 Prompt token 数</summary>
-        long TotalPromptTokens { get; }
-
-        /// <summary>累计 Completion token 数（仅聊天，不含 FIM）</summary>
-        long TotalCompletionTokens { get; }
-
         /// <summary>累计费用（元，国内价目）。按每次 API 调用时点的高峰/空闲时段单价计价累加（所有官方模型同价）</summary>
         double TotalSessionCostYuan { get; }
 
@@ -40,65 +26,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>FIM 代码补全累计 Completion Token 数（独立于聊天统计）</summary>
         long TotalFimCompletionTokens { get; }
 
-        /// <summary>累计 Cache 命中率（0.0 ~ 1.0）</summary>
-        double TotalCacheHitRate { get; }
-
-        /// <summary>重置累计统计</summary>
-        void ResetAccumulatedStats();
-
-        /// <summary>从持久化数据恢复累计统计（重启后调用）</summary>
-        void RestoreAccumulatedStats(long hitTokens, long missTokens, long promptTokens, long completionTokens, double costYuan, double costUsd);
-
-        /// <summary>更新使用的模型</summary>
-        void UpdateModel(string model);
-
         /// <summary>配置思考模式</summary>
         void ConfigureThinking(bool enabled, string effort = "high");
 
-        /// <summary>运行时更新 API Key（选项页保存后即时生效，无需重启）</summary>
-        void UpdateApiKey(string apiKey);
-
-        /// <summary>运行时更新 API 端点 Base URL（选项页保存后即时生效，无需重启）</summary>
-        void UpdateBaseUrl(string? baseUrl);
-
         /// <summary>是否为 DeepSeek 官方端点（决定余额/FIM/thinking 等 DeepSeek 特有功能的可用性）</summary>
         bool IsDeepSeekEndpoint { get; }
-
-        /// <summary>当前使用的 API 端点 Base URL</summary>
-        string BaseUrl { get; }
-
-        /// <summary>当前模型是否具备多模态（视觉）能力，由端点解析器权威赋值（官方模式查官方目录，自定义模式查用户手动标记的视觉名单）</summary>
-        bool CurrentIsVision { get; }
-
-        /// <summary>当前是否为自定义端点（resolver 权威值，区别于 IsDeepSeekEndpoint 的 URL 推断）</summary>
-        bool CurrentIsCustom { get; }
-
-        /// <summary>运行时一次性应用端点配置（Key/BaseUrl/Model/IsCustom/IsVision），替代 UpdateApiKey + UpdateBaseUrl + UpdateModel 三连调用</summary>
-        void UpdateEndpoint(DeepSeekEndpointConfig config);
-
-        /// <summary>流式聊天调用</summary>
-        /// <param name="toolChoice">工具调用策略: "auto"(默认), "none"(禁用), "required"(强制). null 表示仅在有 tools 时启用 auto</param>
-        /// <param name="temperature">采样温度 (0.0 ~ 2.0)。null 表示不设置（使用 API 默认值）</param>
-        /// <param name="responseFormat">JSON Output 模式: "json_object" 启用，null 不启用</param>
-        /// <param name="model">覆盖默认模型。null 使用实例默认模型。用于轻量任务（如标题生成）使用 flash 模型</param>
-        /// <param name="thinkingEnabled">覆盖思考模式。null 使用实例默认值。false 禁用思考（适合标题生成等简单任务）</param>
-        IAsyncEnumerable<string> ChatStreamAsync(
-            IEnumerable<ChatApiMessage> messages,
-            List<ToolDefinition>? tools = null,
-            CancellationToken cancellationToken = default,
-            int? maxTokens = null,
-            string? toolChoice = null,
-            double? temperature = null,
-            string? responseFormat = null,
-            string? model = null,
-            bool? thinkingEnabled = null);
-
-        /// <summary>非流式完整调用</summary>
-        /// <param name="responseFormat">JSON Output 模式: "json_object" 启用，null 不启用</param>
-        Task<string> CompleteAsync(
-            IEnumerable<ChatApiMessage> messages,
-            CancellationToken cancellationToken = default,
-            string? responseFormat = null);
 
         /// <summary>
         /// FIM（Fill-In-the-Middle）补全调用，用于代码自动补全场景。
@@ -114,9 +46,6 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             string? suffix = null,
             int? maxTokens = null,
             CancellationToken cancellationToken = default);
-
-        /// <summary>验证 API Key 是否有效</summary>
-        Task<string?> ValidateApiKeyAsync();
 
         /// <summary>
         /// 查询账户余额。
