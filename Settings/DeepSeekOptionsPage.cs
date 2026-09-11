@@ -97,6 +97,14 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         internal IReadOnlyList<string> GetVisionModels()
             => ParseCustomModels(CustomVisionModels);
 
+        /// <summary>归一化并写入用户勾选的多模态模型名单。</summary>
+        internal void SetVisionModels(IEnumerable<string> models)
+        {
+            CustomVisionModels = string.Join(
+                Environment.NewLine,
+                ParseCustomModels(string.Join(Environment.NewLine, models)));
+        }
+
         /// <summary>返回“选择模型”下拉框的统一显示文本。</summary>
         internal string GetSelectedModelChoice()
         {
@@ -466,7 +474,6 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
         [LocalizedDisplayName("settings.visionModels.displayName")]
         [LocalizedDescription("settings.visionModels.description")]
         [Editor(typeof(VisionModelPickerEditor), typeof(UITypeEditor))]
-        [ReadOnly(true)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] // Fix for WFO1000
         public string CustomVisionModels { get; set; } = string.Empty;
 

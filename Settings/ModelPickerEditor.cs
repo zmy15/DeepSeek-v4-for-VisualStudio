@@ -72,9 +72,7 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
                 page.GetCustomModels());
             if (dialog.ShowDialog() == DialogResult.OK)
             {
-                page.CustomVisionModels = string.Join(
-                    Environment.NewLine,
-                    dialog.SelectedVisionModels);
+                page.SetVisionModels(dialog.SelectedVisionModels);
                 return page.CustomVisionModels;
             }
 

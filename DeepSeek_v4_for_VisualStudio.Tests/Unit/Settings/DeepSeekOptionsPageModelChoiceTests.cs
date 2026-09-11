@@ -39,4 +39,19 @@ public class DeepSeekOptionsPageModelChoiceTests
             .Should()
             .BeFalse();
     }
+
+    [Fact]
+    public void CustomVisionModels_RemainsWritableAndDiscoverableByPicker()
+    {
+        var property = typeof(DeepSeekOptionsPage)
+            .GetProperty(nameof(DeepSeekOptionsPage.CustomVisionModels))!;
+
+        property.CanWrite.Should().BeTrue();
+        (property.GetCustomAttribute<ReadOnlyAttribute>()?.IsReadOnly ?? false)
+            .Should().BeFalse();
+        property.GetCustomAttribute<DesignerSerializationVisibilityAttribute>()?.Visibility
+            .Should().Be(DesignerSerializationVisibility.Visible);
+        property.GetCustomAttribute<EditorAttribute>()?.EditorTypeName
+            .Should().Contain(nameof(VisionModelPickerEditor));
+    }
 }
