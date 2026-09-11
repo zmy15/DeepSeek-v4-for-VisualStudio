@@ -65,7 +65,7 @@ public class BuiltInToolServiceTests
     {
         var service = new BuiltInToolService
         {
-            ApiService = new DeepSeekApiService("test-key", model)
+            ApiService = new DeepSeekApiService("test-key", model, isVision: expectedVisible)
         };
 
         var defs = service.GetFilteredToolDefinitions(AskAgent.AskTools.ToList());

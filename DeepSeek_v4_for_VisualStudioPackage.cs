@@ -304,6 +304,11 @@ namespace DeepSeek_v4_for_VisualStudio
                 ThemeService.Instance.UserThemeMode = persistedOptions.ThemeMode;
                 DiagnosticLog.Write($"[DeepSeek Init] Persisted options loaded OK in {swTotal.ElapsedMilliseconds}ms");
 
+                // 官方模型列表不再硬编码在 UI 中；拿到持久化 Key 后立即异步刷新。
+                _ = Services.OfficialModelCatalogService.RefreshAsync(
+                    ApiKeyProtection.Unprotect(persistedOptions.ApiKey),
+                    DisposalToken);
+
                 // ── Unified Settings 双向同步桥（新版设置 UI ↔ Instance）──
                 // fire-and-forget：桥内含宿主激活与注册可见性等待（最长 120s），
                 // 不得阻塞持久化装载完成与窗口显示。

@@ -827,7 +827,8 @@
                             FontSize="13" Padding="6,0" Margin="0,0,2,0"
                             Foreground="#CE9178" />
                         <ComboBox x:Name="ModelComboBox"
-                                  MinWidth="130" Margin="4,0,4,0"
+                                  MinWidth="150" Margin="4,0,4,0"
+                                  DisplayMemberPath="Display"
                                   ToolTip="{utils:I18n input.modelTip}"
                                   SelectionChanged="ModelComboBox_SelectionChanged" />
                         <CheckBox x:Name="ThinkingCheckBox"

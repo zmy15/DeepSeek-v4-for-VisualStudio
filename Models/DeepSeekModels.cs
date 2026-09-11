@@ -25,8 +25,6 @@ namespace DeepSeek_v4_for_VisualStudio.Models
             FlashVisionExp,
         };
 
-        public static bool IsVisionModel(string? model)
-            => string.Equals(model, FlashVisionExp, StringComparison.OrdinalIgnoreCase);
     }
 
     // ======== API 请求模型 ========
@@ -49,10 +47,36 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [JsonPropertyName("reasoning_effort")]
         public string? ReasoningEffort { get; set; }
 
+        // ── 跨平台 reasoning 参数形态（参考 CC Switch ReasoningCapabilityConfig）──
+        // Qwen/DashScope/SiliconFlow/ModelScope 的思考开关（布尔）
+        [JsonPropertyName("enable_thinking")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? EnableThinking { get; set; }
+
+        // MiniMax 的思考开关（布尔）
+        [JsonPropertyName("reasoning_split")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? ReasoningSplit { get; set; }
+
+        // OpenRouter 的原生 reasoning 对象（reasoning:{effort}）
+        [JsonPropertyName("reasoning")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public ReasoningObject? Reasoning { get; set; }
+
         // 最大输出 token 数（用于校验 ping）
         [JsonPropertyName("max_tokens")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? MaxTokens { get; set; }
+
+        // OpenAI o-series / GPT-5+ 强制要求此字段而非 max_tokens
+        [JsonPropertyName("max_completion_tokens")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? MaxCompletionTokens { get; set; }
+
+        // 流式 usage 声明（OpenAI 兼容端点需显式 include_usage 才返回 usage chunk）
+        [JsonPropertyName("stream_options")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public StreamOptions? StreamOptions { get; set; }
 
         // ── 工具调用（MCP / Function Calling） ──
         [JsonPropertyName("tools")]
@@ -62,6 +86,11 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [JsonPropertyName("tool_choice")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? ToolChoice { get; set; } // "auto" | "none" | "required" | { "type": "function", "function": { "name": "..." } }
+
+        // 严格上游（vLLM/企业网关）拒绝无 tools 时携带此字段，仅显式设置时发送
+        [JsonPropertyName("parallel_tool_calls")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? ParallelToolCalls { get; set; }
 
         /// <summary>
         /// 采样温度 (0.0 ~ 2.0)。0.0 为确定性输出，适合需要 JSON 格式的场景。
@@ -95,6 +124,20 @@ namespace DeepSeek_v4_for_VisualStudio.Models
     {
         [JsonPropertyName("type")]
         public string Type { get; set; } = "enabled"; // "enabled" 或 "disabled"
+    }
+
+    /// <summary>OpenRouter 原生 reasoning 对象: {"effort": "high"}。</summary>
+    public class ReasoningObject
+    {
+        [JsonPropertyName("effort")]
+        public string? Effort { get; set; }
+    }
+
+    /// <summary>流式 usage 声明: stream_options:{"include_usage":true}。</summary>
+    public class StreamOptions
+    {
+        [JsonPropertyName("include_usage")]
+        public bool IncludeUsage { get; set; }
     }
 
     /// <summary>

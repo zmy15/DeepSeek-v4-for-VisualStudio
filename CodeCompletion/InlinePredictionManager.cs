@@ -200,12 +200,18 @@ namespace DeepSeek_v4_for_VisualStudio.CodeCompletion
         {
             try
             {
-                if (string.IsNullOrEmpty(options.ApiKey))
+                var config = DeepSeekEndpointResolver.Resolve(options);
+                if (config.IsCustom || string.IsNullOrEmpty(config.ApiKey))
                 {
                     return null;
                 }
 
-                using var apiService = new DeepSeekApiService(options.ApiKey, options.SelectedModel);
+                using var apiService = new DeepSeekApiService(
+                    config.ApiKey,
+                    config.Model,
+                    baseUrl: config.BaseUrl,
+                    isVision: config.IsVision,
+                    isCustom: config.IsCustom);
 
                 // FIM 补全：temperature=0 确保确定性输出，适合代码补全
                 string result = await apiService.FimCompletionAsync(

@@ -1211,9 +1211,9 @@ return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'
 
                 string bulletText = step.Status switch
                 {
-                    AgentStepStatus.Completed => "",
+                    AgentStepStatus.Completed => "✓",
                     AgentStepStatus.InProgress => "",
-                    AgentStepStatus.Failed => "",
+                    AgentStepStatus.Failed => "✕",
                     AgentStepStatus.Skipped => "—",
                     AgentStepStatus.WaitingApproval => "?",
                     _ => step.Index.ToString(),
@@ -1616,7 +1616,7 @@ return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'
  '<span class=""task-icon""></span>'+
         '<span class=""task-title"" id=""agent-task-title-status-{pid}"">{escapedTitleStatus}</span>'+
         '<span class=""task-progress"" id=""agent-task-progress-{pid}"">{progressText}</span>'+
- '<button class=""task-close"" id=""agent-task-close-{pid}"" onclick=""(function(e){{e.stopPropagation();window.__sendToHost({{type:\'dismissTaskPanel\',planId:\'{pid}\'}});var p=document.getElementById(\'agent-task-panel-{pid}\');if(p&&p.parentNode)p.parentNode.removeChild(p);}})(event);return false;"" title=""{closeTitle}""></button>'+
+ '<button class=""task-close"" id=""agent-task-close-{pid}"" onclick=""(function(e){{e.stopPropagation();window.__sendToHost({{type:\'dismissTaskPanel\',planId:\'{pid}\'}});var p=document.getElementById(\'agent-task-panel-{pid}\');if(p&&p.parentNode)p.parentNode.removeChild(p);}})(event);return false;"" title=""{closeTitle}"">&times;</button>'+
         '</div>'+
         '<div class=""agent-task-panel-body"" id=""agent-task-body-{pid}"">'+{escapedPlanHtml}+'</div>';
 
@@ -1664,9 +1664,9 @@ return "<!DOCTYPE html><html lang='" + htmlLang + "'><head><meta charset='UTF-8'
 
                 string bulletText = step.Status switch
                 {
-                    AgentStepStatus.Completed => LocalizationService.Instance["agent.step.completed"],
+                    AgentStepStatus.Completed => "✓",
                     AgentStepStatus.InProgress => "...",
-                    AgentStepStatus.Failed => LocalizationService.Instance["agent.step.failed"],
+                    AgentStepStatus.Failed => "✕",
                     AgentStepStatus.Skipped => "-",
                     AgentStepStatus.WaitingApproval => "?",
                     _ => step.Index.ToString(),

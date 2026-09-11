@@ -277,7 +277,7 @@ public class AskAgentTests
             new() { Role = "system", Content = "source agent prompt" },
         };
 
-        typeof(DeepSeekApiService)
+        typeof(DeepSeek_v4_for_VisualStudio.Services.Providers.OpenAiCompatibleProvider)
             .GetField("<LastSentMessages>k__BackingField",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .SetValue(_apiService, sentMessages);

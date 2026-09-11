@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using DeepSeek_v4_for_VisualStudio.Settings;
 
 namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Settings;
@@ -10,13 +12,23 @@ namespace DeepSeek_v4_for_VisualStudio.Tests.Unit.Settings;
 public class UnifiedSettingsCoverageTests
 {
     private const string CategoryPrefix = "deepseekGeneral.";
-    private const string ApiKeyGuideId = "deepseekApiKeyGuide";
+    private static readonly string[] GuideSettingIds =
+    {
+        "deepseekCustomApiKeyGuide",
+        "deepseekApiKeyGuide",
+        "deepseekTestConnectionGuide",
+        "deepseekCustomModelPickerGuide",
+    };
 
     private static readonly (string OptionProperty, string SettingId)[] ExpectedCoverage =
     {
         (nameof(DeepSeekOptionsPage.SystemPrompt), "deepseekSystemPrompt"),
         (nameof(DeepSeekOptionsPage.SystemPromptEn), "deepseekSystemPromptEn"),
         (nameof(DeepSeekOptionsPage.SelectedModel), "deepseekModel"),
+        (nameof(DeepSeekOptionsPage.ApiBaseUrl), "deepseekApiBaseUrl"),
+        (nameof(DeepSeekOptionsPage.CustomModelName), "deepseekCustomModelName"),
+        (nameof(DeepSeekOptionsPage.CustomVisionModels), "deepseekCustomVisionModels"),
+        (nameof(DeepSeekOptionsPage.ActiveModelSource), "deepseekModelSource"),
         (nameof(DeepSeekOptionsPage.IsThinkingEnabled), "deepseekThinking"),
         (nameof(DeepSeekOptionsPage.ReasoningEffort), "deepseekReasoningEffort"),
         (nameof(DeepSeekOptionsPage.EnableWebSearch), "deepseekWebSearch"),
@@ -54,15 +66,16 @@ public class UnifiedSettingsCoverageTests
         var declaredIds = GetDeclaredSettingIds();
         var boundMonikers = GetBoundMonikers();
 
-        declaredIds.Should().HaveCount(33);
-        declaredIds.Should().Contain(ApiKeyGuideId);
+        declaredIds.Should().HaveCount(40);
+        foreach (var guideSettingId in GuideSettingIds)
+            declaredIds.Should().Contain(guideSettingId);
 
         var synchronizedIds = declaredIds
-            .Where(id => id != ApiKeyGuideId)
+            .Where(id => !GuideSettingIds.Contains(id, StringComparer.Ordinal))
             .ToList();
 
-        synchronizedIds.Should().HaveCount(32);
-        boundMonikers.Should().HaveCount(32);
+        synchronizedIds.Should().HaveCount(36);
+        boundMonikers.Should().HaveCount(36);
         declaredIds.GroupBy(id => id, StringComparer.Ordinal).Should().OnlyContain(group => group.Count() == 1);
         boundMonikers.GroupBy(id => id, StringComparer.Ordinal).Should().OnlyContain(group => group.Count() == 1);
 
@@ -76,7 +89,7 @@ public class UnifiedSettingsCoverageTests
     [Fact]
     public void UnifiedSettings_CoverLegacyNonSensitiveOptions()
     {
-        ExpectedCoverage.Should().HaveCount(32);
+        ExpectedCoverage.Should().HaveCount(36);
 
         var optionProperties = typeof(DeepSeekOptionsPage)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -111,6 +124,57 @@ public class UnifiedSettingsCoverageTests
         // API keys intentionally stay out of Unified Settings, so the page that edits
         // Visual Studio Credential Storage entries must remain discoverable.
         isInUnifiedSettings.Should().NotBe(true);
+    }
+
+    [Fact]
+    public void UnifiedSettings_ResourceTokens_AreDefinedInEveryLocale()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            repositoryRoot, "Settings", "DeepSeekUnifiedSettings.cs"));
+        var resourceKeys = new List<string>();
+        foreach (System.Text.RegularExpressions.Match match in Regex.Matches(source, @"%([^%]+)%"))
+        {
+            var key = match.Groups[1].Value;
+            if (!resourceKeys.Contains(key, StringComparer.Ordinal))
+                resourceKeys.Add(key);
+        }
+
+        resourceKeys.Should().NotBeEmpty();
+
+        var resourceFiles = new[]
+        {
+            Path.Combine(repositoryRoot, ".vsextension", "string-resources.json"),
+            Path.Combine(repositoryRoot, ".vsextension", "zh-Hans", "string-resources.json"),
+        };
+
+        foreach (var resourceFile in resourceFiles)
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(resourceFile));
+            var missingKeys = resourceKeys
+                .Where(key => !document.RootElement.TryGetProperty(key, out _))
+                .ToList();
+
+            missingKeys.Should().BeEmpty(
+                $"{Path.GetFileName(resourceFile)} 缺少资源键: {string.Join(", ", missingKeys)}");
+        }
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null)
+        {
+            var hasSettingsSource = File.Exists(Path.Combine(
+                directory.FullName, "Settings", "DeepSeekUnifiedSettings.cs"));
+            var hasExtensionResources = Directory.Exists(Path.Combine(
+                directory.FullName, ".vsextension"));
+            if (hasSettingsSource && hasExtensionResources)
+                return directory.FullName;
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException("无法定位测试仓库根目录");
     }
 
     private static IReadOnlyList<string> GetDeclaredSettingIds()
