@@ -562,6 +562,7 @@
     "status.editMessageHint": "编辑消息（Esc 取消，Enter 确认）",
     "status.apiError": "抱歉，发生了错误，请重试。\n\n```\n{0}\n```",
     "status.compressionTriggered": "上下文使用率 {0:F0}% — 已触发压缩",
+    "status.compressing": "上下文使用率 {0:F0}% — 正在压缩，请稍候...",
     "status.clearFailed": "清空失败: {0}",
     "status.sessionSaved": "会话已保存",
     "status.sessionLoaded": "已加载 {0} 个会话",

@@ -92,6 +92,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>压缩标记：是否正在压缩中</summary>
         private bool _isCompressing;
 
+        /// <summary>
+        /// 压缩状态变化事件：参数为“是否正在压缩”和当前上下文使用率（0~100）。
+        /// 供 UI 在耗时的 LLM 摘要压缩期间显示进度提示。
+        /// </summary>
+        public event Action<bool, double>? CompressionStateChanged;
+
+        /// <summary>当前是否正在执行上下文压缩。</summary>
+        public bool IsCompressing => _isCompressing;
+
         /// <summary>活跃文件追踪器（可选注入，用于 Working Set 摘要）</summary>
         private IActiveFileTracker? _activeFileTracker;
 
@@ -1254,6 +1263,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             if (_compressor != null)
             {
                 _isCompressing = true;
+                RaiseCompressionStateChanged(true);
                 try
                 {
                     var summary = System.Threading.Tasks.Task.Run(() =>
@@ -1276,6 +1286,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 finally
                 {
                     _isCompressing = false;
+                    RaiseCompressionStateChanged(false);
                 }
             }
 
@@ -1283,6 +1294,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 $"(第 {fromTurn}-{toTurn} 轮, {removedTokens} tokens)，" +
                 $"保留最近 {TurnCount} 轮在窗口内" +
                 (_compressor == null ? " (无压缩器，直接丢弃)" : ""));
+        }
+
+        private void RaiseCompressionStateChanged(bool isCompressing)
+        {
+            try
+            {
+                CompressionStateChanged?.Invoke(isCompressing, UsagePercent);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[ContextManager] 压缩状态通知失败: {ex.Message}");
+            }
         }
 
         /// <summary>

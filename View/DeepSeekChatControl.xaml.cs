@@ -161,6 +161,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private ContextCompressorService? _compressorService;
         private MemoryService? _memoryService;
         private bool _isGenerating;
+        private string? _statusBeforeCompression;
 
         /// <summary>程序化填充会话下拉时抑制 SelectionChanged（P2 交互修复）。</summary>
         private bool _suppressSessionSelection;
@@ -440,6 +441,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         public DeepSeekChatControl()
         {
             InitializeComponent();
+            _contextManager.CompressionStateChanged += OnCompressionStateChanged;
 
             // ── i18n：输入框占位文字跟随语言 ──
             UpdateInputPlaceholder();
@@ -1027,6 +1029,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── 取消主题事件订阅 ──
             _themeService.ThemeChanged -= OnThemeChanged;
+            _contextManager.CompressionStateChanged -= OnCompressionStateChanged;
 
             // ── 取消 SolutionEvents 订阅 ──
             try
@@ -1066,6 +1069,33 @@ namespace DeepSeek_v4_for_VisualStudio.View
             CleanupTempContextFiles();
 
             Logger.Info("[Dispose] DeepSeekChatControl 已释放");
+        }
+
+        private void OnCompressionStateChanged(bool isCompressing, double usagePercent)
+        {
+            void ApplyStatus()
+            {
+                if (isCompressing)
+                {
+                    _statusBeforeCompression = StatusLabel.Text;
+                    StatusLabel.Text = string.Format(
+                        LocalizationService.Instance["status.compressing"],
+                        usagePercent);
+                    return;
+                }
+
+                StatusLabel.Text = !string.IsNullOrWhiteSpace(_statusBeforeCompression)
+                    ? _statusBeforeCompression
+                    : _isGenerating
+                        ? LocalizationService.Instance["status.analyzing"]
+                        : LocalizationService.Instance["status.ready"];
+                _statusBeforeCompression = null;
+            }
+
+            if (Dispatcher.CheckAccess())
+                ApplyStatus();
+            else
+                _ = Dispatcher.InvokeAsync(ApplyStatus);
         }
 
         /// <summary>

@@ -569,6 +569,7 @@
     "status.editMessageHint": "Editing message (Esc cancel, Enter confirm)",
     "status.apiError": "Sorry, an error occurred. Please try again.\n\n```\n{0}\n```",
     "status.compressionTriggered": "Context usage {0:F0}% — compression triggered",
+    "status.compressing": "Context usage {0:F0}% — compressing, please wait...",
     "status.clearFailed": "Clear failed: {0}",
     "status.sessionSaved": "Session saved",
     "status.sessionLoaded": "Loaded {0} session(s)",

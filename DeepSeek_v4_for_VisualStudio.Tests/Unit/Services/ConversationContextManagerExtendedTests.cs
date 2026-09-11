@@ -419,6 +419,32 @@ public class ConversationContextManagerExtendedTests
     }
 
     [Fact]
+    public void TryCompressForToolLoop_RaisesCompressionStateChanged()
+    {
+        var compressor = new ContextCompressorService((messages, ct) =>
+            Task.FromResult("compression-event-summary"));
+        var states = new List<(bool Active, double UsagePercent)>();
+
+        _manager.CacheWindowMaxTokens = 1;
+        _manager.SetCompressor(compressor);
+        _manager.CompressionStateChanged += (active, usagePercent) =>
+            states.Add((active, usagePercent));
+        _manager.AddUserMessage("Q1");
+        _manager.AddAssistantMessage("A1");
+        _manager.AddToolResult("call_1", "read_file", "T1");
+
+        bool compressed = _manager.TryCompressForToolLoop(
+            out _, out _, out _);
+
+        compressed.Should().BeTrue();
+        states.Should().HaveCount(2);
+        states[0].Active.Should().BeTrue();
+        states[1].Active.Should().BeFalse();
+        states.Should().OnlyContain(s => s.UsagePercent >= 0);
+        _manager.IsCompressing.Should().BeFalse();
+    }
+
+    [Fact]
     public void TryCompressForToolLoop_NoNewConversationContent_StopsAndSignalsReset()
     {
         var compressor = new ContextCompressorService((messages, ct) =>
