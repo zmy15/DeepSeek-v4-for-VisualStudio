@@ -483,14 +483,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             double? temperature = null,
             string? responseFormat = null,
             string? model = null,
-            bool? thinkingEnabled = null)
+            bool? thinkingEnabled = null,
+            Action<string>? onThinking = null)
         {
             //  传入完整工具集以保持 Prefix Cache 稳定
             var fullTools = TryGetFullToolSet();
             var sb = new StringBuilder();
+            var effectiveOnThinking = onThinking ?? Context?.OnThinkingChunk;
             await foreach (var chunk in _apiService.ChatStreamAsync(messages, fullTools, ct, maxTokens, toolChoice, temperature, responseFormat, model, thinkingEnabled))
             {
-                if (IsContentChunk(chunk))
+                if (chunk.StartsWith("[THINKING]"))
+                    effectiveOnThinking?.Invoke(chunk.Substring(10));
+                else if (IsContentChunk(chunk))
                     sb.Append(chunk);
             }
             LogCacheHitRate();
@@ -548,6 +552,68 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 messages.RemoveAt(messages.Count - 1);
 
             return messages;
+        }
+
+        /// <summary>
+        /// 在 Agent 工具循环中进行上下文压缩，并同步裁剪本地 messages。
+        /// 压缩边界与正常请求共用 ContextManager 的判断逻辑。
+        /// </summary>
+        private void TryCompressToolLoopContext(
+            ref List<ChatApiMessage> messages,
+            ref int toolInsertPos)
+        {
+            var contextManager = Context?.ContextManager;
+            if (contextManager == null || Context?.ForwardedMessages != null)
+                return;
+
+            if (!contextManager.TryCompressForToolLoop(
+                    out int staticPrefixMessageCount,
+                    out int removedMessageCount,
+                    out string? dynamicBlock))
+                return;
+
+            int removeStart = staticPrefixMessageCount;
+            if (removedMessageCount <= 0
+                || removeStart < 0
+                || removeStart + removedMessageCount > messages.Count)
+            {
+                Logger.Warn($"[ToolLoopCompression] 本地消息与压缩计数不匹配: " +
+                    $"removeStart={removeStart}, removeCount={removedMessageCount}, messages={messages.Count}");
+                return;
+            }
+
+            bool hadDynamicBlock = staticPrefixMessageCount > 1;
+            bool hasDynamicBlock = !string.IsNullOrWhiteSpace(dynamicBlock);
+
+            messages.RemoveRange(removeStart, removedMessageCount);
+            if (toolInsertPos > removeStart)
+                toolInsertPos -= Math.Min(removedMessageCount, toolInsertPos - removeStart);
+
+            if (hasDynamicBlock && !hadDynamicBlock)
+            {
+                messages.Insert(1, new ChatApiMessage
+                {
+                    Role = "system",
+                    Content = dynamicBlock,
+                });
+                toolInsertPos++;
+            }
+            else if (!hasDynamicBlock && hadDynamicBlock)
+            {
+                messages.RemoveAt(1);
+                toolInsertPos--;
+            }
+            else if (hasDynamicBlock && messages.Count > 1)
+            {
+                messages[1].Content = dynamicBlock;
+            }
+
+            toolInsertPos = Math.Max(0, Math.Min(toolInsertPos, messages.Count));
+            if (Context != null)
+                Context.ToolHistoryInsertIndex = toolInsertPos;
+
+            Logger.Info($"[ToolLoopCompression] 已裁剪本地消息 {removedMessageCount} 条，" +
+                $"toolInsertPos={toolInsertPos}, remaining={messages.Count}");
         }
 
         /// <summary>
@@ -794,6 +860,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <param name="onThinking">思考内容回调（用于 UI 实时更新）</param>
         /// <param name="onContent">内容回调（用于 UI 实时更新）</param>
         /// <param name="onToolCall">工具调用回调（用于 UI 通知）</param>
+        /// <param name="maxToolRounds">本次工具循环的最大轮数（null = 仅使用全局安全上限）</param>
         /// <returns>AI 最终生成的文本内容</returns>
         protected async Task<string> CallAiWithToolLoopAsync(
             List<ChatApiMessage> messages,
@@ -803,7 +870,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             List<string>? toolWhitelist = null,
             Action<string>? onThinking = null,
             Action<string>? onContent = null,
-            Action<string>? onToolCall = null)
+            Action<string>? onToolCall = null,
+            int? maxToolRounds = null)
         {
             var reasoningBuilder = new StringBuilder();
             var contentBuilder = new StringBuilder();
@@ -832,11 +900,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
             int maxConsecutiveErrors = Settings.DeepSeekOptionsPage.Instance?.MaxConsecutiveErrors ?? 5;
             if (maxConsecutiveErrors < 1) maxConsecutiveErrors = 5;
             int maxConsecutiveWhitelistRejections = Math.Max(5, maxConsecutiveErrors);
-            int safetyLimit = Settings.DeepSeekOptionsPage.Instance?.MaxToolCallRounds ?? 200;
-            if (safetyLimit < 1) safetyLimit = 200;
+            int configuredSafetyLimit = Settings.DeepSeekOptionsPage.Instance?.MaxToolCallRounds ?? 200;
+            if (configuredSafetyLimit < 1) configuredSafetyLimit = 200;
             bool loopDetected = false;
 
             int round = BuiltInTools?.CurrentRound ?? 0;
+            int initialRound = round;
+            int effectiveRoundLimit = maxToolRounds is > 0
+                ? Math.Min(configuredSafetyLimit, maxToolRounds.Value)
+                : configuredSafetyLimit;
+            int safetyLimit = initialRound > int.MaxValue - effectiveRoundLimit
+                ? int.MaxValue
+                : initialRound + effectiveRoundLimit;
 
             // ──  v1.1.11：固定后缀插入点 ──
             // 消息结构：[prefix][稳定历史][tool_calls...][volatile][user][agent]
@@ -849,8 +924,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (round > safetyLimit)
                 {
                     var L = LocalizationService.Instance;
-                    Logger.Warn($"[Agent:{Definition.Name}] {string.Format(L["agent.log.safetyLimit"], safetyLimit)}");
-                    contentBuilder.Append($"\n\n>  {string.Format(L["agent.log.safetyLimit"], safetyLimit)}");
+                    Logger.Warn($"[Agent:{Definition.Name}] {string.Format(L["agent.log.safetyLimit"], effectiveRoundLimit)}");
+                    contentBuilder.Append($"\n\n>  {string.Format(L["agent.log.safetyLimit"], effectiveRoundLimit)}");
                     metrics?.MarkTerminated("safety_limit");
                     break;
                 }
@@ -1082,10 +1157,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 // ── 记录本轮 Cache 命中率 ──
                 LogCacheHitRate(round);
 
+                // ── 每轮 API usage 返回后立即校准，工具循环中也能及时反映真实 token。──
+                var turnUsage = _apiService?.LastUsage;
+                if (turnUsage != null && turnUsage.PromptTokens > 0 && Context?.ContextManager != null)
+                    Context.ContextManager.CalibrateFromApiUsage(turnUsage.PromptTokens);
+
                 // ── P0 Telemetry：记录本轮 usage 与总耗时（usage 取自最后一帧 SSE）──
                 if (metrics != null)
                 {
-                    var turnUsage = _apiService?.LastUsage;
                     metrics.EndTurn(round,
                         turnUsage?.PromptTokens ?? 0,
                         turnUsage?.CompletionTokens ?? 0,
@@ -1392,6 +1471,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         Logger.Info($"[Agent:{Definition.Name}] 工具 {tc.Function.Name} 返回: {(toolResult.Length > 200 ? toolResult.Substring(0, 200) + "..." : toolResult)}");
                     }
 
+                    // ── 工具结果写回后立即检查：同一用户请求内超限也触发压缩。──
+                    TryCompressToolLoopContext(ref messages, ref toolInsertPos);
+
                     // ── Build/Edit 验证：构建工具已经等待完整构建结果。明确成功后立即结束，
                     //    不再进入下一轮让模型调用 get_errors 重复确认。──
                     if ((Definition.Type == AgentType.Build || Definition.Type == AgentType.Edit)
@@ -1452,7 +1534,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                         {
                             // 读取 [cmCountBefore, cmCountAfterExplore) 范围的条目
                             // （不含 tool 结果，因为 cmCountAfterExplore 在结果写入 CM 之前记录）
-                            var exploreMessages = Context.ContextManager.GetEntryMessages(cmCountBefore, cmCountAfterExplore);
+                            var rawExploreMessages =
+                                Context.ContextManager.GetEntryMessages(cmCountBefore, cmCountAfterExplore);
+                            var exploreMessages = CleanIncompleteToolChains(rawExploreMessages);
                             if (exploreMessages.Count > 0)
                             {
                                 foreach (var em in exploreMessages)
@@ -1460,7 +1544,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                                     messages.Insert(messages.Count - 1, em);
                                 }
                                 Logger.Info($"[Agent:{Definition.Name}]  注入 Explore 子代理消息: " +
-                                    $"{exploreMessages.Count} 条 (CM 索引 {cmCountBefore}→{cmCountAfterExplore})" +
+                                    $"{exploreMessages.Count} 条 " +
+                                    $"(原始 {rawExploreMessages.Count} 条, CM 索引 {cmCountBefore}→{cmCountAfterExplore})" +
                                     $" → 末尾注入 (pos={messages.Count - 1 - exploreMessages.Count}..{messages.Count - 2})");
                             }
                         }
@@ -1814,6 +1899,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// </summary>
         private async Task<string> ExecuteToolAsync(string toolName, string argumentsJson, string? workspaceRoot, CancellationToken ct)
         {
+            if (BuiltInTools != null)
+                BuiltInTools.CurrentSolutionPath = Context?.SolutionPath;
+
             // ── OCR 参数预处理：将文件路径自动转为 base64 ──
             argumentsJson = DeepSeekChatControl.SanitizeOcrToolArguments(toolName, argumentsJson);
 
@@ -2530,13 +2618,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>
         /// 清理消息列表中不完整的工具调用链。
         /// 与 ChatStreamAsync Rule 5 使用相同算法：对每个 assistant(tool_calls)，
-        /// 向前扫描寻找匹配的 tool 结果；遇到非 tool 消息停止。
-        /// 找不到匹配则剥离 tool_calls 和 reasoning_content，空 content 一并移除。
+        /// 向前扫描匹配的 tool 结果；遇到非 tool 消息停止。
+        /// 必须收齐全部 tool_call_id，缺失的 tool_calls 单独剥离；全部缺失时清空整组。
         /// 
         /// 在 Handoff (ForwardedMessages) 时调用，确保传递给目标 Agent 的消息列表
         /// 在后续每轮 API 调用中产生一致的清洗结果，避免缓存前缀断裂。
         /// </summary>
-        private static List<ChatApiMessage> CleanIncompleteToolChains(List<ChatApiMessage> messages)
+        internal static List<ChatApiMessage> CleanIncompleteToolChains(List<ChatApiMessage> messages)
         {
             // 浅克隆避免修改原始消息（与 ChatStreamAsync 保持一致）
             var result = messages.Select(m => new ChatApiMessage
@@ -2557,27 +2645,57 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                 if (m.Role != "assistant" || m.ToolCalls == null || m.ToolCalls.Count == 0)
                     continue;
 
-                var expectedIds = new HashSet<string>(m.ToolCalls.Select(tc => tc.Id ?? ""));
-                bool hasMatch = false;
+                var expectedIds = new HashSet<string>(
+                    m.ToolCalls
+                        .Where(tc => !string.IsNullOrEmpty(tc.Id))
+                        .Select(tc => tc.Id!),
+                    StringComparer.Ordinal);
+                var resolvedIds = new HashSet<string>(StringComparer.Ordinal);
                 for (int j = i + 1; j < result.Count; j++)
                 {
                     var next = result[j];
-                    if (next.Role == "tool" && !string.IsNullOrEmpty(next.ToolCallId)
+                    if (next.Role != "tool") break;
+
+                    if (!string.IsNullOrEmpty(next.ToolCallId)
                         && expectedIds.Contains(next.ToolCallId))
                     {
-                        hasMatch = true;
-                        break;
+                        resolvedIds.Add(next.ToolCallId);
                     }
-                    if (next.Role != "tool") break;
+
+                    if (resolvedIds.Count == expectedIds.Count)
+                        break;
                 }
 
-                if (!hasMatch)
+                bool hasCompleteToolChain =
+                    expectedIds.Count > 0 && resolvedIds.Count == expectedIds.Count;
+                if (!hasCompleteToolChain)
                 {
                     var tcNames = string.Join(", ", m.ToolCalls.Select(tc => tc.Function?.Name ?? "?"));
-                    Logger.Info($"[Agent] CleanIncompleteToolChains: 剥离 assistant[{i}] tool_calls=[{tcNames}] — 无匹配 tool 结果");
-                    m.ToolCalls = null;
-                    m.ReasoningContent = null;
-                    strippedCount++;
+                    var missingTools = string.Join(", ", m.ToolCalls
+                        .Where(tc => string.IsNullOrEmpty(tc.Id) || !resolvedIds.Contains(tc.Id))
+                        .Select(tc => $"{tc.Function?.Name ?? "?"}({tc.Id ?? "?"})"));
+                    int originalToolCount = m.ToolCalls.Count;
+
+                    if (resolvedIds.Count == 0)
+                    {
+                        Logger.Info(
+                            $"[Agent] CleanIncompleteToolChains: 剥离 assistant[{i}] " +
+                            $"tool_calls=[{tcNames}] missing=[{missingTools}] — 无匹配 tool 结果");
+                        m.ToolCalls = null;
+                        m.ReasoningContent = null;
+                        strippedCount += originalToolCount;
+                    }
+                    else
+                    {
+                        m.ToolCalls = m.ToolCalls
+                            .Where(tc => !string.IsNullOrEmpty(tc.Id) && resolvedIds.Contains(tc.Id))
+                            .ToList();
+                        strippedCount += originalToolCount - m.ToolCalls.Count;
+                        Logger.Info(
+                            $"[Agent] CleanIncompleteToolChains: assistant[{i}] " +
+                            $"保留 {m.ToolCalls.Count}/{originalToolCount} 个已配对 tool_calls, " +
+                            $"missing=[{missingTools}]");
+                    }
                 }
             }
 

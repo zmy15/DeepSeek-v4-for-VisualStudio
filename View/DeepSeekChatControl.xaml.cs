@@ -162,6 +162,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private ContextCompressorService? _compressorService;
         private MemoryService? _memoryService;
         private bool _isGenerating;
+        private bool _discardContextOnNextSend;
+        private string? _statusBeforeCompression;
 
         /// <summary>程序化填充会话下拉时抑制 SelectionChanged（P2 交互修复）。</summary>
         private bool _suppressSessionSelection;
@@ -320,6 +322,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private Task<bool>? _webViewInitializationTask;
         private Microsoft.Web.WebView2.Core.CoreWebView2Environment? _webView2Environment;
         private Task _loadAndShowTask = Task.CompletedTask;
+        private int _loadAndShowSequence;
         /// <summary>
         /// WebView2 控件（程序化创建，替代 XAML 中的 wv2:WebView2）。
         /// 不在 XAML 中声明以避免 ReSharper 等第三方扩展预加载不同版本的
@@ -427,6 +430,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private int _lastReportedStepIndex;
         private string _lastReportedStepStatus = string.Empty;
 
+        private DeepSeekApiService? _requestCompletedSubscribedService;
+
         // ── 主题服务 ──
         private ThemeService _themeService = ThemeService.Instance;
         private bool _isApplyingTheme; // 防止递归
@@ -441,6 +446,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         public DeepSeekChatControl()
         {
             InitializeComponent();
+            _contextManager.CompressionStateChanged += OnCompressionStateChanged;
 
             // ── i18n：输入框占位文字跟随语言 ──
             UpdateInputPlaceholder();
@@ -955,6 +961,38 @@ namespace DeepSeek_v4_for_VisualStudio.View
         }
 
         /// <summary>
+        /// 订阅底层 API 服务的单次请求完成事件。ApiService 重建时先解绑旧实例。
+        /// </summary>
+        private void SubscribeApiRequestCompletion(DeepSeekApiService? service)
+        {
+            if (ReferenceEquals(_requestCompletedSubscribedService, service))
+                return;
+
+            if (_requestCompletedSubscribedService != null)
+                _requestCompletedSubscribedService.RequestCompleted -= OnApiRequestCompleted;
+
+            _requestCompletedSubscribedService = service;
+            if (service != null)
+                service.RequestCompleted += OnApiRequestCompleted;
+        }
+
+        /// <summary>
+        /// 每次底层 API 请求完成后，异步刷新右下角上下文/Token 显示。
+        /// </summary>
+        private void OnApiRequestCompleted()
+        {
+            if (_disposed) return;
+
+            _ = Dispatcher.InvokeAsync(
+                new Action(() =>
+                {
+                    if (!_disposed)
+                        RefreshConsumptionDisplay();
+                }),
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        /// <summary>
         /// 若 API 返回了新的 usage 数据，使用实际 prompt_tokens 校准上下文估算器。
         /// 只在 prompt_tokens 发生变化时校准一次，避免重复校准。
         /// </summary>
@@ -1028,6 +1066,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── 取消主题事件订阅 ──
             _themeService.ThemeChanged -= OnThemeChanged;
+            _contextManager.CompressionStateChanged -= OnCompressionStateChanged;
 
             // ── 取消 SolutionEvents 订阅 ──
             try
@@ -1046,6 +1085,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             CancelStreaming();
             DisposeStreamingCts();
             StopBalanceTimer();
+            SubscribeApiRequestCompletion(null);
             _apiService?.Dispose();
             _webSearchService?.Dispose();
             _mcpManager?.Dispose();
@@ -1067,6 +1107,33 @@ namespace DeepSeek_v4_for_VisualStudio.View
             CleanupTempContextFiles();
 
             Logger.Info("[Dispose] DeepSeekChatControl 已释放");
+        }
+
+        private void OnCompressionStateChanged(bool isCompressing, double usagePercent)
+        {
+            void ApplyStatus()
+            {
+                if (isCompressing)
+                {
+                    _statusBeforeCompression = StatusLabel.Text;
+                    StatusLabel.Text = string.Format(
+                        LocalizationService.Instance["status.compressing"],
+                        usagePercent);
+                    return;
+                }
+
+                StatusLabel.Text = !string.IsNullOrWhiteSpace(_statusBeforeCompression)
+                    ? _statusBeforeCompression
+                    : _isGenerating
+                        ? LocalizationService.Instance["status.analyzing"]
+                        : LocalizationService.Instance["status.ready"];
+                _statusBeforeCompression = null;
+            }
+
+            if (Dispatcher.CheckAccess())
+                ApplyStatus();
+            else
+                _ = Dispatcher.InvokeAsync(ApplyStatus);
         }
 
         /// <summary>

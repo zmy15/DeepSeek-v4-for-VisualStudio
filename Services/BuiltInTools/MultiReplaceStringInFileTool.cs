@@ -55,9 +55,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                                     required = new[] { "filePath", "oldString", "newString" }
                                 },
                                 description = LocalizationService.Instance["tool.multiReplace.param.replacements"]
+                            },
+                            expected = new
+                            {
+                                type = "string",
+                                description = LocalizationService.Instance["tool.editVerify.expectedDescription"]
                             }
                         },
-                        required = new[] { "replacements" }
+                        required = new[] { "replacements", "expected" }
                     }
                 }
             };
@@ -85,6 +90,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
         {
+            string expectedText = GetStringArg(args, "expected");
+            if (string.IsNullOrEmpty(expectedText))
+                return LocalizationService.Instance["tool.editVerify.missingExpected"];
+
+            var expectedParse = ExpectedContentVerifier.ParseLineNumberedContent(expectedText);
+            if (!expectedParse.Success)
+                return expectedParse.Error;
+
             if (!args.TryGetValue("replacements", out var element) ||
                 element.ValueKind != JsonValueKind.Array)
                 return LocalizationService.Instance["tool.multiReplace.missingReplacements"];
@@ -92,6 +105,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             var results = new List<string>();
             int successCount = 0;
             int failCount = 0;
+            string? verificationFile = null;
 
             foreach (var item in element.EnumerateArray())
             {
@@ -111,14 +125,40 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     continue;
                 }
 
-                string result = await _singleReplacer.ExecuteAsync(singleArgs, workspaceRoot);
+                string resolvedPath = ResolvePath(filePath, workspaceRoot);
+                if (verificationFile == null)
+                {
+                    verificationFile = resolvedPath;
+                }
+                else if (!string.Equals(
+                    verificationFile, resolvedPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return LocalizationService.Instance["tool.editVerify.verificationSingleTarget"];
+                }
+
+                string result = await _singleReplacer.ApplyReplacementAsync(
+                    singleArgs, workspaceRoot, expectedText: null, verifyAfterWrite: false);
                 results.Add($"{Path.GetFileName(filePath)}: {result}");
                 if (result.StartsWith("Error: ") || result.StartsWith("Timeout: ")) failCount++;
                 else successCount++;
             }
 
             string summary = $"multi_replace_string_in_file: success {successCount}, fail {failCount}";
-            return summary + "\n" + string.Join("\n", results);
+            string detail = summary + "\n" + string.Join("\n", results);
+
+            if (failCount > 0 || verificationFile == null)
+            {
+                if (verificationFile != null)
+                {
+                    detail += "\n" + await _singleReplacer.BuildCurrentStateSnapshotAsync(verificationFile);
+                }
+                return detail;
+            }
+
+            string? actualContent = await _singleReplacer.ReadCurrentContentAsync(verificationFile);
+            string verification = ExpectedContentVerifier.VerifyExpectedContent(
+                expectedText, actualContent, verificationFile);
+            return detail + "\n" + verification;
         }
     }
 }

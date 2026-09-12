@@ -127,6 +127,31 @@ public class DeepSeekApiServiceTests
     }
 
     [Fact]
+    public async Task ChatStreamAsync_RequestCompleted_FiresAfterNormalCompletion()
+    {
+        var sseLines = new[]
+        {
+            "data: {\"id\":\"chatcmpl-complete\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n",
+            "data: [DONE]\n",
+        };
+
+        var handler = new TestHttpMessageHandler(sseLines, HttpStatusCode.OK);
+        var httpClient = new HttpClient(handler);
+        var service = new DeepSeekApiService(httpClient);
+        int completedCount = 0;
+        service.RequestCompleted += () => completedCount++;
+
+        var messages = new List<ChatApiMessage>
+        {
+            new() { Role = "user", Content = "Test" }
+        };
+
+        await foreach (var _ in service.ChatStreamAsync(messages)) { }
+
+        completedCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task ChatStreamAsync_HttpError_ThrowsException()
     {
         var handler = new TestHttpMessageHandler(
@@ -146,6 +171,110 @@ public class DeepSeekApiServiceTests
         {
             await foreach (var _ in service.ChatStreamAsync(messages)) { }
         });
+    }
+
+    [Fact]
+    public async Task ChatStreamAsync_Http400_ExceptionIncludesRequestAndResponseDetails()
+    {
+        const string errorBody =
+            "{\"error\":{\"message\":\"model not found\",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\"}}";
+        var handler = new TestHttpMessageHandler(
+            Array.Empty<string>(),
+            HttpStatusCode.BadRequest,
+            errorBody,
+            response => response.Headers.TryAddWithoutValidation("x-request-id", "req-400-detail"));
+
+        var httpClient = new HttpClient(handler);
+        var service = new DeepSeekApiService(httpClient, "deepseek-v4-flash-vision-exp");
+        var messages = new List<ChatApiMessage>
+        {
+            new() { Role = "user", Content = "Hi" }
+        };
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(async () =>
+        {
+            await foreach (var _ in service.ChatStreamAsync(messages)) { }
+        });
+
+        ex.Message.Should().Contain("HTTP 400");
+        ex.Message.Should().Contain("model=deepseek-v4-flash-vision-exp");
+        ex.Message.Should().Contain("x-request-id=req-400-detail");
+        ex.Message.Should().Contain("model_not_found");
+        ex.Message.Should().Contain("响应体");
+    }
+
+    [Fact]
+    public async Task CompleteAsync_Http400_ExceptionIncludesResponseDetails()
+    {
+        const string errorBody =
+            "{\"error\":{\"message\":\"invalid request body\",\"type\":\"invalid_request_error\"}}";
+        var handler = new TestHttpMessageHandler(
+            Array.Empty<string>(),
+            HttpStatusCode.BadRequest,
+            errorBody,
+            response => response.Headers.TryAddWithoutValidation("x-request-id", "req-complete-400"));
+
+        var httpClient = new HttpClient(handler);
+        var service = new DeepSeekApiService(httpClient, "deepseek-v4-pro");
+        var messages = new List<ChatApiMessage>
+        {
+            new() { Role = "user", Content = "Hi" }
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CompleteAsync(messages));
+
+        ex.Message.Should().Contain("HTTP 400");
+        ex.Message.Should().Contain("invalid request body");
+        ex.Message.Should().Contain("x-request-id=req-complete-400");
+    }
+
+    [Fact]
+    public async Task ChatStreamAsync_PartialToolResults_RemovesUnmatchedToolCall()
+    {
+        var handler = new TestHttpMessageHandler(
+            new[] { "data: [DONE]\n" },
+            HttpStatusCode.OK);
+
+        var httpClient = new HttpClient(handler);
+        var service = new DeepSeekApiService(httpClient);
+        var messages = new List<ChatApiMessage>
+        {
+            new() { Role = "user", Content = "start" },
+            new()
+            {
+                Role = "assistant",
+                ToolCalls = new List<ToolCall>
+                {
+                    new()
+                    {
+                        Id = "call_complete",
+                        Type = "function",
+                        Function = new ToolCallFunction { Name = "read_file", Arguments = "{}" },
+                    },
+                    new()
+                    {
+                        Id = "call_missing",
+                        Type = "function",
+                        Function = new ToolCallFunction { Name = "list_dir", Arguments = "{}" },
+                    },
+                },
+            },
+            new()
+            {
+                Role = "tool",
+                ToolCallId = "call_complete",
+                Name = "read_file",
+                Content = "ok",
+            },
+            new() { Role = "user", Content = "continue" },
+        };
+
+        await foreach (var _ in service.ChatStreamAsync(messages)) { }
+
+        handler.LastRequestBody.Should().NotBeNull();
+        handler.LastRequestBody.Should().Contain("call_complete");
+        handler.LastRequestBody.Should().NotContain("call_missing");
     }
 
     [Fact]
@@ -201,17 +330,29 @@ internal class TestHttpMessageHandler : HttpMessageHandler
     private readonly string[] _responseLines;
     private readonly HttpStatusCode _statusCode;
     private readonly string? _errorBody;
+    private readonly Action<HttpResponseMessage>? _configureResponse;
 
-    public TestHttpMessageHandler(string[] responseLines, HttpStatusCode statusCode, string? errorBody = null)
+    public string? LastRequestBody { get; private set; }
+
+    public TestHttpMessageHandler(
+        string[] responseLines,
+        HttpStatusCode statusCode,
+        string? errorBody = null,
+        Action<HttpResponseMessage>? configureResponse = null)
     {
         _responseLines = responseLines;
         _statusCode = statusCode;
         _errorBody = errorBody;
+        _configureResponse = configureResponse;
     }
 
-    protected override Task<HttpResponseMessage> SendAsync(
+    protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        LastRequestBody = request.Content == null
+            ? null
+            : await request.Content.ReadAsStringAsync();
+
         var response = new HttpResponseMessage(_statusCode);
 
         if (_statusCode == HttpStatusCode.OK)
@@ -224,9 +365,8 @@ internal class TestHttpMessageHandler : HttpMessageHandler
             response.Content = new StringContent(_errorBody, Encoding.UTF8, "application/json");
         }
 
-        // 通过 tcs 支持异步语义
-        var tcs = new TaskCompletionSource<HttpResponseMessage>();
-        tcs.SetResult(response);
-        return tcs.Task;
+        _configureResponse?.Invoke(response);
+
+        return response;
     }
 }

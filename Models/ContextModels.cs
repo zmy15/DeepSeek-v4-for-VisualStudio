@@ -103,13 +103,19 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         /// <summary>压缩时保留最近的轮次数（不被压缩）</summary>
         public int PreserveRecentTurns { get; set; } = 3;
 
+        /// <summary>普通压缩目标：压到 TokenBudget 的比例（85% 阈值触发）。</summary>
+        public double CompressionTargetRatio { get; set; } = 0.10;
+
+        /// <summary>严重压缩目标：压到 TokenBudget 的比例（95% 阈值触发）。</summary>
+        public double AggressiveCompressionTargetRatio { get; set; } = 0.10;
+
         /// <summary>每次压缩的最少轮次数</summary>
         public int MinTurnsToCompress { get; set; } = 2;
 
         /// <summary>是否启用自动压缩</summary>
         public bool AutoCompressEnabled { get; set; } = true;
 
-        /// <summary>压缩用的提示词模板。{0}=被压缩的对话内容</summary>
+        /// <summary>压缩指令。待压缩内容已经包含在压缩请求前缀中。</summary>
         public string CompressionPrompt { get; set; } = AiPrompts.CompressionPromptTemplate;
     }
 }

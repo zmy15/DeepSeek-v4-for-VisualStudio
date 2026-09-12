@@ -35,6 +35,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
         /// <summary>计划步骤的硬性上限。即使模型输出更多步骤，也会合并到该数量以内。</summary>
         internal const int MaxPlanStepCount = 8;
 
+        /// <summary>发现阶段工具循环的硬性上限，避免重复探索阻塞后续规划阶段。</summary>
+        internal const int DiscoveryMaxToolRounds = 20;
+
         /// <summary>
         /// ExploreAgent 引用，由 AgentFactory 注入。
         /// 用于在发现阶段并行探索代码库。
@@ -309,7 +312,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
 
             // ── 构建消息列表（含对话历史，保持前缀缓存稳定）──
             string discoveryPrompt = BuildUnifiedDiscoveryPrompt(userMessage, context, structureCache);
-            var messages = BuildContextAwareMessages(Definition.SystemPrompt, discoveryPrompt, extraSystemMessages);
+            var messages = BuildContextAwareMessages(
+                L["agent.plan.discoverySystemPrompt"],
+                discoveryPrompt,
+                extraSystemMessages);
 
             AddLog("INFO", L["agent.log.explorePhase1"]);
 
@@ -320,7 +326,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     messages,
                     workspaceRoot: context.SolutionPath,
                     ct: context.CancellationToken,
-                    maxTokens: 8192);
+                    maxTokens: 8192,
+                    onThinking: context.OnThinkingChunk,
+                    maxToolRounds: DiscoveryMaxToolRounds);
             }
             catch (Exception ex)
             {
@@ -540,6 +548,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Agents
                     context.SolutionPath,
                     ct,
                     maxTokens: 4096,
+                    onThinking: context.OnThinkingChunk,
                     onContent: (chunk) =>
                     {
                         alignmentContent.Append(chunk);

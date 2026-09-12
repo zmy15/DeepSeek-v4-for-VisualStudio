@@ -702,6 +702,13 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         [DataMember]
         public List<ChatApiMessage> ApiHistory { get; set; } = new();
 
+        /// <summary>
+        /// 已生成的上下文压缩摘要。ApiHistory 中只保留未压缩条目，
+        /// 因此摘要必须单独持久化，否则重启后动态上下文会丢失压缩结果。
+        /// </summary>
+        [DataMember]
+        public List<CompressedTurnSummary> CompressedSummaries { get; set; } = new();
+
         [DataMember]
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 

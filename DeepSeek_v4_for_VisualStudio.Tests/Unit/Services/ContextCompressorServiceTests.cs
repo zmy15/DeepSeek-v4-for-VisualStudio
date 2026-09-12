@@ -38,8 +38,8 @@ public class ContextCompressorServiceTests
     [Fact]
     public void Constructor_WithSummarizer_StoresSummarizer()
     {
-        Func<string, CancellationToken, Task<string>> summarizer =
-            (text, ct) => Task.FromResult("summary");
+        ContextCompressorService.ContextSummarizer summarizer =
+            (messages, ct) => Task.FromResult("summary");
 
         var service = new ContextCompressorService(summarizer: summarizer);
 
@@ -309,7 +309,7 @@ public class ContextCompressorServiceTests
     public void CompressTurnsAsync_WithCustomSummarizer_UsesSummarizer()
     {
         bool summarizerCalled = false;
-        Func<string, CancellationToken, Task<string>> summarizer = (text, ct) =>
+        ContextCompressorService.ContextSummarizer summarizer = (messages, ct) =>
         {
             summarizerCalled = true;
             return Task.FromResult("Custom summary from LLM");
@@ -326,6 +326,68 @@ public class ContextCompressorServiceTests
 
         summarizerCalled.Should().BeTrue();
         summary.Summary.Should().Be("Custom summary from LLM");
+    }
+
+    [Fact]
+    public void CompressTurnsAsync_WithPrefixMessages_AppendsCompressionPromptAfterUnchangedPrefix()
+    {
+        IReadOnlyList<ChatApiMessage>? captured = null;
+        var service = new ContextCompressorService((messages, ct) =>
+        {
+            captured = messages;
+            return Task.FromResult("summary");
+        });
+
+        var prefix = new List<ChatApiMessage>
+        {
+            new() { Role = "system", Content = "stable-system" },
+            new() { Role = "user", Content = "original-question" },
+            new() { Role = "assistant", Content = "original-answer" },
+        };
+        var entries = new List<ConversationContextManager.ContextEntry>
+        {
+            new() { Role = "user", Content = "compress-me" },
+            new() { Role = "assistant", Content = "compress-me-too" },
+        };
+
+        service.CompressTurnsAsync(entries, 1, 1, prefix).Wait();
+
+        captured.Should().NotBeNull();
+        captured.Should().HaveCount(4);
+        captured![0].Content.Should().Be("stable-system");
+        captured[1].Content.Should().Be("original-question");
+        captured[2].Content.Should().Be("original-answer");
+        captured[3].Role.Should().Be("system");
+        captured[3].Content.Should().NotContain("compress-me");
+        captured[3].Content.Should().Contain("请将上方");
+    }
+
+    [Fact]
+    public void CompressTurnsAsync_SecondCompression_AddsIncrementalInstruction()
+    {
+        var prompts = new List<string>();
+        var service = new ContextCompressorService((messages, ct) =>
+        {
+            prompts.Add(messages.Last().Content!);
+            return Task.FromResult("summary");
+        });
+
+        var firstEntries = new List<ConversationContextManager.ContextEntry>
+        {
+            new() { Role = "user", Content = "first" },
+        };
+        var secondEntries = new List<ConversationContextManager.ContextEntry>
+        {
+            new() { Role = "user", Content = "second" },
+        };
+
+        service.CompressTurnsAsync(firstEntries, 1, 1).Wait();
+        service.CompressTurnsAsync(secondEntries, 2, 2).Wait();
+
+        var incrementalPrompt = LocalizationService.Instance["system.compressionIncrementalPrompt"];
+        prompts.Should().HaveCount(2);
+        prompts[0].Should().NotContain(incrementalPrompt);
+        prompts[1].Should().Contain(incrementalPrompt);
     }
 
     [Fact]

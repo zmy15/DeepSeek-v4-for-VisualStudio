@@ -146,8 +146,10 @@ public class ContextModelsTests
         config.PreserveRecentTurns.Should().Be(3);
         config.MinTurnsToCompress.Should().Be(2);
         config.AutoCompressEnabled.Should().BeTrue();
+        config.CompressionTargetRatio.Should().Be(0.10);
+        config.AggressiveCompressionTargetRatio.Should().Be(0.10);
         config.CompressionPrompt.Should().NotBeNullOrEmpty();
-        config.CompressionPrompt.Should().Contain("{0}");
+        config.CompressionPrompt.Should().NotContain("{0}");
     }
 
     [Fact]
@@ -160,7 +162,9 @@ public class ContextModelsTests
             PreserveRecentTurns = 5,
             MinTurnsToCompress = 3,
             AutoCompressEnabled = false,
-            CompressionPrompt = "Summarize: {0}",
+            CompressionTargetRatio = 0.4,
+            AggressiveCompressionTargetRatio = 0.7,
+            CompressionPrompt = "Summarize concisely.",
         };
 
         config.CompressionThreshold.Should().Be(0.8);
@@ -168,7 +172,9 @@ public class ContextModelsTests
         config.PreserveRecentTurns.Should().Be(5);
         config.MinTurnsToCompress.Should().Be(3);
         config.AutoCompressEnabled.Should().BeFalse();
-        config.CompressionPrompt.Should().Be("Summarize: {0}");
+        config.CompressionTargetRatio.Should().Be(0.4);
+        config.AggressiveCompressionTargetRatio.Should().Be(0.7);
+        config.CompressionPrompt.Should().Be("Summarize concisely.");
     }
 
     #endregion

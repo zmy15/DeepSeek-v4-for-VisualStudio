@@ -50,9 +50,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             {
                                 type = "string",
                                 description = LocalizationService.Instance["tool.applyPatch.description"]
+                            },
+                            expected = new
+                            {
+                                type = "string",
+                                description = LocalizationService.Instance["tool.applyPatch.expectedDescription"]
                             }
                         },
-                        required = new[] { "patch" }
+                        required = new[] { "patch", "expected" }
                     }
                 }
             };
@@ -73,9 +78,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
         public override async Task<string> ExecuteAsync(Dictionary<string, JsonElement> args, string? workspaceRoot)
         {
             string patchText = GetStringArg(args, "patch");
+            string expectedText = GetStringArg(args, "expected");
 
             if (string.IsNullOrEmpty(patchText))
                 return LocalizationService.Instance["tool.applyPatch.missingParam"];
+
+            if (string.IsNullOrEmpty(expectedText))
+                return LocalizationService.Instance["tool.editVerify.missingExpected"];
+
+            bool expectDeleted = IsDeletedExpectation(expectedText);
+            if (!expectDeleted)
+            {
+                var expectedParse = ParseExpectedRegionLineNumberedContent(expectedText);
+                if (!expectedParse.Success)
+                    return expectedParse.Error;
+            }
 
             // ── 日志：原始补丁内容 ──
             LogRawPatchContent(patchText);
@@ -104,6 +121,13 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         + "*** End Patch";
                 }
 
+                if (patches.Count != 1)
+                {
+                    return LocalizationService.Instance["tool.editVerify.verificationSingleTarget"];
+                }
+
+                var targetPath = GetVerificationTargetPath(patches[0], workspaceRoot);
+
                 // ── 有 ApiService → 使用完整 Healing 流程 ──
                 if (ApiService != null)
                 {
@@ -119,8 +143,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         var result = editResults[i];
                         if (result.Success)
                         {
-                            results.Add(LocalizationService.Instance.Format("tool.applyPatch.applied",
-                                Path.GetFileName(result.FilePath), patches[i].Hunks.Count));
+                            results.Add(result.AppliedEdits.Count == 0
+                                ? LocalizationService.Instance.Format("tool.applyPatch.alreadyApplied",
+                                    Path.GetFileName(result.FilePath))
+                                : LocalizationService.Instance.Format("tool.applyPatch.applied",
+                                    Path.GetFileName(result.FilePath), patches[i].Hunks.Count));
                         }
                         else
                         {
@@ -129,9 +156,28 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         }
                     }
 
-                    return results.Count > 0
+                    string appliedSummary = results.Count > 0
                         ? string.Join("\n", results)
                         : LocalizationService.Instance["tool.applyPatch.noAction"];
+                    bool allSucceeded = editResults.Count == patches.Count
+                        && editResults.All(result => result.Success);
+
+                    string patchResult;
+                    if (!allSucceeded)
+                    {
+                        patchResult = appliedSummary + "\n" +
+                            await BuildCurrentStateSnapshotAsync(targetPath);
+                    }
+                    else
+                    {
+                        patchResult = await VerifyAppliedResultAsync(
+                        expectedText, targetPath, expectDeleted);
+                    }
+
+                    Logger.LogToFile(
+                        "applypatch",
+                        $"[ApplyPatch] 返回: {targetPath}\n{patchResult}");
+                    return patchResult;
                 }
 
                 // ── 无 ApiService → 降级到静态 ApplySinglePatch（无 Healing）──
@@ -211,21 +257,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         }
 
                         // ── 失败回滚（仅直接写盘模式）──
-                        if (Workspace == null && anyFailed)
+                        if (anyFailed)
                         {
-                            RollbackStaticPath(patches, workspaceRoot, backups, existedBefore);
-                            Logger.Warn("[Backup] 静态降级路径：部分 patch 失败，已回滚所有文件");
+                            if (Workspace == null)
+                            {
+                                RollbackStaticPath(patches, workspaceRoot, backups, existedBefore);
+                                Logger.Warn("[Backup] 静态降级路径：部分 patch 失败，已回滚所有文件");
+                            }
+                            return string.Join("\n", results) + "\n" +
+                                await BuildCurrentStateSnapshotAsync(targetPath);
                         }
-                        else if (Workspace == null)
+                        if (Workspace == null)
                         {
                             // ── 成功清理 ──
                             foreach (var kv in backups)
                                 BackupService.CleanupBackup(kv.Value);
                         }
 
-                        return results.Count > 0
-                            ? string.Join("\n", results)
-                            : LocalizationService.Instance["tool.applyPatch.noAction"];
+                        return await VerifyAppliedResultAsync(
+                            expectedText, targetPath, expectDeleted);
                     }
                     catch
                     {
@@ -239,6 +289,72 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             {
                 return LocalizationService.Instance.Format("tool.applyPatch.failed", ex.Message);
             }
+        }
+
+        internal static bool IsDeletedExpectation(string expectedText)
+            => ExpectedContentVerifier.IsDeletedExpectation(expectedText);
+
+        /// <summary>
+        /// 解析 "1|code"、"2: code"、"3→code" 或 "4. code" 形式的带行号内容。
+        /// </summary>
+        internal static (bool Success, List<string> Lines, string Error)
+            ParseExpectedLineNumberedContent(string expectedText)
+            => ExpectedContentVerifier.ParseLineNumberedContent(expectedText);
+
+        internal static (bool Success, int StartLine, List<string> Lines, string Error)
+            ParseExpectedRegionLineNumberedContent(string expectedText)
+            => ExpectedContentVerifier.ParseLineNumberedFragment(expectedText);
+
+        internal static string FormatLineNumberedContent(IReadOnlyList<string> lines)
+            => ExpectedContentVerifier.FormatLineNumberedContent(lines);
+
+        internal static string VerifyExpectedContent(
+            string expectedText,
+            string? actualContent,
+            string filePath,
+            bool expectDeleted)
+            => ExpectedContentVerifier.VerifyExpectedFragment(
+                expectedText, actualContent, filePath, expectDeleted);
+
+        private static string GetVerificationTargetPath(
+            PatchOperation patch,
+            string? workspaceRoot)
+        {
+            string targetPath = !string.IsNullOrEmpty(patch.MoveToPath)
+                ? patch.MoveToPath
+                : patch.FilePath;
+            return ResolvePath(targetPath, workspaceRoot);
+        }
+
+        private async Task<string> VerifyAppliedResultAsync(
+            string expectedText,
+            string targetPath,
+            bool expectDeleted)
+        {
+            string? actualContent = await ReadActualContentAsync(targetPath);
+            return VerifyExpectedContent(
+                expectedText, actualContent, targetPath, expectDeleted);
+        }
+
+        private async Task<string> BuildCurrentStateSnapshotAsync(string targetPath)
+        {
+            string? actualContent = await ReadActualContentAsync(targetPath);
+            return ExpectedContentVerifier.BuildCurrentStateMessage(actualContent);
+        }
+
+        private async Task<string?> ReadActualContentAsync(string targetPath)
+        {
+            if (Workspace != null)
+            {
+                string stagedContent = Workspace.ReadFile(targetPath);
+                if (File.Exists(targetPath) || stagedContent.Length > 0)
+                    return stagedContent;
+                return null;
+            }
+
+            return File.Exists(targetPath)
+                ? await Task.Run(() => File.ReadAllText(targetPath))
+                : null;
         }
 
         /// <summary>

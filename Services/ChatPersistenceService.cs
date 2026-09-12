@@ -71,6 +71,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 var container = JsonSerializer.Deserialize<SessionsContainer>(json, JsonOptions);
                 if (container != null)
                 {
+                    container.SolutionPath = solutionPath ?? "(unsaved)";
+
                     // ── 清理 _unsaved.json 中从未使用过的冗余空会话 ──
                     int originalCount = container.Sessions.Count;
                     if (isUnsaved && originalCount > 1)
@@ -122,6 +124,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
 
             var filePath = GetStoragePath(solutionPath);
             container.LastSaved = DateTime.Now;
+            container.SolutionPath = solutionPath ?? "(unsaved)";
 
             try
             {

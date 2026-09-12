@@ -330,6 +330,15 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             var chunks = new List<(FileChunk chunk, string[] contextLines)>();
             var failedHunks = new List<PatchHunk>();
 
+            // ── 幂等保护：补丁可能已经写入但上一次结果校验失败/超时。
+            // 若每个 hunk 的“最终序列”都已按顺序存在，就返回成功且不重复修改。
+            if (IsPatchAlreadyApplied(patch, fileLines))
+            {
+                result.Success = true;
+                result.FinalContent = EditStringMatcher.NormalizeToCrLf(fileContent);
+                return result;
+            }
+
             // ── 阶段 1：Hunk → FileChunk ──
             foreach (var hunk in patch.Hunks)
             {
@@ -608,6 +617,60 @@ namespace DeepSeek_v4_for_VisualStudio.Services.EditTools
             };
 
             return (chunk, contextLines.ToArray());
+        }
+
+        private static bool IsPatchAlreadyApplied(
+            PatchOperation patch,
+            string[] fileLines)
+        {
+            if (patch.Action != PatchFileAction.Update
+                || !string.IsNullOrEmpty(patch.MoveToPath))
+                return false;
+
+            int searchStartLine = 0;
+            foreach (var hunk in patch.Hunks)
+            {
+                // Hunk 的最终序列 = 上下文 + 新增行，去掉待删除行。
+                // 它已经完整出现时，重复应用必然是 no-op。
+                var finalLines = hunk.Lines
+                    .Where(l => l.Type != '-')
+                    .Select(l => l.Text)
+                    .ToArray();
+                if (finalLines.Length == 0)
+                    return false;
+
+                int matchedLine = -1;
+                for (int start = searchStartLine;
+                    start <= fileLines.Length - finalLines.Length;
+                    start++)
+                {
+                    bool matched = true;
+                    for (int offset = 0; offset < finalLines.Length; offset++)
+                    {
+                        if (!string.Equals(
+                            fileLines[start + offset],
+                            finalLines[offset],
+                            StringComparison.Ordinal))
+                        {
+                            matched = false;
+                            break;
+                        }
+                    }
+
+                    if (matched)
+                    {
+                        matchedLine = start;
+                        break;
+                    }
+                }
+
+                if (matchedLine < 0)
+                    return false;
+
+                searchStartLine = matchedLine + finalLines.Length;
+            }
+
+            return true;
         }
 
         /// <summary>

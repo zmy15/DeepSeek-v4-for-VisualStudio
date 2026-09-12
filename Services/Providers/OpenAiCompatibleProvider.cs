@@ -52,6 +52,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
         public DeepSeekUsage? LastUsage { get; protected set; }
 
         /// <summary>
+        /// 每次 ChatStreamAsync 正常完成后触发。UI 可据此刷新上下文与 Token 统计。
+        /// </summary>
+        public event Action? RequestCompleted;
+
+        /// <summary>
         /// 最近一次 Chat API 实际发送的消息列表（清洗/规则处理后的最终版本）。
         /// Handoff 时优先转发此快照，确保目标 Agent 使用与服务器缓存完全一致的 messages 长度和字段。
         /// </summary>
@@ -110,6 +115,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
             Interlocked.Exchange(ref _totalCompletionTokens, 0);
             Interlocked.Exchange(ref TotalSessionCostYuanValue, 0.0);
             Interlocked.Exchange(ref TotalSessionCostUsdValue, 0.0);
+        }
+
+        /// <summary>
+        /// 通知监听方：本次 ChatStreamAsync 已正常结束。
+        /// 事件处理异常不能影响 API 流本身。
+        /// </summary>
+        protected void RaiseRequestCompleted()
+        {
+            try
+            {
+                RequestCompleted?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"[API] RequestCompleted 事件处理失败: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -584,10 +605,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
             // 只作用在克隆上，绝不污染调用方（ConversationContextManager）的消息对象。
             request.Messages = cleanedMessages;
 
-            // ── 规则 5：孤立 assistant-with-tool_calls 检测 ──
+            // ── 规则 5：assistant-with-tool_calls 完整性检测 ──
             // 场景：ExploreAgent/PlanAgent 从 ContextManager 拿到父对话的 assistant(tool_calls)，
             // 但对应 tool 结果不在 _entries 中，导致 assistant(tool_calls) 后直接跟 system/user。
-            // DeepSeek API 要求 assistant(tool_calls) 后必须紧跟 tool 消息 → 剥离 orphan tool_calls。
+            // DeepSeek API 要求每个 tool_call_id 都有 tool 消息；并行调用只回来部分结果时，
+            // 上游会返回 "insufficient tool messages"。此处剥离未配对的 tool_calls。
             var finalMessages = request.Messages;
             int rule5StrippedCount = 0;
             for (int i = 0; i < finalMessages.Count; i++)
@@ -596,39 +618,76 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                 if (m.Role == "assistant" && m.ToolCalls != null && m.ToolCalls.Count > 0)
                 {
                     // 收集该 assistant 的 tool_call IDs
-                    var expectedIds = new HashSet<string>(m.ToolCalls.Select(tc => tc.Id ?? ""));
-                    // 检查后续消息中是否有匹配的 tool 结果（至少出现一个才算合法）
-                    bool hasMatchingToolResult = false;
+                    var expectedIds = new HashSet<string>(
+                        m.ToolCalls
+                            .Where(tc => !string.IsNullOrEmpty(tc.Id))
+                            .Select(tc => tc.Id!),
+                        StringComparer.Ordinal);
+                    var resolvedIds = new HashSet<string>(StringComparer.Ordinal);
                     int stopAtIndex = -1;
+
+                    // DeepSeek 要求每个 tool_call_id 都有对应 tool 消息；只有存在非 tool
+                    // 消息或已收齐全部结果时才停止扫描。
                     for (int j = i + 1; j < finalMessages.Count; j++)
                     {
                         var next = finalMessages[j];
-                        if (next.Role == "tool" && !string.IsNullOrEmpty(next.ToolCallId)
-                            && expectedIds.Contains(next.ToolCallId))
-                        {
-                            hasMatchingToolResult = true;
-                            break;
-                        }
-                        // 遇到非 tool 消息 → 停止搜索，当前 assistant 的 tool_calls 已孤立
                         if (next.Role != "tool")
                         {
                             stopAtIndex = j;
                             break;
                         }
+
+                        if (!string.IsNullOrEmpty(next.ToolCallId)
+                            && expectedIds.Contains(next.ToolCallId))
+                        {
+                            resolvedIds.Add(next.ToolCallId);
+                        }
+
+                        if (resolvedIds.Count == expectedIds.Count)
+                            break;
                     }
-                    if (!hasMatchingToolResult)
+
+                    bool hasCompleteToolChain =
+                        expectedIds.Count > 0 && resolvedIds.Count == expectedIds.Count;
+                    if (!hasCompleteToolChain)
                     {
                         var tcNames = string.Join(", ", m.ToolCalls.Select(tc => tc.Function?.Name ?? "?"));
+                        var missingTools = string.Join(", ", m.ToolCalls
+                            .Where(tc => string.IsNullOrEmpty(tc.Id) || !resolvedIds.Contains(tc.Id))
+                            .Select(tc => $"{tc.Function?.Name ?? "?"}({tc.Id ?? "?"})"));
                         string stopReason = stopAtIndex >= 0
                             ? $"遇到非tool消息[{stopAtIndex}](role={finalMessages[stopAtIndex].Role})"
                             : "到达消息列表末尾";
-                        Logger.Warn($"[API] Rule5 孤立 assistant[{i}]: toolCount={m.ToolCalls.Count} names=[{tcNames}] stopReason={stopReason} hasContent={!string.IsNullOrEmpty(m.Content)}");
-                        m.ToolCalls = null;
-                        m.ReasoningContent = null; // 无 tool_calls 时不应回传 reasoning_content
-                        rule5StrippedCount++;
-                        if (string.IsNullOrEmpty(m.Content))
+                        int originalToolCount = m.ToolCalls.Count;
+
+                        Logger.Warn(
+                            $"[API] Rule5 工具链不完整 assistant[{i}]: " +
+                            $"expected={expectedIds.Count}, resolved={resolvedIds.Count}, " +
+                            $"toolCount={originalToolCount} names=[{tcNames}] missing=[{missingTools}] " +
+                            $"stopReason={stopReason} hasContent={!string.IsNullOrEmpty(m.Content)}");
+
+                        if (resolvedIds.Count == 0)
                         {
-                            Logger.Warn($"[API] Rule5 孤立的 assistant[{i}] 无 content，标记移除");
+                            // 没有任何 tool 结果：整个 tool_calls 链是孤立的，剥离全部。
+                            m.ToolCalls = null;
+                            m.ReasoningContent = null;
+                            rule5StrippedCount += originalToolCount;
+                        }
+                        else
+                        {
+                            // 只保留已配对的 tool_calls，避免把缺失结果的 ID 发给上游。
+                            m.ToolCalls = m.ToolCalls
+                                .Where(tc => !string.IsNullOrEmpty(tc.Id) && resolvedIds.Contains(tc.Id))
+                                .ToList();
+                            rule5StrippedCount += originalToolCount - m.ToolCalls.Count;
+                            Logger.Warn(
+                                $"[API] Rule5 保留已配对 tool_calls {m.ToolCalls.Count}/{originalToolCount}");
+                        }
+
+                        if ((m.ToolCalls == null || m.ToolCalls.Count == 0)
+                            && string.IsNullOrEmpty(m.Content))
+                        {
+                            Logger.Warn($"[API] Rule5 不完整 assistant[{i}] 无 content，标记移除");
                         }
                     }
                 }
@@ -833,6 +892,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
             const int maxSendAttempts = 4;
             while (sendAttempt < maxSendAttempts)
             {
+                string requestContext =
+                    $"provider={ProviderName}, model={request.Model}, endpoint={BuildRequestUri(ChatEndpoint)}, " +
+                    $"messages={request.Messages.Count}, tools={normalizedTools?.Count ?? 0}, " +
+                    $"requestBytes={requestBodyBytes.Length}, attempt={sendAttempt + 1}/{maxSendAttempts}";
+
                 try
                 {
                     var req = new HttpRequestMessage(HttpMethod.Post, BuildRequestUri(ChatEndpoint))
@@ -846,7 +910,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                         req,
                         HttpCompletionOption.ResponseHeadersRead,
                         cancellationToken);
-                    response.EnsureSuccessStatusCode();
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        string preparedDetails = await BuildHttpErrorDetailsAsync(response, requestContext);
+                        var statusException = new HttpRequestException(
+                            $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}", null);
+                        statusException.Data[HttpErrorDetailsDataKey] = preparedDetails;
+                        throw statusException;
+                    }
 
                     // ── 连接复用诊断（v1.1.11）：追踪 ServicePoint 连接状态 ──
                     //     帮助判断 Agent 间是否复用同一 TCP 连接，从而影响缓存亲和性。
@@ -861,40 +932,28 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                     // 4xx 客户端错误（除 429 限流外）不应重试——请求本身有问题，重试不会改变结果
                     if (statusCode >= 400 && statusCode < 500 && statusCode != 429)
                     {
-                        // 记录更详细的错误响应（截断到 1KB），便于定位请求字段问题
-                        string respSnippet = string.Empty;
-                        try
-                        {
-                            if (response?.Content != null)
-                            {
-                                var bodyBytes = await response.Content.ReadAsByteArrayAsync();
-                                respSnippet = Encoding.UTF8.GetString(bodyBytes);
-                                if (respSnippet.Length > 1024)
-                                    respSnippet = respSnippet.Substring(0, 1024) + "…(截断)";
-                            }
-                        }
-                        catch { }
-                        Logger.Error($"[API] HTTP {statusCode} 是客户端错误，放弃重试。响应: {respSnippet}");
-                        throw;
+                        string details =
+                            ex.Data[HttpErrorDetailsDataKey] as string
+                            ?? (response != null
+                                ? await BuildHttpErrorDetailsAsync(response, requestContext)
+                                : $"请求: {requestContext}\n异常: {ex.GetType().Name}: {ex.Message}");
+                        Logger.Error($"[API] HTTP {statusCode} 是客户端错误，放弃重试。\n{details}");
+                        response?.Dispose();
+                        throw new HttpRequestException(
+                            $"{ProviderName} API 返回 HTTP {statusCode}。\n{details}", ex);
                     }
 
                     sendAttempt++;
-                    string? responseBody = null;
-                    try
-                    {
-                        if (response?.Content != null)
-                        {
-                            var bodyBytes = await response.Content.ReadAsByteArrayAsync();
-                            responseBody = Encoding.UTF8.GetString(bodyBytes);
-                            if (responseBody.Length > 500)
-                                responseBody = responseBody.Substring(0, 500) + "…(截断)";
-                        }
-                    }
-                    catch { }
+                    string retryDetails =
+                        ex.Data[HttpErrorDetailsDataKey] as string
+                        ?? (response != null
+                            ? await BuildHttpErrorDetailsAsync(response, requestContext, maxBodyChars: 500)
+                            : $"请求: {requestContext}\n异常: {ex.GetType().Name}: {ex.Message}");
                     response?.Dispose();
                     double backoff = Math.Pow(2, sendAttempt - 1);
-                    Logger.Warn($"[API] HTTP {statusCode} 请求失败 (尝试 {sendAttempt + 1}/{maxSendAttempts})，{backoff}s 后重试…"
-                        + (responseBody != null ? $"\n[API] 响应: {responseBody}" : ""));
+                    Logger.Warn(
+                        $"[API] HTTP {statusCode} 请求失败 (尝试 {sendAttempt + 1}/{maxSendAttempts})，{backoff}s 后重试…\n" +
+                        retryDetails);
                     // ── 真正等待退避（与超时分支一致）；此前只打日志不等待，4 次请求零间隔连发 ──
                     await Task.Delay(TimeSpan.FromSeconds(backoff), cancellationToken);
                 }
@@ -904,8 +963,21 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                     sendAttempt++;
                     response?.Dispose();
                     double backoff = Math.Pow(2, sendAttempt - 1);
-                    Logger.Warn($"[API] 请求超时 (尝试 {sendAttempt + 1}/{maxSendAttempts})，{backoff}s 后重试…");
+                    Logger.Warn($"[API] 请求超时 (尝试 {sendAttempt + 1}/{maxSendAttempts})，{backoff}s 后重试…\n请求: {requestContext}");
                     await Task.Delay(TimeSpan.FromSeconds(backoff), cancellationToken);
+                }
+                catch (HttpRequestException ex)
+                {
+                    int statusCode = (int)(response?.StatusCode ?? 0);
+                    string details =
+                        ex.Data[HttpErrorDetailsDataKey] as string
+                        ?? (response != null
+                            ? await BuildHttpErrorDetailsAsync(response, requestContext)
+                            : $"请求: {requestContext}\n异常: {ex.GetType().Name}: {ex.Message}");
+                    Logger.Error($"[API] HTTP {statusCode} 请求失败，已停止重试。\n{details}");
+                    response?.Dispose();
+                    throw new HttpRequestException(
+                        $"{ProviderName} API 请求失败 (HTTP {statusCode})。\n{details}", ex);
                 }
             }
 
@@ -998,6 +1070,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                     }
                     // ── 在 [DONE] 处立即输出缓存诊断 + 磁盘转储 ──
                     FlushCacheDiagnostics();
+                    RaiseRequestCompleted();
                     yield break;
                 }
 
@@ -1063,6 +1136,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
 
             // ── 流正常结束（无 [DONE] 时）输出缓存诊断 ──
             FlushCacheDiagnostics();
+            RaiseRequestCompleted();
             } // using(response) — 重试块闭合
         }
 
@@ -1236,7 +1310,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
             };
 
             using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-            await ValidateResponseStatusAsync(response);
+            await ValidateResponseStatusAsync(
+                response,
+                $"model={request.Model}, endpoint={BuildRequestUri(ChatEndpoint)}, messages={request.Messages.Count}");
             response.EnsureSuccessStatusCode();
 
             var responseJson = await response.Content.ReadAsStringAsync();
@@ -1283,7 +1359,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                 };
 
                 using var response = await _httpClient.SendAsync(httpRequest);
-                await ValidateResponseStatusAsync(response);
+                await ValidateResponseStatusAsync(
+                    response,
+                    $"model={request.Model}, endpoint={BuildRequestUri(ChatEndpoint)}");
                 return null; // 有效
             }
             catch (ApiKeyInvalidException ex)
@@ -1296,16 +1374,111 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
             }
         }
 
+        private const int MaxErrorBodyChars = 4096;
+        private const int MaxResponseHeaderChars = 2048;
+        private const string HttpErrorDetailsDataKey = "DeepSeek.HttpErrorDetails";
+
+        /// <summary>
+        /// 读取错误响应体；读取失败或为空时返回可诊断的占位文本。
+        /// </summary>
+        internal static async Task<string> ReadResponseBodySafelyAsync(
+            HttpResponseMessage response,
+            int maxChars = MaxErrorBodyChars)
+        {
+            if (response.Content == null) return string.Empty;
+
+            try
+            {
+                string body = await response.Content.ReadAsStringAsync();
+                return TruncateForDiagnostics(body, maxChars);
+            }
+            catch (Exception ex)
+            {
+                return $"<读取响应体失败: {ex.GetType().Name}: {ex.Message}>";
+            }
+        }
+
+        /// <summary>
+        /// 构造包含状态、请求上下文、响应头和响应体的错误详情。
+        /// </summary>
+        internal static string BuildHttpErrorDetails(
+            HttpResponseMessage response,
+            string? requestContext,
+            string? responseBody)
+        {
+            var sb = new StringBuilder();
+            sb.Append("状态: HTTP ").Append((int)response.StatusCode);
+            if (!string.IsNullOrWhiteSpace(response.ReasonPhrase))
+                sb.Append(' ').Append(response.ReasonPhrase);
+
+            if (!string.IsNullOrWhiteSpace(requestContext))
+                sb.Append("\n请求: ").Append(requestContext.Trim());
+
+            if (response.RequestMessage?.RequestUri != null)
+            {
+                sb.Append("\n请求 URI: ")
+                  .Append(response.RequestMessage.Method)
+                  .Append(' ')
+                  .Append(response.RequestMessage.RequestUri);
+            }
+
+            sb.Append("\n响应头: ").Append(FormatResponseHeaders(response));
+            sb.Append("\n响应体: ")
+              .Append(string.IsNullOrWhiteSpace(responseBody) ? "<empty>" : responseBody.Trim());
+            return sb.ToString();
+        }
+
+        internal static async Task<string> BuildHttpErrorDetailsAsync(
+            HttpResponseMessage response,
+            string? requestContext = null,
+            int maxBodyChars = MaxErrorBodyChars)
+        {
+            string body = await ReadResponseBodySafelyAsync(response, maxBodyChars);
+            return BuildHttpErrorDetails(response, requestContext, body);
+        }
+
+        private static string FormatResponseHeaders(HttpResponseMessage response)
+        {
+            var parts = new List<string>();
+
+            foreach (var header in response.Headers)
+            {
+                if (string.Equals(header.Key, "Set-Cookie", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                parts.Add($"{header.Key}={string.Join(",", header.Value)}");
+            }
+
+            if (response.Content != null)
+            {
+                foreach (var header in response.Content.Headers)
+                {
+                    parts.Add($"{header.Key}={string.Join(",", header.Value)}");
+                }
+            }
+
+            string result = parts.Count == 0 ? "<none>" : string.Join("; ", parts);
+            return TruncateForDiagnostics(result, MaxResponseHeaderChars);
+        }
+
+        private static string TruncateForDiagnostics(string value, int maxChars)
+        {
+            if (string.IsNullOrEmpty(value) || value.Length <= maxChars) return value;
+            return value.Substring(0, maxChars) + $"…(截断，原始长度 {value.Length})";
+        }
+
         /// <summary>
         /// 检查 HTTP 响应状态，对认证错误抛出 ApiKeyInvalidException.
         /// </summary>
-        protected async Task ValidateResponseStatusAsync(HttpResponseMessage response)
+        protected async Task ValidateResponseStatusAsync(
+            HttpResponseMessage response,
+            string? requestContext = null)
         {
             if (response.IsSuccessStatusCode) return;
 
             int statusCode = (int)response.StatusCode;
-            string body = string.Empty;
-            try { body = await response.Content.ReadAsStringAsync(); } catch { }
+            string body = await ReadResponseBodySafelyAsync(response);
+            string details = BuildHttpErrorDetails(response, requestContext, body);
+            Logger.Error($"[API] {ProviderName} 返回错误 HTTP {statusCode}。\n{details}");
 
             if (statusCode == 401 || statusCode == 403)
             {
@@ -1313,29 +1486,30 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
                 throw new ApiKeyInvalidException(
                     $"{ProviderName} API Key 无效或已过期 (HTTP {statusCode})。\n" +
                     $"请通过 工具 → 选项 → DeepSeek Chat 重新配置 API Key。\n" +
-                    (string.IsNullOrEmpty(detail) ? "" : $"详情: {detail}"));
+                    (string.IsNullOrEmpty(detail) ? "" : $"详情: {detail}\n") +
+                    details);
             }
 
             if (statusCode == 429)
             {
                 throw new ApiKeyInvalidException(
-                    $"{ProviderName} API 请求频率超限 (HTTP 429)，请稍后重试。");
+                    $"{ProviderName} API 请求频率超限 (HTTP 429)，请稍后重试。\n{details}");
             }
 
             if (statusCode >= 500)
             {
                 throw new ApiKeyInvalidException(
-                    $"{ProviderName} 服务器错误 (HTTP {statusCode})，请稍后重试。\n详情: {body}");
+                    $"{ProviderName} 服务器错误 (HTTP {statusCode})，请稍后重试。\n{details}");
             }
 
-            // 其他 4xx 客户端错误：记录正文（1KB 截断）并抛出明确异常，便于定位请求格式问题
+            // 其他 4xx 客户端错误：抛出带完整诊断上下文的异常，便于定位请求格式问题。
             if (statusCode >= 400 && statusCode < 500)
             {
-                string snippet = body;
-                if (!string.IsNullOrEmpty(snippet) && snippet.Length > 1024)
-                    snippet = snippet.Substring(0, 1024) + "…(截断)";
-                Logger.Error($"[API] {ProviderName} 返回客户端错误 HTTP {statusCode}: {snippet}");
-                throw new InvalidOperationException($"{ProviderName} API 返回 HTTP {statusCode}: {ExtractErrorMessage(body)}");
+                string detail = ExtractErrorMessage(body);
+                throw new InvalidOperationException(
+                    $"{ProviderName} API 返回 HTTP {statusCode}:" +
+                    (string.IsNullOrEmpty(detail) ? "" : $" {detail}") +
+                    $"\n{details}");
             }
         }
 
@@ -1348,9 +1522,23 @@ namespace DeepSeek_v4_for_VisualStudio.Services.Providers
             try
             {
                 using var doc = JsonDocument.Parse(responseBody);
-                if (doc.RootElement.TryGetProperty("error", out var error) &&
-                    error.TryGetProperty("message", out var msg))
-                    return msg.GetString() ?? string.Empty;
+                if (doc.RootElement.TryGetProperty("error", out var error))
+                {
+                    if (error.ValueKind == JsonValueKind.String)
+                        return error.GetString() ?? string.Empty;
+
+                    if (error.TryGetProperty("message", out var msg))
+                        return msg.GetString() ?? string.Empty;
+
+                    if (error.TryGetProperty("detail", out var errorDetail))
+                        return errorDetail.GetString() ?? string.Empty;
+                }
+
+                if (doc.RootElement.TryGetProperty("message", out var rootMessage))
+                    return rootMessage.GetString() ?? string.Empty;
+
+                if (doc.RootElement.TryGetProperty("detail", out var rootDetail))
+                    return rootDetail.GetString() ?? string.Empty;
             }
             catch { }
             return responseBody.Length > 200 ? responseBody.Substring(0, 200) : responseBody;

@@ -40,16 +40,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
             if (string.IsNullOrEmpty(config.ApiKey))
             {
                 // ── 无 Key：释放旧服务，避免残留旧 Key 继续发送请求 ──
+                SubscribeApiRequestCompletion(null);
                 _apiService?.Dispose();
                 _apiService = null;
                 UpdateEndpointCapabilityControls();
                 return;
             }
 
+            SubscribeApiRequestCompletion(null);
             _apiService?.Dispose();
             _apiService = new DeepSeekApiService(config.ApiKey, config.Model,
                 baseUrl: config.BaseUrl,
                 isVision: config.IsVision, isCustom: config.IsCustom);
+            SubscribeApiRequestCompletion(_apiService);
             _apiService.ConfigureThinking(_options.IsThinkingEnabled, _options.ReasoningEffort);
 
             // ── 注入前缀缓存管理器（修复：直接 new 的 ApiService 缺少 DI 注入的 PrefixCache）──
@@ -65,6 +68,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             var buildService = new BuildService();
             _memoryService = new MemoryService();
             _builtInToolService = new BuiltInToolService(_mcpManager, _webSearchService, buildService, _memoryService);
+            _builtInToolService.CurrentSolutionPath = _solutionPath;
             _builtInToolService.ApiService = _apiService; // 注入 API 服务以启用 apply_patch Healing
 
             _agentFactory = new AgentFactory(_apiService, _builtInToolService, _mcpManager, _memoryService);
@@ -113,15 +117,11 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 {
                     var agent = _activeAgent; // 捕获引用，避免后续变更
                     _compressorService = new ContextCompressorService(
-                        async (text, ct) =>
+                        async (messages, ct) =>
                         {
                             try
                             {
-                                var messages = new List<ChatApiMessage>
-                                {
-                                    new ChatApiMessage { Role = "user", Content = text }
-                                };
-                                return await agent.CallAiWithMessagesAsync(messages, ct);
+                                return await agent.CallAiWithMessagesAsync(messages.ToList(), ct);
                             }
                             catch (Exception ex)
                             {
@@ -914,17 +914,46 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 触发代码索引：在后台线程执行，不阻塞 UI。
-        private Task LoadAndShowAsync()
+        private async Task LoadAndShowAsync()
         {
-            // 启动加载、解决方案切换和会话切换可能几乎同时触发。
-            // WebView2 环境只允许初始化一次，先串行化，避免两个调用用不同 Environment 竞争。
-            if (_loadAndShowTask?.IsCompleted == false)
-            {
-                return _loadAndShowTask;
-            }
+            var requestedSequence = Interlocked.Increment(ref _loadAndShowSequence);
 
-            _loadAndShowTask = LoadAndShowCoreAsync();
-            return _loadAndShowTask;
+            while (true)
+            {
+                var pending = Volatile.Read(ref _loadAndShowTask);
+                if (pending != null && !pending.IsCompleted)
+                {
+                    // 启动加载、解决方案切换和会话切换可能几乎同时触发。
+                    // WebView2 环境只允许初始化一次，后续请求必须等当前加载结束，
+                    // 否则会像旧实现一样把“切换解决方案”复用成启动时的 _unsaved 加载。
+                    await pending;
+                    continue;
+                }
+
+                if (requestedSequence != Volatile.Read(ref _loadAndShowSequence))
+                {
+                    // 已有更新的加载请求排队；跳过旧请求，由最新请求负责最终状态。
+                    return;
+                }
+
+                var next = LoadAndShowCoreAsync();
+                var previous = Interlocked.CompareExchange(ref _loadAndShowTask, next, pending);
+                if (!ReferenceEquals(previous, pending))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    await next;
+                    return;
+                }
+                finally
+                {
+                    if (ReferenceEquals(Volatile.Read(ref _loadAndShowTask), next))
+                        Volatile.Write(ref _loadAndShowTask, Task.CompletedTask);
+                }
+            }
         }
 
         private async Task LoadAndShowCoreAsync()
@@ -991,6 +1020,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     try
                     {
                         _contextManager.RestoreFullContext(_activeSession.ApiHistory);
+                        _contextManager.RestoreCompressedSummaries(_activeSession.CompressedSummaries);
                         Logger.Info($"[Context] 从 ApiHistory 恢复上下文成功 ({_activeSession.ApiHistory.Count} 条消息, "
                             + $"turnCount={_contextManager.TurnCount}, estimatedTokens={_contextManager.EstimatedTokens})");
 

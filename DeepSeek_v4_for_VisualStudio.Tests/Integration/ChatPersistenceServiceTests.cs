@@ -86,6 +86,17 @@ public class ChatPersistenceServiceTests
                     Title = "Test Session",
                     CreatedAt = new DateTime(2026, 5, 15),
                     LastActiveAt = new DateTime(2026, 5, 15),
+                    CompressedSummaries = new List<CompressedTurnSummary>
+                    {
+                        new()
+                        {
+                            FromTurn = 1,
+                            ToTurn = 3,
+                            Summary = "persisted-summary",
+                            OriginalTokens = 100,
+                            CompressedTokens = 20,
+                        },
+                    },
                 }
             },
             ActiveSessionId = "session-1",
@@ -102,6 +113,8 @@ public class ChatPersistenceServiceTests
         loaded.Sessions.Should().HaveCount(1);
         loaded.Sessions[0].Id.Should().Be("session-1");
         loaded.Sessions[0].Title.Should().Be("Test Session");
+        loaded.Sessions[0].CompressedSummaries.Should().ContainSingle();
+        loaded.Sessions[0].CompressedSummaries[0].Summary.Should().Be("persisted-summary");
         loaded.ActiveSessionId.Should().Be("session-1");
 
         // Cleanup
@@ -116,6 +129,53 @@ public class ChatPersistenceServiceTests
         var act = () => ChatPersistenceService.SaveSessions(testPath, null!);
 
         act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void SaveSessions_NormalizesSolutionPathMetadata()
+    {
+        var testPath = string.Format(@"F:\TestData\PathMetadata{0}\Test.sln", Guid.NewGuid().ToString("N").Substring(0, 8));
+        var container = new SessionsContainer
+        {
+            SolutionPath = "(unsaved)",
+            Sessions = new List<ChatSession>
+            {
+                new() { Id = "metadata-session", Title = "Metadata" }
+            }
+        };
+
+        ChatPersistenceService.SaveSessions(testPath, container);
+        var loaded = ChatPersistenceService.LoadSessions(testPath);
+
+        loaded.SolutionPath.Should().Be(testPath);
+        ChatPersistenceService.DeleteAllSessions(testPath);
+    }
+
+    [Fact]
+    public void LoadSessions_RepairsStaleSolutionPathMetadata()
+    {
+        var testPath = string.Format(@"F:\TestData\StaleMetadata{0}\Test.sln", Guid.NewGuid().ToString("N").Substring(0, 8));
+        var storagePath = ChatPersistenceService.GetStoragePath(testPath);
+        const string staleJson = """
+            {
+              "solutionPath": "(unsaved)",
+              "lastSaved": "2026-09-12T23:56:06",
+              "sessions": [],
+              "activeSessionId": null
+            }
+            """;
+
+        try
+        {
+            File.WriteAllText(storagePath, staleJson);
+            var loaded = ChatPersistenceService.LoadSessions(testPath);
+
+            loaded.SolutionPath.Should().Be(testPath);
+        }
+        finally
+        {
+            ChatPersistenceService.DeleteAllSessions(testPath);
+        }
     }
 
     [Fact]

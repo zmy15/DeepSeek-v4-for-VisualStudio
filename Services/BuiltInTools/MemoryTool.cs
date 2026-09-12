@@ -120,7 +120,8 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
 
                 // ── 解析解决方案路径：优先使用 ExecuteAsync 传入的 workspaceRoot，
                 //     回退到构造函数注入的 _getSolutionPath（兼容旧路径和测试）──
-                string? resolvedSolutionPath = workspaceRoot ?? _getSolutionPath();
+                // Repo 记忆按 solutionPath 计算哈希；workspaceRoot 通常是目录，不能替代它。
+                string? resolvedSolutionPath = _getSolutionPath() ?? workspaceRoot;
 
                 return command switch
                 {
@@ -132,6 +133,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     "rename" => await ExecuteRenameAsync(args, resolvedSolutionPath),
                     _ => $"Error: memory: 未知命令 '{command}'。可用命令: view, create, str_replace, insert, delete, rename"
                 };
+            }
+            catch (System.IO.FileNotFoundException ex)
+            {
+                // 记忆文件不存在属于模型可恢复的常见情况，不应记录异常堆栈。
+                Logger.Warn($"[MemoryTool] 记忆路径不存在: {ex.Message}");
+                return LocalizationService.Instance.Format("tool.memory.error", ex.Message);
+            }
+            catch (System.IO.DirectoryNotFoundException ex)
+            {
+                // 目录不存在同样返回可恢复结果，避免污染错误日志。
+                Logger.Warn($"[MemoryTool] 记忆目录不存在: {ex.Message}");
+                return LocalizationService.Instance.Format("tool.memory.error", ex.Message);
             }
             catch (Exception ex)
             {
