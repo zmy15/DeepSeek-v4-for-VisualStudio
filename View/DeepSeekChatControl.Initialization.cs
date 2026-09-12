@@ -914,17 +914,46 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
         /// <summary>
         /// 触发代码索引：在后台线程执行，不阻塞 UI。
-        private Task LoadAndShowAsync()
+        private async Task LoadAndShowAsync()
         {
-            // 启动加载、解决方案切换和会话切换可能几乎同时触发。
-            // WebView2 环境只允许初始化一次，先串行化，避免两个调用用不同 Environment 竞争。
-            if (_loadAndShowTask?.IsCompleted == false)
-            {
-                return _loadAndShowTask;
-            }
+            var requestedSequence = Interlocked.Increment(ref _loadAndShowSequence);
 
-            _loadAndShowTask = LoadAndShowCoreAsync();
-            return _loadAndShowTask;
+            while (true)
+            {
+                var pending = Volatile.Read(ref _loadAndShowTask);
+                if (pending != null && !pending.IsCompleted)
+                {
+                    // 启动加载、解决方案切换和会话切换可能几乎同时触发。
+                    // WebView2 环境只允许初始化一次，后续请求必须等当前加载结束，
+                    // 否则会像旧实现一样把“切换解决方案”复用成启动时的 _unsaved 加载。
+                    await pending;
+                    continue;
+                }
+
+                if (requestedSequence != Volatile.Read(ref _loadAndShowSequence))
+                {
+                    // 已有更新的加载请求排队；跳过旧请求，由最新请求负责最终状态。
+                    return;
+                }
+
+                var next = LoadAndShowCoreAsync();
+                var previous = Interlocked.CompareExchange(ref _loadAndShowTask, next, pending);
+                if (!ReferenceEquals(previous, pending))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    await next;
+                    return;
+                }
+                finally
+                {
+                    if (ReferenceEquals(Volatile.Read(ref _loadAndShowTask), next))
+                        Volatile.Write(ref _loadAndShowTask, Task.CompletedTask);
+                }
+            }
         }
 
         private async Task LoadAndShowCoreAsync()

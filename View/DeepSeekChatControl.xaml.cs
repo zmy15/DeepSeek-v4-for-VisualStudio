@@ -321,6 +321,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private Task<bool>? _webViewInitializationTask;
         private Microsoft.Web.WebView2.Core.CoreWebView2Environment? _webView2Environment;
         private Task _loadAndShowTask = Task.CompletedTask;
+        private int _loadAndShowSequence;
         /// <summary>
         /// WebView2 控件（程序化创建，替代 XAML 中的 wv2:WebView2）。
         /// 不在 XAML 中声明以避免 ReSharper 等第三方扩展预加载不同版本的
