@@ -1408,6 +1408,7 @@
     "agent.taskCompletedFiles": "Agent 任务完成 ({0} 个文件变更)",
     "agent.contextCompressionExhausted.title": "建议切换新对话",
     "agent.contextCompressionExhausted.message": "当前对话已经没有新的可压缩内容，现有历史已完成压缩。请在本次回复完成后新建对话，以继续获得完整上下文能力。",
+    "agent.contextCompressionExhausted.discarded": "已丢弃压缩前的旧上文，本条消息将作为新的上下文起点。",
     "agent.planCompletedSteps": "Agent 计划完成 ({0} 个步骤)",
  "agent.executionFailed": "Error: Agent 执行失败: {0}",
     "═══ Code Actions ═══": "═══ Code Actions ═══",

@@ -1409,6 +1409,7 @@
     "agent.taskCompletedFiles": "Agent task completed ({0} files changed)",
     "agent.contextCompressionExhausted.title": "Start a New Conversation",
     "agent.contextCompressionExhausted.message": "This conversation has no new compressible content remaining; the existing history has already been compressed. Start a new conversation after this response to keep full-context capability.",
+    "agent.contextCompressionExhausted.discarded": "The previous context has been discarded. This message starts a new context.",
     "agent.planCompletedSteps": "Agent plan completed ({0} steps)",
  "agent.executionFailed": "Error: Agent execution failed: {0}",
     "═══ Code Actions ═══": "═══ Code Actions ═══",

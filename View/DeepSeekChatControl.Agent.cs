@@ -1031,7 +1031,9 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string title = LocalizationService.Instance["agent.contextCompressionExhausted.title"];
                 string message = LocalizationService.Instance["agent.contextCompressionExhausted.message"];
                 StatusLabel.Text = message;
-                NotifyUserActionRequired(title, message);
+                AddMessagesHtml("assistant", $"**{title}**\n\n{message}");
+                UpdateBrowser();
+                _discardContextOnNextSend = true;
             }
 
             // ── AI 自动生成会话标题（Agent 工作流完成后触发，独立 try 确保同步失败也不影响标题生成）──

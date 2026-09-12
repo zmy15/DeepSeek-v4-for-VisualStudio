@@ -191,6 +191,29 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             _compressedSummaries.Clear();
         }
 
+        /// <summary>
+        /// 用持久化恢复的摘要替换当前摘要集合。
+        /// </summary>
+        public void ReplaceSummaries(IEnumerable<CompressedTurnSummary>? summaries)
+        {
+            _compressedSummaries.Clear();
+            if (summaries == null)
+                return;
+
+            foreach (var summary in summaries.OrderBy(s => s.FromTurn))
+            {
+                _compressedSummaries.Add(new CompressedTurnSummary
+                {
+                    Summary = summary.Summary,
+                    FromTurn = summary.FromTurn,
+                    ToTurn = summary.ToTurn,
+                    OriginalTokens = summary.OriginalTokens,
+                    CompressedTokens = summary.CompressedTokens,
+                    CompressedAt = summary.CompressedAt,
+                });
+            }
+        }
+
         #region Private Methods
 
         /// <summary>

@@ -81,6 +81,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
             // ── ApiHistory 始终保存（含 tool/system 消息，树结构不包含）──
             _activeSession.ApiHistory = _contextManager.GetFullContext();
+            _activeSession.CompressedSummaries = _contextManager.GetCompressedSummariesSnapshot();
 
             // ── 持久化累计 Cache 统计（重启后恢复显示）──
             if (_apiService != null)
@@ -232,6 +233,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         #pragma warning disable VSTHRD100 // async void 用于会话切换（从事件处理程序调用），异常已在方法内处理
         private async void SwitchToSession(ChatSession session)
         {
+            _discardContextOnNextSend = false;
             try
             {
                 if (session == null || session == _activeSession) return;
@@ -314,6 +316,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     try
                     {
                         _contextManager.RestoreFullContext(_activeSession.ApiHistory);
+                        _contextManager.RestoreCompressedSummaries(_activeSession.CompressedSummaries);
                         Logger.Info($"[Context] SwitchToSession 从 ApiHistory 恢复上下文成功 ({_activeSession.ApiHistory.Count} 条消息)");
 
                         if (_contextManager.TurnCount == 0 && _tree != null)
@@ -544,6 +547,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             try
             {
+                _discardContextOnNextSend = false;
                 lock (_lock)
                 {
                     // 停止当前生成
@@ -699,6 +703,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                         try
                         {
                             _contextManager.RestoreFullContext(_activeSession.ApiHistory);
+                            _contextManager.RestoreCompressedSummaries(_activeSession.CompressedSummaries);
                             Logger.Info($"[Context] DeleteCurrentSession 从 ApiHistory 恢复上下文成功 ({_activeSession.ApiHistory.Count} 条消息)");
 
                             if (_contextManager.TurnCount == 0 && _tree != null)
@@ -754,6 +759,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         {
             try
             {
+                _discardContextOnNextSend = false;
                 // ── 重置累计 Token / 费用计数器 ──
                 _apiService?.ResetAccumulatedStats();
 

@@ -470,6 +470,66 @@ public class ConversationContextManagerExtendedTests
         _manager.ConsumeConversationResetNotice().Should().BeFalse();
     }
 
+    [Fact]
+    public void RestoreCompressedSummaries_BeforeCompressorSet_InjectsSummaryAfterInitialization()
+    {
+        _manager.RestoreCompressedSummaries(new[]
+        {
+            new CompressedTurnSummary
+            {
+                FromTurn = 1,
+                ToTurn = 2,
+                Summary = "restored-summary",
+                OriginalTokens = 100,
+                CompressedTokens = 20,
+            },
+        });
+
+        _manager.SetCompressor(new ContextCompressorService());
+        _manager.AddUserMessage("Q1");
+
+        var messages = _manager.BuildApiMessages();
+
+        messages.Should().Contain(m =>
+            m.Role == "system"
+            && m.Content != null
+            && m.Content.Contains("restored-summary", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ClearConversationHistory_PreservesSystemContextAndClearsDialogue()
+    {
+        _manager.SetSystemPrompt("persistent-system");
+        _manager.AddUserMessage("old-user");
+        _manager.AddAssistantMessage("old-assistant");
+        _manager.SetCompressor(new ContextCompressorService());
+        _manager.RestoreCompressedSummaries(new[]
+        {
+            new CompressedTurnSummary
+            {
+                FromTurn = 1,
+                ToTurn = 1,
+                Summary = "old-summary",
+                OriginalTokens = 50,
+                CompressedTokens = 10,
+            },
+        });
+
+        _manager.ClearConversationHistory();
+        var messages = _manager.BuildApiMessages();
+
+        _manager.TurnCount.Should().Be(0);
+        _manager.GetCompressedSummariesSnapshot().Should().BeEmpty();
+        messages.Should().Contain(m =>
+            m.Role == "system"
+            && m.Content != null
+            && m.Content.Contains("persistent-system", StringComparison.Ordinal));
+        messages.Should().NotContain(m => m.Content == "old-user");
+        messages.Should().NotContain(m => m.Content == "old-assistant");
+        messages.Should().NotContain(m =>
+            m.Content != null && m.Content.Contains("old-summary", StringComparison.Ordinal));
+    }
+
     #endregion
 
     #region BuildApiMessagesRecentTurns

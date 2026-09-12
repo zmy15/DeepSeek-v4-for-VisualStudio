@@ -284,11 +284,19 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 Timestamp = DateTime.Now,
             };
             int earlyUserMsgIndex;
+            bool discardedContext = false;
             lock (_lock)
             {
                 var tree = EnsureTree();
                 tree.AddChildMessage(earlyUserMsg);
                 SyncMessagesFromTree();
+                if (_discardContextOnNextSend)
+                {
+                    _contextManager.ClearConversationHistory();
+                    _discardContextOnNextSend = false;
+                    discardedContext = true;
+                    Logger.Info("[Context] 用户继续对话：已丢弃旧的压缩上文，仅保留新问题作为新一轮起点");
+                }
                 _contextManager.AddUserMessage(fullUserContent, visionContent);
                 earlyUserMsgIndex = _messages.Count - 1;
             }
@@ -301,6 +309,12 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 attachedImageFileNames,
                 attachedImagePaths,
                 earlyUserMsgIndex);
+            if (discardedContext)
+            {
+                AddMessagesHtml(
+                    "assistant",
+                    LocalizationService.Instance["agent.contextCompressionExhausted.discarded"]);
+            }
             UpdateBrowser();
             ClearAttachedFiles();
             TouchCurrentSessionLastActive();

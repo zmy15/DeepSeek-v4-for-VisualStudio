@@ -80,6 +80,9 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// <summary>是否需要在本次完整对话结束后提示用户切换新对话。</summary>
         private bool _conversationResetNoticePending;
 
+        /// <summary>从会话持久化恢复、等待 compressor 初始化后注入的摘要。</summary>
+        private readonly List<CompressedTurnSummary> _pendingCompressedSummaries = new();
+
         /// <summary>Token 估算校准系数（基于 API 实际 usage 的指数移动平均，1.0 = 无校准）</summary>
         private double _calibrationFactor = 1.0;
 
@@ -423,6 +426,43 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         public void SetCompressor(ContextCompressorService? compressor)
         {
             _compressor = compressor;
+            if (_compressor != null && _pendingCompressedSummaries.Count > 0)
+                _compressor.ReplaceSummaries(_pendingCompressedSummaries);
+        }
+
+        /// <summary>
+        /// 获取当前压缩摘要的持久化快照。
+        /// </summary>
+        public List<CompressedTurnSummary> GetCompressedSummariesSnapshot()
+        {
+            var source = _compressor?.CompressedSummaries ?? _pendingCompressedSummaries;
+            return source.Select(CloneCompressedSummary).ToList();
+        }
+
+        /// <summary>
+        /// 从会话持久化恢复压缩摘要，并在 compressor 已初始化时立即注入。
+        /// </summary>
+        public void RestoreCompressedSummaries(IEnumerable<CompressedTurnSummary>? summaries)
+        {
+            _pendingCompressedSummaries.Clear();
+            if (summaries != null)
+                _pendingCompressedSummaries.AddRange(summaries.Select(CloneCompressedSummary));
+
+            _compressor?.ReplaceSummaries(_pendingCompressedSummaries);
+            _cachedDynamicBlock = null;
+        }
+
+        private static CompressedTurnSummary CloneCompressedSummary(CompressedTurnSummary summary)
+        {
+            return new CompressedTurnSummary
+            {
+                Summary = summary.Summary,
+                FromTurn = summary.FromTurn,
+                ToTurn = summary.ToTurn,
+                OriginalTokens = summary.OriginalTokens,
+                CompressedTokens = summary.CompressedTokens,
+                CompressedAt = summary.CompressedAt,
+            };
         }
 
         private ContextEntry CreateEntry(
@@ -1869,6 +1909,25 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             _ragContext = null;
             _memoryContext = null;
             _compressor?.Clear();
+            _pendingCompressedSummaries.Clear();
+            _cacheSnapshotEntryIndex = null;
+            _cachedDynamicBlock = null;
+            _nextEntryId = 0;
+            _lastCompressedEntryId = 0;
+            _conversationResetNoticePending = false;
+        }
+
+        /// <summary>
+        /// 丢弃对话历史与压缩摘要，但保留 system prompt、记忆、RAG、IDE 等系统级上下文。
+        /// 用于用户忽略“切换新对话”提示后继续发送消息的场景。
+        /// </summary>
+        public void ClearConversationHistory()
+        {
+            _entries.Clear();
+            _estimatedTokens = 0;
+            _fullToolResultStore.Clear();
+            _compressor?.Clear();
+            _pendingCompressedSummaries.Clear();
             _cacheSnapshotEntryIndex = null;
             _cachedDynamicBlock = null;
             _nextEntryId = 0;

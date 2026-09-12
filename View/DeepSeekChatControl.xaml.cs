@@ -161,6 +161,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private ContextCompressorService? _compressorService;
         private MemoryService? _memoryService;
         private bool _isGenerating;
+        private bool _discardContextOnNextSend;
         private string? _statusBeforeCompression;
 
         /// <summary>程序化填充会话下拉时抑制 SelectionChanged（P2 交互修复）。</summary>

@@ -86,6 +86,17 @@ public class ChatPersistenceServiceTests
                     Title = "Test Session",
                     CreatedAt = new DateTime(2026, 5, 15),
                     LastActiveAt = new DateTime(2026, 5, 15),
+                    CompressedSummaries = new List<CompressedTurnSummary>
+                    {
+                        new()
+                        {
+                            FromTurn = 1,
+                            ToTurn = 3,
+                            Summary = "persisted-summary",
+                            OriginalTokens = 100,
+                            CompressedTokens = 20,
+                        },
+                    },
                 }
             },
             ActiveSessionId = "session-1",
@@ -102,6 +113,8 @@ public class ChatPersistenceServiceTests
         loaded.Sessions.Should().HaveCount(1);
         loaded.Sessions[0].Id.Should().Be("session-1");
         loaded.Sessions[0].Title.Should().Be("Test Session");
+        loaded.Sessions[0].CompressedSummaries.Should().ContainSingle();
+        loaded.Sessions[0].CompressedSummaries[0].Summary.Should().Be("persisted-summary");
         loaded.ActiveSessionId.Should().Be("session-1");
 
         // Cleanup

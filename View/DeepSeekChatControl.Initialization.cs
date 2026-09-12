@@ -991,6 +991,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                     try
                     {
                         _contextManager.RestoreFullContext(_activeSession.ApiHistory);
+                        _contextManager.RestoreCompressedSummaries(_activeSession.CompressedSummaries);
                         Logger.Info($"[Context] 从 ApiHistory 恢复上下文成功 ({_activeSession.ApiHistory.Count} 条消息, "
                             + $"turnCount={_contextManager.TurnCount}, estimatedTokens={_contextManager.EstimatedTokens})");
 
