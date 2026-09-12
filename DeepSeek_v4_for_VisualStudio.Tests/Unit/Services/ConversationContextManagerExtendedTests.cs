@@ -419,6 +419,33 @@ public class ConversationContextManagerExtendedTests
     }
 
     [Fact]
+    public void SetCompressor_HotReload_PreservesExistingSummaries()
+    {
+        var oldCompressor = new ContextCompressorService((messages, ct) =>
+            Task.FromResult("old-summary"));
+        _manager.CacheWindowMaxTokens = 1;
+        _manager.SetCompressor(oldCompressor);
+        _manager.AddUserMessage("Q1");
+        _manager.AddAssistantMessage("A1");
+        _manager.AddUserMessage("Q2");
+
+        _manager.TryCompressForToolLoop(out _, out _, out _).Should().BeTrue();
+        _manager.Compressor!.CompressedSummaries.Should().ContainSingle()
+            .Which.Summary.Should().Be("old-summary");
+
+        _manager.CacheWindowMaxTokens = 0;
+        _manager.SetCompressor(new ContextCompressorService());
+        var messages = _manager.BuildApiMessages();
+
+        _manager.GetCompressedSummariesSnapshot().Should().ContainSingle()
+            .Which.Summary.Should().Be("old-summary");
+        messages.Should().Contain(m =>
+            m.Role == "system"
+            && m.Content != null
+            && m.Content.Contains("old-summary", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void TryCompressForToolLoop_RaisesCompressionStateChanged()
     {
         var compressor = new ContextCompressorService((messages, ct) =>
@@ -569,7 +596,7 @@ public class ConversationContextManagerExtendedTests
     }
 
     [Fact]
-    public void TokenTargetCompression_NormalThreshold_TargetsHalfBudget()
+    public void TokenTargetCompression_NormalThreshold_TargetsTenPercentBudget()
     {
         _manager.TokenBudget = 1000;
         _manager.CacheWindowMaxTokens = 0;
@@ -587,11 +614,11 @@ public class ConversationContextManagerExtendedTests
         compressed.Should().BeTrue();
         var summary = _manager.Compressor!.CompressedSummaries.Should().ContainSingle().Subject;
         summary.FromTurn.Should().Be(1);
-        summary.ToTurn.Should().Be(3);
+        summary.ToTurn.Should().Be(4);
     }
 
     [Fact]
-    public void TokenTargetCompression_AggressiveThreshold_TargetsSeventyFivePercent()
+    public void TokenTargetCompression_AggressiveThreshold_TargetsTenPercentBudget()
     {
         _manager.TokenBudget = 800;
         _manager.CacheWindowMaxTokens = 0;
@@ -609,7 +636,7 @@ public class ConversationContextManagerExtendedTests
         compressed.Should().BeTrue();
         var summary = _manager.Compressor!.CompressedSummaries.Should().ContainSingle().Subject;
         summary.FromTurn.Should().Be(1);
-        summary.ToTurn.Should().Be(2);
+        summary.ToTurn.Should().Be(4);
     }
 
     private static void AddSizedTurn(ConversationContextManager manager)

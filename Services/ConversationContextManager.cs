@@ -425,8 +425,20 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         /// </summary>
         public void SetCompressor(ContextCompressorService? compressor)
         {
-            _compressor = compressor;
-            if (_compressor != null && _pendingCompressedSummaries.Count > 0)
+            if (!ReferenceEquals(_compressor, compressor))
+            {
+                // 设置热重载会创建新的压缩器。必须先迁移旧摘要，
+                // 否则换语言/换模型等无关设置变更也会导致对话历史摘要消失。
+                var summaries = _compressor is { CompressedSummaries.Count: > 0 }
+                    ? _compressor.CompressedSummaries.Select(CloneCompressedSummary).ToList()
+                    : _pendingCompressedSummaries.Select(CloneCompressedSummary).ToList();
+
+                _pendingCompressedSummaries.Clear();
+                _pendingCompressedSummaries.AddRange(summaries);
+                _compressor = compressor;
+            }
+
+            if (_compressor != null)
                 _compressor.ReplaceSummaries(_pendingCompressedSummaries);
         }
 

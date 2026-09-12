@@ -104,10 +104,10 @@ namespace DeepSeek_v4_for_VisualStudio.Models
         public int PreserveRecentTurns { get; set; } = 3;
 
         /// <summary>普通压缩目标：压到 TokenBudget 的比例（85% 阈值触发）。</summary>
-        public double CompressionTargetRatio { get; set; } = 0.5;
+        public double CompressionTargetRatio { get; set; } = 0.10;
 
         /// <summary>严重压缩目标：压到 TokenBudget 的比例（95% 阈值触发）。</summary>
-        public double AggressiveCompressionTargetRatio { get; set; } = 0.75;
+        public double AggressiveCompressionTargetRatio { get; set; } = 0.10;
 
         /// <summary>每次压缩的最少轮次数</summary>
         public int MinTurnsToCompress { get; set; } = 2;
