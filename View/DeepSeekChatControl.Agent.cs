@@ -373,6 +373,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             string? currentUserContent = null)
         {
             if (_activeAgent == null || _agentFactory == null) return;
+            string? workflowSessionId = _activeSession?.Id;
 
             // ── 单轮 Cache 统计快照：本次问答开始时的累计值 ──
             _apiService?.TakeCacheSnapshot();
@@ -1025,7 +1026,8 @@ namespace DeepSeek_v4_for_VisualStudio.View
             }
 
             // ── 上下文已无可继续压缩的新内容：等本次完整对话结束后提示切换新对话。──
-            if (_contextManager.ConsumeConversationResetNotice())
+            if (_activeSession?.Id == workflowSessionId
+                && _contextManager.ConsumeConversationResetNotice())
             {
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 string title = LocalizationService.Instance["agent.contextCompressionExhausted.title"];

@@ -234,6 +234,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
         private async void SwitchToSession(ChatSession session)
         {
             _discardContextOnNextSend = false;
+            _contextManager.ClearConversationResetNotice();
             try
             {
                 if (session == null || session == _activeSession) return;
@@ -548,6 +549,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             try
             {
                 _discardContextOnNextSend = false;
+                _contextManager.ClearConversationResetNotice();
                 lock (_lock)
                 {
                     // 停止当前生成
@@ -760,6 +762,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
             try
             {
                 _discardContextOnNextSend = false;
+                _contextManager.ClearConversationResetNotice();
                 // ── 重置累计 Token / 费用计数器 ──
                 _apiService?.ResetAccumulatedStats();
 

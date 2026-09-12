@@ -534,6 +534,14 @@ namespace DeepSeek_v4_for_VisualStudio.Services
         }
 
         /// <summary>
+        /// 清除待处理的“切换新对话”通知，不修改对话历史。
+        /// </summary>
+        public void ClearConversationResetNotice()
+        {
+            _conversationResetNoticePending = false;
+        }
+
+        /// <summary>
         /// 注入前缀缓存管理器。
         /// 设置后，BuildApiMessages 时会自动检查前缀稳定性并记录漂移事件。
         /// <summary>
