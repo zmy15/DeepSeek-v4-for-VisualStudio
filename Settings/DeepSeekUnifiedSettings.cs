@@ -229,7 +229,6 @@ namespace DeepSeek_v4_for_VisualStudio
                 new[]
                 {
                     new EnumSettingEntry("Windows Built-in", "%DeepSeek.Chat.Settings.OcrWindowsBuiltIn%"),
-                    new EnumSettingEntry("PaddleOCR-Sharp", "%DeepSeek.Chat.Settings.OcrPaddleLocal%"),
                 },
                 defaultValue: "Windows Built-in")
             {

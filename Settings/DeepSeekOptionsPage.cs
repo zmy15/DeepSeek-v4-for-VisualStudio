@@ -898,13 +898,13 @@ namespace DeepSeek_v4_for_VisualStudio.Settings
     }
 
     /// <summary>
-    /// OCR 引擎下拉选项。PaddleOCR-Sharp 仅在 x64 完整版中提供。
+    /// OCR 引擎下拉选项。PaddleOCR-Sharp 已从此 No-Local-OCR 变体移除。
     /// </summary>
     internal class OcrEngineConverter : StringConverter
     {
         public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
-            => new(new[] { "Windows Built-in", "PaddleOCR-Sharp" });
+            => new(new[] { "Windows Built-in" });
     }
 
     /// <summary>

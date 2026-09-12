@@ -154,7 +154,7 @@
     "settings.showDiffMarkers.displayName": "Show Diff Markers In Editor",
     "settings.showDiffMarkers.description": "After AI writes code, show red/green line markers in the editor (green=added, red=deleted) with confirm/revert buttons. When disabled, changes take effect directly without preview.",
     "settings.ocrEngine.displayName": "OCR Engine",
-    "settings.ocrEngine.description": "Select image OCR engine:\n  • Windows Built-in — System built-in, no configuration needed, moderate accuracy\n  • PaddleOCR-Sharp — Local offline recognition with higher Chinese accuracy\n  • Remote OCR service via MCP protocol",
+    "settings.ocrEngine.description": "Select image OCR engine:\n  • Windows Built-in — System built-in, no configuration needed, moderate accuracy\n  • Remote OCR service via MCP protocol",
     "settings.autocompleteEnabled.displayName": "Enable Code Completion",
     "settings.autocompleteEnabled.description": "Enable inline code completion (ghost text) in the editor. When enabled, DeepSeek will provide code completion suggestions as you type. Press Tab to accept, Escape to cancel.",
     "settings.autocompleteDelay.displayName": "Completion Delay (ms)",

@@ -154,7 +154,7 @@
     "settings.showDiffMarkers.displayName": "在编辑器中显示差异标记",
     "settings.showDiffMarkers.description": "AI 代码写入后，在编辑器内显示红绿行标记预览（绿色=新增行，红色=已删除行），并提供确认/撤销按钮。关闭后变更直接生效不预览。",
     "settings.ocrEngine.displayName": "OCR 引擎",
-    "settings.ocrEngine.description": "选择图像 OCR 引擎:\n  • Windows Built-in — 系统内置，无需配置，准确率一般\n  • PaddleOCR-Sharp — 本地离线识别，中文准确率更高\n  • 通过 MCP 协议使用远程 OCR 服务",
+    "settings.ocrEngine.description": "选择图像 OCR 引擎:\n  • Windows Built-in — 系统内置，无需配置，准确率一般\n  • 通过 MCP 协议使用远程 OCR 服务",
     "settings.autocompleteEnabled.displayName": "启用代码补全",
     "settings.autocompleteEnabled.description": "在编辑器中启用内联代码补全（幽灵文本）。启用后，DeepSeek 将在你输入时提供代码补全建议。按 Tab 接受，按 Escape 取消。",
     "settings.autocompleteDelay.displayName": "补全延迟 (毫秒)",

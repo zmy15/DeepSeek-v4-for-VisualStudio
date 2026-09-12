@@ -214,11 +214,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
 
                 Logger.Info($"[OCR] 开始初始化，用户选择引擎: {_options.OcrEngine}");
 
-                OcrService.CurrentEngine = _options.OcrEngine switch
-                {
-                    "PaddleOCR-Sharp" => OcrEngineType.PaddleOCR,
-                    _ => OcrEngineType.WindowsBuiltIn,
-                };
+                OcrService.CurrentEngine = OcrEngineType.WindowsBuiltIn;
                 Logger.Info($"[OCR] 引擎类型已设置: {OcrService.CurrentEngine}");
 
                 // 检查引擎状态
@@ -590,14 +586,7 @@ namespace DeepSeek_v4_for_VisualStudio.View
                 string ocrStatus = OcrService.GetEngineStatus();
                 Logger.Info($"OCR 引擎状态: {ocrStatus}");
 
-                if (!ocrReady && _options?.OcrEngine == "PaddleOCR-Sharp")
-                {
-                    await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    StatusLabel.Text = string.Format(
-                        LocalizationService.Instance["status.ocrEngineUnavailable"],
-                        _options.OcrEngine);
-                }
-                else if (!ocrReady)
+                if (!ocrReady)
                 {
                     await Microsoft.VisualStudio.Shell.ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                     StatusLabel.Text = LocalizationService.Instance["status.ocrUnavailable"];
