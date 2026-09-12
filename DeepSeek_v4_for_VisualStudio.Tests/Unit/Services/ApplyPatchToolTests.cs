@@ -51,6 +51,67 @@ public class ApplyPatchToolTests
     }
 
     [Fact]
+    public void VerifyExpectedRegion_AllowsExpectedFragmentStartingAfterLineOne()
+    {
+        string expected = "28|        public MainView()\n29|        {";
+        string actual = string.Join("\n", Enumerable.Range(1, 27)
+            .Select(i => $"line-{i}"))
+            + "\n        public MainView()\n        {";
+
+        string result = BuiltInApplyPatchTool.VerifyExpectedContent(
+            expected, actual, "MainView.axaml.cs", expectDeleted: false);
+
+        result.Should().NotStartWith("Error: ");
+    }
+
+    [Fact]
+    public void ApplySinglePatch_AlreadyApplied_IsSuccessfulNoOp()
+    {
+        string tempPath = Path.Combine(
+            Path.GetTempPath(), $"apply-patch-idempotent-{Guid.NewGuid():N}.txt");
+        string appliedContent =
+            "public MainView()\n" +
+            "{\n" +
+            "    // comment\n" +
+            "    InitializeComponent();\n" +
+            "}\n";
+        File.WriteAllText(tempPath, appliedContent);
+
+        try
+        {
+            var hunk = new PatchHunk
+            {
+                Lines =
+                {
+                    new PatchLine { Type = ' ', Text = "public MainView()" },
+                    new PatchLine { Type = ' ', Text = "{" },
+                    new PatchLine { Type = '+', Text = "    // comment" },
+                    new PatchLine { Type = ' ', Text = "    InitializeComponent();" },
+                    new PatchLine { Type = ' ', Text = "}" },
+                },
+            };
+            var patch = new PatchOperation
+            {
+                Action = PatchFileAction.Update,
+                FilePath = tempPath,
+                Hunks = { hunk },
+            };
+
+            var result = ApplyPatchTool.ApplySinglePatch(patch, tempPath, appliedContent);
+
+            result.Success.Should().BeTrue();
+            result.AppliedEdits.Should().BeEmpty();
+            result.FinalContent.Should().Be(
+                EditStringMatcher.NormalizeToCrLf(appliedContent));
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
     public void HunkToChunk_SplitsSeparatedEditsIntoMultipleSegments()
     {
         var hunk = new PatchHunk

@@ -54,7 +54,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                             expected = new
                             {
                                 type = "string",
-                                description = LocalizationService.Instance["tool.editVerify.expectedDescription"]
+                                description = LocalizationService.Instance["tool.applyPatch.expectedDescription"]
                             }
                         },
                         required = new[] { "patch", "expected" }
@@ -89,7 +89,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             bool expectDeleted = IsDeletedExpectation(expectedText);
             if (!expectDeleted)
             {
-                var expectedParse = ParseExpectedLineNumberedContent(expectedText);
+                var expectedParse = ParseExpectedRegionLineNumberedContent(expectedText);
                 if (!expectedParse.Success)
                     return expectedParse.Error;
             }
@@ -143,8 +143,11 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                         var result = editResults[i];
                         if (result.Success)
                         {
-                            results.Add(LocalizationService.Instance.Format("tool.applyPatch.applied",
-                                Path.GetFileName(result.FilePath), patches[i].Hunks.Count));
+                            results.Add(result.AppliedEdits.Count == 0
+                                ? LocalizationService.Instance.Format("tool.applyPatch.alreadyApplied",
+                                    Path.GetFileName(result.FilePath))
+                                : LocalizationService.Instance.Format("tool.applyPatch.applied",
+                                    Path.GetFileName(result.FilePath), patches[i].Hunks.Count));
                         }
                         else
                         {
@@ -159,14 +162,22 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
                     bool allSucceeded = editResults.Count == patches.Count
                         && editResults.All(result => result.Success);
 
+                    string patchResult;
                     if (!allSucceeded)
                     {
-                        return appliedSummary + "\n" +
+                        patchResult = appliedSummary + "\n" +
                             await BuildCurrentStateSnapshotAsync(targetPath);
                     }
-
-                    return await VerifyAppliedResultAsync(
+                    else
+                    {
+                        patchResult = await VerifyAppliedResultAsync(
                         expectedText, targetPath, expectDeleted);
+                    }
+
+                    Logger.LogToFile(
+                        "applypatch",
+                        $"[ApplyPatch] 返回: {targetPath}\n{patchResult}");
+                    return patchResult;
                 }
 
                 // ── 无 ApiService → 降级到静态 ApplySinglePatch（无 Healing）──
@@ -290,6 +301,10 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             ParseExpectedLineNumberedContent(string expectedText)
             => ExpectedContentVerifier.ParseLineNumberedContent(expectedText);
 
+        internal static (bool Success, int StartLine, List<string> Lines, string Error)
+            ParseExpectedRegionLineNumberedContent(string expectedText)
+            => ExpectedContentVerifier.ParseLineNumberedFragment(expectedText);
+
         internal static string FormatLineNumberedContent(IReadOnlyList<string> lines)
             => ExpectedContentVerifier.FormatLineNumberedContent(lines);
 
@@ -298,7 +313,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services.BuiltInTools
             string? actualContent,
             string filePath,
             bool expectDeleted)
-            => ExpectedContentVerifier.VerifyExpectedContent(
+            => ExpectedContentVerifier.VerifyExpectedFragment(
                 expectedText, actualContent, filePath, expectDeleted);
 
         private static string GetVerificationTargetPath(
