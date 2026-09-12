@@ -530,6 +530,94 @@ public class ConversationContextManagerExtendedTests
             m.Content != null && m.Content.Contains("old-summary", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void CompressionRequestPrefix_IncludesExistingCompressedSummary()
+    {
+        IReadOnlyList<ChatApiMessage>? capturedCompressionMessages = null;
+        var compressor = new ContextCompressorService((messages, ct) =>
+        {
+            capturedCompressionMessages = messages;
+            return Task.FromResult("new-summary");
+        });
+
+        _manager.SetCompressor(compressor);
+        _manager.RestoreCompressedSummaries(new[]
+        {
+            new CompressedTurnSummary
+            {
+                FromTurn = 1,
+                ToTurn = 2,
+                Summary = "previous-summary",
+                OriginalTokens = 100,
+                CompressedTokens = 20,
+            },
+        });
+        _manager.CacheWindowMaxTokens = 1;
+        _manager.AddUserMessage("Q1");
+        _manager.AddAssistantMessage("A1");
+
+        bool compressed = _manager.TryCompressForToolLoop(
+            out _,
+            out _,
+            out _);
+
+        compressed.Should().BeTrue();
+        capturedCompressionMessages.Should().Contain(m =>
+            m.Role == "system"
+            && m.Content != null
+            && m.Content.Contains("previous-summary", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TokenTargetCompression_NormalThreshold_TargetsHalfBudget()
+    {
+        _manager.TokenBudget = 1000;
+        _manager.CacheWindowMaxTokens = 0;
+        _manager.CacheWindowMaxTurns = 0;
+        _manager.CacheWindowMaxEntries = 0;
+        _manager.SetCompressor(new ContextCompressorService());
+        for (int i = 0; i < 5; i++)
+            AddSizedTurn(_manager);
+
+        bool compressed = _manager.TryCompressForToolLoop(
+            out _,
+            out _,
+            out _);
+
+        compressed.Should().BeTrue();
+        var summary = _manager.Compressor!.CompressedSummaries.Should().ContainSingle().Subject;
+        summary.FromTurn.Should().Be(1);
+        summary.ToTurn.Should().Be(3);
+    }
+
+    [Fact]
+    public void TokenTargetCompression_AggressiveThreshold_TargetsSeventyFivePercent()
+    {
+        _manager.TokenBudget = 800;
+        _manager.CacheWindowMaxTokens = 0;
+        _manager.CacheWindowMaxTurns = 0;
+        _manager.CacheWindowMaxEntries = 0;
+        _manager.SetCompressor(new ContextCompressorService());
+        for (int i = 0; i < 5; i++)
+            AddSizedTurn(_manager);
+
+        bool compressed = _manager.TryCompressForToolLoop(
+            out _,
+            out _,
+            out _);
+
+        compressed.Should().BeTrue();
+        var summary = _manager.Compressor!.CompressedSummaries.Should().ContainSingle().Subject;
+        summary.FromTurn.Should().Be(1);
+        summary.ToTurn.Should().Be(2);
+    }
+
+    private static void AddSizedTurn(ConversationContextManager manager)
+    {
+        manager.AddUserMessage(new string('u', 100));
+        manager.AddAssistantMessage(new string('a', 500));
+    }
+
     #endregion
 
     #region BuildApiMessagesRecentTurns

@@ -779,18 +779,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                     }
                     else
                     {
-                    // 压缩请求只发送到“待压缩区间末尾”为止的完整对话前缀，
-                    // 不包含之后要继续保留的历史，也不重复追加待压缩内容。
-                    var compressionPrefix = BuildApiMessagesSnapshot(
-                        startEntryIdx: 0,
-                        dynamicBlock,
-                        entryLimitOverride: compressionStart);
-                    Logger.Info($"[CacheWindow] 触发压缩: {compressionReason}, 压缩前保留 {TurnCount} 轮");
-                    CompressEntriesBeforeWindow(compressionStart, compressionPrefix);
+                        string? compressionDynamicBlock = BuildCompressionPrefixDynamicBlock();
+                        // 压缩请求只发送到“待压缩区间末尾”为止的完整对话前缀，
+                        // 不包含之后要继续保留的历史，也不重复追加待压缩内容。
+                        var compressionPrefix = BuildApiMessagesSnapshot(
+                            startEntryIdx: 0,
+                            compressionDynamicBlock,
+                            entryLimitOverride: compressionStart);
+                        Logger.Info($"[CacheWindow] 触发压缩: {compressionReason}, 压缩前保留 {TurnCount} 轮");
+                        CompressEntriesBeforeWindow(compressionStart, compressionPrefix);
 
-                    // 压缩摘要已生成，立即刷新动态块，确保本轮正常请求就能注入结果。
-                    dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
-                    startEntryIdx = 0;
+                        // 压缩摘要已生成，立即刷新动态块，确保本轮正常请求就能注入结果。
+                        dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
+                        startEntryIdx = 0;
                     }
                 }
                 else if (startEntryIdx > 0)
@@ -826,14 +827,18 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 if (EstimatedTokens > TokenBudget * config.CompressionThreshold)
                 {
                     bool severe = EstimatedTokens > TokenBudget * config.AggressiveThreshold;
-                    int preserveTurns = severe ? 1 : config.PreserveRecentTurns;
-                    int budgetStart = FindTurnStartIndex(preserveTurns);
+                    double targetRatio = severe
+                        ? config.AggressiveCompressionTargetRatio
+                        : config.CompressionTargetRatio;
+                    targetRatio = Math.Max(0.05, Math.Min(0.95, targetRatio));
+                    int targetTokens = (int)(TokenBudget * targetRatio);
+                    int budgetStart = FindTokenTargetStartIndex(targetTokens);
                     if (budgetStart > compressionStart)
                     {
                         compressionStart = budgetStart;
                         compressionReason = severe
-                            ? $"usage>{config.AggressiveThreshold:P0}"
-                            : $"usage>{config.CompressionThreshold:P0}";
+                            ? $"usage>{config.AggressiveThreshold:P0}->{targetRatio:P0}"
+                            : $"usage>{config.CompressionThreshold:P0}->{targetRatio:P0}";
                     }
                 }
             }
@@ -877,7 +882,7 @@ namespace DeepSeek_v4_for_VisualStudio.Services
                 return false;
             }
 
-            string? currentDynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
+            string? currentDynamicBlock = BuildCompressionPrefixDynamicBlock();
             var staticPrefix = BuildApiMessagesSnapshot(
                 startEntryIdx: 0,
                 currentDynamicBlock,
@@ -898,6 +903,19 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             CompressEntriesBeforeWindow(compressionStart, compressionPrefix);
             dynamicBlock = _cachedDynamicBlock ?? BuildDynamicContextBlock();
             return true;
+        }
+
+        /// <summary>
+        /// 构建压缩请求使用的动态块。始终优先使用包含最新压缩摘要的实时内容，
+        /// 防止缓存的旧动态块漏掉已生成的 [对话历史摘要]。
+        /// </summary>
+        private string? BuildCompressionPrefixDynamicBlock()
+        {
+            string? liveDynamicBlock = BuildDynamicContextBlock();
+            if (!string.IsNullOrWhiteSpace(liveDynamicBlock))
+                return liveDynamicBlock;
+
+            return _cachedDynamicBlock;
         }
 
         /// <summary>
@@ -1267,6 +1285,65 @@ namespace DeepSeek_v4_for_VisualStudio.Services
             }
 
             return 0;
+        }
+
+        /// <summary>
+        /// 按目标 Token 数选择需要保留的历史起点，并对齐到 user 轮次边界。
+        /// 如果最近一轮本身已超过目标，则至少保留这一轮。
+        /// </summary>
+        private int FindTokenTargetStartIndex(int targetTokens)
+        {
+            if (_entries.Count == 0 || targetTokens <= 0)
+                return 0;
+
+            var turnStarts = new List<int>();
+            for (int i = 0; i < _entries.Count; i++)
+            {
+                if (_entries[i].Role == "user" && _entries[i].TurnIndex > 0)
+                    turnStarts.Add(i);
+            }
+
+            if (turnStarts.Count == 0)
+                return 0;
+
+            int totalEntryTokens = _entries.Sum(EstimateEntryTokens);
+            double calibrationFactor = _calibrationFactor > 0 ? _calibrationFactor : 1.0;
+            int targetRawTokens = (int)(targetTokens / calibrationFactor);
+            int overheadTokens = Math.Max(0, _estimatedTokens - totalEntryTokens);
+            int allowedEntryTokens = Math.Max(0, targetRawTokens - overheadTokens);
+
+            int candidateStart = turnStarts[turnStarts.Count - 1];
+            int retainedTokens = EstimateRangeTokens(candidateStart, _entries.Count);
+
+            for (int i = turnStarts.Count - 2; i >= 0; i--)
+            {
+                int previousTurnStart = turnStarts[i];
+                int previousTurnTokens = EstimateRangeTokens(previousTurnStart, candidateStart);
+                if (retainedTokens + previousTurnTokens > allowedEntryTokens)
+                    break;
+
+                retainedTokens += previousTurnTokens;
+                candidateStart = previousTurnStart;
+            }
+
+            return candidateStart;
+        }
+
+        private static int EstimateEntryTokens(ContextEntry entry)
+        {
+            int tokens = EstimateTokens(entry.Content)
+                + EstimateMultimodalTokens(entry.MultimodalContent);
+            if (!string.IsNullOrEmpty(entry.ReasoningContent))
+                tokens += EstimateTokens(entry.ReasoningContent);
+            return tokens;
+        }
+
+        private int EstimateRangeTokens(int startIndex, int endExclusive)
+        {
+            int tokens = 0;
+            for (int i = startIndex; i < endExclusive && i < _entries.Count; i++)
+                tokens += EstimateEntryTokens(_entries[i]);
+            return tokens;
         }
 
         /// <summary>
